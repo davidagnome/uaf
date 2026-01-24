@@ -19,3 +19,4 @@ Previously known as Unlimited Adventures Forever / UAForever (UAF).
 * https://sourceforge.net/projects/uaf/ - Project homepage and news
 * https://forums.goldbox.games/index.php - Forum
 * https://gitter.im/uaf-gitter/community - Chat room
+* https://grannypron.github.io/uaf/ - GitHub Pages documentation (deploy action is set up, but this is not fully working yet)
