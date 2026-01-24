@@ -18,4 +18,4 @@ Previously known as Unlimited Adventures Forever / UAForever (UAF).
 * https://uaf.sourceforge.net/ - Former official code repository. Nowadays has a link to this repo at the top.
 * https://sourceforge.net/projects/uaf/ - Project homepage and news
 * https://forums.goldbox.games/index.php - Forum
-* https://gitter.im/uaf-gitter/community - Chat room software
+* https://gitter.im/uaf-gitter/community - Chat room
