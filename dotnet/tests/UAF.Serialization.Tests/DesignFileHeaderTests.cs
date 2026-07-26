@@ -32,19 +32,19 @@ public class DesignFileHeaderTests
         // game.dat carries no magic, so it takes the fallback path. For level/game data the
         // fallback is 0.572 (Level.cpp:2163) -- which is below the 0.573 archive switch, so the
         // payload is a plain CArchive starting at offset 0, with no LZW.
-        var header = DesignFileHeader.Read(fs, DesignVersion.V0572);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
 
         Assert.False(header.HadMagic);
         Assert.Equal(0, header.PayloadOffset);
         Assert.Equal(DesignVersion.V0572, header.Version);
-        Assert.Equal(ArchiveKind.PlainArchive, header.Archive);
+        Assert.Equal(ArchiveTier.PlainArchive, header.Tier);
     }
 
     [Fact]
     public void GameDat_payload_begins_with_GLOBAL_STATS_version_then_design_name()
     {
         using var fs = File.OpenRead(DataFile("game.dat"));
-        var header = DesignFileHeader.Read(fs, DesignVersion.V0572);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var reader = new MfcArchiveReader(fs);
 
@@ -58,22 +58,55 @@ public class DesignFileHeaderTests
         Assert.Equal("DefaultDesign", designName);
     }
 
-    [Theory]
-    [InlineData("items.dat")]
-    [InlineData("monsters.dat")]
-    [InlineData("spells.dat")]
-    [InlineData("Level000.lvl")]
-    public void Magic_stamped_files_expose_version_at_offset_8(string fileName)
+    public static TheoryData<string, string> MagicStampedFiles => new()
     {
+        { "items.dat", "Items" },
+        { "monsters.dat", "Items" },   // same thresholds as the item DB
+        { "spells.dat", "Items" },
+        { "Level000.lvl", "LevelData" },
+    };
+
+    [Theory]
+    [MemberData(nameof(MagicStampedFiles))]
+    public void Magic_stamped_files_expose_version_at_offset_8(string fileName, string kindName)
+    {
+        var kind = kindName == "Items" ? DesignFileKind.Items : DesignFileKind.LevelData;
         using var fs = File.OpenRead(DataFile(fileName));
-        var header = DesignFileHeader.Read(fs, DesignVersion.V0572);
+        var header = DesignFileHeader.Read(fs, kind);
 
         Assert.True(header.HadMagic);
         Assert.Equal(16, header.PayloadOffset);
         Assert.Equal(0.915025, header.Version.Value, precision: 10);
-        // 0.915025 >= 0.573, so these use the CAR wrapper -- and Monster.cpp:1305 calls
-        // Compress(true), so the payload is LZW-compressed.
-        Assert.Equal(ArchiveKind.CompressedArchive, header.Archive);
+
+        // Magic present does NOT imply compressed. At 0.915025 these sit in tier 2: past the CAR
+        // threshold but below the 0.930 compression gate (Items.cpp:3444), so Compress(true) was
+        // never called and no compression-type byte was written. Confirmed by inspection: the
+        // byte after the 16-byte prologue differs across these files (0x1d/0x2c/0x75/0x0a)
+        // rather than being a constant marker.
+        Assert.Equal(ArchiveTier.UncompressedCar, header.Tier);
+    }
+
+    [Fact]
+    public void Archive_tier_thresholds_are_per_file_type()
+    {
+        // Items switches to CAR at 0.697; level data at 0.573. A design between the two is read
+        // with different archives depending on which file is being loaded.
+        var between = new DesignVersion(0.60);
+        Assert.Equal(ArchiveTier.PlainArchive, DesignFileKind.Items.TierFor(between));
+        Assert.Equal(ArchiveTier.UncompressedCar, DesignFileKind.LevelData.TierFor(between));
+
+        // Only items reaches tier 3, and only at/after 0.930.
+        Assert.Equal(ArchiveTier.UncompressedCar, DesignFileKind.Items.TierFor(new DesignVersion(0.92)));
+        Assert.Equal(ArchiveTier.CompressedCar, DesignFileKind.Items.TierFor(DesignVersion.SpecialAbilities));
+    }
+
+    [Fact]
+    public void Items_unstamped_fallback_depends_on_already_loaded_global_state()
+    {
+        // Items.cpp:3418 -- ver = min(globalData.version, 0.696). Not a constant, so game.dat
+        // must be loaded before the databases or they get the wrong version.
+        Assert.Equal(0.696, DesignFileKind.ItemsFallback(new DesignVersion(0.90)).Value, precision: 10);
+        Assert.Equal(0.60, DesignFileKind.ItemsFallback(new DesignVersion(0.60)).Value, precision: 10);
     }
 
     [Theory]
@@ -103,12 +136,12 @@ public class DesignFileHeaderTests
         // Level.cpp:3340 warns for [0.998101, 0.9988]. DefaultDesign at 0.915025 sits below it,
         // so it is safe to use as ground truth.
         using var fs = File.OpenRead(DataFile("game.dat"));
-        var header = DesignFileHeader.Read(fs, DesignVersion.V0572);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
         Assert.False(header.IsInUnreliableRange);
 
         Assert.True(new DesignFileHeader(DesignVersion.SpellNames, 16, true,
-            ArchiveKind.CompressedArchive).IsInUnreliableRange);
+            ArchiveTier.UncompressedCar).IsInUnreliableRange);
         Assert.False(new DesignFileHeader(DesignVersion.SaveIDs, 16, true,
-            ArchiveKind.CompressedArchive).IsInUnreliableRange);
+            ArchiveTier.UncompressedCar).IsInUnreliableRange);
     }
 }

@@ -187,15 +187,49 @@ The fallback constant **differs by file type** — `_VERSION_0572_` (0.572) for 
 version double**; these newer DBs carry their schema version in the tag suffix, so the
 `DesignVersion` gates do not apply to them at all.
 
-**Orthogonal to both: the archive layer is version-selected** (`Level.cpp:2168`):
+**Orthogonal to both: the archive layer is version-selected, in three tiers, with per-file-type
+thresholds.** This is the single easiest thing in the format to get wrong.
 
-| Version | Archive |
-|---|---|
-| `< 0.573` | plain `CArchive` — **no `CAR` wrapper, no LZW, no string interning** |
-| `>= 0.573` | `CAR`, with LZW when `Compress(true)` was set at write time |
+| Tier | Archive | items.dat (`Items.cpp:3424`) | level/game (`Level.cpp:2168`) |
+|---|---|---|---|
+| 1 | plain `CArchive` — no wrapper, no LZW, no string interning | `< 0.697` | `< 0.573` |
+| 2 | `CAR`, **uncompressed** | `[0.697, 0.930)` | — |
+| 3 | `CAR` + LZW (`Compress(true)`) | `>= 0.930` (`_SPECIAL_ABILITIES_VERSION_`) | — |
 
-So `UAF.Serialization` needs **both** archive implementations, not just `CAR`. Reading the oldest
-designs never touches the LZW code at all.
+Two consequences:
+
+1. **"Has the magic" does not imply "is compressed."** `DefaultDesign`'s `items.dat`,
+   `monsters.dat`, `spells.dat` and `Level000.lvl` all carry the magic and are version 0.915025 —
+   tier 2, so `CAR` *without* compression. Confirmed empirically: the byte after the 16-byte
+   prologue is not a compression marker (it reads 0x1d / 0x2c / 0x75 / 0x0a across the four
+   files), because `Compress(true)` was never called and so no compression-type byte was written.
+2. **The unstamped fallback is not always a constant.** `Level.cpp:2163` uses a literal
+   `_VERSION_0572_`, but `Items.cpp:3418` computes `ver = min(globalData.version, _VERSION_0696_)`
+   — it depends on already-loaded global state. Load order therefore matters: `game.dat` must be
+   read before the databases, or the databases get the wrong version.
+
+Each type's thresholds must be transcribed from its own loader. Do not generalise one file's
+constants to another.
+
+### The LZW layer (tier 3)
+
+`CAR::decompress` (`class.cpp:12215`) is **not** interchangeable with a stock LZW implementation:
+
+- Codes are **13 bits**, packed into fixed **52-byte blocks** — 416 bits, exactly 32 codes per
+  block, no remainder and no padding.
+- Code **8190** resets the dictionary; code **8191** terminates. The dictionary starts at 256 and
+  is never cleared implicitly.
+- The dictionary grows unconditionally with no bounds guard; a port must reproduce that rather
+  than "fix" it.
+- The C++ extracts each code with an unaligned 4-byte read that runs two bytes past the 52-byte
+  buffer on the final code of every block — undefined behaviour that works only because other
+  members follow it in memory. A port should zero-pad the block instead; the last code starts at
+  bit 403 and needs bits 403–415, which live entirely in bytes 50–51, so the padding is never
+  consumed and output is identical.
+
+Implemented in `UAF.Serialization/CarLzwDecompressor.cs`. Note that `DefaultDesign` exercises
+**none** of it (everything there is tier 1 or 2), so a tier-3 fixture is needed before the LZW
+path can be considered verified — a design saved by the current editor would produce one.
 
 > **Worked example.** `DefaultDesign.dsn/Data/game.dat` begins
 > `80 B7 40 82 E2 47 ED 3F 0D 44 65 66 61 75 6C 74 …`. That is *not* a header: the file has no
@@ -453,6 +487,29 @@ Two durable lessons for the CI: **pin the runner image** (image drift moved MFC 
 the build), and remember that `continue-on-error` rewrites a step's `conclusion` to `success` —
 only `outcome` (captured in the summary table) reports the truth.
 
+### Two different formats share the `.dsn` folder convention
+
+A "design" is a **folder whose name ends in `.dsn`/`.DSN`** — for *both* the DOS FRUA format and
+the Dungeon Craft format. `Externs.h:1751` (`GetDesignPath`/`GetDataPath`/`GetArtPath`) and the
+importer's validation message (`ImportFRUAData.cpp:324`) both assume it. Sniff the contents, never
+the extension:
+
+| | DOS FRUA (importer input, Phase 6) | Dungeon Craft (native) |
+|---|---|---|
+| Layout | flat, 8.3 uppercase names | contains a `Data/` subfolder |
+| Marker files | `GAME001.DAT`, `GEO*.DAT`, `MONST*.DAT`, `STRG*.DAT`, `*.TLB`, `SAVE/` | `Data/game.dat`, `items.dat`, `spells.dat`, `Level000.lvl`, `config.txt` |
+
+Available fixtures: `reference/example_dsn/SL4-FATH.DSN` (a community FRUA campaign — 179 files,
+22 levels, 36 monsters, 118 tile libraries) and the Steam-bundled `HEIRS.DSN` / `TUTORIAL.DSN`.
+All three are FRUA, not Dungeon Craft.
+
+**Filename case is not consistent, and this breaks the port off Windows.** `SL4-FATH.DSN` contains
+both `8X8D1009.TLB` and `8x8d0315.TLB`, both `.TLB` and `.tlb`, plus `Back*.tlb`. Windows hides
+this; macOS and Linux do not. Any importer code building a name with a fixed-case format string
+(`"8X8D%04d.TLB"`) will silently fail to find half the tile libraries. Case-insensitive asset
+resolution therefore belongs in **Phase 6, not Phase 7 polish** — and it needs a lookup that
+resolves against a case-folded directory index rather than trusting the constructed name.
+
 ### Type traps found while reading real files
 
 Confirmed against `DefaultDesign.dsn/Data/game.dat` by walking
@@ -582,8 +639,12 @@ and the original C++ `UAFWinEd.exe`.
 `reference/…/DESIGNS/UA/HEIRS.DSN` and `TUTORIAL.DSN`. Art lives in the `.GLB` archives under
 `reference/…/GAME/UA/` and needs PCX/LBM decoding; music is `.XMI`.
 
-**Exit:** importing `HEIRS.DSN` produces a design directory byte-identical to one produced by the
-C++ importer.
+Case-insensitive asset resolution is required *here*, not in Phase 7 — see the filename-case note
+in §3.2. Build the directory index once per design and resolve every constructed filename through
+it.
+
+**Exit:** importing `HEIRS.DSN` and `reference/example_dsn/SL4-FATH.DSN` each produce a design
+directory byte-identical to one produced by the C++ importer.
 
 ### Phase 7 — Packaging and polish (1–2 months)
 

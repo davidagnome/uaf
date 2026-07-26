@@ -2,36 +2,20 @@ using UAF.Common;
 
 namespace UAF.Serialization;
 
-/// <summary>Which archive layer the payload of a design file uses.</summary>
-public enum ArchiveKind
-{
-    /// <summary>
-    /// Plain <c>CArchive</c> — no <c>CAR</c> wrapper, no LZW, no string interning.
-    /// Used for designs older than <see cref="DesignVersion.V0573"/>.
-    /// </summary>
-    PlainArchive,
-
-    /// <summary>
-    /// <c>CAR</c> — the LZW/string-interning wrapper around <c>CArchive</c>.
-    /// Used for <see cref="DesignVersion.V0573"/> and later.
-    /// </summary>
-    CompressedArchive,
-}
-
 /// <summary>
 /// The prologue of a design data file: an optional magic + version stamp, from which the payload
-/// offset, the format version, and the archive layer are all derived.
+/// offset, the format version, and the archive tier are all derived.
 /// </summary>
 /// <remarks>
-/// Mirrors the read path at <c>Level.cpp:2151</c> (and its twins in <c>Items.cpp:3407</c>,
-/// <c>Spell.cpp:5955</c>, <c>Monster.cpp</c>, <c>Char.cpp:6939</c>). See
+/// Mirrors the read path at <c>Level.cpp:2151</c> and its per-type twins in <c>Items.cpp:3405</c>,
+/// <c>Spell.cpp:5955</c>, <c>Monster.cpp</c>, and <c>Char.cpp:6939</c>. See
 /// docs/PORTING-PLAN.md section 3.2.
 /// </remarks>
 public readonly record struct DesignFileHeader(
     DesignVersion Version,
     long PayloadOffset,
     bool HadMagic,
-    ArchiveKind Archive)
+    ArchiveTier Tier)
 {
     /// <summary>
     /// The 8-byte sentinel written before the version stamp, as <c>__int64 0xFABCDEFABCDEFABF</c>
@@ -40,39 +24,37 @@ public readonly record struct DesignFileHeader(
     public const ulong Magic = 0xFABCDEFABCDEFABFUL;
 
     /// <summary>
-    /// Reads the prologue from the start of <paramref name="stream"/>.
+    /// Reads the prologue from the start of <paramref name="stream"/> using
+    /// <paramref name="kind"/>'s rules.
     /// </summary>
-    /// <param name="unstampedFallback">
-    /// The version to assume when the magic is absent. This <b>differs by file type</b>: level and
-    /// game data use <see cref="DesignVersion.V0572"/> (<c>Level.cpp:2163</c>), character files use
-    /// <see cref="DesignVersion.V0563"/> (<c>Char.cpp:6948</c>). There is deliberately no default —
-    /// picking the wrong one mis-parses every unstamped file of that type, and silently.
+    /// <param name="unstampedFallbackOverride">
+    /// Supplies the fallback when the magic is absent, for file types whose fallback is computed
+    /// rather than constant — items use <c>min(globalData.version, 0.696)</c>. When null,
+    /// <paramref name="kind"/>'s static fallback is used.
     /// </param>
-    public static DesignFileHeader Read(Stream stream, DesignVersion unstampedFallback)
+    public static DesignFileHeader Read(
+        Stream stream,
+        DesignFileKind kind,
+        DesignVersion? unstampedFallbackOverride = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(kind);
+
         stream.Seek(0, SeekOrigin.Begin);
         var reader = new MfcArchiveReader(stream);
 
         ulong header = reader.ReadUInt64();
         if (header == Magic)
         {
-            DesignVersion version = new(reader.ReadDouble());
-            return new DesignFileHeader(version, PayloadOffset: 16, HadMagic: true, ArchiveFor(version));
+            DesignVersion stamped = new(reader.ReadDouble());
+            return new DesignFileHeader(stamped, PayloadOffset: 16, HadMagic: true, kind.TierFor(stamped));
         }
 
         // No magic: rewind and treat the whole file as payload, at the fallback version.
         stream.Seek(0, SeekOrigin.Begin);
-        return new DesignFileHeader(
-            unstampedFallback, PayloadOffset: 0, HadMagic: false, ArchiveFor(unstampedFallback));
+        DesignVersion fallback = unstampedFallbackOverride ?? kind.UnstampedFallback;
+        return new DesignFileHeader(fallback, PayloadOffset: 0, HadMagic: false, kind.TierFor(fallback));
     }
-
-    /// <summary>
-    /// The archive layer implied by a version. The switch is at
-    /// <see cref="DesignVersion.V0573"/> (<c>Level.cpp:2168</c>).
-    /// </summary>
-    public static ArchiveKind ArchiveFor(DesignVersion version) =>
-        version < DesignVersion.V0573 ? ArchiveKind.PlainArchive : ArchiveKind.CompressedArchive;
 
     /// <summary>
     /// True when this file's version falls in the range the reference editor itself warns it

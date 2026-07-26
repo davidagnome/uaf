@@ -25,16 +25,20 @@
 ******************************************************************************/
 #include "..\Shared\stdafx.h"
 
+// The standard library and json.hpp MUST come before the game data headers. Including them
+// afterwards produces a cascade of syntax errors inside <xlocale> plus a `size_t` redefinition:
+// one of the legacy headers below defines a macro that collides with STL internals. stdafx.h
+// stays first because it is the precompiled header.
+#include <fstream>
+#include <string>
+#include <json.hpp>
+
 #include "externs.h"
 #include "GlobalData.h"
 #include "Items.h"
 #include "Monster.h"
 #include "Spell.h"
 #include "Level.h"
-
-#include <fstream>
-#include <string>
-#include <json.hpp>
 
 using json = nlohmann::json;
 
