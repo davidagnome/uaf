@@ -1,9 +1,9 @@
 # Dungeon Craft → .NET 10 / Avalonia Porting Plan
 
 **Targets:** `UAFWin` → **UAFcore** (game engine + player), `UAFWinEd` → **UAFedit** (design editor)
-**Stack:** .NET 10, C#, Avalonia 11.x, cross-platform (Windows / macOS / Linux)
-**Status:** Plan — no code written yet
-**Date:** 2026-07-25
+**Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
+**Status:** Phase 0 in progress — reference build green, dumper landing; Phase 1 started
+**Date:** 2026-07-26
 
 ---
 
@@ -386,11 +386,12 @@ dotnet/
     UAF.Scripting/               GPDL compiler + VM, Forth VM, script host interface
     UAF.Media/                   IRenderTarget, ISurfaceStore, sprites, bitmap fonts,
                                  IAudioBackend, asset loaders (PNG/BMP/WAV/MID)
-    UAF.Media.Avalonia/          Avalonia/Skia implementation of UAF.Media
+    UAF.Media.Avalonia/          Avalonia presentation of the framebuffer (editor)
+    UAF.Media.Sdl/               SDL3 presentation + input + audio (game)
     UAF.Import.Frua/             DOS FRUA importer: GEO/MONST/STRG/GAME .DAT, GLB, PCX/LBM
     UAFcore/                     engine: GameEvent tree, task scheduler, combat, viewport,
                                  tile rendering, forms                        [was UAFWin]
-    UAFcore.App/                 Avalonia shell for the player
+    UAFcore.App/                 SDL3 host for the player
     UAFedit/                     Avalonia design editor                       [was UAFWinEd]
   tools/
     gen-design-versions.py       generates DesignVersion from the C++ headers
@@ -446,13 +447,45 @@ this keeps the engine headless-testable, which is the backbone of the test strat
 | `Stackwalker.cpp` | `System.Diagnostics.StackTrace` | drop entirely |
 
 **On rendering:** the original is a software blitter — surfaces, source colour keys, palette
-manipulation, per-pixel `GetColorAt`. GPU abstractions (MonoGame, Veldrid, Silk.NET) fight this
-rather than help. **Recommendation: keep it a software blitter.** Render into a managed
-`byte[]`/`uint[]` framebuffer with the same colour-key semantics, then present it as an Avalonia
-`WriteableBitmap` inside a custom `Control`. This preserves pixel fidelity — which for a
-faithful port of a 1993 game is the point — keeps `Drawtile.cpp` and `Viewport.cpp` mechanical
-to translate, and makes rendering unit-testable by hashing the framebuffer. Use Skia only for
-final scaling/presentation.
+manipulation, per-pixel `GetColorAt`. GPU abstractions (MonoGame, Veldrid) fight this rather than
+help. **Keep it a software blitter.** Render into a managed `byte[]`/`uint[]` framebuffer with the
+same colour-key semantics. This preserves pixel fidelity — the point of a faithful port — keeps
+`Drawtile.cpp` and `Viewport.cpp` mechanical to translate, and makes rendering unit-testable by
+hashing the framebuffer with no window or GPU involved.
+
+**Split presentation from drawing: SDL3 for the game, Avalonia for the editor.** SDL3 is already a
+dependency for audio, is zlib-licensed (GPL-compatible), and is purpose-built for this shape of
+program — window and fullscreen management, display-mode enumeration, high-DPI, vsync,
+`SDL_Texture` streaming with free GPU scaling, and a unified keyboard/mouse/gamepad event model
+that maps almost directly onto the existing `CInput`/`CProcessInput` polling design. It also suits
+the dedicated engine thread (§4.4) far better than Avalonia, whose UI-thread and layout system a
+real-time loop has to fight.
+
+SDL3 has no widget toolkit, though, so `UAFedit`'s 118 dialogs stay on Avalonia. And critically
+**the editor renders game assets too** — tile previews, wall-slot editors, sprite and icon
+pickers, the 3D view dialog — so rendering must not live inside SDL or the editor cannot reuse it
+and the project ends up with two blitters.
+
+| Layer | Implementation |
+|---|---|
+| Blitting: colour keys, transparency, palettes, bitmap fonts | Software → managed framebuffer. Platform-agnostic, **shared by both apps** |
+| Presentation — `UAFcore` | SDL3 (`SDL_Texture` streaming, fullscreen, vsync, scaling) |
+| Presentation — `UAFedit` | Avalonia `WriteableBitmap` in a control |
+| Input — `UAFcore` | SDL3 events |
+| Input — `UAFedit` | Avalonia |
+
+The framebuffer is the shared contract; only presentation differs. `UAFcore.App` is therefore an
+SDL3 host, not an Avalonia one, and `UAF.Media.Avalonia` narrows to the editor's presentation path
+with a sibling `UAF.Media.Sdl` for the game.
+
+> **Verify before Phase 3 depends on it:** SDL3 is recent and its C# bindings (`SDL3-CS`) are
+> correspondingly young. Spike a window + streamed texture + key input on Windows, macOS and Linux
+> first. `Silk.NET.SDL` is the fallback. SDL does not decode video, so the `PlayMovie` path still
+> needs FFmpeg or deferral either way.
+>
+> This split also avoids repeating the failure that broke the oracle: `OpenDesign` requires a live
+> DirectX device, so the editor cannot run headless at all. Keeping the blitter free of any device
+> dependency means `UAF.Media` stays testable in CI.
 
 ---
 
@@ -842,6 +875,6 @@ after Phase 1, calendar time drops to roughly 12–15 months.
 | Decision | Choice | Rationale |
 |---|---|---|
 | Reference oracle | **GitHub Actions `windows-latest`** | No local Windows needed; host is arm64, where an MSVC VM would be emulated |
-| Audio backend | **SDL3 audio + MeltySynth** | Permissive licensing resolves the GPL v2 / BASS conflict; SDL3 is well-tested on arm64 |
+| Audio backend | **SDL3 audio + MeltySynth** | Permissive licensing resolves the GPL v2 / BASS conflict; SDL3 is well-tested on arm64. Extended: SDL3 also provides the game's window, presentation and input (see §6) |
 | Format compatibility | **Read all versions, write current** | Matches original behaviour; preserves ~25 years of community designs |
 | Post-Phase-1 priority | **UAFedit first** | A read-only inspector validates the data layer end-to-end and grows into the editor; visible cross-platform result in ~2 months instead of ~8 |

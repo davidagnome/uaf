@@ -44,6 +44,19 @@ jobs:
       - name: Test
         run: dotnet test dotnet/UAF.slnx --no-build -c Release --verbosity normal
 
+      # OracleDiffTests return early when the golden dump is absent (xUnit 2.9 has no
+      # Assert.Skip), so from the test summary alone a missing fixture is indistinguishable from
+      # a passing comparison. Surface it explicitly instead.
+      - name: Warn if the oracle golden dump is missing
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          if [ -f oracle/golden/DefaultDesign.json ]; then
+            echo "golden dump present - OracleDiffTests are comparing against the reference"
+          else
+            echo "::warning::oracle/golden/DefaultDesign.json is missing; OracleDiffTests did NOT compare against the C++ reference. Produce it with the Oracle workflow and commit it."
+          fi
+
   generated-code-is-current:
     # DesignVersion.Generated.cs is transcribed from the C++ headers. If someone edits
     # Externs.h or Globals.cpp without re-running the generator, the port silently drifts
