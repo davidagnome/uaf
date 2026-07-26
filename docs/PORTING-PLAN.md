@@ -250,9 +250,14 @@ Implemented in `UAF.Serialization/CarLzwDecompressor.cs`.
 > **To close this**: open `DefaultDesign` in the shipped `UAFWinEd.exe` and save it. That writes
 > at `PRODUCT_VER` (5.29), which is past the 0.930 compression gate, producing a tier-3 fixture
 > and simultaneously covering the modern format's `VersionSaveIDs` (0.998914) and spell-name
-> branches. Until then, treat `CarLzwDecompressor` as transcribed-but-untested: the algorithm is
-> faithfully derived from `class.cpp:12215`, but no byte of real compressed data has passed
-> through it.
+> branches.
+
+**Partial mitigation.** `CarLzwDecompressorTests` drives the decoder with hand-built code streams
+covering bit-packing at all eight shift offsets, block-boundary refill, reset (8190), end (8191),
+dictionary expansion, the KwKwK edge case, and truncated input. Expected outputs are derived by
+hand-tracing `class.cpp:12215` rather than by running the implementation, so they are not
+tautological. This catches transposed shifts and off-by-ones in the 416-bit wrap — but it cannot
+prove the C++ *encoder* produces streams in this shape. That still needs a real fixture.
 
 > **Worked example.** `DefaultDesign.dsn/Data/game.dat` begins
 > `80 B7 40 82 E2 47 ED 3F 0D 44 65 66 61 75 6C 74 …`. That is *not* a header: the file has no
