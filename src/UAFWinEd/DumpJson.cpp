@@ -135,10 +135,8 @@ static json DumpGlobalData(void)
   return j;
 }
 
-// Database record counts. This is deliberately a first increment: it proves the
-// load -> dump -> golden-file loop end to end and will catch a wrong record count
-// (the most common symptom of a mis-parsed container) before any per-record work.
-// Per-record dumps get added here as each type is ported.
+// Database record counts. A wrong count is the most common symptom of a mis-parsed container,
+// so this is cheap and high-signal.
 static json DumpDatabaseCounts(void)
 {
   json j;
@@ -146,6 +144,37 @@ static json DumpDatabaseCounts(void)
   j["monsters"] = monsterData.GetCount();
   j["spells"]   = spellData.GetCount();
   return j;
+}
+
+// Per-record name digest for the item DB.
+//
+// Names rather than every field, deliberately. A record is 47 reads wide with many version
+// gates, so dumping all of it for 285 items would produce a ~500KB golden file. Names are the
+// highest-signal subset: any width or gate error desynchronises the stream and the very next
+// name comes back as garbage, so a 285-entry list catches a mis-parse immediately while staying
+// a few KB. Full per-field dumps can follow once the C# record reader exists to compare against.
+//
+// TODO: the equivalent for monsters and spells. MONSTER_DATA_TYPE / SPELL_DATA_TYPE do not use
+// the same DEFINE_mCARRAY_ACCESS_FUNCTIONS instantiation as ITEM_DATA_TYPE, so their element
+// accessors differ and need checking before use.
+static json DumpItemNames(void)
+{
+  json arr = json::array();
+  int n = itemData.GetCount();
+  for (int i = 0; i < n; i++)
+  {
+    const ITEM_DATA *pItem = itemData.GetItem(i);
+    if (pItem == NULL)
+    {
+      arr.push_back(nullptr);
+      continue;
+    }
+    json rec;
+    rec["idName"]     = S(pItem->IdName());
+    rec["uniqueName"] = S(pItem->UniqueName());
+    arr.push_back(rec);
+  }
+  return arr;
 }
 
 // Headless diagnostics.
@@ -302,6 +331,7 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
 
   root["globalData"]     = DumpGlobalData();
   root["counts"]         = DumpDatabaseCounts();
+  root["itemNames"]      = DumpItemNames();
 
   std::ofstream out((LPCSTR)outPath, std::ios::binary);
   if (!out.is_open())

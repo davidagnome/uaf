@@ -7,6 +7,9 @@ on:
   push:
     paths:
       - 'dotnet/**'
+      # The golden dump is an input to OracleDiffTests, so a new one must re-run them.
+      - 'oracle/golden/**'
+      # DesignVersion.Generated.cs is transcribed from these, and the staleness job checks it.
       - 'src/Shared/Externs.h'
       - 'src/Shared/Globals.cpp'
       - '.github/workflows/dotnet.yml'
