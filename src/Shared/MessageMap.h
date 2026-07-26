@@ -19,7 +19,8 @@
 #ifndef __MESSAGEMAP_H__
 #define __MESSAGEMAP_H__
 
-#include <unordered_map> 
+#include <string>
+#include <unordered_map>
 
 // A very simple custom i18n/l10n utility
 extern std::unordered_map<std::string, std::string>* idToValueMap;

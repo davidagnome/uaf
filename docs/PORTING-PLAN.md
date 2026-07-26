@@ -407,9 +407,15 @@ The port cannot be validated without a reference implementation that runs.
 2. Retarget `v140_xp` / `v141_xp` → `v143`; fix resulting compile breaks.
 3. GitHub Actions `windows-latest` workflow building all four `vcxproj` files (the runner images
    include the MFC/ATL components).
-4. Build `oracle/uaf-dump` — a console tool linking the existing `Shared` code that loads a
-   `.dsn` and emits **every** parsed structure as canonical JSON (stable key order, invariant
-   number formatting).
+4. Build the JSON dumper. **Implement it as a `--dump-json` mode inside `UAFWinEd`, not as a
+   standalone project.** `Shared/GlobalData.cpp` includes headers from *both* apps
+   (`UAFWinEd/UAFWinEd.h`, `UAFWinEd/resource.h`, `UAFWin/Dungeon.h`) plus `Graphics.h` and
+   `SoundMgr.h`, so a separate tool would have to untangle that include graph before dumping a
+   single byte. The editor project already compiles all of it. The load path itself is GUI-free —
+   `BOOL loadDesign(LPCSTR name)` (`Level.cpp:3309`) is a free function — so the mode branches
+   early in `CUAFWinEdApp::InitInstance` (near the existing `ParseCommandLine` at
+   `UAFWinEd.cpp:979`), loads, dumps canonical JSON (stable key order, invariant number
+   formatting), and exits before any window is created.
 5. Assemble the fixture corpus: `src/UAFWinEd/DefaultDesign.dsn` (complete minimal design —
    `game.dat`, `items.dat`, `spells.dat`, `monsters.dat`, `races.dat`, `classes.dat`,
    `traits.dat`, `ability.dat`, `baseclass.dat`, `spellgroups.dat`, `Level000.lvl`), plus designs
@@ -425,11 +431,23 @@ The port cannot be validated without a reference implementation that runs.
 | Retarget to v143 / SDK 10.0 | Done — all four `*_vs2013.vcxproj` |
 | Legacy DirectX/multimedia link inputs | **All present** in Windows SDK 10.0.26100 x86: `ddraw.lib`, `dxguid.lib`, `dsound.lib`, `vfw32.lib`, `winmm.lib`, `amstrmid.lib`. The concern that `ddraw.lib` had been dropped was unfounded. |
 | Build CDX from source | **Not possible, and not needed.** `CDX_vs2013.vcxproj` compiles `..\PNG\*.c`; the libpng *sources* are not in this repository (only prebuilt `libpng*.lib` and headers under `src/Shared`). `src/Shared/cdx.lib` is prebuilt and committed, and MSVC guarantees binary compatibility from v140 onward, so the oracle links the prebuilt lib and skips the project. |
-| Build GPDLcomp / UAFWin / UAFWinEd | Blocked on `MSB8041` — MFC not installed **for the specific toolset+architecture** (v143 × Win32). Other toolsets on the image had MFC, which is why a wildcard probe reported a false positive. |
+| MFC availability | Resolved by pinning `windows-2022`, which ships MFC x86 for v143 natively. The first attempt used `windows-latest`, which has moved to VS 2026 / MSBuild 18.x (default toolset v144) and lacks MFC for v143 × Win32 — `MSB8041`. A wildcard `Test-Path` for `afxwin.h` reported a false positive; probe **per toolset and per architecture** (`atlmfc\lib\<arch>\nafxcw.lib`) instead. |
+| Build GPDLcomp | **Green.** First reference binary building from source. |
+| Build UAFWin / UAFWinEd | Fixed: `Shared/MessageMap.h` declared `std::unordered_map<std::string, std::string>` while including only `<unordered_map>`. Older MSVC headers pulled in `<string>` transitively; v143 does not. `MessageMap.h` is the *only* header in the tree that uses the standard library, so this is a class of one. |
 
-Two durable lessons for the CI: pin the runner image (`windows-2022` has v143 native; `windows-latest`
-has moved to VS 2026 / MSBuild 18.x, default toolset v144), and probe MFC **per toolset and per
-architecture** (`atlmfc\lib\<arch>\nafxcw.lib`) rather than with a wildcard.
+Two durable lessons for the CI: **pin the runner image** (image drift moved MFC out from under
+the build), and remember that `continue-on-error` rewrites a step's `conclusion` to `success` —
+only `outcome` (captured in the summary table) reports the truth.
+
+### Assets already in the tree worth knowing about
+
+- **`src/Shared/json.hpp`** — nlohmann/json is already vendored. The dumper should use it; it
+  orders object keys deterministically, which is exactly what canonical golden output needs.
+- **`src/Shared/cdx.lib` / `cdxd.lib`** — prebuilt, so CDX never needs compiling (§ Phase 0 above).
+- **`src/UAFWinEd/DefaultDesign.dsn/`** — a complete minimal design, the primary golden fixture.
+- **`upstream/port` branch** — an abandoned JavaScript/protobuf port with test cases
+  (`Items.js`, `UAFLib`). Its format analysis may be worth mining before writing
+  `UAF.Serialization`.
 
 > If restoring the C++ build proves intractable, the fallback oracle is the committed
 > `UAFWin.exe` / `UAFWinEd.exe` driven under Wine plus hand-decoding from hex — an order of
@@ -545,6 +563,13 @@ port must not inherit that.
 1. **Oracle diffing (Phases 0–2, 6).** The C++ dumper is ground truth. Every data structure,
    compiled script, and imported design is compared field-by-field. This catches the class of bug
    that is otherwise undetectable until a user's 20-year-old design silently corrupts.
+
+   > **The oracle has a known blind spot.** `Level.cpp:3340` warns that the editor "will reliably
+   > load designs created with editor version less than 0.998101 or greater than 0.9988" — i.e.
+   > the reference implementation itself is *unreliable* for designs in
+   > **[`VersionSpellNames` (0.998101), 0.9988]**. Golden fixtures must not be drawn from that
+   > window, and a C#/C++ divergence on such a design is not automatically a C# bug. Record the
+   > design version alongside every golden file so this is checkable rather than assumed.
 2. **Round-trip invariance (Phase 1).** Load → save → byte-compare. Non-negotiable gate.
 3. **Golden framebuffers (Phase 3–4).** Hash rendered output against captures from the C++ build.
 4. **Recorded input traces (Phase 4).** Capture input sequences from the C++ engine, replay
