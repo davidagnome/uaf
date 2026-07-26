@@ -61,6 +61,19 @@ static std::string S(const CString& s)
   return std::string((LPCSTR)s, s.GetLength());
 }
 
+// 'D:\a\uaf\src\UAFWinEd\DefaultDesign.dsn\' -> 'DefaultDesign.dsn'.
+// Golden output must not contain machine-specific absolute paths, or it stops being
+// reproducible outside the machine that generated it.
+static CString DesignFolderName(CString dir)
+{
+  while (!dir.IsEmpty() && dir.Right(1) == "\\")
+  {
+    dir = dir.Left(dir.GetLength() - 1);
+  }
+  int i = dir.ReverseFind('\\');
+  return (i >= 0) ? dir.Mid(i + 1) : dir;
+}
+
 // Emit a double at full round-trip precision. json.hpp already serializes doubles
 // with enough digits to round-trip, but we funnel every double through here so the
 // intent is explicit and greppable if the golden files ever disagree.
@@ -275,8 +288,12 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
   meta["diagnostics"]    = g_diagnostics;
   meta["productVersion"] = D(PRODUCT_VER);
   meta["engineVersion"]  = D(ENGINE_VER);
-  meta["designPath"]     = S(rte.DesignDir());
-  meta["dataPath"]       = S(rte.DataDir());
+  // Paths are recorded as the DESIGN FOLDER NAME only, never absolute. A golden file must be
+  // reproducible: embedding 'D:\a\uaf\uaf\...' would make every regeneration outside that exact
+  // checkout diff spuriously, and would leak the build machine's layout into a committed file.
+  // The absolute paths still appear in _meta.diagnostics, which is informational and excluded
+  // from golden comparison.
+  meta["designFolder"]   = S(DesignFolderName(rte.DesignDir()));
   // The design's own format version drives all ~472 version gates, so record it at
   // top level. Note Level.cpp:3340: the editor is NOT reliable for designs in
   // [0.998101, 0.9988], so a golden file in that range is not trustworthy ground truth.

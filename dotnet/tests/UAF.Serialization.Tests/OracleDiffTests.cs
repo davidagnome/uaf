@@ -69,6 +69,18 @@ public class OracleDiffTests
         double version = meta.GetProperty("designVersion").GetDouble();
         Assert.False(version >= 0.998101 && version <= 0.9988,
             $"golden fixture version {version} is inside the editor's unreliable range");
+
+        // Compared fields must not carry machine-specific absolute paths, or the golden file
+        // stops being reproducible off the machine that generated it. Only _meta.diagnostics is
+        // allowed to (it is informational and excluded from comparison).
+        foreach (var property in meta.EnumerateObject())
+        {
+            if (property.Name == "diagnostics" || property.Value.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+            Assert.DoesNotContain(":\\", property.Value.GetString());
+        }
     }
 
     [Fact]
