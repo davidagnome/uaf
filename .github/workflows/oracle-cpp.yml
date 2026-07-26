@@ -3,9 +3,14 @@
 # Purpose: the C# port in dotnet/ is validated by diffing its output against this
 # build's output on identical inputs. See docs/PORTING-PLAN.md section 7, Phase 0.
 #
-# The steps below use continue-on-error so a single run reports EVERY breakage
-# rather than stopping at the first. Once the tree builds green, flip
-# ORACLE_STRICT to '1' (or remove the continue-on-error lines) to make it gating.
+# The build and dump steps are GATING: the tree builds green as of the v143 retarget, so a
+# regression must fail the job rather than be quietly summarised. Only the two environment
+# probes are soft, since they are diagnostics rather than requirements.
+#
+# Caution when reading results: `continue-on-error` rewrites a step's `conclusion` to
+# "success", so only `outcome` (rendered in the Summary table) reports the truth. A step whose
+# script writes ::error:: but does not `exit` non-zero also reports success -- every script
+# here must exit non-zero on failure.
 
 name: Oracle (C++ reference build)
 
@@ -122,17 +127,14 @@ jobs:
 
       - name: Build GPDLcomp (script compiler)
         id: gpdl
-        continue-on-error: true
         run: msbuild src\GPDL\GPDLcomp_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
 
       - name: Build UAFWin (engine)
         id: uafwin
-        continue-on-error: true
         run: msbuild src\UAFWin\UAFWin_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
 
       - name: Build UAFWinEd (editor)
         id: uafwined
-        continue-on-error: true
         run: msbuild src\UAFWinEd\UAFWinEd_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
 
       # Produce the golden file. -dumpjson sets headless mode, which suppresses every modal
@@ -140,24 +142,33 @@ jobs:
       # mandatory: OpenDesign("") falls back to XBrowseForFolder, a modal folder picker.
       - name: Dump DefaultDesign to canonical JSON
         id: dump
-        continue-on-error: true
         timeout-minutes: 5
         shell: pwsh
         run: |
-          $exe = "src\UAFWinEd\Release\UAFWinEd.exe"
-          if (-not (Test-Path $exe)) { Write-Host "::error::$exe not built"; exit 1 }
+          $exe = (Resolve-Path "src\UAFWinEd\Release\UAFWinEd.exe" -ErrorAction SilentlyContinue)
+          if (-not $exe) { Write-Host "::error::UAFWinEd.exe not built"; exit 1 }
           $design = (Resolve-Path "src\UAFWinEd\DefaultDesign.dsn").Path
           $out    = "$env:RUNNER_TEMP\DefaultDesign.json"
           Write-Host "design: $design"
-          & $exe -config "$design" -dumpjson "$out"
-          Write-Host "exit code: $LASTEXITCODE"
-          if (Test-Path $out) {
-            Write-Host "--- first 60 lines of dump ---"
-            Get-Content $out -TotalCount 60
-            Copy-Item $out "oracle-DefaultDesign.json"
-          } else {
-            Write-Host "::error::no JSON produced"
+
+          # UAFWinEd is a WINDOWS (GUI) subsystem binary. PowerShell's call operator does NOT
+          # wait for GUI processes, so `& $exe ...` returns instantly with $LASTEXITCODE unset
+          # and the file-existence check below races the process. Start-Process -Wait is required.
+          $p = Start-Process -FilePath $exe.Path `
+                             -ArgumentList @('-config', "`"$design`"", '-dumpjson', "`"$out`"") `
+                             -Wait -PassThru -NoNewWindow
+          Write-Host "exit code: $($p.ExitCode)"
+
+          if (-not (Test-Path $out)) {
+            Write-Host "::error::no JSON produced at $out"
+            Get-ChildItem -Path . -Recurse -Filter 'UAFErrors*.txt' -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "--- $($_.FullName) ---"; Get-Content $_.FullName -Tail 40 }
+            exit 1        # the step must FAIL, not silently report success with no output
           }
+
+          Write-Host "--- first 60 lines of dump ---"
+          Get-Content $out -TotalCount 60
+          Copy-Item $out "oracle-DefaultDesign.json"
 
       - name: Upload golden JSON
         if: always()
@@ -170,6 +181,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Summary
+        if: always()
         shell: pwsh
         run: |
           $rows = @(
@@ -183,9 +195,6 @@ jobs:
           foreach ($x in $rows) {
             $icon = if ($x.r -eq 'success') { '✅' } else { '❌' }
             "| $($x.n) | $icon $($x.r) |"  | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
-          }
-          if ($env:ORACLE_STRICT -eq '1' -and ($rows | Where-Object { $_.r -ne 'success' })) {
-            throw "One or more reference builds failed and ORACLE_STRICT=1"
           }
 
       - name: Upload binaries

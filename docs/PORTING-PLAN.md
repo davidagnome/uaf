@@ -227,9 +227,20 @@ constants to another.
   bit 403 and needs bits 403–415, which live entirely in bytes 50–51, so the padding is never
   consumed and output is identical.
 
-Implemented in `UAF.Serialization/CarLzwDecompressor.cs`. Note that `DefaultDesign` exercises
-**none** of it (everything there is tier 1 or 2), so a tier-3 fixture is needed before the LZW
-path can be considered verified — a design saved by the current editor would produce one.
+Implemented in `UAF.Serialization/CarLzwDecompressor.cs`.
+
+> **The LZW path is unverified, and no fixture in the repository can verify it.** A repo-wide
+> search found exactly one Dungeon Craft design — `src/UAFWinEd/DefaultDesign.dsn` at 0.915025 —
+> which is tier 1 or 2 for every file it contains. Everything else that looks like a design is
+> DOS FRUA (`reference/example_dsn/SL4-FATH.DSN`, `HEIRS.DSN`, `TUTORIAL.DSN`) and `WebGLBuild`
+> is an unrelated Unity build with packed `.unityweb` assets.
+>
+> **To close this**: open `DefaultDesign` in the shipped `UAFWinEd.exe` and save it. That writes
+> at `PRODUCT_VER` (5.29), which is past the 0.930 compression gate, producing a tier-3 fixture
+> and simultaneously covering the modern format's `VersionSaveIDs` (0.998914) and spell-name
+> branches. Until then, treat `CarLzwDecompressor` as transcribed-but-untested: the algorithm is
+> faithfully derived from `class.cpp:12215`, but no byte of real compressed data has passed
+> through it.
 
 > **Worked example.** `DefaultDesign.dsn/Data/game.dat` begins
 > `80 B7 40 82 E2 47 ED 3F 0D 44 65 66 61 75 6C 74 …`. That is *not* a header: the file has no
@@ -466,7 +477,7 @@ The port cannot be validated without a reference implementation that runs.
 | Legacy DirectX/multimedia link inputs | **All present** in Windows SDK 10.0.26100 x86: `ddraw.lib`, `dxguid.lib`, `dsound.lib`, `vfw32.lib`, `winmm.lib`, `amstrmid.lib`. The concern that `ddraw.lib` had been dropped was unfounded. |
 | Build CDX from source | **Not possible, and not needed.** `CDX_vs2013.vcxproj` compiles `..\PNG\*.c`; the libpng *sources* are not in this repository (only prebuilt `libpng*.lib` and headers under `src/Shared`). `src/Shared/cdx.lib` is prebuilt and committed, and MSVC guarantees binary compatibility from v140 onward, so the oracle links the prebuilt lib and skips the project. |
 | MFC availability | Resolved by pinning `windows-2022`, which ships MFC x86 for v143 natively. The first attempt used `windows-latest`, which has moved to VS 2026 / MSBuild 18.x (default toolset v144) and lacks MFC for v143 × Win32 — `MSB8041`. A wildcard `Test-Path` for `afxwin.h` reported a false positive; probe **per toolset and per architecture** (`atlmfc\lib\<arch>\nafxcw.lib`) instead. |
-| Build GPDLcomp | **Green.** First reference binary building from source. |
+| Build GPDLcomp / UAFWin / UAFWinEd | **All green** after the fixes below. The workflow's build and dump steps are now gating rather than `continue-on-error`. |
 | UAFWin / UAFWinEd — compile | Fixed: `Shared/MessageMap.h` declared `std::unordered_map<std::string, std::string>` while including only `<unordered_map>`. Older MSVC headers pulled in `<string>` transitively; v143 does not. `MessageMap.h` is the *only* header in the tree that uses the standard library, so this is a class of one. |
 | UAFWin / UAFWinEd — link | `LNK1181: cannot open input file 'vfw32.lib'`. **Root cause: hardcoded `<LibraryPath>` overrides** pointing at a 2015 developer machine — `C:\Development\UAF\DX8SDK\lib`, Windows Kits **8.1**, and SDK `10.0.10240.0`. Because `LibraryPath` *replaces* the default rather than appending, `WindowsTargetPlatformVersion` never got a say. Fixed by deleting the four overrides (2 each in UAFWin and UAFWinEd). GPDLcomp and CDX have no such override, which is exactly why GPDLcomp was the only target that built. |
 
@@ -483,9 +494,22 @@ produced a false positive on MFC one round earlier.
 The SDK pin (`10.0.17763.0`) was kept anyway: it costs nothing, makes the oracle reproducible, and
 the probe now fails loudly if that SDK ever disappears from the image.
 
-Two durable lessons for the CI: **pin the runner image** (image drift moved MFC out from under
-the build), and remember that `continue-on-error` rewrites a step's `conclusion` to `success` —
-only `outcome` (captured in the summary table) reports the truth.
+Three durable lessons for the CI:
+
+1. **Pin the runner image and the SDK.** Image drift moved MFC out from under the build when
+   `windows-latest` rolled to VS 2026, and `WindowsTargetPlatformVersion = 10.0` means "newest
+   installed", not a version.
+2. **`continue-on-error` rewrites a step's `conclusion` to `success`.** Only `outcome` — captured
+   in the summary table — reports the truth. This mistake was made once while reading results.
+3. **A script that writes `::error::` but does not `exit` non-zero also reports success.** The
+   first dump step did exactly that: the summary showed `JSON dump ✅` on a run where the log said
+   `no JSON produced` and no artifact was uploaded. Every step script must exit non-zero on
+   failure, or the summary becomes decorative.
+
+**GUI-subsystem binaries do not block PowerShell.** `UAFWinEd.exe` is a `WINDOWS` subsystem app,
+so `& $exe ...` returns immediately with `$LASTEXITCODE` unset and any following file check races
+the process. Use `Start-Process -Wait -PassThru`. This is the reason the first dump attempt
+produced nothing despite the build being green.
 
 ### Two different formats share the `.dsn` folder convention
 
