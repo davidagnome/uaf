@@ -3197,7 +3197,9 @@ BOOL CheckLevelVersions(const char *name)
     {
       int ans;
       // Perhaps we can rename the files for the user.
-      ans = MessageBox(NULL, "Older designs named the level files starting at 000 but new "
+      // Headless (-dumpjson): decline. Answering IDOK calls rename() on the design's level
+      // files below -- an oracle must never modify the fixture it is reading.
+      ans = g_headlessMode ? IDCANCEL : MessageBox(NULL, "Older designs named the level files starting at 000 but new "
                  "designs start at 001.  It appears that if we rename all your "
                  "level files by adding one to each file name, we would make the "
                  "files agree with the new naming scheme.\n\nShould we do this?",
@@ -3273,7 +3275,8 @@ BOOL CheckLevelVersions(const char *name)
           messageCount++;
           if (!msg.IsEmpty())
           {
-            if (MessageBox(NULL, msg, "Information", MB_OKCANCEL) != IDOK)
+            // Headless: accept. This prompt is informational and declining aborts the load.
+            if ((g_headlessMode ? IDOK : MessageBox(NULL, msg, "Information", MB_OKCANCEL)) != IDOK)
             {
               return FALSE;
             };
@@ -3774,13 +3777,13 @@ BOOL ImportLevel(int levelIndex, bool fruaImport)
       if (!(globalData.levelInfo.stats[levelIndex] == tempLevelStats))
       {
         int result;
-        result = MessageBox(NULL,"Changing global level stats", "Warning", MB_OKCANCEL);
+        result = g_headlessMode ? IDCANCEL : MessageBox(NULL,"Changing global level stats", "Warning", MB_OKCANCEL);   // headless declines mutations
         if (result != IDOK) finalStatus = CONFIG_STAT_syntax;
       };
       if (!(levelData == tempLevel))
       {
         int result;
-        result = MessageBox(NULL, "Changing level data", "Warning", MB_OKCANCEL);
+        result = g_headlessMode ? IDCANCEL : MessageBox(NULL, "Changing level data", "Warning", MB_OKCANCEL);   // headless declines mutations
         if (result != IDOK) finalStatus = CONFIG_STAT_syntax;
       };
       if (finalStatus == CONFIG_STAT_ok)

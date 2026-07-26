@@ -551,10 +551,18 @@ The port cannot be validated without a reference implementation that runs.
      invocation is `UAFWinEd.exe "-config <design.dsn>" "-dumpjson <out.json>"`. Passing them
      separately leaves both values empty and the app exits 0 having done nothing. The editor
      launches the engine the same way (`MainFrm.cpp:2648`).
-   - **`-config` is mandatory, and modal dialogs must be suppressed.** `OpenDesign("")` falls back
-     to `XBrowseForFolder`, a modal picker, and `MsgBoxError` is reachable from the load path.
-     A `g_headlessMode` flag set by `-dumpjson` makes `MsgBoxError` log and return instead of
-     blocking a CI runner until timeout.
+   - **`-config` is mandatory, and every modal path must be suppressed — individually.** A
+     `g_headlessMode` flag set by `-dumpjson` handles this, but guarding `MsgBoxError` alone is
+     not enough: the load path also reaches `MsgBoxYesNo`, `MsgBoxInfo`, four direct
+     `MessageBox(NULL, …)` calls in `Level.cpp`, and one inside `WriteDebugString` itself
+     (`Globals.cpp:2216`) — that last one lets a *diagnostic* hang the run it is trying to explain.
+     `OpenDesign("")` additionally falls back to `XBrowseForFolder`, a modal picker.
+
+     **The safe default differs per site, so a blanket answer is wrong.** `Level.cpp:3202` offers
+     to renumber the design's level files and calls `rename()` on OK — headless must answer
+     **Cancel**, because an oracle must never mutate the fixture it reads. `Level.cpp:3279` is
+     informational and *aborts the load* unless answered OK — headless must answer **OK**. The
+     rule: decline anything that mutates, accept anything that merely informs.
 
    The mode branches in `CUAFWinEdApp::InitInstance` after `ParseCommandLine`, dumps canonical
    JSON (sorted keys, full-precision doubles, raw MBCS bytes), and returns `FALSE` so the message

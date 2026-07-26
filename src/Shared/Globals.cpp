@@ -2210,7 +2210,10 @@ void WriteDebugString(const char *ptext, ... )
     {
       fprintf(pErrorLogFile, "%s", errText); 
       //WriteStackTrace();
-      if (wdd != WRITE_DEBUG_DIALOG_NONE)
+      // Never pop a dialog from the logging path in headless mode. DumpJson's Diag() routes
+      // through WriteDebugString, so an unguarded box here would let a *diagnostic* hang the
+      // very run it is trying to explain.
+      if ((wdd != WRITE_DEBUG_DIALOG_NONE) && !g_headlessMode)
       {
         MessageBox(NULL, errText, "ALERT", MB_TOPMOST|MB_OK|MB_ICONWARNING);
       };
@@ -3805,6 +3808,13 @@ BOOL LoadAreaViewArt(const char *file, long &surf, BOOL &UseAVZones)
 
 int MsgBoxYesNo(const char *pMsg, const char *pTitle)
 {
+  // Headless (-dumpjson): answer NO. Every yes/no prompt in the load path gates a change to the
+  // design, and an oracle must never modify the fixture it is reading.
+  if (g_headlessMode)
+  {
+    WriteDebugString("(headless) MsgBoxYesNo auto-answered NO: %s\n", pMsg);
+    return IDNO;
+  }
   CString title;
   if (pTitle != NULL)
     title = pTitle;
@@ -3871,6 +3881,12 @@ void MsgBoxError(const char *pMsg, const char *pTitle, int maxDisplay)
 
 void MsgBoxInfo(const char *pMsg, const char *pTitle)
 {
+  // Headless: informational only, so logging it and returning loses nothing.
+  if (g_headlessMode)
+  {
+    WriteDebugString("(headless) MsgBoxInfo: %s\n", pMsg);
+    return;
+  }
   CString title;
   if (pTitle != NULL)
     title = pTitle;
