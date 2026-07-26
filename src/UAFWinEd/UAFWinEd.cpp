@@ -57,7 +57,7 @@ static char THIS_FILE[] = __FILE__;
 
 void ImportGlobal(CString filename);
 void ProcessScriptFile(const CString& filename);
-bool DumpDesignJson(const CString& outPath, bool designLoaded);   // DumpJson.cpp -- oracle mode
+bool DumpDesignJson(const CString& outPath, bool foldersReady);   // DumpJson.cpp -- oracle mode
 
 extern const double VersionSpellNames;
 extern const double VersionSpellIDs;

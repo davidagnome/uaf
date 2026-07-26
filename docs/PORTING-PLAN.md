@@ -464,15 +464,34 @@ The port cannot be validated without a reference implementation that runs.
 2. Retarget `v140_xp` / `v141_xp` → `v143`; fix resulting compile breaks.
 3. GitHub Actions `windows-latest` workflow building all four `vcxproj` files (the runner images
    include the MFC/ATL components).
-4. Build the JSON dumper. **Implement it as a `--dump-json` mode inside `UAFWinEd`, not as a
+4. Build the JSON dumper. **Implement it as a `-dumpjson` mode inside `UAFWinEd`, not as a
    standalone project.** `Shared/GlobalData.cpp` includes headers from *both* apps
    (`UAFWinEd/UAFWinEd.h`, `UAFWinEd/resource.h`, `UAFWin/Dungeon.h`) plus `Graphics.h` and
    `SoundMgr.h`, so a separate tool would have to untangle that include graph before dumping a
-   single byte. The editor project already compiles all of it. The load path itself is GUI-free —
-   `BOOL loadDesign(LPCSTR name)` (`Level.cpp:3309`) is a free function — so the mode branches
-   early in `CUAFWinEdApp::InitInstance` (near the existing `ParseCommandLine` at
-   `UAFWinEd.cpp:979`), loads, dumps canonical JSON (stable key order, invariant number
-   formatting), and exits before any window is created.
+   single byte. The editor project already compiles all of it.
+
+   Three things about the host app are non-obvious, and each cost a CI round-trip:
+
+   - **`OpenDesign` does not load design data.** It only resolves folders and reads `config.txt`;
+     the data load happens later in `CMainFrame::LoadDesign`, which needs a main window. The
+     dumper must drive the load itself — everything it needs is a free function:
+     `loadDesign(name)` (`Level.cpp:3309`) for `game.dat`, and the `loadData(<DB>, path)`
+     overloads (`Externs.h:483`) for the databases.
+   - **A flag and its value must be ONE quoted argument.** `CUAFCommandLineInfo::ParseParam`
+     (`Globals.cpp:817`) splits them with `strchr(param, ' ')` *inside* a single token, so the
+     invocation is `UAFWinEd.exe "-config <design.dsn>" "-dumpjson <out.json>"`. Passing them
+     separately leaves both values empty and the app exits 0 having done nothing. The editor
+     launches the engine the same way (`MainFrm.cpp:2648`).
+   - **`-config` is mandatory, and modal dialogs must be suppressed.** `OpenDesign("")` falls back
+     to `XBrowseForFolder`, a modal picker, and `MsgBoxError` is reachable from the load path.
+     A `g_headlessMode` flag set by `-dumpjson` makes `MsgBoxError` log and return instead of
+     blocking a CI runner until timeout.
+
+   The mode branches in `CUAFWinEdApp::InitInstance` after `ParseCommandLine`, dumps canonical
+   JSON (sorted keys, full-precision doubles, raw MBCS bytes), and returns `FALSE` so the message
+   loop never starts. It writes a file **even when loading fails**, with `_meta.ok = false`, so
+   that "flag never parsed" and "design failed to load" are distinguishable from outside instead
+   of both presenting as a clean exit 0 with no output.
 5. Assemble the fixture corpus: `src/UAFWinEd/DefaultDesign.dsn` (complete minimal design —
    `game.dat`, `items.dat`, `spells.dat`, `monsters.dat`, `races.dat`, `classes.dat`,
    `traits.dat`, `ability.dat`, `baseclass.dat`, `spellgroups.dat`, `Level000.lvl`), plus designs
@@ -545,6 +564,47 @@ this; macOS and Linux do not. Any importer code building a name with a fixed-cas
 (`"8X8D%04d.TLB"`) will silently fail to find half the tile libraries. Case-insensitive asset
 resolution therefore belongs in **Phase 6, not Phase 7 polish** — and it needs a lookup that
 resolves against a case-folded directory index rather than trusting the constructed name.
+
+### Transcribe readers from the LOADING branch, never the storing branch
+
+Every `Serialize` method is `if (ar.IsStoring()) { … } else { … }`, and **the two halves are not
+mirror images**. The writer emits only the current format; the reader must handle every historical
+one, so the loading branch carries far more version gates.
+
+Worked example — `GLOBAL_STATS::Serialize(CArchive&)`. The storing branch (`GlobalData.cpp:3862`)
+reads as a flat sequence ending `AS(m_MapArt)` → `logfont` → `AS(IconBgArt)` →
+`AS(BackgroundArt)` → count. Transcribing *that* into a reader produces a garbage count, because
+the loading branch (`GlobalData.cpp:3992`) actually does:
+
+```cpp
+if (version < 0.830)  { ar >> font; if (version >= 0.681) ar >> fontSize; … }  // no blob at all
+else                  { ar.Read(&logfont, sizeof(logfont)); }                  // 60-byte LOGFONTA
+if (version < 0.800)  { DAS(ar, TitleBgArt); … }
+if (version >= 0.660) { DAS(ar, IconBgArt); DAS(ar, BackgroundArt); … }
+if (version >= 0.566 && version < 5.25) { DAS(ar, CreditsBgArt); }             // easily missed
+ar >> count;
+```
+
+At 0.915025 that means an extra `CreditsBgArt` string the storing branch never hints at, and the
+`logfont` is a raw blob only because the version is ≥ 0.830 — an older design stores a font *name*
+and size instead, with no blob.
+
+**Two different "versions" are in play, and conflating them mis-parses everything.**
+
+| | Source | Used for |
+|---|---|---|
+| Container version | the magic prologue, or the per-type unstamped fallback | choosing the archive tier (§3.2) |
+| Content version | `ar >> version` — the payload's own first field | every `if (version …)` gate inside `Serialize` |
+
+For `DefaultDesign`'s `game.dat` these differ: the container resolves to **0.572** (no magic →
+fallback), which selects the plain `CArchive`; but the first field read *from* the payload is
+**0.915025**, and that is what every subsequent gate compares against. Using 0.572 for the content
+gates would take the pre-0.830 branch and desynchronise the whole record.
+
+Verified end-to-end against the real file: `m_MapArt = "AreaViewArt.png"`, `LOGFONT` = height 16 /
+weight 700 / face `"SYSTEM"` (matching the `FillDefaultFontData("SYSTEM", 16, …)` default),
+`IconBgArt = "defib.png"`, `BackgroundArt = "*"` (the `ArchiveBlank` sentinel → empty),
+`CreditsBgArt = "Credits.jpg"`, then `SmallPicImport count = 18`.
 
 ### Type traps found while reading real files
 

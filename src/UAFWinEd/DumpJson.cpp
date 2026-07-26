@@ -77,7 +77,7 @@ static json DumpGlobalData(void)
   j["startX"]                     = (int)globalData.startX;
   j["startY"]                     = (int)globalData.startY;
   j["startFacing"]                = (int)globalData.startFacing;
-  j["useAreaView"]                = globalData.useAreaView ? true : false;
+  j["useAreaView"]                = (int)globalData.useAreaView;   // BOOL -> int, see note below
 
   j["startTime"]                  = globalData.startTime;
   j["startExp"]                   = globalData.startExp;
@@ -103,8 +103,12 @@ static json DumpGlobalData(void)
   j["wildernessTimeDelta"]        = globalData.WildernessTimeDelta;
   j["wildernessSearchTimeDelta"]  = globalData.WildernessSearchTimeDelta;
 
-  j["autoDarkenViewport"]         = globalData.AutoDarkenViewport ? true : false;
-  j["autoDarkenAmount"]           = globalData.AutoDarkenAmount ? true : false;
+  // Emit BOOL fields as INTEGERS, not JSON booleans. Win32 BOOL is a 4-byte int and these are
+  // not all boolean in practice: AutoDarkenAmount holds 256 in DefaultDesign. Coercing to
+  // true/false here would destroy the value and make the golden file disagree with a correct
+  // C# reader. Only fields that are genuinely 0/1 predicates (below) are emitted as bools.
+  j["autoDarkenViewport"]         = (int)globalData.AutoDarkenViewport;
+  j["autoDarkenAmount"]           = (int)globalData.AutoDarkenAmount;
   j["startDarken"]                = globalData.StartDarken;
   j["endDarken"]                  = globalData.EndDarken;
 
@@ -127,8 +131,45 @@ static json DumpDatabaseCounts(void)
   return j;
 }
 
-bool DumpDesignJson(const CString& outPath, bool designLoaded)
+// Load the design's data ourselves.
+//
+// CUAFWinEdApp::OpenDesign only resolves folders and reads config.txt -- it does NOT read any
+// design data. In the normal editor the data load happens later, from CMainFrame::LoadDesign,
+// which requires a main window and therefore cannot run headless. Fortunately everything it
+// needs is a free function:
+//   loadDesign(name)            -- Level.cpp:3309, reads game.dat into globalData
+//   loadData(<DB>, fullPath)    -- Items.cpp:3392 and its overloads, read the databases
+// so the oracle can drive the load directly and stay windowless.
+static bool LoadDesignDataHeadless(void)
 {
+  CString designDir = rte.DesignDir();
+  CString dataDir   = rte.DataDir();
+
+  if (!loadDesign((LPCSTR)designDir))
+  {
+    WriteDebugString("DumpDesignJson: loadDesign(%s) failed\n", (LPCSTR)designDir);
+    return false;
+  }
+
+  // Databases are separate files loaded independently of game.dat. Their absence is not fatal
+  // for the dump -- a design need not define every database -- so failures are logged, not
+  // propagated. The record counts in the output reveal what actually loaded.
+  if (loadData(itemData,    (LPCSTR)(dataDir + "items.dat"))    == 0)
+    WriteDebugString("DumpDesignJson: no items loaded\n");
+  if (loadData(monsterData, (LPCSTR)(dataDir + "monsters.dat")) == 0)
+    WriteDebugString("DumpDesignJson: no monsters loaded\n");
+  if (loadData(spellData,   (LPCSTR)(dataDir + "spells.dat"))   == 0)
+    WriteDebugString("DumpDesignJson: no spells loaded\n");
+
+  return true;
+}
+
+bool DumpDesignJson(const CString& outPath, bool foldersReady)
+{
+  // `foldersReady` reports whether OpenDesign succeeded, i.e. whether the paths and config are
+  // usable. The design data itself is loaded here.
+  bool designLoaded = foldersReady && LoadDesignDataHeadless();
+
   json root;
 
   // Provenance: which binary produced this, and from what. Without this a stale
