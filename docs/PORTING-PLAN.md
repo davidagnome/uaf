@@ -433,7 +433,13 @@ The port cannot be validated without a reference implementation that runs.
 | Build CDX from source | **Not possible, and not needed.** `CDX_vs2013.vcxproj` compiles `..\PNG\*.c`; the libpng *sources* are not in this repository (only prebuilt `libpng*.lib` and headers under `src/Shared`). `src/Shared/cdx.lib` is prebuilt and committed, and MSVC guarantees binary compatibility from v140 onward, so the oracle links the prebuilt lib and skips the project. |
 | MFC availability | Resolved by pinning `windows-2022`, which ships MFC x86 for v143 natively. The first attempt used `windows-latest`, which has moved to VS 2026 / MSBuild 18.x (default toolset v144) and lacks MFC for v143 × Win32 — `MSB8041`. A wildcard `Test-Path` for `afxwin.h` reported a false positive; probe **per toolset and per architecture** (`atlmfc\lib\<arch>\nafxcw.lib`) instead. |
 | Build GPDLcomp | **Green.** First reference binary building from source. |
-| Build UAFWin / UAFWinEd | Fixed: `Shared/MessageMap.h` declared `std::unordered_map<std::string, std::string>` while including only `<unordered_map>`. Older MSVC headers pulled in `<string>` transitively; v143 does not. `MessageMap.h` is the *only* header in the tree that uses the standard library, so this is a class of one. |
+| UAFWin / UAFWinEd — compile | Fixed: `Shared/MessageMap.h` declared `std::unordered_map<std::string, std::string>` while including only `<unordered_map>`. Older MSVC headers pulled in `<string>` transitively; v143 does not. `MessageMap.h` is the *only* header in the tree that uses the standard library, so this is a class of one. |
+| UAFWin / UAFWinEd — link | `LNK1181: cannot open input file 'vfw32.lib'`. The legacy multimedia import libs are not in every Windows SDK: on `windows-2022` they live in **10.0.17763.0**, but `WindowsTargetPlatformVersion = 10.0` resolves to the newest installed (10.0.19041.0), which lacks them. Fixed by pinning all four projects to `10.0.17763.0`. |
+
+**The SDK version is a real pin, not a detail.** `10.0` means "newest installed", so the build
+silently depends on which SDKs an image happens to carry — the same class of drift that moved MFC
+out from under the build. Both the toolset and the SDK are now pinned, and the probe reports
+lib availability per SDK version so any future drift names itself in one run.
 
 Two durable lessons for the CI: **pin the runner image** (image drift moved MFC out from under
 the build), and remember that `continue-on-error` rewrites a step's `conclusion` to `success` —

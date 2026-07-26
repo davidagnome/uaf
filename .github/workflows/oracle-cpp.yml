@@ -54,20 +54,34 @@ jobs:
             }
           }
 
-      # ddraw.lib was moved out of the Windows SDK into the legacy DirectX SDK.
-      # Probe for it explicitly so a missing lib is an obvious diagnostic rather
-      # than an opaque LNK1104 buried in the UAFWin log.
-      - name: Probe DirectDraw link inputs
+      # The legacy multimedia import libs (vfw32, ddraw, dsound, ...) are not present in every
+      # Windows SDK. The vcxproj files pin WindowsTargetPlatformVersion to PINNED_SDK below;
+      # this step reports availability PER SDK VERSION so a LNK1181 is diagnosable in one run
+      # instead of one round-trip per missing lib.
+      - name: Probe legacy link inputs (per SDK version)
         shell: pwsh
         continue-on-error: true
+        env:
+          PINNED_SDK: '10.0.17763.0'
         run: |
-          $sdk = "${env:ProgramFiles(x86)}\Windows Kits\10\Lib"
-          Write-Host "SDK lib roots:"; Get-ChildItem $sdk -Directory | Select-Object -Expand Name
-          foreach ($lib in @('ddraw.lib','dxguid.lib','dsound.lib','vfw32.lib','winmm.lib','amstrmid.lib')) {
-            $hit = Get-ChildItem -Path $sdk -Recurse -Filter $lib -ErrorAction SilentlyContinue |
-                   Where-Object { $_.FullName -match '\\x86\\' } | Select-Object -First 1
-            if ($hit) { Write-Host "  FOUND   $lib -> $($hit.FullName)" }
-            else      { Write-Host "  MISSING $lib" }
+          $root = "${env:ProgramFiles(x86)}\Windows Kits\10\Lib"
+          $libs = @('ddraw.lib','dxguid.lib','dsound.lib','vfw32.lib','winmm.lib','amstrmid.lib')
+          $versions = Get-ChildItem $root -Directory | Select-Object -Expand Name | Sort-Object
+          Write-Host "Installed SDK lib roots: $($versions -join ', ')"
+          Write-Host ("{0,-16} {1}" -f 'SDK', ($libs -join '  '))
+          foreach ($v in $versions) {
+            $cells = foreach ($lib in $libs) {
+              if (Test-Path (Join-Path $root "$v\um\x86\$lib")) { 'yes' } else { 'NO ' }
+            }
+            "{0,-16} {1}" -f $v, ($cells -join '   ')
+          }
+          Write-Host ""
+          if ($versions -notcontains $env:PINNED_SDK) {
+            Write-Host "::error::Pinned SDK $env:PINNED_SDK is not installed on this image. Update WindowsTargetPlatformVersion in the vcxproj files to one of: $($versions -join ', ')"
+          } else {
+            $missing = $libs | Where-Object { -not (Test-Path (Join-Path $root "$env:PINNED_SDK\um\x86\$_")) }
+            if ($missing) { Write-Host "::error::Pinned SDK $env:PINNED_SDK is missing: $($missing -join ', ')" }
+            else { Write-Host "Pinned SDK $env:PINNED_SDK has all $($libs.Count) required libs." }
           }
 
       # Ensure MFC exists for the toolset+arch we actually build. windows-2022 normally ships
