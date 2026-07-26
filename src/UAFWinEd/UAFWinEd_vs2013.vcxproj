@@ -298,6 +298,7 @@ copy release\UAFWinEd.exe ..\..\UAFWinEd\UAFWinEd.exe
     <ClCompile Include="SoundEventDlg.cpp" />
     <ClCompile Include="..\Shared\SoundMgr.cpp" />
     <ClCompile Include="..\Shared\Specab.cpp" />
+    <ClCompile Include="DumpJson.cpp" />
     <ClCompile Include="Script.cpp" />
     <ClCompile Include="SpecAbMsgEnter.cpp" />
     <ClCompile Include="SpecAbMsgs.cpp" />

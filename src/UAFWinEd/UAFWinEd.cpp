@@ -57,6 +57,7 @@ static char THIS_FILE[] = __FILE__;
 
 void ImportGlobal(CString filename);
 void ProcessScriptFile(const CString& filename);
+bool DumpDesignJson(const CString& outPath);   // DumpJson.cpp -- oracle mode
 
 extern const double VersionSpellNames;
 extern const double VersionSpellIDs;
@@ -410,9 +411,9 @@ BOOL CEditorOptionsData::Serialize(BOOL IsStoring)
     Return Value
       If successful, returns ERROR_SUCCESS; otherwise, an error value.
     Parameters
-      dwValue [out] The value field’s numerical data.
+      dwValue [out] The value fieldï¿½s numerical data.
       lpszValueName [in] Specifies the value field to be queried.
-      szValue [out] The value field’s string data.
+      szValue [out] The value fieldï¿½s string data.
       pdwCount [in, out] The size of the string data. Its value is initially set to the size of the szValue buffer.
     */
 
@@ -997,6 +998,22 @@ BOOL CUAFWinEdApp::InitInstance()
   {
     ProcessScriptFile(rte.DataDir() + cmdLine.m_ScriptFilename);
   };
+
+  // Oracle mode (-dumpjson <file>): the design is loaded and any -script has run, so
+  // dump the parsed structures and exit. Returning FALSE from InitInstance skips the
+  // message loop entirely, so no window is ever created -- this runs headless in CI.
+  // Placed after ProcessScriptFile so '-script ... -dumpjson ...' can dump the result
+  // of a scripted import. See docs/PORTING-PLAN.md, Phase 0.
+  if (!cmdLine.m_DumpJsonFilename.IsEmpty())
+  {
+    bool dumped = DumpDesignJson(cmdLine.m_DumpJsonFilename);
+    if (!dumped)
+    {
+      WriteDebugString("Failed to write JSON dump to %s\n", (LPCSTR)cmdLine.m_DumpJsonFilename);
+    }
+    return FALSE;
+  };
+
   return TRUE;
 }
 

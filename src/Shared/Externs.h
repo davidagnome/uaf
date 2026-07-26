@@ -1897,6 +1897,10 @@ public:
   }
   CString m_ConfigFilename;
   CString m_ScriptFilename;
+  // -dumpjson <file>: load the design, write every parsed structure to <file> as canonical
+  // JSON, then exit without creating a window. This is the "oracle" mode used to validate the
+  // .NET port against this reference implementation. See docs/PORTING-PLAN.md.
+  CString m_DumpJsonFilename;
   int m_level;
   int m_sx;
   int m_sy;
@@ -1911,6 +1915,9 @@ public:
 };
 
 extern CUAFCommandLineInfo cmdLine;
+
+// TRUE when running under -dumpjson: suppresses all modal dialogs (see Globals.cpp).
+extern bool g_headlessMode;
 
 // ArchiveString and DeArchiveString
 //

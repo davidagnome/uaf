@@ -121,6 +121,10 @@ extern const double VersionSpellIDs =  0.998100;
  */
 extern const double VersionSaveIDs = 0.998914;
 
+// Set by -dumpjson. Suppresses every modal dialog so the reference build can run
+// unattended in CI. Diagnostics still go to the debug log.
+bool g_headlessMode = false;
+
 extern const double PRODUCT_VER = 5.29; //09OCt2020//2OCt2015//22July2015
 //extern const double ENGINE_VER = 1.0304;  //13October2014
 extern const double ENGINE_VER = 5.29;  //27Jan2016
@@ -842,6 +846,14 @@ void CUAFCommandLineInfo::ParseParam(LPCTSTR lpszParam, BOOL bFlag, BOOL bLast )
     if (stricmp(FlagKey, "script") == 0)
     {
       m_ScriptFilename = FlagValue;
+    };
+
+    if (stricmp(FlagKey, "dumpjson") == 0)
+    {
+      // Oracle mode: dump the loaded design as canonical JSON and exit.
+      // format: -dumpjson c:\temp\DefaultDesign.json
+      m_DumpJsonFilename = FlagValue;
+      g_headlessMode = true;
     };
 
     if (stricmp(FlagKey, "pc") == 0)
@@ -1772,7 +1784,7 @@ CString BrowseForFolder(HWND hWnd, const char *pTitle)
   
   LPITEMIDLIST lpItemIDList;
 
-  // Since we’re not having a callback function (look up BrowseCallbackProc in the 
+  // Since weï¿½re not having a callback function (look up BrowseCallbackProc in the 
   // documentation for the details), we simply NULL- and zero-out the lpfn and lParam 
   // members of the structure. The preceding LPITEMIDLIST variable will receive the 
   // return value of the SHBrowseForFolder() function. If the return value is NULL, 
@@ -1785,10 +1797,10 @@ CString BrowseForFolder(HWND hWnd, const char *pTitle)
     // we can use SHGetPathFromIDList(), passing our lpItemIDList and szBuffer 
     // variables as arguments. 
     // When the function returns, we should have a pathname to a folder in szBuffer. 
-    // If szBuffer[0] is ‘\0’, the NULL-terminator, then we don’t have anything we 
-    // can work with. Otherwise, we stuff szBuffer into strResult, using CString’s 
+    // If szBuffer[0] is ï¿½\0ï¿½, the NULL-terminator, then we donï¿½t have anything we 
+    // can work with. Otherwise, we stuff szBuffer into strResult, using CStringï¿½s 
     // very useful assignment operator, and return the pathname to the caller as a 
-    // reference to a CString, something that another of CString’s assignment 
+    // reference to a CString, something that another of CStringï¿½s assignment 
     // operators accepts:
     
     // Get the path of the selected folder from the
@@ -1826,7 +1838,7 @@ CString BrowseForFolder(HWND hWnd, const char *pTitle)
     // We need to clean up by freeing the memory through IMalloc::Free. Since IMalloc 
     // maintains a reference count to keep track of when it should do its own cleanup 
     // (as do all COM interfaces), we need to call the IUnknown::Release method. Memory
-    // could leak if we don’t.    
+    // could leak if we donï¿½t.    
     //
     lpMalloc->Free(lpItemIDList);
     lpMalloc->Release();      
@@ -3828,6 +3840,12 @@ void MsgBoxError(const char *pMsg, const char *pTitle, int maxDisplay)
 
   //temp = temp.Left(475);
   WriteDebugString("%s\n",temp);
+
+  // Oracle/headless mode (-dumpjson): never show a modal box. The message has already
+  // been written to the debug log above, so diagnostics are preserved -- but a MessageBox
+  // here would block a CI runner until the job times out. See docs/PORTING-PLAN.md.
+  if (g_headlessMode) return;
+
   value = 0;
   if (errorMessages.Lookup(pMsg, value) && (value>=maxDisplay))
   {

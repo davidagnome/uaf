@@ -129,6 +129,40 @@ jobs:
         continue-on-error: true
         run: msbuild src\UAFWinEd\UAFWinEd_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
 
+      # Produce the golden file. -dumpjson sets headless mode, which suppresses every modal
+      # dialog (MsgBoxError would otherwise block until the job times out). -config is
+      # mandatory: OpenDesign("") falls back to XBrowseForFolder, a modal folder picker.
+      - name: Dump DefaultDesign to canonical JSON
+        id: dump
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $exe = "src\UAFWinEd\Release\UAFWinEd.exe"
+          if (-not (Test-Path $exe)) { Write-Host "::error::$exe not built"; exit 1 }
+          $design = (Resolve-Path "src\UAFWinEd\DefaultDesign.dsn").Path
+          $out    = "$env:RUNNER_TEMP\DefaultDesign.json"
+          Write-Host "design: $design"
+          & $exe -config "$design" -dumpjson "$out"
+          Write-Host "exit code: $LASTEXITCODE"
+          if (Test-Path $out) {
+            Write-Host "--- first 60 lines of dump ---"
+            Get-Content $out -TotalCount 60
+            Copy-Item $out "oracle-DefaultDesign.json"
+          } else {
+            Write-Host "::error::no JSON produced"
+          }
+
+      - name: Upload golden JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-json
+          path: |
+            oracle-*.json
+            **/UAFErrors.txt
+          if-no-files-found: warn
+
       - name: Summary
         shell: pwsh
         run: |
@@ -136,6 +170,7 @@ jobs:
             @{ n='GPDLcomp';  r='${{ steps.gpdl.outcome }}' }
             @{ n='UAFWin';    r='${{ steps.uafwin.outcome }}' }
             @{ n='UAFWinEd';  r='${{ steps.uafwined.outcome }}' }
+            @{ n='JSON dump'; r='${{ steps.dump.outcome }}' }
           )
           "| Project | Result |"           | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
           "|---|---|"                      | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
