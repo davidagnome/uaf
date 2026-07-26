@@ -190,6 +190,34 @@ jobs:
           }
           Write-Host "design loaded OK; version $($meta.designVersion)"
 
+      # Detect REFERENCE drift: if a committed golden file exists, the freshly generated dump must
+      # still match it. A change here means the C++ side's behaviour moved, which invalidates the
+      # baseline the C# port is being validated against -- so it must be seen, not silently
+      # absorbed. _meta.diagnostics is excluded: it is informational and carries absolute paths.
+      - name: Check dump against committed golden
+        if: success()
+        shell: pwsh
+        run: |
+          $golden = "oracle/golden/DefaultDesign.json"
+          if (-not (Test-Path $golden)) {
+            Write-Host "::notice::No committed golden yet. Download the oracle-json artifact and commit it to $golden to enable drift detection and activate OracleDiffTests."
+            exit 0
+          }
+          function Strip($path) {
+            $o = Get-Content $path -Raw | ConvertFrom-Json
+            $o._meta.PSObject.Properties.Remove('diagnostics')
+            return ($o | ConvertTo-Json -Depth 30 -Compress)
+          }
+          $fresh = Strip "oracle-DefaultDesign.json"
+          $base  = Strip $golden
+          if ($fresh -ne $base) {
+            Write-Host "::error::Fresh dump differs from oracle/golden/DefaultDesign.json - the reference implementation's output has changed."
+            Write-Host "--- committed ---"; Write-Host $base
+            Write-Host "--- fresh ---";     Write-Host $fresh
+            exit 1
+          }
+          Write-Host "fresh dump matches the committed golden"
+
       - name: Upload golden JSON
         if: always()
         uses: actions/upload-artifact@v4
