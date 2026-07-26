@@ -211,6 +211,18 @@ Two consequences:
 Each type's thresholds must be transcribed from its own loader. Do not generalise one file's
 constants to another.
 
+**Tier 2 needs no new reader.** Every `CAR` operator opens with
+`if (m_compressType == 0) { ar << …; }`, delegating straight to the wrapped `CArchive`
+(`class.cpp:11707`, `:11722`, `:11940`). String interning and LZW live only on the `else` branch,
+which `Compress(true)` must enable. So tier 2 is **byte-identical to tier 1** at the primitive
+level — the same reader serves both, and only the payload offset differs. Only tier 3 requires
+the LZW decoder.
+
+Verified: reading `DefaultDesign`'s tier-2 payloads at offset 16 with the plain reader yields
+**285 items, 44 monsters, 117 spells** — plausible counts, corroborated by the implied record
+sizes (~1900–2200 bytes each). These are the same three values the oracle dumper emits under
+`counts.*`, making them the first end-to-end agreement point between the two implementations.
+
 ### The LZW layer (tier 3)
 
 `CAR::decompress` (`class.cpp:12215`) is **not** interchangeable with a stock LZW implementation:

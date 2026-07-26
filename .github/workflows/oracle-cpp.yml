@@ -154,8 +154,15 @@ jobs:
           # UAFWinEd is a WINDOWS (GUI) subsystem binary. PowerShell's call operator does NOT
           # wait for GUI processes, so `& $exe ...` returns instantly with $LASTEXITCODE unset
           # and the file-existence check below races the process. Start-Process -Wait is required.
+          # ARGUMENT FORM IS NOT THE USUAL ONE. CUAFCommandLineInfo::ParseParam
+          # (Globals.cpp:817) splits flag from value with strchr(param, ' ') INSIDE a single
+          # token, so each flag and its value must be passed as ONE quoted argument:
+          #     "-config D:\path\x.dsn"     not     -config D:\path\x.dsn
+          # The editor itself launches the engine this way (MainFrm.cpp:2648,
+          # `"%s" "-warp %i,%i,%i,%i"`). Passing them separately leaves the value empty, and
+          # the app then exits 0 having done nothing.
           $p = Start-Process -FilePath $exe.Path `
-                             -ArgumentList @('-config', "`"$design`"", '-dumpjson', "`"$out`"") `
+                             -ArgumentList @("`"-config $design`"", "`"-dumpjson $out`"") `
                              -Wait -PassThru -NoNewWindow
           Write-Host "exit code: $($p.ExitCode)"
 
@@ -169,6 +176,16 @@ jobs:
           Write-Host "--- first 60 lines of dump ---"
           Get-Content $out -TotalCount 60
           Copy-Item $out "oracle-DefaultDesign.json"
+
+          # _meta.ok is false when the flags parsed but the design failed to load. The file
+          # exists in that case, so the artifact is still uploaded for inspection, but it is
+          # not golden data and must not be treated as ground truth.
+          $meta = (Get-Content $out -Raw | ConvertFrom-Json)._meta
+          if (-not $meta.ok) {
+            Write-Host "::error::design failed to load (_meta.ok = false); dump is not golden data"
+            exit 1
+          }
+          Write-Host "design loaded OK; version $($meta.designVersion)"
 
       - name: Upload golden JSON
         if: always()

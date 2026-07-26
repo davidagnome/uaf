@@ -57,7 +57,7 @@ static char THIS_FILE[] = __FILE__;
 
 void ImportGlobal(CString filename);
 void ProcessScriptFile(const CString& filename);
-bool DumpDesignJson(const CString& outPath);   // DumpJson.cpp -- oracle mode
+bool DumpDesignJson(const CString& outPath, bool designLoaded);   // DumpJson.cpp -- oracle mode
 
 extern const double VersionSpellNames;
 extern const double VersionSpellIDs;
@@ -990,27 +990,30 @@ BOOL CUAFWinEdApp::InitInstance()
   }
   //AfxEnableControlContainer();
   success = OpenDesign(filename);
-  while (!success)
-  {
-    return FALSE;
-  };
-  if (!cmdLine.m_ScriptFilename.IsEmpty())
+
+  if (success && !cmdLine.m_ScriptFilename.IsEmpty())
   {
     ProcessScriptFile(rte.DataDir() + cmdLine.m_ScriptFilename);
   };
 
-  // Oracle mode (-dumpjson <file>): the design is loaded and any -script has run, so
-  // dump the parsed structures and exit. Returning FALSE from InitInstance skips the
-  // message loop entirely, so no window is ever created -- this runs headless in CI.
-  // Placed after ProcessScriptFile so '-script ... -dumpjson ...' can dump the result
-  // of a scripted import. See docs/PORTING-PLAN.md, Phase 0.
+  // Oracle mode (-dumpjson <file>): dump the parsed structures and exit. Returning FALSE
+  // from InitInstance skips the message loop entirely, so no window is ever created -- this
+  // runs headless in CI. Placed after ProcessScriptFile so '-script ... -dumpjson ...' can
+  // dump the result of a scripted import. See docs/PORTING-PLAN.md, Phase 0.
+  //
+  // Deliberately BEFORE the `if (!success) return FALSE` bail-out, and it writes a file even
+  // when the load failed. That makes the two failure modes distinguishable from the outside:
+  //   no file at all      -> the -dumpjson flag never parsed (check the quoting, see below)
+  //   file with ok:false  -> the flag parsed but the design failed to load
+  // Without this, both look identical: a clean exit 0 and no output.
   if (!cmdLine.m_DumpJsonFilename.IsEmpty())
   {
-    bool dumped = DumpDesignJson(cmdLine.m_DumpJsonFilename);
-    if (!dumped)
-    {
-      WriteDebugString("Failed to write JSON dump to %s\n", (LPCSTR)cmdLine.m_DumpJsonFilename);
-    }
+    DumpDesignJson(cmdLine.m_DumpJsonFilename, success ? true : false);
+    return FALSE;
+  };
+
+  while (!success)
+  {
     return FALSE;
   };
 

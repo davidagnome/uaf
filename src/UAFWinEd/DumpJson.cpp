@@ -6,7 +6,13 @@
 * reimplementation in dotnet/ can be validated by diffing against this reference
 * implementation on identical inputs. See docs/PORTING-PLAN.md.
 *
-* Invoked as:  UAFWinEd.exe -config <config.txt> -dumpjson <out.json>
+* Invoked as:  UAFWinEd.exe "-config <design.dsn>" "-dumpjson <out.json>"
+*
+* NOTE the quoting: each flag and its value must be a SINGLE argument. CUAFCommandLineInfo::
+* ParseParam (Globals.cpp:817) splits them with strchr(param, ' ') inside one token, so passing
+* `-config X` as two arguments silently yields an empty value -- the app then exits 0 having done
+* nothing. The editor launches the engine the same way (MainFrm.cpp:2648).
+*
 * The design is loaded, dumped, and the process exits without creating a window.
 *
 * CANONICAL OUTPUT RULES -- the whole point is byte-comparable diffs:
@@ -121,13 +127,17 @@ static json DumpDatabaseCounts(void)
   return j;
 }
 
-bool DumpDesignJson(const CString& outPath)
+bool DumpDesignJson(const CString& outPath, bool designLoaded)
 {
   json root;
 
   // Provenance: which binary produced this, and from what. Without this a stale
   // golden file is indistinguishable from a current one.
   json meta;
+  // ok=false means the design failed to load; the remaining fields are then whatever
+  // default-constructed state the globals happen to hold and must NOT be used as golden data.
+  // A caller seeing no file at all has a different problem -- see the note in InitInstance.
+  meta["ok"]             = designLoaded;
   meta["productVersion"] = D(PRODUCT_VER);
   meta["engineVersion"]  = D(ENGINE_VER);
   meta["designPath"]     = S(rte.DesignDir());
