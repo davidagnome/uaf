@@ -209,19 +209,27 @@ static bool LoadDesignDataHeadless(void)
   return true;
 }
 
-bool DumpDesignJson(const CString& outPath, bool environmentReady)
+bool DumpDesignJson(const CString& outPath, bool configLoaded)
 {
-  // `environmentReady` reports whether the paths resolved and config.txt loaded. The design
-  // data itself is loaded here.
+  // `configLoaded` reports whether config.txt was read successfully. The design data itself
+  // is loaded here, independently of that.
   DiagEnvironment();
 
-  if (!environmentReady)
+  // A failed config load is NOT fatal here, and must not gate the data load.
+  //
+  // LoadConfigFile's editor section (Globals.cpp:2414, 2430) verifies that the editor's own
+  // installation art is present -- MAPART under ede.EditorMapArtDir() and OVERLANDART under
+  // ede.TemplateOverlandArtDir(), both derived from the executable's directory. A build output
+  // folder has no EditorResources\ or TemplateDesign.dsn\ beside the exe, so it returns FALSE
+  // with "Please re-install Dungeon Craft" even though config.txt itself parsed fine.
+  //
+  // None of that art has any bearing on parsing a design: the data load uses rte paths, which
+  // are set directly above. So record the outcome and carry on.
+  if (!configLoaded)
   {
-    // LoadConfigFile could not read <config dir>\config.txt. The paths reported above say
-    // which directory it actually looked in.
-    Diag("LoadConfigFile FAILED - no config; no load attempted");
+    Diag("LoadConfigFile FAILED (editor install art missing?) - continuing anyway");
   }
-  bool designLoaded = environmentReady && LoadDesignDataHeadless();
+  bool designLoaded = LoadDesignDataHeadless();
 
   json root;
 
@@ -232,9 +240,9 @@ bool DumpDesignJson(const CString& outPath, bool environmentReady)
   // default-constructed state the globals happen to hold and must NOT be used as golden data.
   // A caller seeing no file at all has a different problem -- see the note in InitInstance.
   // Separate flags, because `ok` alone cannot distinguish the two failure points:
-  //   environmentReady=false -> paths/config unusable; no load was attempted
-  //   environmentReady=true, designLoaded=false -> loadDesign itself failed
-  meta["environmentReady"]   = environmentReady;
+  //   configLoaded=false  -> config.txt unusable (often just missing editor install art)
+  //   designLoaded=false  -> the design data itself could not be read; ok is false
+  meta["configLoaded"]    = configLoaded;
   meta["designLoaded"]   = designLoaded;
   meta["ok"]             = designLoaded;
   meta["diagnostics"]    = g_diagnostics;

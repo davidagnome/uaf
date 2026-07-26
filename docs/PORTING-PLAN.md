@@ -438,7 +438,7 @@ this keeps the engine headless-testable, which is the backbone of the test strat
 | CDX + DirectDraw 7 | managed framebuffer + Avalonia `WriteableBitmap` | see below |
 | BASS + DirectSound | `IAudioBackend` → MiniAudio or SDL3 bindings | also resolves the GPL conflict |
 | `winmm` MIDI | MeltySynth (MIT, pure C#) + SoundFont | needs XMI→MID conversion for FRUA `.XMI` |
-| Video for Windows | deferred; FFMediaToolkit if needed | only 12 `PlayMovie` call sites |
+| Video for Windows | **FFmpeg / libav** (`FFMediaToolkit` or `FFmpeg.AutoGen`) | 12 `PlayMovie` call sites; see §6.1 |
 | zlib | `System.IO.Compression` | note: raw deflate vs. zlib header — verify framing |
 | libpng 1.0.8 | `SkiaSharp` or `ImageSharp` | 36 `.png` references |
 | `regexp.cpp` | `System.Text.RegularExpressions` | verify the dialect matches; it is a Spencer-style engine, not PCRE |
@@ -480,8 +480,35 @@ with a sibling `UAF.Media.Sdl` for the game.
 
 > **Verify before Phase 3 depends on it:** SDL3 is recent and its C# bindings (`SDL3-CS`) are
 > correspondingly young. Spike a window + streamed texture + key input on Windows, macOS and Linux
-> first. `Silk.NET.SDL` is the fallback. SDL does not decode video, so the `PlayMovie` path still
-> needs FFmpeg or deferral either way.
+> first. `Silk.NET.SDL` is the fallback.
+
+### 6.1 Video: FFmpeg / libav
+
+SDL does not decode video, so `PlayMovie` (`Shared/Movie.cpp`, 12 call sites) needs its own
+decoder. **Decision: FFmpeg via libav bindings.**
+
+The deciding factor is *what has to be decoded*. The engine plays `.avi` through Video for
+Windows, which means the movies in existing designs are encoded with whatever VfW codec their
+author had installed circa 1995–2005 — Cinepak, Indeo 3/4/5, Microsoft Video 1, MJPEG, uncompressed
+RGB. No managed-only decoder covers that set. FFmpeg does, and it is realistically the only
+option that plays legacy community content rather than just modern files.
+
+- **Binding:** `FFMediaToolkit` (wraps `FFmpeg.AutoGen`) decodes frames to bitmaps directly, which
+  suits blitting into the shared framebuffer. Drop to `FFmpeg.AutoGen` if frame-level control or
+  exotic pixel formats demand it. Avoid `Xabe.FFmpeg` — it shells out to the `ffmpeg` executable
+  rather than linking libav, so it cannot hand back frames in-process.
+- **Licensing:** LGPL builds are the default and sit comfortably under this project's GPL v2
+  ("or, at your option, any later version"), so either an LGPL or a GPL FFmpeg build is
+  compatible. Prefer LGPL to keep distribution simple.
+- **Integration:** decode to RGB frames and blit into the same managed framebuffer everything else
+  draws into, so movie playback needs no special path in the renderer and stays testable by frame
+  hashing. Audio tracks go to the existing `IAudioBackend`.
+- **Packaging:** native FFmpeg binaries per RID. This is the heaviest native dependency in the
+  project, so make movie support **optional at runtime** — a design without movies must run on a
+  build with no FFmpeg present, degrading to a skipped cutscene rather than a startup failure.
+
+Low priority relative to the rest of Phase 3 (12 call sites), but no longer "deferred": the
+decision is FFmpeg, and the abstraction should be shaped for it now rather than retrofitted.
 >
 > This split also avoids repeating the failure that broke the oracle: `OpenDesign` requires a live
 > DirectX device, so the editor cannot run headless at all. Keeping the blitter free of any device
@@ -878,3 +905,4 @@ after Phase 1, calendar time drops to roughly 12–15 months.
 | Audio backend | **SDL3 audio + MeltySynth** | Permissive licensing resolves the GPL v2 / BASS conflict; SDL3 is well-tested on arm64. Extended: SDL3 also provides the game's window, presentation and input (see §6) |
 | Format compatibility | **Read all versions, write current** | Matches original behaviour; preserves ~25 years of community designs |
 | Post-Phase-1 priority | **UAFedit first** | A read-only inspector validates the data layer end-to-end and grows into the editor; visible cross-platform result in ~2 months instead of ~8 |
+| Video decoding | **FFmpeg / libav** (LGPL build) | Only realistic way to decode the legacy VfW codecs in existing designs (Cinepak, Indeo, MS-Video1); optional at runtime |
