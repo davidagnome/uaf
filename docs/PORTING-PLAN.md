@@ -683,6 +683,53 @@ weight 700 / face `"SYSTEM"` (matching the `FillDefaultFontData("SYSTEM", 16, �
 `IconBgArt = "defib.png"`, `BackgroundArt = "*"` (the `ArchiveBlank` sentinel → empty),
 `CreditsBgArt = "Credits.jpg"`, then `SmallPicImport count = 18`.
 
+### The `CArchive` and `CAR` overloads are NOT the same reader
+
+Most data classes define `Serialize(CArchive&, double)` *and* `Serialize(CAR&, double)`. They are
+not mechanical duplicates — **their version gates differ**, so the same design version parses
+differently depending on which archive tier the file uses. `ITEM_DATA` is the clearest case:
+
+| Field | `Serialize(CArchive&)` `Items.cpp:2341` | `Serialize(CAR&)` `Items.cpp:2677` |
+|---|---|---|
+| `preSpellNameKey` | `if (ver < 0.576)` → **not read** at 0.915 | `if (ver < VersionSpellNames \|\| ver >= VersionSaveIDs)` → **read** at 0.915 |
+| `spellID` | absent | `if (ver >= 0.999647)` |
+
+Transcribing the `CArchive` order and reusing it for tier-2/3 files desynchronises the very first
+record. Verified: with `preSpellNameKey` read, item 0 of `DefaultDesign` decodes as
+`unique="Arrow"`, `id="Arrow"`, `hit="Hit.wav"`, `miss="Miss.wav"`, `launch="*"` (the sentinel),
+`ammoType="Bow"`. Without it, every string is garbage.
+
+**Port each overload separately.** Do not assume one can be derived from the other.
+
+### The format forks by build: `#ifdef UAFEDITOR` vs `UAFEngine`
+
+`ITEM_DATA::Serialize(CAR&)` contains:
+
+```cpp
+#ifdef UAFEDITOR
+    if (ver > VersionSpellIDs)     // 0.998100
+#endif
+    {
+      HitArt.Serialize(ar, ver, "");
+      MissileArt.Serialize(ar, ver, "");
+    };
+```
+
+The **editor** skips this art for designs at or below 0.998100; the **engine** has no gate and
+always reads it. At 0.915 the two builds therefore consume different numbers of bytes from the
+same file.
+
+This is load-bearing for the port, because `UAFcore` and `UAFedit` share one serialization
+library. `UAF.Serialization` must model the build flavour explicitly — an `ArchiveRole`
+(`Engine` / `Editor`) threaded through the readers — rather than picking one and hoping. Whether
+the divergence is intentional or a latent bug in the reference implementation is a separate
+question; the port has to reproduce it either way, and the oracle only ever shows the *editor*
+side, since the dumper is built into `UAFWinEd`.
+
+> Not every `#ifdef` forks the format: the `UAFEngine` block immediately after `m_uniqueName`
+> only derives `m_commonName` in memory and reads nothing. Check each one for archive access
+> before concluding the streams diverge.
+
 ### Type traps found while reading real files
 
 Confirmed against `DefaultDesign.dsn/Data/game.dat` by walking

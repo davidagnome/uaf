@@ -30,6 +30,21 @@ gh run download <run-id> -R davidagnome/uaf -n oracle-json -D oracle/golden/
 - **`_meta.designVersion` must be outside `[0.998101, 0.9988]`.** The editor itself warns it
   cannot reliably load that range (`Level.cpp:3340`), so a disagreement there settles nothing.
 
+## When the drift check fails
+
+The Oracle workflow regenerates the dump every run and fails if it differs from the committed
+file. That fires for two very different reasons, and the log diff is how you tell them apart:
+
+1. **You extended the dumper** (added a field or section). Expected — the golden is simply older
+   than the code. Review the diff to confirm only the intended additions appear, then download
+   the new artifact and commit it.
+2. **The reference implementation's behaviour changed.** This invalidates the baseline the C#
+   port is validated against. Do **not** refresh the golden until you understand why: the whole
+   point of the check is that this cannot be absorbed silently.
+
+The check cannot distinguish the two, which is deliberate — a human reading the diff can, and a
+heuristic that guessed would defeat the purpose.
+
 ## Fields excluded from comparison
 
 - **`_meta.diagnostics`** — informational, and contains absolute build-machine paths.

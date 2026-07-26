@@ -60,5 +60,1147 @@
     "version": 0.915025,
     "wildernessSearchTimeDelta": 1080,
     "wildernessTimeDelta": 720
-  }
+  },
+  "itemNames": [
+    {
+      "idName": "Arrow",
+      "uniqueName": "Arrow"
+    },
+    {
+      "idName": "Battle Axe",
+      "uniqueName": "Battle Axe"
+    },
+    {
+      "idName": "Hand Axe",
+      "uniqueName": "Hand Axe"
+    },
+    {
+      "idName": "Composite Short Bow",
+      "uniqueName": "Composite Short Bow"
+    },
+    {
+      "idName": "Composite Long Bow",
+      "uniqueName": "Composite Long Bow"
+    },
+    {
+      "idName": "Long Bow",
+      "uniqueName": "Long Bow"
+    },
+    {
+      "idName": "Short Bow",
+      "uniqueName": "Short Bow"
+    },
+    {
+      "idName": "Club",
+      "uniqueName": "Club"
+    },
+    {
+      "idName": "Light Crossbow",
+      "uniqueName": "Light Crossbow"
+    },
+    {
+      "idName": "Dagger",
+      "uniqueName": "Dagger"
+    },
+    {
+      "idName": "Dart",
+      "uniqueName": "Dart"
+    },
+    {
+      "idName": "Flail",
+      "uniqueName": "Flail"
+    },
+    {
+      "idName": "Halberd",
+      "uniqueName": "Halberd"
+    },
+    {
+      "idName": "Hammer",
+      "uniqueName": "Hammer"
+    },
+    {
+      "idName": "Javelin",
+      "uniqueName": "Javelin"
+    },
+    {
+      "idName": "Mace",
+      "uniqueName": "Mace"
+    },
+    {
+      "idName": "Morning Star",
+      "uniqueName": "Morning Star"
+    },
+    {
+      "idName": "Awl Pike",
+      "uniqueName": "Awl Pike"
+    },
+    {
+      "idName": "Bolt",
+      "uniqueName": "Bolt"
+    },
+    {
+      "idName": "Scimitar",
+      "uniqueName": "Scimitar"
+    },
+    {
+      "idName": "Sling",
+      "uniqueName": "Sling"
+    },
+    {
+      "idName": "Spear",
+      "uniqueName": "Spear"
+    },
+    {
+      "idName": "Quarter Staff",
+      "uniqueName": "Quarter Staff"
+    },
+    {
+      "idName": "Staff Sling",
+      "uniqueName": "Staff Sling"
+    },
+    {
+      "idName": "Bastard Sword",
+      "uniqueName": "Bastard Sword"
+    },
+    {
+      "idName": "Broad Sword",
+      "uniqueName": "Broad Sword"
+    },
+    {
+      "idName": "Long Sword",
+      "uniqueName": "Long Sword"
+    },
+    {
+      "idName": "Short Sword",
+      "uniqueName": "Short Sword"
+    },
+    {
+      "idName": "Two-Handed Sword",
+      "uniqueName": "Two-Handed Sword"
+    },
+    {
+      "idName": "Trident",
+      "uniqueName": "Trident"
+    },
+    {
+      "idName": "Belt",
+      "uniqueName": "Belt"
+    },
+    {
+      "idName": "Boots",
+      "uniqueName": "Boots"
+    },
+    {
+      "idName": "Cloak",
+      "uniqueName": "Cloak"
+    },
+    {
+      "idName": "Robe",
+      "uniqueName": "Robe"
+    },
+    {
+      "idName": "Banded Mail",
+      "uniqueName": "Banded Mail"
+    },
+    {
+      "idName": "Chain Mail",
+      "uniqueName": "Chain Mail"
+    },
+    {
+      "idName": "Helm",
+      "uniqueName": "Helm"
+    },
+    {
+      "idName": "Leather Armor",
+      "uniqueName": "Leather Armor"
+    },
+    {
+      "idName": "Plate Mail",
+      "uniqueName": "Plate Mail"
+    },
+    {
+      "idName": "Ring Mail",
+      "uniqueName": "Ring Mail"
+    },
+    {
+      "idName": "Scale Mail",
+      "uniqueName": "Scale Mail"
+    },
+    {
+      "idName": "Shield",
+      "uniqueName": "Shield"
+    },
+    {
+      "idName": "Elfin Chain",
+      "uniqueName": "Elfin Chain"
+    },
+    {
+      "idName": "Fine Long Bow",
+      "uniqueName": "Fine Long Bow"
+    },
+    {
+      "idName": "Blessed Bolt",
+      "uniqueName": "Bolt|1"
+    },
+    {
+      "idName": "Dart of Hornet's Nest",
+      "uniqueName": "Dart|1"
+    },
+    {
+      "idName": "Cloak of Displacement",
+      "uniqueName": "Cloak|1"
+    },
+    {
+      "idName": "Mirror",
+      "uniqueName": "Mirror"
+    },
+    {
+      "idName": "Arrow +1",
+      "uniqueName": "Arrow|1"
+    },
+    {
+      "idName": "Battle Axe +1",
+      "uniqueName": "Battle Axe|1"
+    },
+    {
+      "idName": "Composite Short Bow +1",
+      "uniqueName": "Composite Short Bow|1"
+    },
+    {
+      "idName": "Composite Long Bow +1",
+      "uniqueName": "Composite Long Bow|1"
+    },
+    {
+      "idName": "Light Crossbow +1",
+      "uniqueName": "Light Crossbow|1"
+    },
+    {
+      "idName": "Dagger +1",
+      "uniqueName": "Dagger|1"
+    },
+    {
+      "idName": "Dart +1",
+      "uniqueName": "Dart|2"
+    },
+    {
+      "idName": "Flail +1",
+      "uniqueName": "Flail|1"
+    },
+    {
+      "idName": "Hammer +1",
+      "uniqueName": "Hammer|1"
+    },
+    {
+      "idName": "Javelin +1",
+      "uniqueName": "Javelin|1"
+    },
+    {
+      "idName": "Mace +1",
+      "uniqueName": "Mace|1"
+    },
+    {
+      "idName": "Bolt +1",
+      "uniqueName": "Bolt|2"
+    },
+    {
+      "idName": "Scimitar +1",
+      "uniqueName": "Scimitar|1"
+    },
+    {
+      "idName": "Sling +1",
+      "uniqueName": "Sling|1"
+    },
+    {
+      "idName": "Quarter Staff +1",
+      "uniqueName": "Quarter Staff|1"
+    },
+    {
+      "idName": "Staff Sling +1",
+      "uniqueName": "Staff Sling|1"
+    },
+    {
+      "idName": "Long Sword +1",
+      "uniqueName": "Long Sword|1"
+    },
+    {
+      "idName": "Short Sword +1",
+      "uniqueName": "Short Sword|1"
+    },
+    {
+      "idName": "Two-Handed Sword +1",
+      "uniqueName": "Two-Handed Sword|1"
+    },
+    {
+      "idName": "Trident +1",
+      "uniqueName": "Trident|1"
+    },
+    {
+      "idName": "Cloak Of Prot +1",
+      "uniqueName": "Cloak|2"
+    },
+    {
+      "idName": "Banded Mail +1",
+      "uniqueName": "Banded Mail|1"
+    },
+    {
+      "idName": "Chain Mail +1",
+      "uniqueName": "Chain Mail|1"
+    },
+    {
+      "idName": "Helm +1",
+      "uniqueName": "Helm|1"
+    },
+    {
+      "idName": "Leather Armor +1",
+      "uniqueName": "Leather Armor|1"
+    },
+    {
+      "idName": "Plate Mail +1",
+      "uniqueName": "Plate Mail|1"
+    },
+    {
+      "idName": "Ring Mail +1",
+      "uniqueName": "Ring Mail|1"
+    },
+    {
+      "idName": "Scale Mail +1",
+      "uniqueName": "Scale Mail|1"
+    },
+    {
+      "idName": "Shield +1",
+      "uniqueName": "Shield|1"
+    },
+    {
+      "idName": "Elfin Chain +1",
+      "uniqueName": "Elfin Chain|1"
+    },
+    {
+      "idName": "Arrow +2",
+      "uniqueName": "Arrow|2"
+    },
+    {
+      "idName": "Battle Axe +2",
+      "uniqueName": "Battle Axe|2"
+    },
+    {
+      "idName": "Composite Short Bow +2",
+      "uniqueName": "Composite Short Bow|2"
+    },
+    {
+      "idName": "Composite Long Bow +2",
+      "uniqueName": "Composite Long Bow|2"
+    },
+    {
+      "idName": "Light Crossbow +2",
+      "uniqueName": "Light Crossbow|2"
+    },
+    {
+      "idName": "Dagger +2",
+      "uniqueName": "Dagger|2"
+    },
+    {
+      "idName": "Dart +2",
+      "uniqueName": "Dart|3"
+    },
+    {
+      "idName": "Flail +2",
+      "uniqueName": "Flail|2"
+    },
+    {
+      "idName": "Hammer +2",
+      "uniqueName": "Hammer|2"
+    },
+    {
+      "idName": "Javelin +2",
+      "uniqueName": "Javelin|2"
+    },
+    {
+      "idName": "Mace +2",
+      "uniqueName": "Mace|2"
+    },
+    {
+      "idName": "Bolt +2",
+      "uniqueName": "Bolt|3"
+    },
+    {
+      "idName": "Scimitar +2",
+      "uniqueName": "Scimitar|2"
+    },
+    {
+      "idName": "Sling +2",
+      "uniqueName": "Sling|2"
+    },
+    {
+      "idName": "Quarter Staff +2",
+      "uniqueName": "Quarter Staff|2"
+    },
+    {
+      "idName": "Staff Sling +2",
+      "uniqueName": "Staff Sling|2"
+    },
+    {
+      "idName": "Long Sword +2",
+      "uniqueName": "Long Sword|2"
+    },
+    {
+      "idName": "Short Sword +2",
+      "uniqueName": "Short Sword|2"
+    },
+    {
+      "idName": "Two-Handed Sword +2",
+      "uniqueName": "Two-Handed Sword|2"
+    },
+    {
+      "idName": "Trident +2",
+      "uniqueName": "Trident|2"
+    },
+    {
+      "idName": "Cloak Of Prot +2",
+      "uniqueName": "Cloak|3"
+    },
+    {
+      "idName": "Banded Mail +2",
+      "uniqueName": "Banded Mail|2"
+    },
+    {
+      "idName": "Chain Mail +2",
+      "uniqueName": "Chain Mail|2"
+    },
+    {
+      "idName": "Helm +2",
+      "uniqueName": "Helm|2"
+    },
+    {
+      "idName": "Leather Armor +2",
+      "uniqueName": "Leather Armor|2"
+    },
+    {
+      "idName": "Plate Mail +2",
+      "uniqueName": "Plate Mail|2"
+    },
+    {
+      "idName": "Ring Mail +2",
+      "uniqueName": "Ring Mail|2"
+    },
+    {
+      "idName": "Scale Mail +2",
+      "uniqueName": "Scale Mail|2"
+    },
+    {
+      "idName": "Shield +2",
+      "uniqueName": "Shield|2"
+    },
+    {
+      "idName": "Elfin Chain +2",
+      "uniqueName": "Elfin Chain|2"
+    },
+    {
+      "idName": "Arrow +3",
+      "uniqueName": "Arrow|3"
+    },
+    {
+      "idName": "Battle Axe +3",
+      "uniqueName": "Battle Axe|3"
+    },
+    {
+      "idName": "Composite Short Bow +3",
+      "uniqueName": "Composite Short Bow|3"
+    },
+    {
+      "idName": "Composite Long Bow +3",
+      "uniqueName": "Composite Long Bow|3"
+    },
+    {
+      "idName": "Light Crossbow +3",
+      "uniqueName": "Light Crossbow|3"
+    },
+    {
+      "idName": "Dagger +3",
+      "uniqueName": "Dagger|3"
+    },
+    {
+      "idName": "Dart +3",
+      "uniqueName": "Dart|4"
+    },
+    {
+      "idName": "Flail +3",
+      "uniqueName": "Flail|3"
+    },
+    {
+      "idName": "Hammer +3",
+      "uniqueName": "Hammer|3"
+    },
+    {
+      "idName": "Javelin +3",
+      "uniqueName": "Javelin|3"
+    },
+    {
+      "idName": "Mace +3",
+      "uniqueName": "Mace|3"
+    },
+    {
+      "idName": "Bolt +3",
+      "uniqueName": "Bolt|4"
+    },
+    {
+      "idName": "Scimitar +3",
+      "uniqueName": "Scimitar|3"
+    },
+    {
+      "idName": "Sling +3",
+      "uniqueName": "Sling|3"
+    },
+    {
+      "idName": "Quarter Staff +3",
+      "uniqueName": "Quarter Staff|3"
+    },
+    {
+      "idName": "Staff Sling +3",
+      "uniqueName": "Staff Sling|3"
+    },
+    {
+      "idName": "Long Sword +3",
+      "uniqueName": "Long Sword|3"
+    },
+    {
+      "idName": "Short Sword +3",
+      "uniqueName": "Short Sword|3"
+    },
+    {
+      "idName": "Two-Handed Sword +3",
+      "uniqueName": "Two-Handed Sword|3"
+    },
+    {
+      "idName": "Trident +3",
+      "uniqueName": "Trident|3"
+    },
+    {
+      "idName": "Cloak Of Prot +3",
+      "uniqueName": "Cloak|4"
+    },
+    {
+      "idName": "Banded Mail +3",
+      "uniqueName": "Banded Mail|3"
+    },
+    {
+      "idName": "Chain Mail +3",
+      "uniqueName": "Chain Mail|3"
+    },
+    {
+      "idName": "Helm +3",
+      "uniqueName": "Helm|3"
+    },
+    {
+      "idName": "Leather Armor +3",
+      "uniqueName": "Leather Armor|3"
+    },
+    {
+      "idName": "Plate Mail +3",
+      "uniqueName": "Plate Mail|3"
+    },
+    {
+      "idName": "Ring Mail +3",
+      "uniqueName": "Ring Mail|3"
+    },
+    {
+      "idName": "Scale Mail +3",
+      "uniqueName": "Scale Mail|3"
+    },
+    {
+      "idName": "Shield +3",
+      "uniqueName": "Shield|3"
+    },
+    {
+      "idName": "Elfin Chain +3",
+      "uniqueName": "Elfin Chain|3"
+    },
+    {
+      "idName": "Arrow +4",
+      "uniqueName": "Arrow|4"
+    },
+    {
+      "idName": "Battle Axe +4",
+      "uniqueName": "Battle Axe|4"
+    },
+    {
+      "idName": "Composite Short Bow +4",
+      "uniqueName": "Composite Short Bow|4"
+    },
+    {
+      "idName": "Composite Long Bow +4",
+      "uniqueName": "Composite Long Bow|4"
+    },
+    {
+      "idName": "Light Crossbow +4",
+      "uniqueName": "Light Crossbow|4"
+    },
+    {
+      "idName": "Dagger +4",
+      "uniqueName": "Dagger|4"
+    },
+    {
+      "idName": "Dart +4",
+      "uniqueName": "Dart|5"
+    },
+    {
+      "idName": "Flail +4",
+      "uniqueName": "Flail|4"
+    },
+    {
+      "idName": "Hammer +4",
+      "uniqueName": "Hammer|4"
+    },
+    {
+      "idName": "Javelin +4",
+      "uniqueName": "Javelin|4"
+    },
+    {
+      "idName": "Mace +4",
+      "uniqueName": "Mace|4"
+    },
+    {
+      "idName": "Bolt +4",
+      "uniqueName": "Bolt|5"
+    },
+    {
+      "idName": "Scimitar +4",
+      "uniqueName": "Scimitar|4"
+    },
+    {
+      "idName": "Sling +4",
+      "uniqueName": "Sling|4"
+    },
+    {
+      "idName": "Quarter Staff +4",
+      "uniqueName": "Quarter Staff|4"
+    },
+    {
+      "idName": "Staff Sling +4",
+      "uniqueName": "Staff Sling|4"
+    },
+    {
+      "idName": "Long Sword +4",
+      "uniqueName": "Long Sword|4"
+    },
+    {
+      "idName": "Short Sword +4",
+      "uniqueName": "Short Sword|4"
+    },
+    {
+      "idName": "Two-Handed Sword +4",
+      "uniqueName": "Two-Handed Sword|4"
+    },
+    {
+      "idName": "Trident +4",
+      "uniqueName": "Trident|4"
+    },
+    {
+      "idName": "Cloak Of Prot +4",
+      "uniqueName": "Cloak|5"
+    },
+    {
+      "idName": "Banded Mail +4",
+      "uniqueName": "Banded Mail|4"
+    },
+    {
+      "idName": "Chain Mail +4",
+      "uniqueName": "Chain Mail|4"
+    },
+    {
+      "idName": "Helm +4",
+      "uniqueName": "Helm|4"
+    },
+    {
+      "idName": "Leather Armor +4",
+      "uniqueName": "Leather Armor|4"
+    },
+    {
+      "idName": "Plate Mail +4",
+      "uniqueName": "Plate Mail|4"
+    },
+    {
+      "idName": "Ring Mail +4",
+      "uniqueName": "Ring Mail|4"
+    },
+    {
+      "idName": "Scale Mail +4",
+      "uniqueName": "Scale Mail|4"
+    },
+    {
+      "idName": "Shield +4",
+      "uniqueName": "Shield|4"
+    },
+    {
+      "idName": "Elfin Chain +4",
+      "uniqueName": "Elfin Chain|4"
+    },
+    {
+      "idName": "Arrow +5",
+      "uniqueName": "Arrow|5"
+    },
+    {
+      "idName": "Battle Axe +5",
+      "uniqueName": "Battle Axe|5"
+    },
+    {
+      "idName": "Composite Short Bow +5",
+      "uniqueName": "Composite Short Bow|5"
+    },
+    {
+      "idName": "Composite Long Bow +5",
+      "uniqueName": "Composite Long Bow|5"
+    },
+    {
+      "idName": "Light Crossbow +5",
+      "uniqueName": "Light Crossbow|5"
+    },
+    {
+      "idName": "Dagger +5",
+      "uniqueName": "Dagger|5"
+    },
+    {
+      "idName": "Dart +5",
+      "uniqueName": "Dart|6"
+    },
+    {
+      "idName": "Flail +5",
+      "uniqueName": "Flail|5"
+    },
+    {
+      "idName": "Hammer +5",
+      "uniqueName": "Hammer|5"
+    },
+    {
+      "idName": "Javelin +5",
+      "uniqueName": "Javelin|5"
+    },
+    {
+      "idName": "Mace +5",
+      "uniqueName": "Mace|5"
+    },
+    {
+      "idName": "Bolt +5",
+      "uniqueName": "Bolt|6"
+    },
+    {
+      "idName": "Scimitar +5",
+      "uniqueName": "Scimitar|5"
+    },
+    {
+      "idName": "Sling +5",
+      "uniqueName": "Sling|5"
+    },
+    {
+      "idName": "Quarter Staff +5",
+      "uniqueName": "Quarter Staff|5"
+    },
+    {
+      "idName": "Staff Sling +5",
+      "uniqueName": "Staff Sling|5"
+    },
+    {
+      "idName": "Long Sword +5",
+      "uniqueName": "Long Sword|5"
+    },
+    {
+      "idName": "Short Sword +5",
+      "uniqueName": "Short Sword|5"
+    },
+    {
+      "idName": "Two-Handed Sword +5",
+      "uniqueName": "Two-Handed Sword|5"
+    },
+    {
+      "idName": "Trident +5",
+      "uniqueName": "Trident|5"
+    },
+    {
+      "idName": "Cloak Of Prot +5",
+      "uniqueName": "Cloak|6"
+    },
+    {
+      "idName": "Banded Mail +5",
+      "uniqueName": "Banded Mail|5"
+    },
+    {
+      "idName": "Chain Mail +5",
+      "uniqueName": "Chain Mail|5"
+    },
+    {
+      "idName": "Helm +5",
+      "uniqueName": "Helm|5"
+    },
+    {
+      "idName": "Leather Armor +5",
+      "uniqueName": "Leather Armor|5"
+    },
+    {
+      "idName": "Plate Mail +5",
+      "uniqueName": "Plate Mail|5"
+    },
+    {
+      "idName": "Ring Mail +5",
+      "uniqueName": "Ring Mail|5"
+    },
+    {
+      "idName": "Scale Mail +5",
+      "uniqueName": "Scale Mail|5"
+    },
+    {
+      "idName": "Shield +5",
+      "uniqueName": "Shield|5"
+    },
+    {
+      "idName": "Elfin Chain +5",
+      "uniqueName": "Elfin Chain|5"
+    },
+    {
+      "idName": "Silver Shield +3",
+      "uniqueName": "Silver Shield"
+    },
+    {
+      "idName": "Silver Shield +4",
+      "uniqueName": "Silver Shield|1"
+    },
+    {
+      "idName": "Belt Of Prot +3",
+      "uniqueName": "Belt|1"
+    },
+    {
+      "idName": "Javelin of Lightning",
+      "uniqueName": "Javelin|6"
+    },
+    {
+      "idName": "Bracers AC 6",
+      "uniqueName": "Bracers"
+    },
+    {
+      "idName": "Bracers AC 4",
+      "uniqueName": "Bracers|1"
+    },
+    {
+      "idName": "Bracers AC 2",
+      "uniqueName": "Bracers|2"
+    },
+    {
+      "idName": "Long Sword vs Giants",
+      "uniqueName": "Long Sword|6"
+    },
+    {
+      "idName": "vorpal Long Sword",
+      "uniqueName": "Long Sword|7"
+    },
+    {
+      "idName": "Drow Long Sword +1",
+      "uniqueName": "Drow Long Sword"
+    },
+    {
+      "idName": "Drow Long Sword +3",
+      "uniqueName": "Drow Long Sword|1"
+    },
+    {
+      "idName": "Drow Long Sword +4",
+      "uniqueName": "Drow Long Sword|2"
+    },
+    {
+      "idName": "Drow Chain +1",
+      "uniqueName": "Drow Chain"
+    },
+    {
+      "idName": "Drow Chain +3",
+      "uniqueName": "Drow Chain|1"
+    },
+    {
+      "idName": "Drow Chain +4",
+      "uniqueName": "Drow Chain|2"
+    },
+    {
+      "idName": "Fine Long Bow +2",
+      "uniqueName": "Fine Long Bow|1"
+    },
+    {
+      "idName": "Light Crossbow Cursed -3",
+      "uniqueName": "Light Crossbow|6"
+    },
+    {
+      "idName": "Ring",
+      "uniqueName": "Ring"
+    },
+    {
+      "idName": "Ring of Vulnerability",
+      "uniqueName": "Ring|1"
+    },
+    {
+      "idName": "Ring Of Prot +1",
+      "uniqueName": "Ring|2"
+    },
+    {
+      "idName": "Ring Of Prot +2",
+      "uniqueName": "Ring|3"
+    },
+    {
+      "idName": "Ring Of Prot +3",
+      "uniqueName": "Ring|4"
+    },
+    {
+      "idName": "Ring Of Prot +4",
+      "uniqueName": "Ring|5"
+    },
+    {
+      "idName": "Ring Of Prot +5",
+      "uniqueName": "Ring|6"
+    },
+    {
+      "idName": "Spiritual Hammer",
+      "uniqueName": "Spiritual Hammer"
+    },
+    {
+      "idName": "Awl Pike +1",
+      "uniqueName": "Awl Pike|1"
+    },
+    {
+      "idName": "Awl Pike +2",
+      "uniqueName": "Awl Pike|2"
+    },
+    {
+      "idName": "Awl Pike +3",
+      "uniqueName": "Awl Pike|3"
+    },
+    {
+      "idName": "Awl Pike +4",
+      "uniqueName": "Awl Pike|4"
+    },
+    {
+      "idName": "Awl Pike +5",
+      "uniqueName": "Awl Pike|5"
+    },
+    {
+      "idName": "Bastard Sword +1",
+      "uniqueName": "Bastard Sword|1"
+    },
+    {
+      "idName": "Bastard Sword +2",
+      "uniqueName": "Bastard Sword|2"
+    },
+    {
+      "idName": "Bastard Sword +3",
+      "uniqueName": "Bastard Sword|3"
+    },
+    {
+      "idName": "Bastard Sword +4",
+      "uniqueName": "Bastard Sword|4"
+    },
+    {
+      "idName": "Bastard Sword +5",
+      "uniqueName": "Bastard Sword|5"
+    },
+    {
+      "idName": "Buckler",
+      "uniqueName": "Buckler"
+    },
+    {
+      "idName": "Buckler +1",
+      "uniqueName": "Buckler|1"
+    },
+    {
+      "idName": "Buckler +2",
+      "uniqueName": "Buckler|2"
+    },
+    {
+      "idName": "Buckler +3",
+      "uniqueName": "Buckler|3"
+    },
+    {
+      "idName": "Buckler +4",
+      "uniqueName": "Buckler|4"
+    },
+    {
+      "idName": "Buckler +5",
+      "uniqueName": "Buckler|5"
+    },
+    {
+      "idName": "Halberd +1",
+      "uniqueName": "Halberd|1"
+    },
+    {
+      "idName": "Halberd +2",
+      "uniqueName": "Halberd|2"
+    },
+    {
+      "idName": "Halberd +3",
+      "uniqueName": "Halberd|3"
+    },
+    {
+      "idName": "Halberd +4",
+      "uniqueName": "Halberd|4"
+    },
+    {
+      "idName": "Halberd +5",
+      "uniqueName": "Halberd|5"
+    },
+    {
+      "idName": "Morning Star +1",
+      "uniqueName": "Morning Star|1"
+    },
+    {
+      "idName": "Morning Star +2",
+      "uniqueName": "Morning Star|2"
+    },
+    {
+      "idName": "Morning Star +3",
+      "uniqueName": "Morning Star|3"
+    },
+    {
+      "idName": "Morning Star +4",
+      "uniqueName": "Morning Star|4"
+    },
+    {
+      "idName": "Morning Star +5",
+      "uniqueName": "Morning Star|5"
+    },
+    {
+      "idName": "Katana",
+      "uniqueName": "Katana"
+    },
+    {
+      "idName": "Claymore",
+      "uniqueName": "Claymore"
+    },
+    {
+      "idName": "Claymore +1",
+      "uniqueName": "Claymore|1"
+    },
+    {
+      "idName": "Claymore +2",
+      "uniqueName": "Claymore|2"
+    },
+    {
+      "idName": "Claymore +3",
+      "uniqueName": "Claymore|3"
+    },
+    {
+      "idName": "Claymore +4",
+      "uniqueName": "Claymore|4"
+    },
+    {
+      "idName": "Claymore +5",
+      "uniqueName": "Claymore|5"
+    },
+    {
+      "idName": "Great Helm",
+      "uniqueName": "Great Helm"
+    },
+    {
+      "idName": "Studded Leather Armor",
+      "uniqueName": "Studded Leather Armor"
+    },
+    {
+      "idName": "StuddedLeather Armor +1",
+      "uniqueName": "Studded Leather Armor|1"
+    },
+    {
+      "idName": "Wakizashi",
+      "uniqueName": "Wakizashi"
+    },
+    {
+      "idName": "Broad Sword +1",
+      "uniqueName": "Broad Sword|1"
+    },
+    {
+      "idName": "Broad Sword +2",
+      "uniqueName": "Broad Sword|2"
+    },
+    {
+      "idName": "Broad Sword +3",
+      "uniqueName": "Broad Sword|3"
+    },
+    {
+      "idName": "Broad Sword +4",
+      "uniqueName": "Broad Sword|4"
+    },
+    {
+      "idName": "Broad Sword +5",
+      "uniqueName": "Broad Sword|5"
+    },
+    {
+      "idName": "Great Helm +1",
+      "uniqueName": "Great Helm|1"
+    },
+    {
+      "idName": "Great Helm +2",
+      "uniqueName": "Great Helm|2"
+    },
+    {
+      "idName": "Great Helm +3",
+      "uniqueName": "Great Helm|3"
+    },
+    {
+      "idName": "Great Helm +4",
+      "uniqueName": "Great Helm|4"
+    },
+    {
+      "idName": "Great Helm +5",
+      "uniqueName": "Great Helm|5"
+    },
+    {
+      "idName": "Katana +1",
+      "uniqueName": "Katana|1"
+    },
+    {
+      "idName": "Katana +2",
+      "uniqueName": "Katana|2"
+    },
+    {
+      "idName": "Katana +3",
+      "uniqueName": "Katana|3"
+    },
+    {
+      "idName": "Katana +4",
+      "uniqueName": "Katana|4"
+    },
+    {
+      "idName": "Katana +5",
+      "uniqueName": "Katana|5"
+    },
+    {
+      "idName": "Studded Leather Armor +2",
+      "uniqueName": "Studded Leather Armor|2"
+    },
+    {
+      "idName": "Studded Leather Armor +3",
+      "uniqueName": "Studded Leather Armor|3"
+    },
+    {
+      "idName": "Studded Leather Armor +4",
+      "uniqueName": "Studded Leather Armor|4"
+    },
+    {
+      "idName": "Studded Leather Armor +5",
+      "uniqueName": "Studded Leather Armor|5"
+    },
+    {
+      "idName": "Wakizashi +1",
+      "uniqueName": "Wakizashi|1"
+    },
+    {
+      "idName": "Wakizashi +2",
+      "uniqueName": "Wakizashi|2"
+    },
+    {
+      "idName": "Wakizashi +3",
+      "uniqueName": "Wakizashi|3"
+    },
+    {
+      "idName": "Wakizashi +4",
+      "uniqueName": "Wakizashi|4"
+    },
+    {
+      "idName": "Wakizashi +5",
+      "uniqueName": "Wakizashi|5"
+    },
+    {
+      "idName": "Potion of Healing",
+      "uniqueName": "Potion"
+    }
+  ]
 }
