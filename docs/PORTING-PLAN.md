@@ -703,6 +703,23 @@ Confirmed against `DefaultDesign.dsn/Data/game.dat` by walking
   leniency turns empty strings into literal asterisks in affected designs.
 - **`logfont` is a raw struct blob** — `ar.Write(&logfont, sizeof(logfont))`, i.e. a 60-byte
   `LOGFONTA` written verbatim, not field-by-field. It must be read as fixed-size bytes.
+- **Field widths are not uniform: watch for `WORD`.** `PIC_DATA::AlphaValue` is a `WORD`
+  (2 bytes) sitting among `int`/`DWORD`/`BOOL` neighbours (`PicData.h`). Reading it as 4 bytes
+  shifts every subsequent record by two. Transcribe each field's declared type; do not assume
+  4 bytes because the neighbours are.
+- **A field's presence is version-gated, and absence must not consume bytes.**
+  `PIC_DATA::RestartFrame` appears only at `>= 5.24`, so reading it on a 0.915 design consumes
+  four phantom bytes and desynchronises everything after.
+- **Some gates compare `globalData.version`, not the `version` parameter.** `PicData.cpp:120`
+  tests `globalData.version < 0.930269` inside a method that already takes a `version` argument.
+  These can differ — see the container-vs-content distinction above — so transcribe which one each
+  site actually reads rather than normalising them.
+
+Worked example, verified: the 18 `SmallPicImport` records in `DefaultDesign`'s `game.dat` read as
+`prt_SPic1.png` … `prt_SPic18.png` in sequence, every one 176×211 — matching the
+`SmallPic 176 x 211` dimension documented in the design's own `config.txt` — followed by a
+plausible `IconPicImport` count of 12. Sequential filenames across 18 records are a strong
+integrity signal: any width error breaks them long before the last entry.
 
 **Alignment can be verified without the oracle.** Round decimal values in the payload
 (`startTime = 800`, `startExp = 30,000,000`) are strong evidence of correct field alignment — a
