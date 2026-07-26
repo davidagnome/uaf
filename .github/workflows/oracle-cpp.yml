@@ -184,7 +184,7 @@ jobs:
           if (-not $meta.ok) {
             Write-Host "--- diagnostics ---"
             $meta.diagnostics | ForEach-Object { Write-Host "  $_" }
-            Write-Host "foldersReady=$($meta.foldersReady) designLoaded=$($meta.designLoaded)"
+            Write-Host "environmentReady=$($meta.environmentReady) designLoaded=$($meta.designLoaded)"
             Write-Host "::error::design failed to load; dump is not golden data"
             exit 1
           }

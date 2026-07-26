@@ -13,7 +13,9 @@
 * `-config X` as two arguments silently yields an empty value -- the app then exits 0 having done
 * nothing. The editor launches the engine the same way (MainFrm.cpp:2648).
 *
-* The design is loaded, dumped, and the process exits without creating a window.
+* The design is loaded, dumped, and the process exits without creating a window. Note that this
+* mode deliberately BYPASSES CUAFWinEdApp::OpenDesign, which requires DirectX
+* (GraphicsMgr.IsInitialized()) and a main window and therefore cannot run on a CI runner.
 *
 * CANONICAL OUTPUT RULES -- the whole point is byte-comparable diffs:
 *   - Object keys are sorted. nlohmann::json uses std::map, so this is automatic;
@@ -155,26 +157,39 @@ static void Diag(const char *fmt, ...)
 
 // Load the design's data ourselves.
 //
-// CUAFWinEdApp::OpenDesign only resolves folders and reads config.txt -- it does NOT read any
-// design data. In the normal editor the data load happens later, from CMainFrame::LoadDesign,
-// which requires a main window and therefore cannot run headless. Fortunately everything it
-// needs is a free function:
+// The editor's normal path is unusable headless: CUAFWinEdApp::OpenDesign calls
+// ProcessShellCommand (document + main window) and then requires GraphicsMgr.IsInitialized(),
+// i.e. a working DirectX device, which a CI runner has not got. The data load itself normally
+// happens even later, in CMainFrame::LoadDesign, which also needs a window.
+//
+// None of that is necessary to read a design. Everything required is a free function:
 //   loadDesign(name)            -- Level.cpp:3309, reads game.dat into globalData
 //   loadData(<DB>, fullPath)    -- Items.cpp:3392 and its overloads, read the databases
 // so the oracle can drive the load directly and stay windowless.
+// Report the resolved environment. Runs REGARDLESS of whether config loading succeeded,
+// because when it fails these paths are exactly what is needed to see why -- and a wrong path
+// is otherwise indistinguishable from a corrupt file.
+static void DiagEnvironment(void)
+{
+  CString designDir = rte.DesignDir();
+  CString dataDir   = rte.DataDir();
+  CString configDir = rte.ConfigDir();
+
+  Diag("designDir = '%s'", (LPCSTR)designDir);
+  Diag("dataDir   = '%s'", (LPCSTR)dataDir);
+  Diag("configDir = '%s'", (LPCSTR)configDir);
+
+  Diag("game.dat   exists = %s", FileExists(dataDir + "game.dat")   ? "yes" : "no");
+  Diag("config.txt exists = %s", FileExists(configDir + "config.txt") ? "yes" : "no");
+  // The editor falls back to the template dir when ConfigDir() is empty (UAFWinEd.cpp:655),
+  // so report that candidate too.
+  Diag("templateDataDir = '%s'", (LPCSTR)ede.TemplateDataDir());
+}
+
 static bool LoadDesignDataHeadless(void)
 {
   CString designDir = rte.DesignDir();
   CString dataDir   = rte.DataDir();
-
-  Diag("designDir = '%s'", (LPCSTR)designDir);
-  Diag("dataDir   = '%s'", (LPCSTR)dataDir);
-  Diag("configDir = '%s'", (LPCSTR)rte.ConfigDir());
-
-  // Report what is actually on disk where we are about to look. A wrong path is otherwise
-  // indistinguishable from a corrupt file.
-  CString gameDat = dataDir + "game.dat";
-  Diag("game.dat exists = %s", FileExists(gameDat) ? "yes" : "no");
 
   if (!loadDesign((LPCSTR)designDir))
   {
@@ -194,17 +209,19 @@ static bool LoadDesignDataHeadless(void)
   return true;
 }
 
-bool DumpDesignJson(const CString& outPath, bool foldersReady)
+bool DumpDesignJson(const CString& outPath, bool environmentReady)
 {
-  // `foldersReady` reports whether OpenDesign succeeded, i.e. whether the paths and config are
-  // usable. The design data itself is loaded here.
-  if (!foldersReady)
+  // `environmentReady` reports whether the paths resolved and config.txt loaded. The design
+  // data itself is loaded here.
+  DiagEnvironment();
+
+  if (!environmentReady)
   {
-    // OpenDesign failed before we ever got a chance to load. Most likely LoadConfigFile
-    // (UAFWinEd.cpp:660) could not read <design>\Data\config.txt.
-    Diag("OpenDesign FAILED - folders/config not ready; no load attempted");
+    // LoadConfigFile could not read <config dir>\config.txt. The paths reported above say
+    // which directory it actually looked in.
+    Diag("LoadConfigFile FAILED - no config; no load attempted");
   }
-  bool designLoaded = foldersReady && LoadDesignDataHeadless();
+  bool designLoaded = environmentReady && LoadDesignDataHeadless();
 
   json root;
 
@@ -215,9 +232,9 @@ bool DumpDesignJson(const CString& outPath, bool foldersReady)
   // default-constructed state the globals happen to hold and must NOT be used as golden data.
   // A caller seeing no file at all has a different problem -- see the note in InitInstance.
   // Separate flags, because `ok` alone cannot distinguish the two failure points:
-  //   foldersReady=false -> OpenDesign failed (config/paths); no load was attempted
-  //   foldersReady=true, designLoaded=false -> loadDesign itself failed
-  meta["foldersReady"]   = foldersReady;
+  //   environmentReady=false -> paths/config unusable; no load was attempted
+  //   environmentReady=true, designLoaded=false -> loadDesign itself failed
+  meta["environmentReady"]   = environmentReady;
   meta["designLoaded"]   = designLoaded;
   meta["ok"]             = designLoaded;
   meta["diagnostics"]    = g_diagnostics;

@@ -477,11 +477,15 @@ The port cannot be validated without a reference implementation that runs.
 
    Three things about the host app are non-obvious, and each cost a CI round-trip:
 
-   - **`OpenDesign` does not load design data.** It only resolves folders and reads `config.txt`;
-     the data load happens later in `CMainFrame::LoadDesign`, which needs a main window. The
-     dumper must drive the load itself — everything it needs is a free function:
-     `loadDesign(name)` (`Level.cpp:3309`) for `game.dat`, and the `loadData(<DB>, path)`
-     overloads (`Externs.h:483`) for the databases.
+   - **Bypass `OpenDesign` entirely.** Despite the name it does not load design data, and it
+     cannot run headless: after reading `config.txt` it calls `ProcessShellCommand` (creating the
+     document and main window) and then requires `GraphicsMgr.IsInitialized()` — a working
+     DirectX device, which a CI runner has not got, so it returns `FALSE` before any data is
+     touched. The data load normally happens later still, in `CMainFrame::LoadDesign`, which also
+     needs a window. None of that is necessary to read a design: resolve paths with
+     `rte.DefaultFoldersFromDesign(path)`, read config with `LoadConfigFile(...)`, then load via
+     the free functions `loadDesign(name)` (`Level.cpp:3309`) for `game.dat` and the
+     `loadData(<DB>, path)` overloads (`Externs.h:483`) for the databases.
    - **A flag and its value must be ONE quoted argument.** `CUAFCommandLineInfo::ParseParam`
      (`Globals.cpp:817`) splits them with `strchr(param, ' ')` *inside* a single token, so the
      invocation is `UAFWinEd.exe "-config <design.dsn>" "-dumpjson <out.json>"`. Passing them

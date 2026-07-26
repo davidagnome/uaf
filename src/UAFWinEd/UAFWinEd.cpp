@@ -57,7 +57,7 @@ static char THIS_FILE[] = __FILE__;
 
 void ImportGlobal(CString filename);
 void ProcessScriptFile(const CString& filename);
-bool DumpDesignJson(const CString& outPath, bool foldersReady);   // DumpJson.cpp -- oracle mode
+bool DumpDesignJson(const CString& outPath, bool environmentReady);   // DumpJson.cpp -- oracle mode
 
 extern const double VersionSpellNames;
 extern const double VersionSpellIDs;
@@ -989,27 +989,27 @@ BOOL CUAFWinEdApp::InitInstance()
     filename = cmdLine.m_strFileName;
   }
   //AfxEnableControlContainer();
+  // Oracle mode (-dumpjson) must NOT go through OpenDesign. Despite its name, OpenDesign does
+  // far more than resolve folders: it calls ProcessShellCommand (creating the document and main
+  // window) and then requires GraphicsMgr.IsInitialized() -- i.e. a working DirectX device. On a
+  // headless CI runner that check fails and OpenDesign returns FALSE before any data is touched.
+  //
+  // The dump needs only two things: resolved paths and config.txt. Do exactly that, then let
+  // DumpDesignJson drive the data load itself. No window, no document, no DirectX.
+  if (!cmdLine.m_DumpJsonFilename.IsEmpty())
+  {
+    rte.Clear();
+    rte.DefaultFoldersFromDesign(filename);
+    BOOL configOk = LoadConfigFile(rte.ConfigDir() + "config.txt");
+    DumpDesignJson(cmdLine.m_DumpJsonFilename, configOk ? true : false);
+    return FALSE;   // skip the message loop entirely
+  };
+
   success = OpenDesign(filename);
 
   if (success && !cmdLine.m_ScriptFilename.IsEmpty())
   {
     ProcessScriptFile(rte.DataDir() + cmdLine.m_ScriptFilename);
-  };
-
-  // Oracle mode (-dumpjson <file>): dump the parsed structures and exit. Returning FALSE
-  // from InitInstance skips the message loop entirely, so no window is ever created -- this
-  // runs headless in CI. Placed after ProcessScriptFile so '-script ... -dumpjson ...' can
-  // dump the result of a scripted import. See docs/PORTING-PLAN.md, Phase 0.
-  //
-  // Deliberately BEFORE the `if (!success) return FALSE` bail-out, and it writes a file even
-  // when the load failed. That makes the two failure modes distinguishable from the outside:
-  //   no file at all      -> the -dumpjson flag never parsed (check the quoting, see below)
-  //   file with ok:false  -> the flag parsed but the design failed to load
-  // Without this, both look identical: a clean exit 0 and no output.
-  if (!cmdLine.m_DumpJsonFilename.IsEmpty())
-  {
-    DumpDesignJson(cmdLine.m_DumpJsonFilename, success ? true : false);
-    return FALSE;
   };
 
   while (!success)
