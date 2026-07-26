@@ -188,13 +188,26 @@ version double**; these newer DBs carry their schema version in the tag suffix, 
 `DesignVersion` gates do not apply to them at all.
 
 **Orthogonal to both: the archive layer is version-selected, in three tiers, with per-file-type
-thresholds.** This is the single easiest thing in the format to get wrong.
+thresholds.** This is the single easiest thing in the format to get wrong. There are **three
+distinct loaders** and they agree on nothing:
 
-| Tier | Archive | items.dat (`Items.cpp:3424`) | level/game (`Level.cpp:2168`) |
-|---|---|---|---|
-| 1 | plain `CArchive` — no wrapper, no LZW, no string interning | `< 0.697` | `< 0.573` |
-| 2 | `CAR`, **uncompressed** | `[0.697, 0.930)` | — |
-| 3 | `CAR` + LZW (`Compress(true)`) | `>= 0.930` (`_SPECIAL_ABILITIES_VERSION_`) | — |
+| | Loader | Unstamped version | → `CAR` at | → LZW at |
+|---|---|---|---|---|
+| `game.dat` | `loadDesign(LPCSTR)` `Level.cpp:3341` | **read from offset 0** (see below) | **0.998101** | — |
+| `*.lvl` | `LoadLevel` `Level.cpp:2151` | literal **0.572** | **0.573** | — |
+| databases | `loadData` `Items.cpp:3405` | `min(globalData.version, 0.696)` | **0.697** | **0.930** |
+
+**`game.dat` has no fallback constant at all.** `GetDesignVersion` (`Globals.cpp:3460`) reads the
+magic and, when it is absent, seeks back to 0 and reads the `double` there anyway — so for an
+unstamped file the container version *is* the payload's own first field, read twice: once to pick
+the archive, once by `GLOBAL_STATS::Serialize`.
+
+> **Correction.** An earlier revision of this document attributed the 0.572 fallback and 0.573
+> gate to "level/game data" collectively. That rule belongs to `*.lvl` only. The two disagree
+> across all of `[0.573, 0.998101)` — which *includes* `DefaultDesign`'s 0.915025, where a level
+> file is already a `CAR` while `game.dat` is still a plain archive. Using one kind for both is a
+> latent mis-parse: it happened not to break the `game.dat` reader only because nothing consumed
+> the tier on that path.
 
 Two consequences:
 
@@ -551,6 +564,14 @@ The port cannot be validated without a reference implementation that runs.
      invocation is `UAFWinEd.exe "-config <design.dsn>" "-dumpjson <out.json>"`. Passing them
      separately leaves both values empty and the app exits 0 having done nothing. The editor
      launches the engine the same way (`MainFrm.cpp:2648`).
+   - **The editor resolves its resources from the EXECUTABLE's directory, not the design's.**
+     `EDITOR_ENVIRONMENT::DefaultFoldersFromExecutable` (`Globals.cpp:467`) derives
+     `<exeDir>\EditorResources\` and `<exeDir>\TemplateDesign.dsn\` from where the binary sits, so
+     a build output folder has none of it. Two separate failures follow: `LoadConfigFile` returns
+     FALSE on the missing `MAPART` ("Please re-install Dungeon Craft"), and `saveDesign()` returns
+     FALSE when it tries to copy `BASS.DLL` out of the template dir (`Level.cpp:2780`). CI stages
+     the layout beside the exe from `src/UAFWinEd/EditorResources` and `DefaultDesign.dsn` rather
+     than working around either symptom.
    - **`-config` is mandatory, and every modal path must be suppressed — individually.** A
      `g_headlessMode` flag set by `-dumpjson` handles this, but guarding `MsgBoxError` alone is
      not enough: the load path also reaches `MsgBoxYesNo`, `MsgBoxInfo`, four direct

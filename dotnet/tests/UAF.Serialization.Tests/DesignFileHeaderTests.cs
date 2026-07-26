@@ -25,26 +25,55 @@ public class DesignFileHeaderTests
         Path.Combine(RepoRoot(), "src", "UAFWinEd", "DefaultDesign.dsn", "Data", name);
 
     [Fact]
-    public void GameDat_has_no_magic_and_falls_back_to_the_plain_archive()
+    public void GameDat_takes_its_version_from_the_payloads_first_field()
     {
         using var fs = File.OpenRead(DataFile("game.dat"));
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
 
-        // game.dat carries no magic, so it takes the fallback path. For level/game data the
-        // fallback is 0.572 (Level.cpp:2163) -- which is below the 0.573 archive switch, so the
-        // payload is a plain CArchive starting at offset 0, with no LZW.
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
-
+        // game.dat has NO fallback constant. GetDesignVersion (Globals.cpp:3460) reads the magic,
+        // and when it is absent seeks back to 0 and reads the double there anyway -- so for an
+        // unstamped file the container version IS the payload's first field, 0.915025.
+        //
+        // This is distinct from *.lvl, which assumes a literal 0.572 (Level.cpp:2163). Attributing
+        // the .lvl rule to game.dat was an earlier error: both yield PlainArchive at 0.915, but
+        // their gates are 0.573 and 0.998101, so they disagree across all of [0.573, 0.998101).
         Assert.False(header.HadMagic);
         Assert.Equal(0, header.PayloadOffset);
-        Assert.Equal(DesignVersion.V0572, header.Version);
+        Assert.Equal(0.915025, header.Version.Value, precision: 10);
+
+        // 0.915025 < VersionSpellNames (0.998101) -> plain CArchive.
         Assert.Equal(ArchiveTier.PlainArchive, header.Tier);
+    }
+
+    [Fact]
+    public void GameDat_and_level_files_use_different_archive_gates()
+    {
+        // They disagree at the fixture version itself: game.dat switches at 0.998101 and level
+        // files at 0.573, so across ALL of [0.573, 0.998101) -- which includes 0.915025 -- a
+        // level file is already a CAR while game.dat is still a plain archive.
+        //
+        // The original code used LevelData's rules for game.dat and still worked, but only
+        // because nothing consumed header.Tier on that path: the reader seeks to PayloadOffset
+        // and reads plain. The wrong tier was latent, not harmless.
+        var atFixture = new DesignVersion(0.915025);
+        Assert.Equal(ArchiveTier.PlainArchive, DesignFileKind.GameData.TierFor(atFixture));
+        Assert.Equal(ArchiveTier.UncompressedCar, DesignFileKind.LevelData.TierFor(atFixture));
+
+        // They agree only below 0.573 and at/above 0.998101.
+        var old = new DesignVersion(0.50);
+        Assert.Equal(ArchiveTier.PlainArchive, DesignFileKind.GameData.TierFor(old));
+        Assert.Equal(ArchiveTier.PlainArchive, DesignFileKind.LevelData.TierFor(old));
+
+        var modern = DesignVersion.V529;
+        Assert.Equal(ArchiveTier.UncompressedCar, DesignFileKind.GameData.TierFor(modern));
+        Assert.Equal(ArchiveTier.UncompressedCar, DesignFileKind.LevelData.TierFor(modern));
     }
 
     [Fact]
     public void GameDat_payload_begins_with_GLOBAL_STATS_version_then_design_name()
     {
         using var fs = File.OpenRead(DataFile("game.dat"));
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var reader = new MfcArchiveReader(fs);
 
@@ -136,7 +165,7 @@ public class DesignFileHeaderTests
         // Level.cpp:3340 warns for [0.998101, 0.9988]. DefaultDesign at 0.915025 sits below it,
         // so it is safe to use as ground truth.
         using var fs = File.OpenRead(DataFile("game.dat"));
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         Assert.False(header.IsInUnreliableRange);
 
         Assert.True(new DesignFileHeader(DesignVersion.SpellNames, 16, true,

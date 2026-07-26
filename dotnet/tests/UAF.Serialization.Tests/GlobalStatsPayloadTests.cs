@@ -29,7 +29,7 @@ public class GlobalStatsPayloadTests
     public void Scalar_prefix_reads_with_the_widths_the_writer_used()
     {
         using var fs = File.OpenRead(GameDat());
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var ar = new MfcArchiveReader(fs);
 
@@ -73,7 +73,7 @@ public class GlobalStatsPayloadTests
     public void Time_and_darken_block_then_party_limits_then_flags()
     {
         using var fs = File.OpenRead(GameDat());
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var ar = new MfcArchiveReader(fs);
 

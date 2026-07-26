@@ -50,10 +50,27 @@ public readonly record struct DesignFileHeader(
             return new DesignFileHeader(stamped, PayloadOffset: 16, HadMagic: true, kind.TierFor(stamped));
         }
 
-        // No magic: rewind and treat the whole file as payload, at the fallback version.
+        // No magic: rewind. How the version is then obtained differs per file type.
         stream.Seek(0, SeekOrigin.Begin);
-        DesignVersion fallback = unstampedFallbackOverride ?? kind.UnstampedFallback;
-        return new DesignFileHeader(fallback, PayloadOffset: 0, HadMagic: false, kind.TierFor(fallback));
+
+        DesignVersion resolved = kind.UnstampedSource switch
+        {
+            // game.dat: GetDesignVersion seeks back to 0 and reads the double there regardless
+            // (Globals.cpp:3460), so the payload's own first field *is* the container version.
+            UnstampedVersionSource.PayloadFirstField => new DesignVersion(reader.ReadDouble()),
+
+            // Databases: min(globalData.version, 0.696) -- caller must supply it.
+            UnstampedVersionSource.CappedGlobalVersion =>
+                unstampedFallbackOverride ?? kind.UnstampedFallback,
+
+            // *.lvl: a literal constant.
+            _ => unstampedFallbackOverride ?? kind.UnstampedFallback,
+        };
+
+        // Payload always starts at 0 when there is no magic -- including for game.dat, where the
+        // version double is re-read as GLOBAL_STATS's first serialized field.
+        stream.Seek(0, SeekOrigin.Begin);
+        return new DesignFileHeader(resolved, PayloadOffset: 0, HadMagic: false, kind.TierFor(resolved));
     }
 
     /// <summary>

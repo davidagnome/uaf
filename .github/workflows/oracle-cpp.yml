@@ -137,6 +137,28 @@ jobs:
         id: uafwined
         run: msbuild src\UAFWinEd\UAFWinEd_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
 
+      # Stage the editor's install layout beside the exe.
+      #
+      # The editor resolves its own resources from the EXECUTABLE's directory
+      # (EDITOR_ENVIRONMENT::DefaultFoldersFromExecutable, Globals.cpp:467):
+      #     <exeDir>\EditorResources\        -- MAPART, help files
+      #     <exeDir>\TemplateDesign.dsn\     -- BASS.DLL, ReadMe.txt, Data\, Resources\
+      # A build output folder has none of it, which is why LoadConfigFile fails ("Please
+      # re-install Dungeon Craft") and why saveDesign() fails when it tries to copy BASS.DLL out
+      # of the template dir. Staging it here fixes both without touching the source tree.
+      - name: Stage editor install layout
+        shell: pwsh
+        run: |
+          $rel = "src\UAFWinEd\Release"
+          New-Item -ItemType Directory -Force -Path $rel | Out-Null
+          Copy-Item "src\UAFWinEd\EditorResources" "$rel\EditorResources" -Recurse -Force
+          Copy-Item "src\UAFWinEd\DefaultDesign.dsn" "$rel\TemplateDesign.dsn" -Recurse -Force
+          # TemplateOverlandArtDir() is <template>\Resources\; create it even if empty so the
+          # lookup has somewhere to look rather than failing on a missing directory.
+          New-Item -ItemType Directory -Force -Path "$rel\TemplateDesign.dsn\Resources" | Out-Null
+          Write-Host "staged:"
+          Get-ChildItem $rel -Directory | ForEach-Object { "  $($_.Name)" }
+
       # Produce the golden file. -dumpjson sets headless mode, which suppresses every modal
       # dialog (MsgBoxError would otherwise block until the job times out). -config is
       # mandatory: OpenDesign("") falls back to XBrowseForFolder, a modal folder picker.

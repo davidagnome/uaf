@@ -114,7 +114,7 @@ public class OracleDiffTests
         var g = root.GetProperty("globalData");
 
         using var fs = File.OpenRead(DataFile("game.dat"));
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var ar = new MfcArchiveReader(fs);
 
@@ -178,7 +178,7 @@ public class OracleDiffTests
         var g = root.GetProperty("globalData");
 
         using var fs = File.OpenRead(DataFile("game.dat"));
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var ar = new MfcArchiveReader(fs);
 

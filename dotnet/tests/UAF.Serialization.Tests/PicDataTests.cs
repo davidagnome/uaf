@@ -62,7 +62,7 @@ public class PicDataTests
     /// <summary>Positions the reader at the SmallPicImport count and returns the content version.</summary>
     private static MfcArchiveReader SeekToSmallPicImports(FileStream fs, out DesignVersion version)
     {
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var ar = new MfcArchiveReader(fs);
 

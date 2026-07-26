@@ -29,7 +29,7 @@ public class GlobalStatsLoadBranchTests
 
     private static MfcArchiveReader SeekPastScalarPrefix(FileStream fs, out DesignVersion contentVersion)
     {
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
         fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
         var ar = new MfcArchiveReader(fs);
 
@@ -45,22 +45,28 @@ public class GlobalStatsLoadBranchTests
     }
 
     [Fact]
-    public void Container_version_and_content_version_are_different_values()
+    public void For_game_dat_the_container_and_content_versions_are_the_same_bytes()
     {
         using var fs = File.OpenRead(GameDat());
-        var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
+        var header = DesignFileHeader.Read(fs, DesignFileKind.GameData);
 
-        // The container has no magic, so it resolves to the 0.572 fallback -- that value selects
-        // the archive tier and nothing else.
-        Assert.Equal(DesignVersion.V0572, header.Version);
-
-        // The payload's own first field is the version every content gate compares against.
         SeekPastScalarPrefix(fs, out var contentVersion);
+
+        // For an unstamped game.dat these are literally the same eight bytes, read twice: once by
+        // GetDesignVersion to choose the archive (Globals.cpp:3460 seeks back to 0 when there is
+        // no magic), and once by GLOBAL_STATS::Serialize as its first field.
+        //
+        // An earlier revision of this test asserted they DIFFER, on the mistaken belief that
+        // game.dat used LoadLevel's 0.572 fallback. It does not -- that rule belongs to *.lvl.
+        Assert.Equal(header.Version.Value, contentVersion.Value, precision: 10);
         Assert.Equal(0.915025, contentVersion.Value, precision: 10);
 
-        // They must not be conflated: 0.572 would take the pre-0.830 branch (font name + size,
-        // no LOGFONT blob) and desynchronise everything after it.
-        Assert.NotEqual(header.Version, contentVersion);
+        // The distinction between the two is still real for *.lvl, where the container falls back
+        // to a literal 0.572 that has nothing to do with the payload's contents.
+        Assert.Equal(DesignVersion.V0572, DesignFileKind.LevelData.UnstampedFallback);
+        Assert.Equal(UnstampedVersionSource.PayloadFirstField, DesignFileKind.GameData.UnstampedSource);
+        Assert.Equal(UnstampedVersionSource.FixedFallback, DesignFileKind.LevelData.UnstampedSource);
+
         Assert.True(contentVersion >= DesignVersion.V0830, "content version selects the LOGFONT blob branch");
     }
 
