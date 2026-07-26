@@ -182,7 +182,10 @@ jobs:
           # not golden data and must not be treated as ground truth.
           $meta = (Get-Content $out -Raw | ConvertFrom-Json)._meta
           if (-not $meta.ok) {
-            Write-Host "::error::design failed to load (_meta.ok = false); dump is not golden data"
+            Write-Host "--- diagnostics ---"
+            $meta.diagnostics | ForEach-Object { Write-Host "  $_" }
+            Write-Host "foldersReady=$($meta.foldersReady) designLoaded=$($meta.designLoaded)"
+            Write-Host "::error::design failed to load; dump is not golden data"
             exit 1
           }
           Write-Host "design loaded OK; version $($meta.designVersion)"

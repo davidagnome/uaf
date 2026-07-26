@@ -35,8 +35,10 @@
 // afterwards produces a cascade of syntax errors inside <xlocale> plus a `size_t` redefinition:
 // one of the legacy headers below defines a macro that collides with STL internals. stdafx.h
 // stays first because it is the precompiled header.
+#include <cstdarg>
 #include <fstream>
 #include <string>
+#include <vector>
 #include <json.hpp>
 
 #include "externs.h"
@@ -131,6 +133,26 @@ static json DumpDatabaseCounts(void)
   return j;
 }
 
+// Headless diagnostics.
+//
+// WriteDebugString writes to LOG_ERROR_PATH from config.txt, which in the committed
+// DefaultDesign points at a developer's absolute path (D:\DungeonCraft\...) and therefore goes
+// nowhere useful on a CI runner. Since the JSON file is the only artefact that reliably escapes
+// the process, diagnostics are collected here and emitted under _meta.diagnostics.
+static std::vector<std::string> g_diagnostics;
+
+static void Diag(const char *fmt, ...)
+{
+  char buffer[1024];
+  va_list args;
+  va_start(args, fmt);
+  _vsnprintf(buffer, sizeof(buffer) - 1, fmt, args);
+  va_end(args);
+  buffer[sizeof(buffer) - 1] = 0;
+  g_diagnostics.push_back(std::string(buffer));
+  WriteDebugString("%s\n", buffer);
+}
+
 // Load the design's data ourselves.
 //
 // CUAFWinEdApp::OpenDesign only resolves folders and reads config.txt -- it does NOT read any
@@ -145,21 +167,29 @@ static bool LoadDesignDataHeadless(void)
   CString designDir = rte.DesignDir();
   CString dataDir   = rte.DataDir();
 
+  Diag("designDir = '%s'", (LPCSTR)designDir);
+  Diag("dataDir   = '%s'", (LPCSTR)dataDir);
+  Diag("configDir = '%s'", (LPCSTR)rte.ConfigDir());
+
+  // Report what is actually on disk where we are about to look. A wrong path is otherwise
+  // indistinguishable from a corrupt file.
+  CString gameDat = dataDir + "game.dat";
+  Diag("game.dat exists = %s", FileExists(gameDat) ? "yes" : "no");
+
   if (!loadDesign((LPCSTR)designDir))
   {
-    WriteDebugString("DumpDesignJson: loadDesign(%s) failed\n", (LPCSTR)designDir);
+    Diag("loadDesign('%s') FAILED", (LPCSTR)designDir);
     return false;
   }
+  Diag("loadDesign OK: designName='%s' version=%.6f",
+       (LPCSTR)globalData.designName, globalData.version);
 
   // Databases are separate files loaded independently of game.dat. Their absence is not fatal
-  // for the dump -- a design need not define every database -- so failures are logged, not
+  // for the dump -- a design need not define every database -- so failures are recorded, not
   // propagated. The record counts in the output reveal what actually loaded.
-  if (loadData(itemData,    (LPCSTR)(dataDir + "items.dat"))    == 0)
-    WriteDebugString("DumpDesignJson: no items loaded\n");
-  if (loadData(monsterData, (LPCSTR)(dataDir + "monsters.dat")) == 0)
-    WriteDebugString("DumpDesignJson: no monsters loaded\n");
-  if (loadData(spellData,   (LPCSTR)(dataDir + "spells.dat"))   == 0)
-    WriteDebugString("DumpDesignJson: no spells loaded\n");
+  Diag("items    -> %d", loadData(itemData,    (LPCSTR)(dataDir + "items.dat")));
+  Diag("monsters -> %d", loadData(monsterData, (LPCSTR)(dataDir + "monsters.dat")));
+  Diag("spells   -> %d", loadData(spellData,   (LPCSTR)(dataDir + "spells.dat")));
 
   return true;
 }
@@ -168,6 +198,12 @@ bool DumpDesignJson(const CString& outPath, bool foldersReady)
 {
   // `foldersReady` reports whether OpenDesign succeeded, i.e. whether the paths and config are
   // usable. The design data itself is loaded here.
+  if (!foldersReady)
+  {
+    // OpenDesign failed before we ever got a chance to load. Most likely LoadConfigFile
+    // (UAFWinEd.cpp:660) could not read <design>\Data\config.txt.
+    Diag("OpenDesign FAILED - folders/config not ready; no load attempted");
+  }
   bool designLoaded = foldersReady && LoadDesignDataHeadless();
 
   json root;
@@ -178,7 +214,13 @@ bool DumpDesignJson(const CString& outPath, bool foldersReady)
   // ok=false means the design failed to load; the remaining fields are then whatever
   // default-constructed state the globals happen to hold and must NOT be used as golden data.
   // A caller seeing no file at all has a different problem -- see the note in InitInstance.
+  // Separate flags, because `ok` alone cannot distinguish the two failure points:
+  //   foldersReady=false -> OpenDesign failed (config/paths); no load was attempted
+  //   foldersReady=true, designLoaded=false -> loadDesign itself failed
+  meta["foldersReady"]   = foldersReady;
+  meta["designLoaded"]   = designLoaded;
   meta["ok"]             = designLoaded;
+  meta["diagnostics"]    = g_diagnostics;
   meta["productVersion"] = D(PRODUCT_VER);
   meta["engineVersion"]  = D(ENGINE_VER);
   meta["designPath"]     = S(rte.DesignDir());
