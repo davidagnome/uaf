@@ -1,0 +1,111 @@
+# Reference ("oracle") build of the legacy C++ tree.
+#
+# Purpose: the C# port in dotnet/ is validated by diffing its output against this
+# build's output on identical inputs. See docs/PORTING-PLAN.md section 7, Phase 0.
+#
+# The steps below use continue-on-error so a single run reports EVERY breakage
+# rather than stopping at the first. Once the tree builds green, flip
+# ORACLE_STRICT to '1' (or remove the continue-on-error lines) to make it gating.
+
+name: Oracle (C++ reference build)
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'oracle/**'
+      - '.github/workflows/oracle-cpp.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: MSVC v143 / Win32
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Report toolchain
+        shell: pwsh
+        run: |
+          msbuild -version
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          & $vswhere -latest -products * -property installationVersion
+          Write-Host "--- Installed VC components (MFC/ATL) ---"
+          & $vswhere -latest -products * -property installationPath |
+            ForEach-Object { Get-ChildItem "$_\VC\Tools\MSVC" -Directory | Select-Object -Expand Name }
+          Write-Host "--- MFC headers present? ---"
+          & $vswhere -latest -products * -property installationPath |
+            ForEach-Object { Test-Path "$_\VC\Tools\MSVC\*\atlmfc\include\afxwin.h" }
+
+      # ddraw.lib was moved out of the Windows SDK into the legacy DirectX SDK.
+      # Probe for it explicitly so a missing lib is an obvious diagnostic rather
+      # than an opaque LNK1104 buried in the UAFWin log.
+      - name: Probe DirectDraw link inputs
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $sdk = "${env:ProgramFiles(x86)}\Windows Kits\10\Lib"
+          Write-Host "SDK lib roots:"; Get-ChildItem $sdk -Directory | Select-Object -Expand Name
+          foreach ($lib in @('ddraw.lib','dxguid.lib','dsound.lib','vfw32.lib','winmm.lib','amstrmid.lib')) {
+            $hit = Get-ChildItem -Path $sdk -Recurse -Filter $lib -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -match '\\x86\\' } | Select-Object -First 1
+            if ($hit) { Write-Host "  FOUND   $lib -> $($hit.FullName)" }
+            else      { Write-Host "  MISSING $lib" }
+          }
+
+      - name: Build CDX (static lib)
+        id: cdx
+        continue-on-error: true
+        run: msbuild src\cdx\CDX_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+
+      - name: Build GPDLcomp (script compiler)
+        id: gpdl
+        continue-on-error: true
+        run: msbuild src\GPDL\GPDLcomp_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+
+      - name: Build UAFWin (engine)
+        id: uafwin
+        continue-on-error: true
+        run: msbuild src\UAFWin\UAFWin_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+
+      - name: Build UAFWinEd (editor)
+        id: uafwined
+        continue-on-error: true
+        run: msbuild src\UAFWinEd\UAFWinEd_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          $rows = @(
+            @{ n='CDX';       r='${{ steps.cdx.outcome }}' }
+            @{ n='GPDLcomp';  r='${{ steps.gpdl.outcome }}' }
+            @{ n='UAFWin';    r='${{ steps.uafwin.outcome }}' }
+            @{ n='UAFWinEd';  r='${{ steps.uafwined.outcome }}' }
+          )
+          "| Project | Result |"           | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+          "|---|---|"                      | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+          foreach ($x in $rows) {
+            $icon = if ($x.r -eq 'success') { '✅' } else { '❌' }
+            "| $($x.n) | $icon $($x.r) |"  | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+          }
+          if ($env:ORACLE_STRICT -eq '1' -and ($rows | Where-Object { $_.r -ne 'success' })) {
+            throw "One or more reference builds failed and ORACLE_STRICT=1"
+          }
+
+      - name: Upload binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-binaries
+          path: |
+            src/**/Release/*.exe
+            src/**/Release/*.lib
+          if-no-files-found: warn

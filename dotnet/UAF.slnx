@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/UAF.Common/UAF.Common.csproj" />
+    <Project Path="src/UAF.Data/UAF.Data.csproj" />
+    <Project Path="src/UAF.Serialization/UAF.Serialization.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/UAF.Serialization.Tests/UAF.Serialization.Tests.csproj" />
+  </Folder>
+</Solution>

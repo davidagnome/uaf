@@ -1,0 +1,54 @@
+# Build and test the .NET 10 port (dotnet/).
+# The legacy C++ reference build lives in oracle-cpp.yml.
+
+name: .NET
+
+on:
+  push:
+    paths:
+      - 'dotnet/**'
+      - 'src/Shared/Externs.h'
+      - 'src/Shared/Globals.cpp'
+      - '.github/workflows/dotnet.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore dotnet/UAF.sln
+
+      - name: Build
+        run: dotnet build dotnet/UAF.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test dotnet/UAF.sln --no-build -c Release --verbosity normal
+
+  generated-code-is-current:
+    # DesignVersion.Generated.cs is transcribed from the C++ headers. If someone edits
+    # Externs.h or Globals.cpp without re-running the generator, the port silently drifts
+    # away from the reference implementation's version gates.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check DesignVersion.Generated.cs is up to date
+        run: python3 dotnet/tools/gen-design-versions.py --check
