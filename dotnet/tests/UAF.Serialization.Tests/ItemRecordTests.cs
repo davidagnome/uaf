@@ -84,6 +84,32 @@ public class ItemRecordTests
     }
 
     [Fact]
+    public void Arrow_scalars_read_with_editor_semantics()
+    {
+        using var fs = File.OpenRead(ItemsDat());
+        var header = DesignFileHeader.Read(fs, DesignFileKind.Items);
+        fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
+        var ar = new MfcArchiveReader(fs);
+        ar.ReadInt32();                                        // record count
+
+        ItemRecordReader.ReadNames(ar, header.Version);
+
+        // DefaultDesign was written with EDITOR semantics: at 0.915 the editor skips
+        // HitArt/MissileArt, so the scalar block follows the sounds directly. Confirmed by the
+        // data -- reading straight on yields "Bow" as Arrow's ammo type, which is meaningful;
+        // engine semantics would consume two PIC_DATA records here and produce garbage.
+        Assert.False(ItemRecordReader.ReadsHitAndMissileArt(ArchiveRole.Editor, header.Version));
+
+        var scalars = ItemRecordReader.ReadScalars(ar, header.Version);
+
+        Assert.Equal("Bow", scalars.AmmoType);
+        Assert.InRange(scalars.Cost, 0, 1_000_000);
+        Assert.InRange(scalars.Encumbrance, 0, 10_000);
+        Assert.InRange(scalars.Cursed, 0, 1);
+        Assert.InRange(scalars.BundleQty, 0, 1000);
+    }
+
+    [Fact]
     public void Oracle_item_names_show_the_pipe_qualifier_convention()
     {
         if (Golden() is not { } root) { return; }

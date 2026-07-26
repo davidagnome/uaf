@@ -27,6 +27,12 @@ public sealed record ItemNames(int PreSpellNameKey, string UniqueName, string Id
                                string HitSound, string MissSound, string LaunchSound);
 
 /// <summary>
+/// The scalar block following the art, read as <c>long</c>/<c>BOOL</c> — all 4 bytes on Win32.
+/// </summary>
+public sealed record ItemScalars(string AmmoType, int Experience, int Cost, int Encumbrance,
+                                 int AttackBonus, int Cursed, int BundleQty, int NumCharges);
+
+/// <summary>
 /// Reads <c>ITEM_DATA</c> records as written through <c>CAR</c> (<c>Items.cpp:2749</c>).
 /// </summary>
 /// <remarks>
@@ -81,4 +87,44 @@ public static class ItemRecordReader
     /// </summary>
     public static bool ReadsHitAndMissileArt(ArchiveRole role, DesignVersion version) =>
         role == ArchiveRole.Engine || version > DesignVersion.SpellIDs;
+
+    /// <summary>
+    /// Reads the scalar block that follows the art (<c>Items.cpp:2804</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Call only after <see cref="ReadsHitAndMissileArt"/> has been honoured — when it returns
+    /// true, two <c>PIC_DATA</c> records sit between the sounds and this block.
+    /// </para>
+    /// <para>
+    /// <c>Experience</c> through <c>Num_Charges</c> are declared <c>long</c> and <c>Cursed</c> is
+    /// <c>BOOL</c> (<c>Items.h:120-126</c>) — all 4 bytes on Win32. <c>Cursed</c> is kept as
+    /// <c>int</c> rather than <c>bool</c>: the <c>AutoDarkenAmount</c> precedent shows this
+    /// codebase stores non-boolean values in <c>BOOL</c> fields, and narrowing would be lossy.
+    /// </para>
+    /// </remarks>
+    public static ItemScalars ReadScalars(MfcArchiveReader ar, DesignVersion version)
+    {
+        string ammoType = string.Empty;
+        if (version >= DesignVersion.V0690)
+        {
+            ammoType = ArchiveStringConventions.Decode(ar.ReadString());
+        }
+        // Items.cpp:2807 normalises "None" to empty after reading. Reproduced so the value
+        // matches what the oracle reports rather than what the bytes literally say.
+        if (string.Equals(ammoType, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            ammoType = string.Empty;
+        }
+
+        return new ItemScalars(
+            ammoType,
+            Experience: ar.ReadInt32(),
+            Cost: ar.ReadInt32(),
+            Encumbrance: ar.ReadInt32(),
+            AttackBonus: ar.ReadInt32(),
+            Cursed: ar.ReadInt32(),
+            BundleQty: ar.ReadInt32(),
+            NumCharges: ar.ReadInt32());
+    }
 }
