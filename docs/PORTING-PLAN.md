@@ -434,12 +434,20 @@ The port cannot be validated without a reference implementation that runs.
 | MFC availability | Resolved by pinning `windows-2022`, which ships MFC x86 for v143 natively. The first attempt used `windows-latest`, which has moved to VS 2026 / MSBuild 18.x (default toolset v144) and lacks MFC for v143 × Win32 — `MSB8041`. A wildcard `Test-Path` for `afxwin.h` reported a false positive; probe **per toolset and per architecture** (`atlmfc\lib\<arch>\nafxcw.lib`) instead. |
 | Build GPDLcomp | **Green.** First reference binary building from source. |
 | UAFWin / UAFWinEd — compile | Fixed: `Shared/MessageMap.h` declared `std::unordered_map<std::string, std::string>` while including only `<unordered_map>`. Older MSVC headers pulled in `<string>` transitively; v143 does not. `MessageMap.h` is the *only* header in the tree that uses the standard library, so this is a class of one. |
-| UAFWin / UAFWinEd — link | `LNK1181: cannot open input file 'vfw32.lib'`. The legacy multimedia import libs are not in every Windows SDK: on `windows-2022` they live in **10.0.17763.0**, but `WindowsTargetPlatformVersion = 10.0` resolves to the newest installed (10.0.19041.0), which lacks them. Fixed by pinning all four projects to `10.0.17763.0`. |
+| UAFWin / UAFWinEd — link | `LNK1181: cannot open input file 'vfw32.lib'`. **Root cause: hardcoded `<LibraryPath>` overrides** pointing at a 2015 developer machine — `C:\Development\UAF\DX8SDK\lib`, Windows Kits **8.1**, and SDK `10.0.10240.0`. Because `LibraryPath` *replaces* the default rather than appending, `WindowsTargetPlatformVersion` never got a say. Fixed by deleting the four overrides (2 each in UAFWin and UAFWinEd). GPDLcomp and CDX have no such override, which is exactly why GPDLcomp was the only target that built. |
 
-**The SDK version is a real pin, not a detail.** `10.0` means "newest installed", so the build
-silently depends on which SDKs an image happens to carry — the same class of drift that moved MFC
-out from under the build. Both the toolset and the SDK are now pinned, and the probe reports
-lib availability per SDK version so any future drift names itself in one run.
+Also removed: a `PostBuildEvent` in UAFWinEd's Debug configuration copying the exe to
+`C:\Users\Shadow\Downloads\...`. It would not fire on a Release build, but it breaks any Debug build.
+
+**A false lead worth recording.** The first theory was that `10.0` resolved to an SDK lacking the
+legacy multimedia libs. The per-SDK probe disproved it — every installed SDK from `10.0.17763.0`
+upward carries all six libs; only `10.0.10240.0` lacks them, and only the hardcoded override
+pointed there. The lesson is that a probe must answer the question *the linker* asks ("is it on the
+search path?"), not the one that is easy to ask ("does it exist somewhere?"). The same mistake
+produced a false positive on MFC one round earlier.
+
+The SDK pin (`10.0.17763.0`) was kept anyway: it costs nothing, makes the oracle reproducible, and
+the probe now fails loudly if that SDK ever disappears from the image.
 
 Two durable lessons for the CI: **pin the runner image** (image drift moved MFC out from under
 the build), and remember that `continue-on-error` rewrites a step's `conclusion` to `success` —

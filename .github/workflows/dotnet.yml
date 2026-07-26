@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: dotnet-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     strategy:

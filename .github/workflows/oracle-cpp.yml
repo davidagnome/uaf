@@ -21,6 +21,12 @@ on:
 permissions:
   contents: read
 
+# UAFWinEd takes ~10 min to compile. Without this, pushing three times in a row leaves three
+# full builds racing and makes it ambiguous which run's artifacts are current.
+concurrency:
+  group: oracle-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: MSVC v143 / Win32
