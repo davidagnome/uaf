@@ -107,13 +107,21 @@ public class GlobalStatsPayloadTests
         Assert.Equal(0, autoDarkenViewport);
         Assert.Equal(256, autoDarkenAmount);
 
-        // Nor asserting the maxParty_maxPCs bit-packing. The raw value here is 8, which unpacks
-        // to maxPartySize=0 / maxPCs=8 -- so this pre-0.998 design predates the packing, or the
-        // packing is version-gated somewhere not yet traced. Recording the raw value keeps the
-        // test honest; the C++ oracle's dump (which emits both raw and unpacked) settles it.
         Assert.Equal(1, minPCs);
-        Assert.Equal(8, maxPartyMaxPCs);
         Assert.Equal(1, flags);
+
+        // maxParty_maxPCs packs partySize in the high 16 bits and maxPCs in the low 16. The RAW
+        // stored value is 8 -> maxPCs=8, partySize=0. That zero is not the effective value: the
+        // loading branch repairs it with
+        //     if (GetMaxPartySize() == 0) SetMaxPartySize(GetMaxPCs() + 2);   GlobalData.cpp:3983
+        // so the effective party size is 10, which is what the C++ oracle reports. A reader that
+        // stops at the raw bytes yields a party size of zero.
+        Assert.Equal(8, maxPartyMaxPCs);
+        Assert.Equal(8, maxPartyMaxPCs & 0xffff);      // maxPCs, as stored
+        Assert.Equal(0, maxPartyMaxPCs >> 16);         // partySize, as stored -- needs repair
+        Assert.Equal(10, (maxPartyMaxPCs >> 16) == 0
+                            ? (maxPartyMaxPCs & 0xffff) + 2
+                            : maxPartyMaxPCs >> 16);   // effective value after the repair
     }
 
     [Fact]

@@ -191,20 +191,47 @@ static bool LoadDesignDataHeadless(void)
   CString designDir = rte.DesignDir();
   CString dataDir   = rte.DataDir();
 
-  if (!loadDesign((LPCSTR)designDir))
-  {
-    Diag("loadDesign('%s') FAILED", (LPCSTR)designDir);
-    return false;
-  }
-  Diag("loadDesign OK: designName='%s' version=%.6f",
+  BOOL loadResult = loadDesign((LPCSTR)designDir);
+  Diag("loadDesign returned %s: designName='%s' version=%.6f",
+       loadResult ? "TRUE" : "FALSE",
        (LPCSTR)globalData.designName, globalData.version);
 
-  // Databases are separate files loaded independently of game.dat. Their absence is not fatal
-  // for the dump -- a design need not define every database -- so failures are recorded, not
-  // propagated. The record counts in the output reveal what actually loaded.
-  Diag("items    -> %d", loadData(itemData,    (LPCSTR)(dataDir + "items.dat")));
-  Diag("monsters -> %d", loadData(monsterData, (LPCSTR)(dataDir + "monsters.dat")));
-  Diag("spells   -> %d", loadData(spellData,   (LPCSTR)(dataDir + "spells.dat")));
+  // A FALSE return does NOT mean the data failed to load. loadDesign ends with
+  //     if (success) success = CheckLevelVersions(name);
+  // (Level.cpp:3431), and CheckLevelVersions is a level-file *naming* migration check: it offers
+  // to renumber Level000.lvl -> Level001.lvl and then looks for the new names. Headless declines
+  // that rename (an oracle must not modify its fixture), so the check fails on any design still
+  // using the old numbering -- while globalData and the databases are already correctly
+  // populated. Judge success by whether the data actually arrived.
+  bool dataPresent = !globalData.designName.IsEmpty();
+  if (!dataPresent)
+  {
+    Diag("no design data present after loadDesign - treating as failure");
+    return false;
+  }
+  if (!loadResult)
+  {
+    Diag("loadDesign reported failure but data is present (likely CheckLevelVersions"
+         " declining the Level000->Level001 rename) - continuing");
+  }
+
+  // loadDesign already pulls in the databases, so only load any that came back empty. Their
+  // absence is not fatal -- a design need not define every database -- so failures are recorded,
+  // not propagated. The record counts in the output reveal what actually loaded.
+  if (itemData.GetCount() == 0)
+    Diag("items    -> %d (loaded separately)", loadData(itemData,    (LPCSTR)(dataDir + "items.dat")));
+  else
+    Diag("items    -> %d (via loadDesign)", itemData.GetCount());
+
+  if (monsterData.GetCount() == 0)
+    Diag("monsters -> %d (loaded separately)", loadData(monsterData, (LPCSTR)(dataDir + "monsters.dat")));
+  else
+    Diag("monsters -> %d (via loadDesign)", monsterData.GetCount());
+
+  if (spellData.GetCount() == 0)
+    Diag("spells   -> %d (loaded separately)", loadData(spellData,   (LPCSTR)(dataDir + "spells.dat")));
+  else
+    Diag("spells   -> %d (via loadDesign)", spellData.GetCount());
 
   return true;
 }

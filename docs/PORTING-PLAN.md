@@ -692,11 +692,13 @@ Confirmed against `DefaultDesign.dsn/Data/game.dat` by walking
   in `GlobalData.h` but holds **256** in the fixture — it is an integer amount wearing a `BOOL`
   type. Mapping the C++ `BOOL` fields onto C# `bool` would silently destroy the value. Model
   every `BOOL` as `int` at the serialization layer and only interpret higher up.
-- **`maxParty_maxPCs` packing is not universal.** The accessors treat it as
-  `(partySize << 16) | maxPCs`, but the fixture's raw value is `8`, which unpacks to
-  `partySize = 0`. Either the packing postdates this design or it is version-gated somewhere not
-  yet traced. The dumper emits both the raw and unpacked forms precisely so the oracle can settle
-  this.
+- **`maxParty_maxPCs` is repaired after reading — the stored bytes are not the effective value.**
+  RESOLVED by the oracle. The accessors treat it as `(partySize << 16) | maxPCs`; the fixture's
+  raw value is `8`, so `maxPCs = 8` and `partySize = 0`. The loading branch then patches it:
+  `if (GetMaxPartySize() == 0) SetMaxPartySize(GetMaxPCs() + 2);` (`GlobalData.cpp:3983`), giving
+  the **10** the oracle reports. A reader that stops at the raw bytes gets a working party size of
+  zero. Post-read repair like this exists only in the loading branch, and is invisible from the
+  file alone — which is exactly the class of bug the oracle diff is for.
 - **Empty strings are sentinel-encoded.** The `AS`/`DAS` macros (`Externs.h:1937`) substitute
   `ArchiveBlank` — `"*"` (`Globals.cpp:167`) — for empty strings. `DAS` accepts a literal `"*"`
   *as well as* the configured sentinel, because released builds shipped with `"*"`; dropping that
