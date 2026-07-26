@@ -278,6 +278,26 @@ static bool LoadDesignDataHeadless(void)
   return true;
 }
 
+// Re-save the loaded design in place, which upgrades it to PRODUCT_VER.
+//
+// This is how a tier-3 (LZW-compressed) fixture is produced without driving the editor GUI.
+// saveDesign() sets globalData.version = PRODUCT_VER (Level.cpp:2756) -- 5.29, well past the
+// 0.930 _SPECIAL_ABILITIES_VERSION_ gate at which the databases enable Compress(true) -- so the
+// rewritten files exercise the LZW path that no design in the repository otherwise reaches.
+//
+// DESTRUCTIVE: writes over the design at rte.DataDir(). The caller must point it at a copy.
+static bool SaveDesignHeadless(void)
+{
+  Diag("saving design (will upgrade %.6f -> %.6f)", globalData.version, PRODUCT_VER);
+  if (!saveDesign())
+  {
+    Diag("saveDesign() FAILED");
+    return false;
+  }
+  Diag("saveDesign OK; design version is now %.6f", globalData.version);
+  return true;
+}
+
 bool DumpDesignJson(const CString& outPath, bool configLoaded)
 {
   // `configLoaded` reports whether config.txt was read successfully. The design data itself
@@ -300,6 +320,14 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
   }
   bool designLoaded = LoadDesignDataHeadless();
 
+  // -savedesign: re-save after loading, before dumping, so the dump describes the UPGRADED
+  // design rather than the one on disk beforehand.
+  bool designSaved = false;
+  if (designLoaded && cmdLine.m_SaveDesign)
+  {
+    designSaved = SaveDesignHeadless();
+  }
+
   json root;
 
   // Provenance: which binary produced this, and from what. Without this a stale
@@ -312,6 +340,7 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
   //   configLoaded=false  -> config.txt unusable (often just missing editor install art)
   //   designLoaded=false  -> the design data itself could not be read; ok is false
   meta["configLoaded"]    = configLoaded;
+  meta["designSaved"]     = designSaved;   // -savedesign: design was re-saved at PRODUCT_VER
   meta["designLoaded"]   = designLoaded;
   meta["ok"]             = designLoaded;
   meta["diagnostics"]    = g_diagnostics;

@@ -848,6 +848,13 @@ void CUAFCommandLineInfo::ParseParam(LPCTSTR lpszParam, BOOL bFlag, BOOL bLast )
       m_ScriptFilename = FlagValue;
     };
 
+    if (stricmp(FlagKey, "savedesign") == 0)
+    {
+      // Re-save the loaded design, upgrading it to PRODUCT_VER. Used to generate a tier-3
+      // (LZW-compressed) fixture headlessly. OVERWRITES the target -- run it on a copy.
+      m_SaveDesign = TRUE;
+    };
+
     if (stricmp(FlagKey, "dumpjson") == 0)
     {
       // Oracle mode: dump the loaded design as canonical JSON and exit.

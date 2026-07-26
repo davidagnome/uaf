@@ -1890,6 +1890,7 @@ public:
   { 
     m_forceAV=FALSE;
     m_initializeGame = FALSE;
+    m_SaveDesign = FALSE;
     m_ConfigFilename=""; 
     m_level=-1;
     m_sx=-1;m_sy=-1;m_facing=-1; 
@@ -1901,6 +1902,11 @@ public:
   // JSON, then exit without creating a window. This is the "oracle" mode used to validate the
   // .NET port against this reference implementation. See docs/PORTING-PLAN.md.
   CString m_DumpJsonFilename;
+  // -savedesign: after loading (and before dumping), re-save the design in place. saveDesign()
+  // stamps globalData.version = PRODUCT_VER (5.29), which is past the 0.930 compression gate, so
+  // the result is a tier-3 LZW design. This is how the LZW fixture is generated without driving
+  // the editor GUI. It OVERWRITES the design it is pointed at -- always run it on a copy.
+  BOOL m_SaveDesign;
   int m_level;
   int m_sx;
   int m_sy;

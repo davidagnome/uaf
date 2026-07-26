@@ -190,6 +190,57 @@ jobs:
           }
           Write-Host "design loaded OK; version $($meta.designVersion)"
 
+      # Generate the tier-3 (LZW) fixture.
+      #
+      # No design in the repository exercises CAR's compression path: DefaultDesign is 0.915025,
+      # which is tier 1 or 2 everywhere. Re-saving it stamps PRODUCT_VER (5.29), past the 0.930
+      # gate at which the databases enable Compress(true) -- so the rewritten files are exactly
+      # the fixture the C# LZW decoder needs.
+      #
+      # Runs on a COPY: -savedesign overwrites the design in place, and the pristine
+      # DefaultDesign is the baseline for every other test.
+      - name: Generate tier-3 (LZW) fixture
+        id: tier3
+        continue-on-error: true
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $exe    = (Resolve-Path "src\UAFWinEd\Release\UAFWinEd.exe").Path
+          $src    = (Resolve-Path "src\UAFWinEd\DefaultDesign.dsn").Path
+          $copy   = "$env:RUNNER_TEMP\Tier3Design.dsn"
+          $out    = "$env:RUNNER_TEMP\Tier3Design.json"
+          Copy-Item $src $copy -Recurse -Force
+          Write-Host "copy: $copy"
+
+          $p = Start-Process -FilePath $exe `
+                             -ArgumentList @("`"-config $copy`"", '"-savedesign"', "`"-dumpjson $out`"") `
+                             -Wait -PassThru -NoNewWindow
+          Write-Host "exit code: $($p.ExitCode)"
+          if (-not (Test-Path $out)) { Write-Host "::error::no tier-3 dump produced"; exit 1 }
+
+          $meta = (Get-Content $out -Raw | ConvertFrom-Json)._meta
+          Write-Host "designSaved=$($meta.designSaved) version=$($meta.designVersion)"
+          $meta.diagnostics | ForEach-Object { Write-Host "  $_" }
+          if (-not $meta.designSaved) { Write-Host "::error::save did not happen"; exit 1 }
+          if ($meta.designVersion -lt 0.930) {
+            Write-Host "::error::saved design is $($meta.designVersion), below the 0.930 compression gate - not a tier-3 fixture"
+            exit 1
+          }
+
+          # Package the rewritten design so it can be committed as a fixture.
+          New-Item -ItemType Directory -Force -Path tier3 | Out-Null
+          Copy-Item "$copy\Data\*" tier3\ -Force
+          Copy-Item $out "tier3\Tier3Design.json" -Force
+          Get-ChildItem tier3 | ForEach-Object { "{0,-20} {1,8} bytes" -f $_.Name, $_.Length }
+
+      - name: Upload tier-3 fixture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tier3-fixture
+          path: tier3/**
+          if-no-files-found: warn
+
       # Detect REFERENCE drift: if a committed golden file exists, the freshly generated dump must
       # still match it. A change here means the C++ side's behaviour moved, which invalidates the
       # baseline the C# port is being validated against -- so it must be seen, not silently
@@ -237,6 +288,7 @@ jobs:
             @{ n='UAFWin';    r='${{ steps.uafwin.outcome }}' }
             @{ n='UAFWinEd';  r='${{ steps.uafwined.outcome }}' }
             @{ n='JSON dump'; r='${{ steps.dump.outcome }}' }
+            @{ n='Tier-3 fixture'; r='${{ steps.tier3.outcome }}' }
           )
           "| Project | Result |"           | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
           "|---|---|"                      | Tee-Object -Append $env:GITHUB_STEP_SUMMARY

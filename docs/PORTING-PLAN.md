@@ -2,7 +2,7 @@
 
 **Targets:** `UAFWin` → **UAFcore** (game engine + player), `UAFWinEd` → **UAFedit** (design editor)
 **Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
-**Status:** Phase 0 in progress — reference build green, dumper landing; Phase 1 started
+**Status:** Phase 0 complete — reference build green, oracle diffing armed both ways. Phase 1 in progress
 **Date:** 2026-07-26
 
 ---
