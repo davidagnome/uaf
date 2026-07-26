@@ -418,6 +418,19 @@ The port cannot be validated without a reference implementation that runs.
 
 **Exit:** `uaf-dump DefaultDesign.dsn` produces stable JSON in CI, committed as golden files.
 
+#### Phase 0 status (verified in CI, run 30190681691)
+
+| Item | Result |
+|---|---|
+| Retarget to v143 / SDK 10.0 | Done — all four `*_vs2013.vcxproj` |
+| Legacy DirectX/multimedia link inputs | **All present** in Windows SDK 10.0.26100 x86: `ddraw.lib`, `dxguid.lib`, `dsound.lib`, `vfw32.lib`, `winmm.lib`, `amstrmid.lib`. The concern that `ddraw.lib` had been dropped was unfounded. |
+| Build CDX from source | **Not possible, and not needed.** `CDX_vs2013.vcxproj` compiles `..\PNG\*.c`; the libpng *sources* are not in this repository (only prebuilt `libpng*.lib` and headers under `src/Shared`). `src/Shared/cdx.lib` is prebuilt and committed, and MSVC guarantees binary compatibility from v140 onward, so the oracle links the prebuilt lib and skips the project. |
+| Build GPDLcomp / UAFWin / UAFWinEd | Blocked on `MSB8041` — MFC not installed **for the specific toolset+architecture** (v143 × Win32). Other toolsets on the image had MFC, which is why a wildcard probe reported a false positive. |
+
+Two durable lessons for the CI: pin the runner image (`windows-2022` has v143 native; `windows-latest`
+has moved to VS 2026 / MSBuild 18.x, default toolset v144), and probe MFC **per toolset and per
+architecture** (`atlmfc\lib\<arch>\nafxcw.lib`) rather than with a wildcard.
+
 > If restoring the C++ build proves intractable, the fallback oracle is the committed
 > `UAFWin.exe` / `UAFWinEd.exe` driven under Wine plus hand-decoding from hex — an order of
 > magnitude slower and far less complete. Phase 0 is worth real effort.

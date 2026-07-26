@@ -24,7 +24,10 @@ permissions:
 jobs:
   build:
     name: MSVC v143 / Win32
-    runs-on: windows-latest
+    # Pinned, not 'windows-latest'. The latest image ships VS 2026 (MSBuild 18.x) whose
+    # default toolset is v144; windows-2022 has VS 2022 with v143 native, matching what the
+    # retargeted vcxproj files ask for. See the MFC note on the install step below.
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v4
@@ -37,13 +40,19 @@ jobs:
         run: |
           msbuild -version
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          & $vswhere -latest -products * -property installationVersion
-          Write-Host "--- Installed VC components (MFC/ATL) ---"
-          & $vswhere -latest -products * -property installationPath |
-            ForEach-Object { Get-ChildItem "$_\VC\Tools\MSVC" -Directory | Select-Object -Expand Name }
-          Write-Host "--- MFC headers present? ---"
-          & $vswhere -latest -products * -property installationPath |
-            ForEach-Object { Test-Path "$_\VC\Tools\MSVC\*\atlmfc\include\afxwin.h" }
+          $vs = & $vswhere -latest -products * -property installationPath
+          Write-Host "VS install : $vs"
+          Write-Host "VS version : $(& $vswhere -latest -products * -property installationVersion)"
+          # Report MFC per toolset AND per architecture. A wildcard Test-Path is useless here:
+          # MSB8041 fires when MFC is missing for the specific toolset+arch being built, even
+          # though some other toolset has it.
+          Write-Host "--- MFC (nafxcw.lib) by toolset/arch ---"
+          Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | ForEach-Object {
+            foreach ($arch in @('x86','x64')) {
+              $lib = Join-Path $_.FullName "atlmfc\lib\$arch\nafxcw.lib"
+              "{0,-16} {1,-4} {2}" -f $_.Name, $arch, $(if (Test-Path $lib) { 'PRESENT' } else { 'missing' })
+            }
+          }
 
       # ddraw.lib was moved out of the Windows SDK into the legacy DirectX SDK.
       # Probe for it explicitly so a missing lib is an obvious diagnostic rather
@@ -61,10 +70,35 @@ jobs:
             else      { Write-Host "  MISSING $lib" }
           }
 
-      - name: Build CDX (static lib)
-        id: cdx
+      # Ensure MFC exists for the toolset+arch we actually build. windows-2022 normally ships
+      # ATLMFC, but the component set drifts between image releases, so install it idempotently
+      # rather than depending on the image. This is a no-op when already present.
+      - name: Ensure MFC for v143 (x86)
+        shell: pwsh
         continue-on-error: true
-        run: msbuild src\cdx\CDX_vs2013.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          if (Test-Path "$vs\VC\Tools\MSVC\*\atlmfc\lib\x86\nafxcw.lib") {
+            Write-Host "MFC x86 already present - skipping install."; exit 0
+          }
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          $args = @('modify','--installPath',"`"$vs`"",
+                    '--add','Microsoft.VisualStudio.Component.VC.ATLMFC',
+                    '--add','Microsoft.VisualStudio.Component.VC.v143.ATL',
+                    '--add','Microsoft.VisualStudio.Component.VC.v143.MFC',
+                    '--quiet','--norestart','--nocache')
+          Write-Host "Installing MFC components (this takes several minutes)..."
+          $p = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          Write-Host "vs_installer exit code: $($p.ExitCode)"
+          if (Test-Path "$vs\VC\Tools\MSVC\*\atlmfc\lib\x86\nafxcw.lib") { Write-Host "MFC x86 now PRESENT" }
+          else { Write-Host "::warning::MFC x86 still missing after install attempt" }
+
+      # NOTE: CDX is deliberately NOT built. CDX_vs2013.vcxproj compiles ..\PNG\*.c, and the
+      # libpng sources are not in this repository (only prebuilt libpng*.lib and headers under
+      # src/Shared). The prebuilt src/Shared/cdx.lib and cdxd.lib are what UAFWin actually links
+      # against, and MSVC guarantees binary compatibility from v140 onward, so rebuilding CDX is
+      # unnecessary for the oracle. Restore this step only if the PNG sources are ever vendored.
 
       - name: Build GPDLcomp (script compiler)
         id: gpdl
@@ -85,7 +119,6 @@ jobs:
         shell: pwsh
         run: |
           $rows = @(
-            @{ n='CDX';       r='${{ steps.cdx.outcome }}' }
             @{ n='GPDLcomp';  r='${{ steps.gpdl.outcome }}' }
             @{ n='UAFWin';    r='${{ steps.uafwin.outcome }}' }
             @{ n='UAFWinEd';  r='${{ steps.uafwined.outcome }}' }

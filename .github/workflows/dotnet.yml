@@ -32,13 +32,13 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore dotnet/UAF.sln
+        run: dotnet restore dotnet/UAF.slnx
 
       - name: Build
-        run: dotnet build dotnet/UAF.sln --no-restore -c Release
+        run: dotnet build dotnet/UAF.slnx --no-restore -c Release
 
       - name: Test
-        run: dotnet test dotnet/UAF.sln --no-build -c Release --verbosity normal
+        run: dotnet test dotnet/UAF.slnx --no-build -c Release --verbosity normal
 
   generated-code-is-current:
     # DesignVersion.Generated.cs is transcribed from the C++ headers. If someone edits
