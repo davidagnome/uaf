@@ -453,6 +453,32 @@ Two durable lessons for the CI: **pin the runner image** (image drift moved MFC 
 the build), and remember that `continue-on-error` rewrites a step's `conclusion` to `success` —
 only `outcome` (captured in the summary table) reports the truth.
 
+### Type traps found while reading real files
+
+Confirmed against `DefaultDesign.dsn/Data/game.dat` by walking
+`GLOBAL_STATS::Serialize(CArchive&)` (`GlobalData.cpp:3862`) field by field:
+
+- **`BOOL` is a 4-byte `int`, and is not always boolean.** `AutoDarkenAmount` is declared `BOOL`
+  in `GlobalData.h` but holds **256** in the fixture — it is an integer amount wearing a `BOOL`
+  type. Mapping the C++ `BOOL` fields onto C# `bool` would silently destroy the value. Model
+  every `BOOL` as `int` at the serialization layer and only interpret higher up.
+- **`maxParty_maxPCs` packing is not universal.** The accessors treat it as
+  `(partySize << 16) | maxPCs`, but the fixture's raw value is `8`, which unpacks to
+  `partySize = 0`. Either the packing postdates this design or it is version-gated somewhere not
+  yet traced. The dumper emits both the raw and unpacked forms precisely so the oracle can settle
+  this.
+- **Empty strings are sentinel-encoded.** The `AS`/`DAS` macros (`Externs.h:1937`) substitute
+  `ArchiveBlank` — `"*"` (`Globals.cpp:167`) — for empty strings. `DAS` accepts a literal `"*"`
+  *as well as* the configured sentinel, because released builds shipped with `"*"`; dropping that
+  leniency turns empty strings into literal asterisks in affected designs.
+- **`logfont` is a raw struct blob** — `ar.Write(&logfont, sizeof(logfont))`, i.e. a 60-byte
+  `LOGFONTA` written verbatim, not field-by-field. It must be read as fixed-size bytes.
+
+**Alignment can be verified without the oracle.** Round decimal values in the payload
+(`startTime = 800`, `startExp = 30,000,000`) are strong evidence of correct field alignment — a
+one-byte slip yields arbitrary 32-bit noise, not round decimals. Useful for bootstrapping a
+reader before golden files exist.
+
 ### Assets already in the tree worth knowing about
 
 - **`src/Shared/json.hpp`** — nlohmann/json is already vendored. The dumper should use it; it
