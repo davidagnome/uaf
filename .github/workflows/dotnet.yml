@@ -70,6 +70,22 @@ jobs:
       # OracleDiffTests return early when the golden dump is absent (xUnit 2.9 has no
       # Assert.Skip), so from the test summary alone a missing fixture is indistinguishable from
       # a passing comparison. Surface it explicitly instead.
+      # SDL3 spike (task #9). Phase 3 plans to use SDL3 for the game's window, presentation and
+      # input, so this proves the bindings actually work on every target platform BEFORE the
+      # media layer depends on them. It exercises the real model -- a managed software
+      # framebuffer pushed through a streaming texture -- not just SDL_Init.
+      #
+      # Forced headless: CI has no display, and UAF.Media must stay testable there. That
+      # constraint is why the C++ editor cannot run in CI at all (OpenDesign needs a live
+      # DirectX device), and it is not a mistake worth repeating.
+      - name: SDL3 binding spike
+        continue-on-error: true
+        shell: bash
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: dotnet run --project dotnet/spike/Sdl3Spike -c Release
+
       - name: Warn if the oracle golden dump is missing
         if: matrix.os == 'ubuntu-latest'
         shell: bash

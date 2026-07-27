@@ -491,9 +491,40 @@ The framebuffer is the shared contract; only presentation differs. `UAFcore.App`
 SDL3 host, not an Avalonia one, and `UAF.Media.Avalonia` narrows to the editor's presentation path
 with a sibling `UAF.Media.Sdl` for the game.
 
-> **Verify before Phase 3 depends on it:** SDL3 is recent and its C# bindings (`SDL3-CS`) are
-> correspondingly young. Spike a window + streamed texture + key input on Windows, macOS and Linux
-> first. `Silk.NET.SDL` is the fallback.
+### 6.2 SDL3 binding: spiked and viable
+
+**Choice: `ppy.SDL3-CS`** (`dotnet/spike/Sdl3Spike`).
+
+Four candidates exist on NuGet — `SDL3-CS` (+ a separate `SDL3-CS.Native`), `ppy.SDL3-CS`,
+`Hexa.NET.SDL3`, and `Silk.NET.SDL` (which is SDL**2**, so not a candidate at all). `ppy.SDL3-CS`
+wins on the practical criteria: an order of magnitude more downloads, a 2026 build, and it is the
+osu! team's fork — a project that actually ships SDL on all three desktop platforms. It also
+bundles the native binaries for every RID this project needs (`win-x64`, `win-arm64`,
+`osx-arm64`, `osx-x64`, `linux-x64`), so there is no separate native-acquisition step.
+
+The spike deliberately exercises **the port's actual model**, not just `SDL_Init`: a managed
+`uint[]` framebuffer with a colour key, written entirely in C#, pushed through a
+`SDL_TEXTUREACCESS_STREAMING` texture and presented. That is what the software blitter (§6) will
+do, and it is the case a GPU-oriented abstraction would fight.
+
+Verified on macOS arm64, both real and headless:
+
+| | video | audio |
+|---|---|---|
+| Real drivers | `cocoa` | `coreaudio` |
+| Headless (`SDL_VIDEODRIVER=dummy`) | `dummy` | `dummy` |
+
+Windows and Linux are covered by the `SDL3 binding spike` step in the .NET workflow, which forces
+the dummy drivers.
+
+**Headless operation matters as much as the rendering.** CI has no display, and `UAF.Media` must
+stay testable there. The C++ editor cannot run in CI at all because `OpenDesign` requires a live
+DirectX device (§7 Phase 0) — designing the managed media layer so the same trap cannot recur is
+a deliberate goal, not a happy accident.
+
+Two API notes for whoever writes `UAF.Media.Sdl`: the binding marshals strings itself
+(`SDL_GetError()` returns a `string`), but takes `nint` for pixel data, so framebuffer uploads
+need `fixed` + a cast. The project needs `AllowUnsafeBlocks`.
 
 ### 6.1 Video: FFmpeg / libav
 

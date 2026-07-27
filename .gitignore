@@ -367,3 +367,7 @@ FodyWeavers.xsd
 
 # JetBrains IDEs
 .idea/
+
+# Spike projects keep their own build output out of the tree
+dotnet/spike/**/bin/
+dotnet/spike/**/obj/
