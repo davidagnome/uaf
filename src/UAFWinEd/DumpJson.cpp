@@ -154,9 +154,6 @@ static json DumpDatabaseCounts(void)
 // name comes back as garbage, so a 285-entry list catches a mis-parse immediately while staying
 // a few KB. Full per-field dumps can follow once the C# record reader exists to compare against.
 //
-// TODO: the equivalent for monsters and spells. MONSTER_DATA_TYPE / SPELL_DATA_TYPE do not use
-// the same DEFINE_mCARRAY_ACCESS_FUNCTIONS instantiation as ITEM_DATA_TYPE, so their element
-// accessors differ and need checking before use.
 static json DumpItemNames(void)
 {
   json arr = json::array();
@@ -173,6 +170,36 @@ static json DumpItemNames(void)
     rec["idName"]     = S(pItem->IdName());
     rec["uniqueName"] = S(pItem->UniqueName());
     arr.push_back(rec);
+  }
+  return arr;
+}
+
+// Name digests for the monster and spell databases.
+//
+// Both DB types use the same DEFINE_mCARRAY_ACCESS_FUNCTIONS instantiation as items
+// (Monster.h:491, Spell.h:35), so GetMonster(i) / GetSpell(i) return element pointers. Their
+// record classes expose a plain public `CString Name` (Monster.h:382, Spell.h:460) rather than
+// the IdName()/UniqueName() pair ITEM_DATA uses -- the three databases are not symmetrical.
+static json DumpMonsterNames(void)
+{
+  json arr = json::array();
+  int n = monsterData.GetCount();
+  for (int i = 0; i < n; i++)
+  {
+    const MONSTER_DATA *p = monsterData.GetMonster(i);
+    arr.push_back(p == NULL ? json(nullptr) : json(S(p->Name)));
+  }
+  return arr;
+}
+
+static json DumpSpellNames(void)
+{
+  json arr = json::array();
+  int n = spellData.GetCount();
+  for (int i = 0; i < n; i++)
+  {
+    const SPELL_DATA *p = spellData.GetSpell(i);
+    arr.push_back(p == NULL ? json(nullptr) : json(S(p->Name)));
   }
   return arr;
 }
@@ -419,6 +446,8 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
   root["counts"]         = DumpDatabaseCounts();
   root["itemNames"]      = DumpItemNames();
   root["itemDetails"]    = DumpItemDetails(8);   // full fields for the first 8 records
+  root["monsterNames"]   = DumpMonsterNames();
+  root["spellNames"]     = DumpSpellNames();
 
   std::ofstream out((LPCSTR)outPath, std::ios::binary);
   if (!out.is_open())
