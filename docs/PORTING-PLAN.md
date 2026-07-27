@@ -202,6 +202,36 @@ magic and, when it is absent, seeks back to 0 and reads the `double` there anywa
 unstamped file the container version *is* the payload's own first field, read twice: once to pick
 the archive, once by `GLOBAL_STATS::Serialize`.
 
+**And `game.dat` does not use the container model at all.** Unlike the databases, its prologue is
+read by the *payload* reader, and compression is switched on **mid-stream**
+(`GlobalData.cpp:4336`):
+
+```cpp
+car.Serialize((char*)&temp, sizeof(temp));      // GLOBAL_STATS reads the magic ITSELF
+if (temp == 0xFABCDEFABCDEFABF) {
+    car >> version;                             // version, uncompressed
+    car.Compress(true);                         // compression starts HERE
+    car >> version;                             // the SAME version again, now compressed
+}
+else version = (double)temp;                    // no magic: those 8 bytes ARE the version
+DAS(car, designName);
+```
+
+So a modern `game.dat` is laid out:
+
+```
+[0..7]   magic                       uncompressed
+[8..15]  version                     uncompressed
+[16]     compressType byte           uncompressed
+[17..]   version AGAIN, designName, … LZW-compressed
+```
+
+This resolves two things that looked like bugs: why `loadDesign` never seeks past the magic (the
+payload reader consumes it), and why the version appears twice. Treating the prologue as a plain
+container header parses the design name as binary noise — which is precisely how `uaf-fileprobe`
+found it, having produced `'P@\x05\x00\x02…'` for every design at or above 2.53 while the
+databases in the same folder read perfectly.
+
 > **Correction.** An earlier revision of this document attributed the 0.572 fallback and 0.573
 > gate to "level/game data" collectively. That rule belongs to `*.lvl` only. The two disagree
 > across all of `[0.573, 0.998101)` — which *includes* `DefaultDesign`'s 0.915025, where a level
