@@ -997,7 +997,7 @@ and every `.dat`/`.lvl` file round-trips to an identical byte stream.
 
 #### `ITEM_DATA` field map (`Items.cpp:2749`, the `CAR` overload)
 
-The worked template. Fields read so far are marked ✅; the tail is blocked on two subsystems.
+The worked template — now **complete**, and validated end to end (see below).
 
 | Field(s) | Gate | Notes |
 |---|---|---|
@@ -1010,24 +1010,112 @@ The worked template. Fields read so far are marked ✅; the tail is blocked on t
 | ✅ `Experience`…`Num_Charges` | — | `long`/`BOOL`, 4 bytes each |
 | ✅ `Location_Readied` | — | legacy ordinal → base-38 name |
 | ✅ `Hands_to_Use`…`Protection_Bonus` | — | `ROF_Per_Round` is a **`double`** among `long`s |
-| `Wpn_Type`, `m_usageFlags` | — | ints |
-| `Usable_by_Class` *or* baseclass list | editor + `ver < 0.998101`, else the list | count then N × `BASECLASS_ID` **strings** |
-| `RangeMax` | — | |
-| `preVersionSpellNames_gsID` + 2 × junk | editor + `ver < 0.998101` | conversion-only |
-| `m_useEvent` | `ver >= 0.662` | |
-| `ExamineEvent`, `ExamineLabel` | `ver >= 0.800` | |
-| `attackMsg` | `ver >= 0.860` | |
-| `Recharge_Rate`, `IsNonLethal`, `HitArt` | `ver >= 0.690` | |
-| `CanBeHalvedJoined` | `ver >= 0.881` | |
-| `CanBeTradeDropSoldDep` | `ver >= 0.904` | |
-| **`specAbs.Serialize`** | — | ⛔ needs `Shared/Specab.cpp` (2,240 lines) |
-| **`item_asl.Serialize`** | — | ⛔ needs `Shared/ASL.cpp` (2,653 lines, 102 functions) |
+| ✅ `Wpn_Type`, `m_usageFlags` | — | ints |
+| ✅ `Usable_by_Class` *or* baseclass list | editor + `ver < 0.998101`, else the list | count then N × `BASECLASS_ID` **strings** |
+| ✅ `RangeMax` | — | |
+| ✅ `preVersionSpellNames_gsID` + 2 × junk | editor + `ver < 0.998101` | conversion-only, `int` |
+| ✅ `m_useEvent` | `ver >= 0.662` | |
+| ✅ `ExamineEvent`, `ExamineLabel` | `ver >= 0.800` | |
+| ✅ `attackMsg` | `ver >= 0.860` | defaults to `"attacks"` when absent |
+| ✅ `Recharge_Rate`, `IsNonLethal`, `HitArt` | `ver >= 0.690` | `HitArt` a **second** time |
+| ✅ `CanBeHalvedJoined` | `ver >= 0.881` | defaults **TRUE**, not 0 |
+| ✅ `CanBeTradeDropSoldDep` | `ver >= 0.904` | defaults **TRUE**, not 0 |
+| ✅ **`specAbs.Serialize`** | — | `SpecabReader` |
+| ✅ **`item_asl.Serialize`** | — | `AslReader` |
+| ✅ ammo-type list | `ver >= 0.690` | **after** the record loop, not inside it |
 
-**The next substantial unit of work is ASL, not another record type.** Every major class ends with
-an `*_asl.Serialize(ar, "…_ATTRIBUTES")` call, so no record can be read *to completion* — and
-therefore no reader can advance past record 0 — until the attribute-list format is ported. That
-makes ASL the gate on validating all 285 items rather than just the first, across all five
-fixtures. `Specab` follows for the same reason.
+##### Specab, as ported
+
+`Specab.cpp` is 2,240 lines but its serialized shape is small, because everything hangs off one
+gate (`Specab.cpp:1155`):
+
+```cpp
+if (version <= 0.920 && !ar.IsStoring())   // legacy conversion
+else  m_specialAbilities.Serialize(ar);    // an A_CStringPAIR_L
+```
+
+**The gate is asymmetric.** The legacy branch is conditioned on `!IsStoring()`, so old designs are
+*read* in the old shape but always *written* back in the new one. Treating this as a symmetric
+format fork would produce files the reference cannot read. Both branches are live in practice:
+DefaultDesign is 0.915 and takes the legacy path, while the three compressed designs (2.53, 3.55,
+5.28) take the modern one.
+
+The modern form is an `A_CStringPAIR_L` (`ASL.cpp:1848`) — an `int` count then key/value string
+pairs, with no map name, no flags byte, and **no** `DAS` decoding. Note it counts with a 32-bit
+`int` where its sibling ASL uses a `WORD`, and the legacy branch *does* apply `DAS`. The two
+structures live in the same file and are easy to conflate.
+
+The `#ifdef UAFEDITOR` and `#else` halves of the legacy branch read byte-identical streams; they
+differ only in what they build afterwards. That is what makes a shared cursor safe here, where it
+would not be for ASL.
+
+##### What the full walk found
+
+Wiring both subsystems in made a complete `ITEM_DATA` walk possible, and it immediately exposed a
+field that per-record tests could never have caught: **`PIC_DATA` has two overloads that differ**.
+The `CAR` one reads a `style` field at 0.900 and above (`PicData.cpp:203`); the `CArchive` one has
+that exact line commented out (`PicData.cpp:139`). Four bytes, no marker, and every field after it
+still decodes to plausible values — record 0 read perfectly with `style` missed, and the damage
+only surfaced 12 bytes later as an impossible message count.
+
+Two lessons are now encoded in the API. `PicDataReader` takes an explicit `PicArchiveVariant`
+rather than guessing, since **which overload wrote the bytes is not the same question as whether
+the stream is compressed** — a compressType-0 archive still runs the `CAR` code path. And
+`SpecabReader` mirrors the reference's `die()` on an out-of-range message count instead of
+clamping: that guard is what turned a silent 4-byte drift into an immediate, locatable failure.
+
+##### Validation
+
+| Check | Result |
+|---|---|
+| All 285 records read to completion | ✅ |
+| Both names of all 285 records vs. the C++ oracle | ✅ exact |
+| All 25 dumped fields × 8 records vs. the oracle | ✅ exact |
+| Stream lands precisely on EOF | ✅ 548,768 / 548,768 |
+| `Location_Readied` base-38 conversion | ✅ `QUIVER` = 2,286,454,785 |
+
+The EOF check is worth calling out: it is the cheapest possible whole-file assertion, and it is
+what surfaced the ammo-type list appended after the record loop — 22 bytes that a reader stopping
+at the last record leaves unconsumed while looking entirely successful.
+
+##### ASL, as ported
+
+The format itself is small (`ASL.cpp:1386`); what took the time was establishing its properties
+against real files. Below 0.505 (`_ASL_LEVEL_`) the block is absent entirely — not empty, *absent*,
+so nothing is consumed. Otherwise it is a map name, a **WORD** count, then `{key, flags, value}`
+triples. The count is 16-bit on both paths: `CAR::operator>>(unsigned short&)` calls
+`decompress(&v, 2)` (`class.cpp:11865`).
+
+Four properties are easy to get wrong and each is now pinned by a test:
+
+- **The map name is a sync marker, not a label.** The reference throws on a mismatch
+  (`ASL.cpp:1420`). Preserved deliberately: a misaligned reader essentially never reproduces the
+  expected literal, so this is the one built-in checkpoint the format offers.
+- **The block carries payload, not just metadata.** `MissileArt` was migrated into the attribute
+  map rather than given a version gate (`Items.cpp:2627`), so an ASL cannot be read-and-discarded.
+- **Entries are hash-ordered.** The container is a `CMapStringToPtr` walked with `GetNextAssoc`.
+  The same four global-stats keys appear in one order in the uncompressed DefaultDesign and a
+  different one in all three compressed designs. Look up by key, never by index; compare
+  round-trips as sets.
+- **The compressed encoding is not self-describing.** Keys are written out fresh, but entries
+  sharing a value store a string-table index instead — an index counted from the start of the
+  stream. The plain encoding of the same block *is* seekable; the compressed one is not.
+
+Two write paths share the one read format: `Serialize` (design files) writes every entry, while
+`Save` (savegames, `ASL.cpp:1489`) drops anything flagged `ASLF_READONLY`. That only matters once
+the port writes savegames — but note that every `GLOBAL_STATS_ATTRIBUTES` entry is `0x05`
+(`READONLY | DESIGN`), so a savegame correctly writes a count of zero there.
+
+Verified against four designs spanning the format's whole life — the uncompressed DefaultDesign
+(0.914) plus compressed designs at 2.53, 3.55 and 5.28 — with the plain block decoded
+independently in Python before the C# was trusted.
+
+One gap remains, and it is worth stating plainly: the compressed ASL path is still exercised only
+through hand-decoded bytes. Driving `AslReader` against a `CarArchiveReader` properly needs an
+intern table built by reading the stream from its start — which record walking now provides for
+`items.dat`, but the compressed designs are `game.dat`, whose own record walk is not yet written.
+So the compressed path is verified as a *format* (three designs, three versions) but not yet
+through the reader itself.
 
 #### Progress
 
@@ -1037,8 +1125,9 @@ fixtures. `Specab` follows for the same reason.
 | Tier 2 — `CAR` uncompressed | Three databases verified; counts 285 / 44 / 117 agree with the oracle |
 | Tier 3 — `CAR` + LZW | Verified against real encoder output at 2.53, 3.55, 5.28 and 5.29 |
 | `GLOBAL_STATS` | Scalars, art strings and both picture-import blocks diffed against the oracle |
-| `ITEM_DATA` | Names, scalars and combat block diffed **field by field**; 285-name digest agrees |
-| Remaining | ~40 further data classes, plus the rest of `ITEM_DATA` (class usability, events, ASL) |
+| `ITEM_DATA` | **Complete.** All 285 records walked; every name and all 25 dumped fields match the oracle; stream lands exactly on EOF |
+| `ASL`, `Specab`, `PIC_DATA` | Ported and exercised at every one of the 285 records |
+| Remaining | ~40 further data classes; `game.dat`'s own record walk (which will close the compressed-ASL gap) |
 
 The pattern is now established and mechanical: extend the dumper for a type → write the C# reader
 → diff. `ITEM_DATA` is the worked template.

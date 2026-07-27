@@ -39,6 +39,33 @@ public sealed record ItemNames(int PreSpellNameKey, string UniqueName, string Id
 public sealed record ItemScalars(string AmmoType, int Experience, int Cost, int Encumbrance,
                                  int AttackBonus, int Cursed, int BundleQty, int NumCharges);
 
+/// <summary>
+/// Everything from <c>Wpn_Type</c> to the end of the record, including the two structures that
+/// terminate it.
+/// </summary>
+public sealed record ItemTail(
+    int WeaponType, int UsageFlags, int LegacyUsableByClass,
+    IReadOnlyList<string> UsableByBaseclass, int RangeMax, uint UseEvent, uint ExamineEvent,
+    string ExamineLabel, string AttackMessage, int RechargeRate, int IsNonLethal,
+    PicRecord? HitArt, int CanBeHalvedJoined, int CanBeTradeDropSoldDep,
+    SpecabBlock SpecialAbilities, IReadOnlyList<AslEntry> Attributes);
+
+/// <summary>One complete <c>ITEM_DATA</c> record.</summary>
+public sealed record ItemRecord(
+    ItemNames Names, PicRecord? HitArt, PicRecord? MissileArt,
+    ItemScalars Scalars, ItemCombat Combat, ItemTail Tail);
+
+/// <summary>
+/// The whole of <c>items.dat</c>: every record, plus the ammo-type list that follows them.
+/// </summary>
+/// <remarks>
+/// The trailing list is easy to overlook — it sits after the record loop rather than inside it
+/// (<c>Items.cpp:3091</c>), so a reader that stops at the last record looks complete and leaves
+/// the file's final bytes unconsumed.
+/// </remarks>
+public sealed record ItemDatabase(
+    IReadOnlyList<ItemRecord> Items, IReadOnlyList<string> AmmoTypes);
+
 /// <summary>Combat block: readied location, hands, damage dice, rate of fire, protection.</summary>
 public sealed record ItemCombat(uint LocationReadied, int HandsToUse,
                                 int DmgDiceSm, int NbrDiceSm, int DmgBonusSm,
@@ -63,8 +90,51 @@ public static class ReadiedLocation
         "Waist", "BodyRobe", "Back", "Feet", "Fingers", "AmmoQuiver",
     ];
 
+    /// <summary>
+    /// The six-character word each ordinal maps to, blank-padded (<c>Items.h:110-120</c>).
+    /// </summary>
+    private static readonly string[] LegacyWords =
+    [
+        "WEAPON", "SHIELD", "ARMOR ", "HANDS ", "HEAD  ",
+        "WAIST ", "ROBE  ", "CLOAK ", "FEET  ", "FINGER", "QUIVER",
+    ];
+
     /// <summary>True when the stored value is a legacy ordinal needing conversion.</summary>
     public static bool IsLegacyOrdinal(uint stored) => stored < (uint)LegacyOrder.Length;
+
+    /// <summary>
+    /// Packs a six-character word into the base-38 <c>DWORD</c> the field actually holds
+    /// (<c>Items.h:105-106</c>).
+    /// </summary>
+    /// <remarks>
+    /// Letters encode as <c>'A' → 12 … 'Z' → 37</c> and a space as 1, then the six digits are
+    /// folded most-significant first. Nothing about the resulting number is human-readable, which
+    /// is why comparing it against the oracle is worth doing rather than eyeballing it.
+    /// </remarks>
+    public static uint Base38(string word)
+    {
+        ArgumentNullException.ThrowIfNull(word);
+        if (word.Length != 6)
+        {
+            throw new ArgumentException("A base-38 name is exactly six characters.", nameof(word));
+        }
+
+        uint value = 0;
+        foreach (char c in word)
+        {
+            // `blank` is defined as 'A'-11, so it lands on 1 after the +12 shift.
+            uint digit = c == ' ' ? 1u : (uint)(c - 'A' + 12);
+            value = (value * 38) + digit;
+        }
+        return value;
+    }
+
+    /// <summary>
+    /// Applies the loading branch's conversion (<c>Items.cpp:2820</c>): a small ordinal becomes
+    /// its base-38 name, anything else passes through unchanged.
+    /// </summary>
+    public static uint Convert(uint stored) =>
+        IsLegacyOrdinal(stored) ? Base38(LegacyWords[stored]) : stored;
 }
 
 /// <summary>
@@ -87,7 +157,7 @@ public static class ItemRecordReader
     /// depends on <see cref="ArchiveRole"/>, and then ~40 further version-gated fields. The names
     /// alone are enough to prove stream alignment, which is what this is for.
     /// </remarks>
-    public static ItemNames ReadNames(MfcArchiveReader ar, DesignVersion version)
+    public static ItemNames ReadNames(IArchiveCursor ar, DesignVersion version)
     {
         // Items.cpp:2753 -- read outside the [SpellNames, SaveIDs) window, defaulted inside it.
         int preSpellNameKey = -1;
@@ -144,7 +214,7 @@ public static class ItemRecordReader
     /// codebase stores non-boolean values in <c>BOOL</c> fields, and narrowing would be lossy.
     /// </para>
     /// </remarks>
-    public static ItemScalars ReadScalars(MfcArchiveReader ar, DesignVersion version)
+    public static ItemScalars ReadScalars(IArchiveCursor ar, DesignVersion version)
     {
         string ammoType = string.Empty;
         if (version >= DesignVersion.V0690)
@@ -178,7 +248,7 @@ public static class ItemRecordReader
     /// conversion is exposed via <see cref="ReadiedLocation"/> rather than applied here, so the
     /// caller can compare either form against the oracle.
     /// </remarks>
-    public static ItemCombat ReadCombat(MfcArchiveReader ar)
+    public static ItemCombat ReadCombat(IArchiveCursor ar)
     {
         uint locationReadied = ar.ReadUInt32();
         return new ItemCombat(
@@ -194,4 +264,179 @@ public static class ItemRecordReader
             ProtectionBase: ar.ReadInt32(),
             ProtectionBonus: ar.ReadInt32());
     }
+
+    // Convenience overloads for the uncompressed reader. Note this does NOT mean the plain
+    // CArchive field order -- these follow Items.cpp:2677 (the CAR overload) throughout, because
+    // an archive with compressType 0 or 1 still runs the CAR code path, just without LZW.
+    public static ItemNames ReadNames(MfcArchiveReader ar, DesignVersion version) =>
+        ReadNames(ArchiveCursor.For(ar), version);
+
+    public static ItemScalars ReadScalars(MfcArchiveReader ar, DesignVersion version) =>
+        ReadScalars(ArchiveCursor.For(ar), version);
+
+    public static ItemCombat ReadCombat(MfcArchiveReader ar) =>
+        ReadCombat(ArchiveCursor.For(ar));
+
+    /// <summary>
+    /// True when this role and version take the pre-<c>VersionSpellNames</c> conversion branches
+    /// — a single <c>Usable_by_Class</c> bitmask instead of a baseclass-name array, and three
+    /// extra spell fields after <c>RangeMax</c>.
+    /// </summary>
+    /// <remarks>
+    /// Both branches are <c>#ifdef UAFEDITOR</c>, so the engine always takes the modern path. It
+    /// would anyway: it refuses designs below 0.998101, and the gate is exactly that version.
+    /// </remarks>
+    public static bool UsesLegacyUsability(ArchiveRole role, DesignVersion version) =>
+        role == ArchiveRole.Editor && version < DesignVersion.SpellNames;
+
+    /// <summary>
+    /// Reads everything from <c>Wpn_Type</c> to the end of the record, including the special
+    /// abilities and attribute list that terminate it (<c>Items.cpp:2857-2944</c>).
+    /// </summary>
+    public static ItemTail ReadTail(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        int weaponType = ar.ReadInt32();
+        int usageFlags = ar.ReadInt32();
+
+        int legacyUsableByClass = 0;
+        var usableByBaseclass = new List<string>();
+        if (UsesLegacyUsability(role, version))
+        {
+            // A bitmask of the seven original classes, kept for later conversion.
+            legacyUsableByClass = ar.ReadInt32();
+        }
+        else
+        {
+            int count = ar.ReadInt32();
+            for (int i = 0; i < count; i++)
+            {
+                // BASECLASS_ID derives from CString (Externs.h:1222), so this is a STRING -- the
+                // same trap as SPELL_ID, and just as invisible if read as an int.
+                usableByBaseclass.Add(ar.ReadString());
+            }
+        }
+
+        int rangeMax = ar.ReadInt32();
+
+        if (UsesLegacyUsability(role, version))
+        {
+            ar.ReadInt32();          // preVersionSpellNames_gsID -- int (Items.h:832)
+            ar.ReadInt32();          // junk
+            ar.ReadInt32();          // junk
+        }
+
+        uint useEvent = version >= DesignVersion.V0662 ? ar.ReadUInt32() : 0;
+
+        uint examineEvent = 0;
+        string examineLabel = string.Empty;
+        if (version >= DesignVersion.V0800)
+        {
+            examineEvent = ar.ReadUInt32();
+            examineLabel = ArchiveStringConventions.Decode(ar.ReadString());
+        }
+
+        // Items.cpp:2872 defaults this rather than leaving it empty.
+        string attackMessage = "attacks";
+        if (version >= DesignVersion.V0860)
+        {
+            attackMessage = ArchiveStringConventions.Decode(ar.ReadString());
+        }
+
+        int rechargeRate = 0;
+        int isNonLethal = 0;
+        PicRecord? hitArt = null;
+        if (version >= DesignVersion.V0690)
+        {
+            rechargeRate = ar.ReadInt32();
+            isNonLethal = ar.ReadInt32();
+
+            // HitArt a SECOND time. The earlier art block (gated on ReadsHitAndMissileArt) reads
+            // HitArt and MissileArt together; this one re-reads HitArt alone. Not a typo in the
+            // reference -- both are on the wire, and skipping either desynchronises the record.
+            hitArt = PicDataReader.Read(ar, version, PicArchiveVariant.Car);
+        }
+
+        // Both default to TRUE when absent (Items.cpp:2884, :2889), not to zero.
+        int canBeHalvedJoined = version >= DesignVersion.V0881 ? ar.ReadInt32() : 1;
+        int canBeTradeDropSoldDep = version >= DesignVersion.V0904 ? ar.ReadInt32() : 1;
+
+        // The record tail proper, in this order (Items.cpp:2939-2944).
+        var specialAbilities = SpecabReader.Read(ar, version);
+        var attributes = AslReader.Read(ar, version, AslMaps.ItemData);
+
+        return new ItemTail(weaponType, usageFlags, legacyUsableByClass, usableByBaseclass,
+                            rangeMax, useEvent, examineEvent, examineLabel, attackMessage,
+                            rechargeRate, isNonLethal, hitArt, canBeHalvedJoined,
+                            canBeTradeDropSoldDep, specialAbilities, attributes);
+    }
+
+    /// <summary>Reads one complete <c>ITEM_DATA</c> record.</summary>
+    public static ItemRecord ReadRecord(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var names = ReadNames(ar, version);
+
+        PicRecord? hitArt = null;
+        PicRecord? missileArt = null;
+        if (ReadsHitAndMissileArt(role, version))
+        {
+            hitArt = PicDataReader.Read(ar, version, PicArchiveVariant.Car);
+            missileArt = PicDataReader.Read(ar, version, PicArchiveVariant.Car);
+        }
+
+        var scalars = ReadScalars(ar, version);
+        var combat = ReadCombat(ar);
+        var tail = ReadTail(ar, version, role);
+
+        return new ItemRecord(names, hitArt, missileArt, scalars, combat, tail);
+    }
+
+    /// <summary>
+    /// Reads a whole <c>items.dat</c> payload: the record count, the records, then the ammo-type
+    /// list (<c>ITEM_DATA_TYPE::Serialize</c>, <c>Items.cpp:3078</c>).
+    /// </summary>
+    /// <remarks>
+    /// Call this rather than looping over <see cref="ReadRecord(IArchiveCursor, DesignVersion,
+    /// ArchiveRole)"/>: the trailing ammo-type list is part of the payload, and leaving it unread
+    /// means the stream does not land on EOF — the one cheap check that every field width in
+    /// every record was right.
+    /// </remarks>
+    public static ItemDatabase ReadDatabase(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        int count = ar.ReadInt32();
+        var items = new List<ItemRecord>(Math.Max(count, 0));
+        for (int i = 0; i < count; i++)
+        {
+            items.Add(ReadRecord(ar, version, role));
+        }
+
+        var ammoTypes = new List<string>();
+        if (version >= DesignVersion.V0690)
+        {
+            int ammoCount = ar.ReadInt32();
+            for (int i = 0; i < ammoCount; i++)
+            {
+                ammoTypes.Add(ArchiveStringConventions.Decode(ar.ReadString()));
+            }
+        }
+
+        return new ItemDatabase(items, ammoTypes);
+    }
+
+    public static ItemDatabase ReadDatabase(MfcArchiveReader ar, DesignVersion version, ArchiveRole role) =>
+        ReadDatabase(ArchiveCursor.For(ar), version, role);
+
+    public static ItemDatabase ReadDatabase(CarArchiveReader ar, DesignVersion version, ArchiveRole role) =>
+        ReadDatabase(ArchiveCursor.For(ar), version, role);
+
+    public static ItemRecord ReadRecord(MfcArchiveReader ar, DesignVersion version, ArchiveRole role) =>
+        ReadRecord(ArchiveCursor.For(ar), version, role);
+
+    public static ItemRecord ReadRecord(CarArchiveReader ar, DesignVersion version, ArchiveRole role) =>
+        ReadRecord(ArchiveCursor.For(ar), version, role);
 }
