@@ -170,6 +170,69 @@ public class ItemRecordTests
         }
     }
 
+    /// <summary>
+    /// Field-by-field diff of the first item record against the oracle's <c>itemDetails</c>.
+    /// </summary>
+    /// <remarks>
+    /// The name digest proves the stream stays aligned; this proves each individual field is read
+    /// with the right width and the right post-read transform. <c>locationReadied</c> is compared
+    /// deliberately: the oracle reports the base-38 converted value, so agreeing on it means the
+    /// conversion is reproduced rather than the raw ordinal being passed through.
+    /// </remarks>
+    [Fact]
+    public void First_item_matches_the_oracle_field_by_field()
+    {
+        if (Golden() is not { } root) { return; }
+        if (!root.TryGetProperty("itemDetails", out var details) || details.GetArrayLength() == 0)
+        {
+            return;   // golden predates itemDetails
+        }
+        var expected = details[0];
+
+        using var fs = File.OpenRead(ItemsDat());
+        var header = DesignFileHeader.Read(fs, DesignFileKind.Database);
+        fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
+        var ar = new MfcArchiveReader(fs);
+        ar.ReadInt32();
+
+        var names = ItemRecordReader.ReadNames(ar, header.Version);
+        var scalars = ItemRecordReader.ReadScalars(ar, header.Version);
+        var combat = ItemRecordReader.ReadCombat(ar);
+
+        Assert.Equal(expected.GetProperty("idName").GetString(), names.IdName);
+        Assert.Equal(expected.GetProperty("uniqueName").GetString(), names.UniqueName);
+        Assert.Equal(expected.GetProperty("hitSound").GetString(), names.HitSound);
+        Assert.Equal(expected.GetProperty("missSound").GetString(), names.MissSound);
+        Assert.Equal(expected.GetProperty("launchSound").GetString(), names.LaunchSound);
+        Assert.Equal(expected.GetProperty("preSpellNameKey").GetInt32(), names.PreSpellNameKey);
+
+        Assert.Equal(expected.GetProperty("ammoType").GetString(), scalars.AmmoType);
+        Assert.Equal(expected.GetProperty("experience").GetInt32(), scalars.Experience);
+        Assert.Equal(expected.GetProperty("cost").GetInt32(), scalars.Cost);
+        Assert.Equal(expected.GetProperty("encumbrance").GetInt32(), scalars.Encumbrance);
+        Assert.Equal(expected.GetProperty("attackBonus").GetInt32(), scalars.AttackBonus);
+        Assert.Equal(expected.GetProperty("cursed").GetInt32(), scalars.Cursed);
+        Assert.Equal(expected.GetProperty("bundleQty").GetInt32(), scalars.BundleQty);
+        Assert.Equal(expected.GetProperty("numCharges").GetInt32(), scalars.NumCharges);
+
+        Assert.Equal(expected.GetProperty("handsToUse").GetInt32(), combat.HandsToUse);
+        Assert.Equal(expected.GetProperty("dmgDiceSm").GetInt32(), combat.DmgDiceSm);
+        Assert.Equal(expected.GetProperty("nbrDiceSm").GetInt32(), combat.NbrDiceSm);
+        Assert.Equal(expected.GetProperty("dmgBonusSm").GetInt32(), combat.DmgBonusSm);
+        Assert.Equal(expected.GetProperty("dmgDiceLg").GetInt32(), combat.DmgDiceLg);
+        Assert.Equal(expected.GetProperty("nbrDiceLg").GetInt32(), combat.NbrDiceLg);
+        Assert.Equal(expected.GetProperty("dmgBonusLg").GetInt32(), combat.DmgBonusLg);
+        Assert.Equal(expected.GetProperty("rofPerRound").GetDouble(), combat.RofPerRound);
+        Assert.Equal(expected.GetProperty("protectionBase").GetInt32(), combat.ProtectionBase);
+        Assert.Equal(expected.GetProperty("protectionBonus").GetInt32(), combat.ProtectionBonus);
+
+        // The oracle reports the CONVERTED readied location (base-38), not the stored ordinal.
+        // A reader that passes the raw value through disagrees here -- which is the point.
+        uint oracleLocation = expected.GetProperty("locationReadied").GetUInt32();
+        Assert.NotEqual(combat.LocationReadied, oracleLocation);
+        Assert.True(ReadiedLocation.IsLegacyOrdinal(combat.LocationReadied));
+    }
+
     [Fact]
     public void Oracle_item_names_show_the_pipe_qualifier_convention()
     {

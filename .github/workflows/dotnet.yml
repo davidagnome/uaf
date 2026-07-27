@@ -38,6 +38,26 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Tier-3 (LZW) fixtures. reference/ is gitignored, so without this the tier-3 tests return
+      # early in CI and silently pass without exercising the decompressor at all -- the exact
+      # failure mode that let a mis-modelled field survive three attempts locally.
+      #
+      # This repo is public and is the upstream default Dungeon Craft data set (version 5.28,
+      # past the 0.930 compression gate), so it can be fetched without redistributing anything.
+      - name: Fetch tier-3 LZW fixture
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p reference/dc-default
+          if git clone --depth 1 -q \
+              https://github.com/manikus/default_data-files_for_Dungeon_Craft.git \
+              reference/dc-default/data-files; then
+            echo "fetched $(ls reference/dc-default/data-files | wc -l) files"
+            ls -la reference/dc-default/data-files/items.dat
+          else
+            echo "::warning::could not fetch the tier-3 fixture; LZW tests will not run this job"
+          fi
+
       - name: Restore
         run: dotnet restore dotnet/UAF.slnx
 
