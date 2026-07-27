@@ -151,7 +151,7 @@ which is a standing hint that the shipped binaries post-date parts of the commit
 > The PE `VERSIONINFO` resources (`5.2.1.0` engine / `5.2.4.0` editor) are marketing strings and
 > bear no relation to the internal doubles. Don't conflate them.
 
-### 3.2 Container layout: two shapes and an archive switch
+### 3.2 Container layout: four framings
 
 Verified against `src/UAFWinEd/DefaultDesign.dsn/Data/` and the read/write paths in
 `Level.cpp`, `Items.cpp`, `Spell.cpp`, `Monster.cpp`, and `Char.cpp`.
@@ -183,9 +183,32 @@ The fallback constant **differs by file type** — `_VERSION_0572_` (0.572) for 
 
 **Shape 2 — self-describing tag** (`ability.dat`, `baseclass.dat`, `classes.dat`, `races.dat`,
 `spellgroups.dat`, `traits.dat`). A counted type tag first — `"AbilityV1"`, `"BaseclassV1"`,
-`"ClassV1"`, `"RaceV1"`, `"SpGrpV1"`, `"TraitV1"` — then `01` and a count. **No magic and no
-version double**; these newer DBs carry their schema version in the tag suffix, so the
-`DesignVersion` gates do not apply to them at all.
+`"ClassV1"`, `"RaceV1"`, `"SpGrpV1"`, `"TraitV1"` — read while still uncompressed, then a
+compression-type byte, then an LZW stream containing the count and the records
+(`class.cpp:3489`):
+
+```cpp
+car >> version;                       // a STRING tag -- no magic, no version double
+if (version > "RaceV0")               // LEXICOGRAPHIC comparison gates compression
+    car.Compress(true);
+count = car.ReadCount();              // read from INSIDE the compressed stream
+for (count) data.Serialize(car, version);   // records take the STRING version
+```
+
+Three things are unique to this framing: the version is a **string**, the compression gate is a
+**string comparison** rather than a numeric one, and the `DesignVersion` machinery does not apply
+at all — modelling these files with it is a category error.
+
+> **`compressType` is 1 here, not 2.** `CAR::Compress(true)` always *writes* 2
+> (`class.cpp:11670`), yet every tagged database on disk carries **1** — an older variant still in
+> circulation. It is not cosmetic: the string reader gates its embedded-NUL check on
+> `m_compressType > 1` (`class.cpp:11975`), so type-1 streams **intern** NUL-bearing strings that
+> type-2 streams skip. Get that wrong and every later string-table index shifts.
+
+Verified by decompressing all six: **6 abilities, 7 baseclasses, 19 classes, 6 races, 15
+spellgroups, 43 traits**. The first three are decisive rather than merely plausible — six AD&D
+ability scores, and seven baseclasses matching exactly the seven experience fields
+`CHARACTER::Serialize` reads (Fighter, Cleric, Ranger, Paladin, MU, Thief, Druid).
 
 **Orthogonal to both: the archive layer is version-selected, in three tiers, with per-file-type
 thresholds.** This is the single easiest thing in the format to get wrong. There are **three
