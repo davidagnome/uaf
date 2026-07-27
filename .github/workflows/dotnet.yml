@@ -70,6 +70,36 @@ jobs:
       # OracleDiffTests return early when the golden dump is absent (xUnit 2.9 has no
       # Assert.Skip), so from the test summary alone a missing fixture is indistinguishable from
       # a passing comparison. Surface it explicitly instead.
+      # Run uaf-fileprobe over whole designs. The unit tests cover types in isolation; this is
+      # the integration path, and it is where the game.dat mid-stream-compression bug actually
+      # surfaced -- every per-type test passed while it was broken, because the databases in the
+      # same folder read fine.
+      #
+      # DefaultDesign ships in the repo (tier 1/2). The manikus set is fetched above and is 5.28,
+      # so both game.dat framings and all three archive tiers get exercised.
+      - name: uaf-fileprobe over whole designs
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe() {
+            echo "--- $1"
+            dotnet run --project dotnet/tools/uaf-fileprobe -c Release -- "$1" > probe.json
+            # A non-empty design name is the assertion that matters: the mid-stream-compression
+            # bug produced binary noise here, never an error exit.
+            name=$(python3 -c "import json;print(json.load(open('probe.json'))['globalData']['designName'])")
+            ok=$(python3 -c "import json;print(json.load(open('probe.json'))['_meta']['ok'])")
+            echo "    name='$name' ok=$ok"
+            test -n "$name" || { echo "::error::empty designName for $1"; exit 1; }
+            test "$ok" = "True" || { echo "::error::probe reported not-ok for $1"; exit 1; }
+          }
+          probe src/UAFWinEd/DefaultDesign.dsn
+          if [ -f reference/dc-default/data-files/game.dat ]; then
+            probe reference/dc-default/data-files
+          else
+            echo "::warning::tier-3 fixture absent; only the plain framing was probed"
+          fi
+
       # SDL3 spike (task #9). Phase 3 plans to use SDL3 for the game's window, presentation and
       # input, so this proves the bindings actually work on every target platform BEFORE the
       # media layer depends on them. It exercises the real model -- a managed software
