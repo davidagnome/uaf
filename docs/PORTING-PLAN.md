@@ -995,6 +995,40 @@ and every `.dat`/`.lvl` file round-trips to an identical byte stream.
 
 *This exit criterion is the single most important gate in the plan. Do not proceed past it.*
 
+#### `ITEM_DATA` field map (`Items.cpp:2749`, the `CAR` overload)
+
+The worked template. Fields read so far are marked ✅; the tail is blocked on two subsystems.
+
+| Field(s) | Gate | Notes |
+|---|---|---|
+| ✅ `preSpellNameKey` | `ver < 0.998101 \|\| ver >= 0.998914` | int |
+| ✅ `spellID` | `ver >= 0.999647` | **a string** — `SPELL_ID : CString` |
+| ✅ `m_uniqueName`, `m_idName`, `HitSound`, `MissSound` | — | `DAS` sentinel applies |
+| ✅ `LaunchSound` | `ver >= 0.5691` | |
+| ✅ `HitArt`, `MissileArt` | engine always; editor `ver > 0.998100` | two `PIC_DATA` records |
+| ✅ `AmmoType` | `ver >= 0.690` | `"None"` normalised to `""` after reading |
+| ✅ `Experience`…`Num_Charges` | — | `long`/`BOOL`, 4 bytes each |
+| ✅ `Location_Readied` | — | legacy ordinal → base-38 name |
+| ✅ `Hands_to_Use`…`Protection_Bonus` | — | `ROF_Per_Round` is a **`double`** among `long`s |
+| `Wpn_Type`, `m_usageFlags` | — | ints |
+| `Usable_by_Class` *or* baseclass list | editor + `ver < 0.998101`, else the list | count then N × `BASECLASS_ID` **strings** |
+| `RangeMax` | — | |
+| `preVersionSpellNames_gsID` + 2 × junk | editor + `ver < 0.998101` | conversion-only |
+| `m_useEvent` | `ver >= 0.662` | |
+| `ExamineEvent`, `ExamineLabel` | `ver >= 0.800` | |
+| `attackMsg` | `ver >= 0.860` | |
+| `Recharge_Rate`, `IsNonLethal`, `HitArt` | `ver >= 0.690` | |
+| `CanBeHalvedJoined` | `ver >= 0.881` | |
+| `CanBeTradeDropSoldDep` | `ver >= 0.904` | |
+| **`specAbs.Serialize`** | — | ⛔ needs `Shared/Specab.cpp` (2,240 lines) |
+| **`item_asl.Serialize`** | — | ⛔ needs `Shared/ASL.cpp` (2,653 lines, 102 functions) |
+
+**The next substantial unit of work is ASL, not another record type.** Every major class ends with
+an `*_asl.Serialize(ar, "…_ATTRIBUTES")` call, so no record can be read *to completion* — and
+therefore no reader can advance past record 0 — until the attribute-list format is ported. That
+makes ASL the gate on validating all 285 items rather than just the first, across all five
+fixtures. `Specab` follows for the same reason.
+
 #### Progress
 
 | Layer | State |
