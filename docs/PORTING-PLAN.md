@@ -765,6 +765,32 @@ side, since the dumper is built into `UAFWinEd`.
 > only derives `m_commonName` in memory and reads nothing. Check each one for archive access
 > before concluding the streams diverge.
 
+### Compressed `CAR` is a different encoding, not just LZW on top
+
+Once `Compress(true)` has run, the stream changes in two ways beyond compression
+(`class.cpp:11938`):
+
+| | Plain `CArchive` | Compressed `CAR` |
+|---|---|---|
+| String prefix | 1-byte count (`AfxWriteStringLength`) | `uint` index, then a **4-byte** length |
+| Repeated strings | written out each time | **interned** — index `!= 0` is a back-reference |
+
+So a plain reader cannot read a compressed stream *even after decompressing it*. The table is
+1-based (`m_nextIndex` starts at 1, `class.cpp:11603`) and lookups are direct
+(`m_stringArray[index]`), leaving slot 0 free as the "new string follows" sentinel. Strings
+containing an embedded NUL are **not** interned (`class.cpp:11975`) — interning them anyway
+shifts every later index by one.
+
+> **`SPELL_ID` is a `CString`, not an integer** (`Externs.h:1324`). `ar >> spellID` therefore
+> goes through the *string* path. The name reads like an identifier and the field sits among
+> integers, so it is easy to model as an int — and doing so shifts the record by one field.
+>
+> This one field was mis-modelled twice: first skipped entirely, then read as an `int`. **Both
+> attempts produced printable, plausible-looking output**, because a one-field shift in an
+> interned-string stream reads later lengths as indices and vice versa. Only diffing against the
+> oracle's reading of identical bytes exposed it. Treat "the strings look readable" as weak
+> evidence in compressed streams.
+
 ### Type traps found while reading real files
 
 Confirmed against `DefaultDesign.dsn/Data/game.dat` by walking
