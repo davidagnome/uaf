@@ -110,6 +110,67 @@ public class ItemRecordTests
     }
 
     [Fact]
+    public void Arrow_combat_block_is_semantically_coherent()
+    {
+        using var fs = File.OpenRead(ItemsDat());
+        var header = DesignFileHeader.Read(fs, DesignFileKind.Database);
+        fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
+        var ar = new MfcArchiveReader(fs);
+        ar.ReadInt32();
+
+        ItemRecordReader.ReadNames(ar, header.Version);
+        var scalars = ItemRecordReader.ReadScalars(ar, header.Version);
+        var combat = ItemRecordReader.ReadCombat(ar);
+
+        // The strongest evidence the block is aligned is that every value is right FOR AN ARROW:
+        // bundles of 20, carried in a quiver, 1d6 damage against both size classes, negligible
+        // encumbrance, no protection. Misaligned reads do not produce coherent game data.
+        Assert.Equal("Bow", scalars.AmmoType);
+        Assert.Equal(20, scalars.BundleQty);
+        Assert.Equal(2, scalars.Encumbrance);
+
+        Assert.Equal(1, combat.NbrDiceSm);
+        Assert.Equal(6, combat.DmgDiceSm);       // 1d6
+        Assert.Equal(1, combat.NbrDiceLg);
+        Assert.Equal(6, combat.DmgDiceLg);       // 1d6
+        Assert.Equal(0, combat.ProtectionBase);
+        Assert.Equal(0, combat.ProtectionBonus);
+
+        // ROF is a double sitting among longs -- 8 bytes where the neighbours are 4. Reading it
+        // as an int shifts protection and everything after.
+        Assert.Equal(0.0, combat.RofPerRound);
+    }
+
+    [Fact]
+    public void LocationReadied_is_a_legacy_ordinal_needing_conversion()
+    {
+        using var fs = File.OpenRead(ItemsDat());
+        var header = DesignFileHeader.Read(fs, DesignFileKind.Database);
+        fs.Seek(header.PayloadOffset, SeekOrigin.Begin);
+        var ar = new MfcArchiveReader(fs);
+        ar.ReadInt32();
+        ItemRecordReader.ReadNames(ar, header.Version);
+        ItemRecordReader.ReadScalars(ar, header.Version);
+        var combat = ItemRecordReader.ReadCombat(ar);
+
+        // Stored as ordinal 10. Items.cpp:2820 rewrites that into the base-38 name AmmoQuiver,
+        // so the C++ member does NOT equal the bytes -- and an arrow living in a quiver is
+        // exactly the expected answer.
+        Assert.Equal(10u, combat.LocationReadied);
+        Assert.True(ReadiedLocation.IsLegacyOrdinal(combat.LocationReadied));
+        Assert.Equal("AmmoQuiver", ReadiedLocation.LegacyOrder[combat.LocationReadied]);
+
+        // Consequence: the oracle's locationReadied is the CONVERTED value, so a raw comparison
+        // against 10 would fail. Whichever form is compared, it must be the same on both sides.
+        if (Golden() is { } root && root.TryGetProperty("itemDetails", out var details)
+            && details.GetArrayLength() > 0)
+        {
+            uint oracleValue = details[0].GetProperty("locationReadied").GetUInt32();
+            Assert.NotEqual(combat.LocationReadied, oracleValue);
+        }
+    }
+
+    [Fact]
     public void Oracle_item_names_show_the_pipe_qualifier_convention()
     {
         if (Golden() is not { } root) { return; }

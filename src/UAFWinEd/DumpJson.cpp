@@ -177,6 +177,63 @@ static json DumpItemNames(void)
   return arr;
 }
 
+// Full field dump for the first few item records.
+//
+// Complements DumpItemNames: names across all 285 catch stream desync, while every field of a
+// handful of records catches per-field errors (wrong width, wrong gate, missing post-read
+// transform) that a name check cannot see. Kept to a few records so the golden file stays small.
+//
+// NOTE several values here are POST-READ, not the raw bytes:
+//   Location_Readied  -- Items.cpp:2820 maps the stored DWORD through a switch into base-38
+//                        names, so the member never equals what is on disk for old designs.
+//   AmmoType          -- "None" is normalised to "" after reading (Items.cpp:2807).
+// A C# reader must reproduce both or it will disagree with this dump despite reading identical
+// bytes.
+static json DumpItemDetails(int maxRecords)
+{
+  json arr = json::array();
+  int n = itemData.GetCount();
+  if (n > maxRecords) n = maxRecords;
+
+  for (int i = 0; i < n; i++)
+  {
+    const ITEM_DATA *p = itemData.GetItem(i);
+    if (p == NULL) { arr.push_back(nullptr); continue; }
+
+    json j;
+    j["idName"]             = S(p->IdName());
+    j["uniqueName"]         = S(p->UniqueName());
+    j["preSpellNameKey"]    = p->preSpellNameKey;
+    j["ammoType"]           = S(p->AmmoType);
+    j["hitSound"]           = S(p->HitSound);
+    j["missSound"]          = S(p->MissSound);
+    j["launchSound"]        = S(p->LaunchSound);
+
+    j["experience"]         = (int)p->Experience;
+    j["cost"]               = (int)p->Cost;
+    j["encumbrance"]        = (int)p->Encumbrance;
+    j["attackBonus"]        = (int)p->Attack_Bonus;
+    j["cursed"]             = (int)p->Cursed;            // BOOL -> int, never a JSON bool
+    j["bundleQty"]          = (int)p->Bundle_Qty;
+    j["numCharges"]         = (int)p->Num_Charges;
+    j["locationReadied"]    = (unsigned int)p->Location_Readied;   // post-switch, see note above
+
+    j["handsToUse"]         = (int)p->Hands_to_Use;
+    j["dmgDiceSm"]          = (int)p->Dmg_Dice_Sm;
+    j["nbrDiceSm"]          = (int)p->Nbr_Dice_Sm;
+    j["dmgBonusSm"]         = (int)p->Dmg_Bonus_Sm;
+    j["dmgDiceLg"]          = (int)p->Dmg_Dice_Lg;
+    j["nbrDiceLg"]          = (int)p->Nbr_Dice_Lg;
+    j["dmgBonusLg"]         = (int)p->Dmg_Bonus_Lg;
+    j["rofPerRound"]        = D(p->ROF_Per_Round);       // double -- full precision
+    j["protectionBase"]     = (int)p->Protection_Base;
+    j["protectionBonus"]    = (int)p->Protection_Bonus;
+
+    arr.push_back(j);
+  }
+  return arr;
+}
+
 // Headless diagnostics.
 //
 // WriteDebugString writes to LOG_ERROR_PATH from config.txt, which in the committed
@@ -361,6 +418,7 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
   root["globalData"]     = DumpGlobalData();
   root["counts"]         = DumpDatabaseCounts();
   root["itemNames"]      = DumpItemNames();
+  root["itemDetails"]    = DumpItemDetails(8);   // full fields for the first 8 records
 
   std::ofstream out((LPCSTR)outPath, std::ios::binary);
   if (!out.is_open())

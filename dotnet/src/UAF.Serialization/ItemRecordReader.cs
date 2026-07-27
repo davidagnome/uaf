@@ -32,6 +32,34 @@ public sealed record ItemNames(int PreSpellNameKey, string UniqueName, string Id
 public sealed record ItemScalars(string AmmoType, int Experience, int Cost, int Encumbrance,
                                  int AttackBonus, int Cursed, int BundleQty, int NumCharges);
 
+/// <summary>Combat block: readied location, hands, damage dice, rate of fire, protection.</summary>
+public sealed record ItemCombat(uint LocationReadied, int HandsToUse,
+                                int DmgDiceSm, int NbrDiceSm, int DmgBonusSm,
+                                int DmgDiceLg, int NbrDiceLg, int DmgBonusLg,
+                                double RofPerRound, int ProtectionBase, int ProtectionBonus);
+
+/// <summary>
+/// Base-38 readied-location names that <c>Items.cpp:2820</c> maps old numeric codes onto.
+/// </summary>
+/// <remarks>
+/// The stored <c>DWORD</c> is <b>not</b> the value the member ends up holding: legacy designs
+/// wrote small ordinals (0 = weapon hand, 1 = shield hand, …) which the loading branch rewrites
+/// into base-38 encoded names. A reader that keeps the raw ordinal disagrees with the reference
+/// on every old design, with no error to indicate it.
+/// </remarks>
+public static class ReadiedLocation
+{
+    /// <summary>Ordinals 0..10 as written by pre-conversion designs, in switch order.</summary>
+    public static readonly string[] LegacyOrder =
+    [
+        "WeaponHand", "ShieldHand", "BodyArmor", "Hands", "Head",
+        "Waist", "BodyRobe", "Back", "Feet", "Fingers", "AmmoQuiver",
+    ];
+
+    /// <summary>True when the stored value is a legacy ordinal needing conversion.</summary>
+    public static bool IsLegacyOrdinal(uint stored) => stored < (uint)LegacyOrder.Length;
+}
+
 /// <summary>
 /// Reads <c>ITEM_DATA</c> records as written through <c>CAR</c> (<c>Items.cpp:2749</c>).
 /// </summary>
@@ -126,5 +154,31 @@ public static class ItemRecordReader
             Cursed: ar.ReadInt32(),
             BundleQty: ar.ReadInt32(),
             NumCharges: ar.ReadInt32());
+    }
+
+    /// <summary>
+    /// Reads the combat block that follows the scalars (<c>Items.cpp:2817</c>).
+    /// </summary>
+    /// <remarks>
+    /// <c>ROF_Per_Round</c> is a <c>double</c> in the middle of <c>long</c>s — 8 bytes where the
+    /// neighbours are 4. <c>Location_Readied</c> is returned <b>raw</b>; the legacy-ordinal
+    /// conversion is exposed via <see cref="ReadiedLocation"/> rather than applied here, so the
+    /// caller can compare either form against the oracle.
+    /// </remarks>
+    public static ItemCombat ReadCombat(MfcArchiveReader ar)
+    {
+        uint locationReadied = ar.ReadUInt32();
+        return new ItemCombat(
+            locationReadied,
+            HandsToUse: ar.ReadInt32(),
+            DmgDiceSm: ar.ReadInt32(),
+            NbrDiceSm: ar.ReadInt32(),
+            DmgBonusSm: ar.ReadInt32(),
+            DmgDiceLg: ar.ReadInt32(),
+            NbrDiceLg: ar.ReadInt32(),
+            DmgBonusLg: ar.ReadInt32(),
+            RofPerRound: ar.ReadDouble(),      // 8 bytes among 4-byte neighbours
+            ProtectionBase: ar.ReadInt32(),
+            ProtectionBonus: ar.ReadInt32());
     }
 }

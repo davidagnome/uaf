@@ -652,9 +652,23 @@ the extension:
 | Layout | flat, 8.3 uppercase names | contains a `Data/` subfolder |
 | Marker files | `GAME001.DAT`, `GEO*.DAT`, `MONST*.DAT`, `STRG*.DAT`, `*.TLB`, `SAVE/` | `Data/game.dat`, `items.dat`, `spells.dat`, `Level000.lvl`, `config.txt` |
 
-Available fixtures: `reference/example_dsn/SL4-FATH.DSN` (a community FRUA campaign — 179 files,
-22 levels, 36 monsters, 118 tile libraries) and the Steam-bundled `HEIRS.DSN` / `TUTORIAL.DSN`.
-All three are FRUA, not Dungeon Craft.
+Available fixtures, **all FRUA except `DefaultDesign`**:
+
+| Fixture | Contents | Use |
+|---|---|---|
+| `src/UAFWinEd/DefaultDesign.dsn` | Dungeon Craft, **0.915025** | The only DC design. Tier 1/2 only — see the LZW gap below |
+| `reference/RUNELORD.DSN` | FRUA — 23 levels, **127 monsters**, 296 `.TLB`, 8 `.XMI`, 2 `.GLB`, both `ITEM.DAT` and `ITEMS.DAT` | Richest importer fixture (Phase 6) |
+| `reference/example_dsn/SL4-FATH.DSN` | FRUA — 22 levels, 36 monsters, 118 `.TLB` | Importer; has the mixed-case filenames |
+| Steam `HEIRS.DSN` / `TUTORIAL.DSN` | FRUA, small | Importer smoke tests |
+
+> **Beware two unrelated files named `Game.dat`.** `reference/…/GBC/Games/…/Game.dat` belongs to
+> **Gold Box Companion**, a third-party tool: it begins with a counted string
+> (`0a 14 "Unlimited Adventures"`), has no magic and no version double, and shares nothing with
+> Dungeon Craft's `game.dat` but the name.
+
+Filename case is **not** consistent across designs, so it cannot be assumed either way:
+`SL4-FATH.DSN` mixes `8X8D1009.TLB` with `8x8d0315.TLB`, while `RUNELORD.DSN` is uppercase
+throughout (468 of 469 names). The importer must resolve case-insensitively regardless.
 
 **Filename case is not consistent, and this breaks the port off Windows.** `SL4-FATH.DSN` contains
 both `8X8D1009.TLB` and `8x8d0315.TLB`, both `.TLB` and `.tlb`, plus `Back*.tlb`. Windows hides
