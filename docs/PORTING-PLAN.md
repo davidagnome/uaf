@@ -767,7 +767,49 @@ record. Verified: with `preSpellNameKey` read, item 0 of `DefaultDesign` decodes
 
 **Port each overload separately.** Do not assume one can be derived from the other.
 
-### The format forks by build: `#ifdef UAFEDITOR` vs `UAFEngine`
+### The build fork is a division of labour, not a format divergence
+
+**Audit result (task #10):** 59 inline `#ifdef` blocks perform archive access inside a shared
+`Serialize` body. **Every one is `#ifdef UAFEDITOR`** — there is not a single engine-only inline
+read. A further 6 blocks sit outside `Serialize` bodies and are whole-function guards (e.g.
+`PARTY::Serialize` exists only in the engine, because save games are engine-only data); those are
+not format forks at all.
+
+The asymmetry resolves against one fact in `Level.cpp:3365`, itself engine-only:
+
+```cpp
+#ifdef UAFEngine
+   else if (DesignVersion < VersionSpellNames)   // 0.998101
+   {
+     msg = "This game was created with an old editor.  You must load it with "
+           "editor version ... or later and save it again.";
+     success = FALSE;                            // the engine REFUSES to load it
+   }
+#endif
+```
+
+**The engine refuses any design below 0.998101**, and the editor-only reads are legacy-conversion
+fields gated on precisely `version < VersionSpellNames`. So the two builds never read the same
+file differently: the editor handles the legacy range and migrates it forward; the engine only
+ever sees designs at or above 0.998101, where both agree.
+
+Even the `ITEM_DATA` art case fits. The editor gates `HitArt`/`MissileArt` on
+`ver > VersionSpellIDs` (0.998100) while the engine reads them unconditionally — but every version
+the engine will accept is above that gate, so both read the art.
+
+Two consequences, and the first is a real simplification:
+
+1. **`UAFcore` needs no legacy paths.** It can require ≥ 0.998101 exactly as the engine does,
+   which removes the great majority of the 472 version gates from the engine's reader.
+2. **`UAFedit` needs the full range**, 0.500 → 5.29, including the conversion fields. The
+   `ArchiveRole` distinction stays, but it separates *legacy-capable* from *modern-only* rather
+   than modelling a divergent wire format.
+
+> The earlier framing of this as "the format forks by build" was wrong, and it mattered: it
+> implied `UAFcore` and `UAFedit` could disagree about a file both accept, which would have been a
+> serious constraint. They cannot.
+
+### Original note: `#ifdef UAFEDITOR` vs `UAFEngine` (superseded by the audit above)
 
 `ITEM_DATA::Serialize(CAR&)` contains:
 

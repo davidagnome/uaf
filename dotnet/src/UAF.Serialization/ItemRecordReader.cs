@@ -6,11 +6,18 @@ namespace UAF.Serialization;
 /// Which build's serialization behaviour to reproduce.
 /// </summary>
 /// <remarks>
-/// The reference implementation's format <b>forks by build</b>. `ITEM_DATA::Serialize(CAR&amp;)`
-/// gates `HitArt`/`MissileArt` behind <c>#ifdef UAFEDITOR</c> (<c>Items.cpp:2784</c>): the editor
-/// skips them at or below 0.998100, the engine always reads them. The two builds therefore
-/// consume different byte counts from the same file. Since UAFcore and UAFedit share this
-/// library, the role must be explicit rather than assumed.
+/// The two builds differ in which <b>version range</b> they support, not in how they read a file
+/// both accept. `ITEM_DATA::Serialize(CAR&amp;)` gates `HitArt`/`MissileArt` behind
+/// <c>#ifdef UAFEDITOR</c> (<c>Items.cpp:2784</c>): the editor skips them at or below 0.998100,
+/// the engine reads them unconditionally. That looks like a divergence, but the engine
+/// <b>refuses</b> any design below 0.998101 (<c>Level.cpp:3365</c>) — so every version it accepts
+/// is above the gate and both builds read the art.
+/// <para>
+/// An audit of all 59 inline conditional blocks that touch the archive found every one to be
+/// editor-only, gated on <c>version &lt; VersionSpellNames</c>: legacy-conversion reads the engine
+/// never reaches. So the role distinguishes <see cref="Editor"/> (legacy-capable, 0.500 → 5.29)
+/// from <see cref="Engine"/> (modern-only, ≥ 0.998101).
+/// </para>
 /// <para>
 /// Note the C++ oracle can only ever validate <see cref="Editor"/>, because the dumper is built
 /// into UAFWinEd.
@@ -89,10 +96,16 @@ public static class ItemRecordReader
             preSpellNameKey = ar.ReadInt32();
         }
 
-        // Items.cpp:2761 -- only on designs newer than any currently available fixture.
+        // Items.cpp:2761. spellID is a STRING, not an int: SPELL_ID derives from CString
+        // (Externs.h:1324), so `ar >> spellID` takes the string path. The name reads like an
+        // identifier and it sits among integers, which is why this was mis-modelled twice before
+        // the oracle settled it -- both wrong versions still produced printable output.
+        // 0.999647 is a bare literal in the C++ with no named constant -- one of several gate
+        // values that exist only as inline numbers, which is why DesignVersion.All must never be
+        // treated as the set of valid versions.
         if (version.Value >= 0.999647)
         {
-            ar.ReadInt32();   // spellID
+            ar.ReadString();
         }
 
         string uniqueName = ArchiveStringConventions.Decode(ar.ReadString());
