@@ -1,0 +1,377 @@
+# Dungeon Craft file format — reference
+
+What the archive format actually is, as established by reading `src/Shared` against real design
+files and cross-checking every claim against the C++ oracle. This is the *reference*; the porting
+strategy and schedule live in [PORTING-PLAN.md](PORTING-PLAN.md).
+
+Every rule here has a citation. Where a rule was learned by getting it wrong first, that is said
+so — the mistakes are the useful part, because each one produced plausible-looking output rather
+than an error.
+
+---
+
+## 1. The cardinal rule
+
+> **Transcribe from the loading branch, never the storing branch.**
+
+Almost every `Serialize` is `if (ar.IsStoring()) { … } else { … }`, and **the two halves are not
+mirror images**. The storing branch is frequently the *newer* of the two: it writes today's layout,
+while the loading branch still understands a decade of older ones. `ITEM_DATA::Serialize` even
+opens its storing branch with `die("We should not be serializing itemdata with CArchive")`
+(`Items.cpp:2348`) — code that cannot run, describing a format that is never produced.
+
+A reader transcribed from the storing branch will read modern files correctly and every older file
+wrongly.
+
+---
+
+## 2. Version numbers
+
+Versions are **doubles**, compared with `>=` against 97 named constants in `Externs.h` plus a
+number of bare literals. They are waypoints, not an enumeration: real designs carry versions that
+match no constant (2.53, 3.55), and some gates exist only as inline numbers (`0.999647`,
+`0.930279`, `0.998918`).
+
+**`DesignVersion.All` is therefore not the set of valid versions.** Treating it as such — for
+example, to validate a file — rejects real designs.
+
+Two constants worth memorising, because they gate the largest behavioural forks:
+
+| Constant | Value | Gates |
+|---|---|---|
+| `VersionSpellIDs` | 0.998100 | editor art block in `ITEM_DATA` |
+| `VersionSpellNames` | 0.998101 | legacy-conversion branches throughout |
+
+Beware unpadded names: **`_VERSION_524` is 5.24, not 0.524** (`Externs.h:174`). Neighbouring
+constants are written `_VERSION_0524_`, so the shape of the name is not a reliable guide.
+
+`DesignVersion.Generated.cs` is transcribed from `Externs.h` and `Globals.cpp` by
+`dotnet/tools/gen-design-versions.py`, and CI fails if it drifts.
+
+---
+
+## 3. Four container framings
+
+There is no single header. Which framing applies depends on the file, and two of them are
+distinguished only by content.
+
+### 3.1 Plain `game.dat`
+
+No magic. The first 8 bytes **are** the version double, followed immediately by the payload.
+
+### 3.2 Magic `game.dat` — compression starts mid-stream
+
+```
+0xFABCDEFABCDEFABF   (8 bytes)
+version              (8 bytes, uncompressed)
+compressType         (1 byte)
+version              (8 bytes, ← now inside the LZW stream)
+payload…
+```
+
+The version appears **twice**, and the second read comes from the compressed stream. This is not a
+container-vs-content distinction — they are the same value, read twice, once either side of the
+compression boundary.
+
+> Getting this wrong produced binary noise from an integration probe while every per-type unit test
+> continued to pass, because the databases in the same folder are framed differently.
+
+### 3.3 Databases (`items.dat`, `monsters.dat`, `spells.dat`)
+
+Magic, then version, then `compressType`, then the payload — compression enabled from the payload's
+first byte.
+
+### 3.4 Tagged databases (`ability`, `baseclass`, `classes`, `races`, `spellgroups`, `traits`)
+
+Unlike anything else (`class.cpp:3489`):
+
+```cpp
+car >> version;                  // a STRING tag, e.g. "RaceV1" — no version double at all
+if (version > "RaceV0")          // LEXICOGRAPHIC comparison gates compression
+    car.Compress(true);
+count = car.ReadCount();
+for (count) data.Serialize(car, version);   // records receive the STRING
+```
+
+Three things are unique: the version is a string, the compression gate is a string comparison, and
+`DesignVersion` does not apply at all. Modelling these files with a numeric version is a category
+error.
+
+Note also that `CAR::Compress(true)` always *writes* 2, yet every tagged database on disk carries
+**1**. That is not cosmetic — see §4.2.
+
+---
+
+## 4. Three archive tiers
+
+| Tier | `compressType` | Encoding |
+|---|---|---|
+| 1 | — | plain `CArchive` |
+| 2 | 0 or 1 | `CAR`, no compression |
+| 3 | 2 | `CAR` + 13-bit LZW |
+
+### 4.1 The `CArchive` and `CAR` overloads are different readers
+
+**This is the single most expensive trap in the format.** Most classes define `Serialize(CArchive&)`
+*and* `Serialize(CAR&)`, and they are not the same function:
+
+- `ITEM_DATA` reads `preSpellNameKey` under different gates in each.
+- `PIC_DATA` reads a `style` field at ≥ 0.900 on the `CAR` path (`PicData.cpp:203`) that the
+  `CArchive` path has **commented out** (`PicData.cpp:139`).
+
+Worse, **which overload applies is not the same question as whether the file is compressed**. An
+archive with `compressType` 0 or 1 still runs the `CAR` code path — just without LZW. So tier 2
+files use `CAR` field order with plain encoding.
+
+> The `PIC_DATA` divergence cost a debugging session. Four bytes, no marker, and every field after
+> it still decoded to plausible values: item record 0 read perfectly with `style` missed, and the
+> damage only surfaced 12 bytes later as an impossible message count. `PicDataReader` therefore
+> takes an explicit `PicArchiveVariant` rather than inferring one.
+
+### 4.2 Compressed `CAR` is a different *encoding*, not LZW bolted on
+
+Beyond compression, `CAR` **interns strings**. Each string is written as a `uint` index; index 0
+means "new", followed by a 4-byte length and the bytes. Any other value is a back-reference into a
+table built from the start of the stream.
+
+Consequences:
+
+- A compressed structure **cannot be read by seeking to it**. The plain encoding of the same block
+  is self-describing; the compressed one is not.
+- The string reader gates its embedded-NUL handling on `compressType > 1`, so type-1 streams intern
+  NUL-bearing strings that type-2 streams deliberately do not. Getting this wrong shifts every
+  later table index.
+
+LZW details: 13-bit codes in 52-byte blocks (416 bits = 32 codes), 8190 resets the table, 8191
+ends the stream. The C++ decoder over-reads its input buffer on the final block; zero-padding the
+block reproduces its behaviour without the undefined read.
+
+### 4.3 `ReadCount` is not `ReadUInt32`
+
+`CAR::ReadCount` (`class.cpp:11707`) delegates to MFC's `CArchive::ReadCount` — a `WORD` that
+escapes to a `DWORD` on `0xFFFF` — **only when `compressType` is 0**. Types 1 and 2 read a flat
+`DWORD`.
+
+So the same call site consumes **2 bytes in a tier-2 archive and 4 in a tier-3 one** for identical
+small counts. Nothing in the record signals which; it follows from the container. A reader with one
+fixed count encoding will work on one tier and silently drift on the other.
+
+Note this is *not* the same as "counts are 4 bytes": collection counts written with `operator<<`
+are plain ints everywhere. Only `ReadCount` call sites behave this way — `DICEPLUS` adjustments use
+it, while `BASECLASS_LIST` does not.
+
+---
+
+## 5. Strings
+
+### 5.1 Counted, MBCS, Windows-1252
+
+`AfxWriteStringLength` encoding: a length byte; `0xFF` escapes to a `WORD`; `0xFFFF` escapes to a
+`DWORD`. This is an MBCS build, so `CString` is single-byte — **Windows-1252, not UTF-8**.
+
+### 5.2 The `DAS` blank convention
+
+```cpp
+#define DAS(archive,cstring) { archive >> cstring; \
+  if ((cstring==ArchiveBlank)||(cstring=="*")) cstring=""; }
+```
+
+An empty string is stored as `"*"` and decoded back to empty. **This is applied selectively.** Some
+readers use `DAS`, others read verbatim — `A_CStringPAIR_L` (§7) does not decode, so a `"*"` there
+stays `"*"`. Applying it uniformly is wrong in both directions.
+
+### 5.3 Strings that look like integers
+
+Several ID types derive from `CString` and therefore take the *string* path:
+
+| Type | Declared |
+|---|---|
+| `SPELL_ID` | `Externs.h:1324` |
+| `BASECLASS_ID` | `Externs.h:1222` |
+
+> `SPELL_ID` was mis-modelled three times — skipped entirely, then read as an int. **Both wrong
+> versions produced readable output.** Only the oracle diff settled it. If a field name reads like
+> an identifier, check whether its type derives from `CString` before assuming it is numeric.
+
+---
+
+## 6. ASL — attribute/string lists
+
+Almost every major class ends with `*_asl.Serialize(ar, "…_ATTRIBUTES")`, so **no record can be
+read to completion, and no reader can advance to the next record, without this** (`ASL.cpp:1386`):
+
+```cpp
+if (version >= 0.505)          // _ASL_LEVEL_; below this NOTHING is read — not even a count
+{
+    ar >> mapName;             // must equal the expected literal
+    ar >> count;               // WORD — 16 bits, not 32
+    for (count) { key; flags; value }
+}
+```
+
+Five properties, each verified against real files:
+
+1. **The map name is a sync marker, not a label.** The reference throws on mismatch
+   (`ASL.cpp:1420`). Preserve that: a misaligned reader essentially never reproduces the exact
+   expected string, making this the one built-in checkpoint the format offers.
+2. **The block carries payload.** `MissileArt` was migrated into the attribute map rather than
+   given a version gate (`Items.cpp:2627`), so an ASL cannot be read-and-discarded.
+3. **Entries are hash-ordered.** The container is a `CMapStringToPtr` walked with `GetNextAssoc`.
+   The same four `GLOBAL_STATS` keys come out as `RunAsVersion, GuidedTourVersion,
+   SpecialItemKeyQtyVersion, ItemUseEventVersion` uncompressed, but `GuidedTourVersion,
+   ItemUseEventVersion, RunAsVersion, SpecialItemKeyQtyVersion` in every compressed design tested.
+   **Look entries up by key, never by index**, and compare round-trips as sets.
+4. **The compressed path applies a key fixup the plain path does not.** Characters below 0x20 get
+   +0x20 (`ASL.cpp:1236`); the `CArchive` twin at `:1247` reads verbatim. The same key can differ
+   between a compressed and an uncompressed design.
+5. **Two write paths, one read format.** `Serialize` writes every entry (design files); `Save`
+   drops anything flagged `ASLF_READONLY` (savegames, `ASL.cpp:1489`). Since every
+   `GLOBAL_STATS_ATTRIBUTES` entry is `0x05` (`READONLY|DESIGN`), a savegame correctly writes a
+   count of **zero** there.
+
+Flags (`ASL.h:143`): `READONLY 1`, `MODIFIED 2`, `DESIGN 4`, `SYSTEM 8`; `EDITOR = READONLY|DESIGN`.
+
+The twelve map names are listed in `AslMaps`.
+
+---
+
+## 7. Special abilities
+
+`Specab.cpp` runs to 2,240 lines, but the serialized shape hangs off one gate (`Specab.cpp:1155`):
+
+```cpp
+if (version <= 0.920 && !ar.IsStoring())   // legacy conversion
+else  m_specialAbilities.Serialize(ar);    // an A_CStringPAIR_L
+```
+
+**The gate is asymmetric.** The legacy branch is conditioned on `!IsStoring()`: old designs are
+*read* in the old shape but always *written* in the new one. A port treating this as a symmetric
+format fork will write files the reference cannot read.
+
+Both branches are live. DefaultDesign (0.915) takes the legacy path; designs at 2.53, 3.55 and 5.28
+take the modern one.
+
+### The modern form — `A_CStringPAIR_L` (`ASL.cpp:1848`)
+
+An `int` count, then key/value string pairs. No map name, no flags byte, no `DAS` decoding.
+
+Two contrasts with its sibling ASL, which lives in the same file and is easy to conflate: it counts
+with a 32-bit `int` where ASL uses a `WORD`, and it reads strings verbatim where ASL's legacy
+branch applies `DAS`.
+
+**Empty keys occur in real designs and must be tolerated.** `A_ASLENTRY_L::Update` refuses an empty
+key (`ASL.cpp:1311`), which makes "keys are never empty" a tempting invariant — but
+`A_CStringPAIR_L::Serialize` inserts whatever is on the wire. A reader that validates non-empty
+keys rejects designs the reference loads without complaint.
+
+### The legacy form
+
+`int count` (clamped at 0, never rejected), then either bare `WORD` ordinals below 0.850, or one
+slot per ability type carrying scripts and up to 14 messages. `NUM_SPECIAL_ABILITIES` is 32, so a
+count of 32 is normal. An exact-equality gate — `version == 0.850` — adds one unused `int`; it is
+one of the few places the format tests a single version rather than a range.
+
+A message count above 14 is fatal in the reference (`die(0xab537)`). **Mirror that rather than
+clamping**: it is what turns a silent byte-level drift into an immediate, locatable failure.
+
+---
+
+## 7a. Dice expressions
+
+`DICEPLUS` (`class.cpp:2494`) is **self-versioning by string tag**, like the tagged databases and
+unlike everything else — the surrounding `DesignVersion` does not select the branch:
+
+| Tag | Layout |
+|---|---|
+| `DP2` | two strings (`m_Text`, `m_Bin`) and nothing else — the modern form |
+| `DP1` | `char`, `BYTE`, `char`, `int`, `int`, `char`, then adjustments |
+| `DP0` | as `DP1` but the clamps are `BYTE` on the wire, widened into `int` fields |
+
+The three are structurally unrelated, so a reader that assumes the numeric layout desynchronises
+badly on any modern design, where every dice expression is `DP2`.
+
+**The numeric fields are one byte.** `m_numDice`, `m_bonus` and `m_sign` are `char`, `m_numSides`
+is `BYTE` (`class.h:842`), despite names that read like integers. After reading, a negative dice
+count is normalised to a positive count with `sign = -1` (`class.cpp:2546`) — keep the raw value
+and you disagree with the reference on every affected record.
+
+Contained structures: `ADJUSTMENT` is `short[3]` then `char[3]` then a `GENERIC_REFERENCE` — six
+bytes then three, not twelve then twelve. `GENERIC_REFERENCE` is a name, a one-byte `char` type,
+and an `int` key; it decodes `"*"` inline rather than calling `DAS`.
+
+---
+
+## 8. Type traps
+
+Win32 `BOOL` is a **4-byte int**, not a byte. Beyond that:
+
+| Field | Declared | Trap |
+|---|---|---|
+| `PIC_DATA.AlphaValue` | `WORD` | 2 bytes among 4-byte neighbours |
+| `ITEM_DATA.ROF_Per_Round` | `double` | 8 bytes among `long`s |
+| `GLOBAL_STATS.startX/Y/Facing` | `BYTE` | three singles among `int`s |
+| `GLOBAL_STATS.logfont` | `LOGFONT` | a raw **60-byte** struct blit (`LOGFONTA`; the wide variant would be 92) |
+| `TITLE_SCREEN_DATA` count | `DWORD` | where neighbouring lists use `int` |
+| `AutoDarkenAmount` | `BOOL` | holds a *magnitude* — do not narrow to `bool` |
+
+### Base-38 packed names
+
+`Location_Readied` is a `DWORD` that does **not** hold the value on disk. Legacy designs wrote
+small ordinals (0 = weapon hand, …) which the loading branch rewrites into packed six-character
+names (`Items.h:105`):
+
+```
+base38(a..f) = ((((a*38+b)*38+c)*38+d)*38+e)*38+f     'A'→12 … 'Z'→37, blank→1
+```
+
+So ordinal 10 becomes `QUIVER` = 2,286,454,785 — which is what the oracle reports. A reader keeping
+the raw ordinal disagrees with the reference on every old design, with nothing to indicate it.
+
+---
+
+## 9. Structures that hide extra bytes
+
+Things read *after* an obvious loop, which a reader can miss while appearing to succeed:
+
+- **`items.dat` ends with an ammo-type list** — `int count` then that many `DAS` strings, at ≥ 0.690,
+  *outside* the record loop (`Items.cpp:3091`). Stopping at the last record leaves 22 bytes
+  unconsumed in DefaultDesign.
+- **`ITEM_DATA` reads `HitArt` twice** — once in the early art block, again at ≥ 0.690.
+
+> This is why **"the stream lands exactly on EOF" is the highest-value cheap assertion available.**
+> It is what surfaced the ammo list, and it is hard to satisfy by accident: any wrong field width
+> anywhere in any record ends the walk early or runs off the end.
+
+---
+
+## 10. Validating a reader
+
+The two-sided contract, with both halves proven by observation:
+
+```
+C++ reference ──dump──> golden JSON ──diff──> C# reader
+```
+
+- Extending the dumper made the drift check fire correctly, then clear.
+- Deliberately corrupting the golden made exactly the relevant tests fail.
+
+**Fixtures span the format's whole life** — 0.915 (uncompressed, oracle-dumpable), 2.53, 3.55, 5.28
+(compressed), and 5.29 generated by CI itself via `-savedesign` so C# and C++ read identical bytes.
+
+These take opposite branches at nearly every fork, which is what makes them worth having:
+
+| | DefaultDesign | The compressed designs |
+|---|---|---|
+| Archive tier | plain / uncompressed `CAR` | LZW |
+| `Specab` | legacy conversion | modern `A_CStringPAIR_L` |
+| Usability | `Usable_by_Class` bitmask | `BASECLASS_ID` string list |
+| `PIC_DATA` | no `RestartFrame` | `RestartFrame` present |
+
+Assertions worth writing, in descending order of value:
+
+1. **Stream lands exactly on EOF** after a whole-file walk.
+2. **Field-by-field diff against the oracle** — catches wrong values that alignment checks miss.
+3. **Trailing structures decode** (the ammo list) — proves no record drifted.
+4. **Round decimals** (`startTime` = 800, `startExp` = 30,000,000) — a one-byte slip yields
+   arbitrary noise, not round numbers.
+5. Printability of names — the weakest; use it to *locate* drift, not to prove its absence.

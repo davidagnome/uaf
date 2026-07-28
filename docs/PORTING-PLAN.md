@@ -3,7 +3,12 @@
 **Targets:** `UAFWin` → **UAFcore** (game engine + player), `UAFWinEd` → **UAFedit** (design editor)
 **Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
 **Status:** Phase 0 complete — reference build green, oracle diffing armed both ways. Phase 1 in progress
-**Date:** 2026-07-26
+**Date:** 2026-07-27
+
+> **See also: [SERIALIZATION.md](SERIALIZATION.md)** — the file-format reference. Everything
+> established about containers, archive tiers, strings, ASL, special abilities and the type traps
+> now lives there. This document covers strategy, sequencing and effort; that one is what you read
+> before writing a reader.
 
 ---
 

@@ -39,6 +39,18 @@ public interface IArchiveCursor
     /// <summary>Reads raw bytes — used for struct blits such as <c>LOGFONT</c>.</summary>
     byte[] ReadBytes(int count);
 
+    /// <summary>
+    /// Reads a collection count in whichever encoding this archive uses.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not interchangeable with <see cref="ReadUInt32"/>.</b> <c>CAR::ReadCount</c>
+    /// (<c>class.cpp:11707</c>) delegates to MFC's <c>CArchive::ReadCount</c> when
+    /// <c>compressType</c> is 0 — a <c>WORD</c> that escapes to a <c>DWORD</c> on 0xFFFF — but
+    /// reads a flat <c>DWORD</c> otherwise. So the same call site is 2 bytes in a tier-2 archive
+    /// and 4 in a tier-3 one, for identical small counts.
+    /// </remarks>
+    uint ReadCount();
+
     /// <summary>Reads a counted string verbatim, without the <c>DAS</c> blank convention.</summary>
     string ReadString();
 }
@@ -66,6 +78,8 @@ public static class ArchiveCursor
 
         public byte[] ReadBytes(int count) => reader.ReadBytes(count);
 
+        public uint ReadCount() => ReadMfcCount(this);
+
         public string ReadString() => reader.ReadString();
     }
 
@@ -85,6 +99,17 @@ public static class ArchiveCursor
 
         public byte[] ReadBytes(int count) => reader.ReadBytes(count);
 
+        // compressType 0 alone uses the MFC encoding; 1 and 2 both write a flat DWORD.
+        public uint ReadCount() =>
+            reader.CompressType == 0 ? ReadMfcCount(this) : reader.ReadUInt32();
+
         public string ReadString() => reader.ReadString();
+    }
+
+    /// <summary>MFC's <c>CArchive::ReadCount</c>: a <c>WORD</c>, escaping to a <c>DWORD</c>.</summary>
+    private static uint ReadMfcCount(IArchiveCursor cursor)
+    {
+        ushort small = cursor.ReadUInt16();
+        return small != 0xFFFF ? small : cursor.ReadUInt32();
     }
 }
