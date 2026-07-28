@@ -28,12 +28,20 @@ public enum AslFlags : byte
 public sealed record AslEntry(string Key, byte Flags, string Value);
 
 /// <summary>
-/// The twelve ASL map names used across the codebase — the literal each call site passes and
-/// which the reader must match exactly.
+/// Every ASL map name used across the codebase — the literal each call site passes, which the
+/// reader must match exactly.
 /// </summary>
 /// <remarks>
+/// <para>
 /// These are sync markers, not labels: a mismatch is how a desynchronised stream announces
 /// itself, so they are spelled out rather than derived from a type name.
+/// </para>
+/// <para>
+/// <b>The names follow no convention.</b> Most end in <c>_ATTRIBUTES</c>, three end in
+/// <c>_ATTR</c>, and <see cref="Tale"/> and <see cref="TavernTale"/> have no suffix at all.
+/// Searching for one spelling finds a convincing subset and misses the rest — which is exactly
+/// what happened when this list was first built from a <c>_ATTRIBUTES</c> grep.
+/// </para>
 /// </remarks>
 public static class AslMaps
 {
@@ -49,6 +57,14 @@ public static class AslMaps
     public const string SpecialObjectData = "SPECIAL_OBJECT_DATA_ATTRIBUTES";
     public const string SpellData = "SPELL_DATA_ATTRIBUTES";
     public const string Zone = "ZONE_ATTRIBUTES";
+
+    // Names that do NOT end in _ATTRIBUTES.
+    public const string EventControl = "EVENTCONT_ATTR";
+    public const string EventData = "EVENT_DATA_ATTR";
+    public const string StepEvent = "STEPEVENT_ATTR";
+    public const string TimeEvent = "TIME_EVENT_ATTR";
+    public const string Tale = "TALE";
+    public const string TavernTale = "TAVTALE";
 }
 
 /// <summary>

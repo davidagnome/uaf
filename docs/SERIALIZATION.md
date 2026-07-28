@@ -231,7 +231,17 @@ Five properties, each verified against real files:
 
 Flags (`ASL.h:143`): `READONLY 1`, `MODIFIED 2`, `DESIGN 4`, `SYSTEM 8`; `EDITOR = READONLY|DESIGN`.
 
-The twelve map names are listed in `AslMaps`.
+### The map names follow no convention
+
+There are **seventeen**, listed in `AslMaps`. Most end in `_ATTRIBUTES`, but four end in `_ATTR`
+(`EVENT_DATA_ATTR`, `EVENTCONT_ATTR`, `STEPEVENT_ATTR`, `TIME_EVENT_ATTR`) and two have no suffix
+at all (`TALE`, `TAVTALE`).
+
+> This list was first built by grepping for `"[A-Z_]+_ATTRIBUTES"`. That returned twelve names and
+> looked complete — every record type ported at the time was covered. The five it missed are all in
+> the event classes, so the gap would only have surfaced on the first event read, as a map-name
+> mismatch with no obvious cause. **Grep for the call, not for the literal:**
+> `_asl.Serialize(…, "…")`.
 
 ---
 
@@ -298,6 +308,44 @@ and you disagree with the reference on every affected record.
 Contained structures: `ADJUSTMENT` is `short[3]` then `char[3]` then a `GENERIC_REFERENCE` — six
 bytes then three, not twelve then twelve. `GENERIC_REFERENCE` is a name, a one-byte `char` type,
 and an `int` key; it decodes `"*"` inline rather than calling `DAS`.
+
+---
+
+## 7b. Events
+
+Events live in level files, inside a `GameEventList` (`GameEvent.cpp:3601`):
+
+```cpp
+ar >> m_level;
+ar >> count;
+for (count) {
+    ar >> temp;                       // the eventType ordinal
+    data = CreateNewEvent(temp);      // null for NoEvent / InnEvent / GPDLEvent
+    if (data != NULL) data->Serialize(ar, version);
+}
+```
+
+Three things a reader has to get right:
+
+- **A null dispatch consumes nothing further.** `NoEvent` and a couple of obsolete ordinals produce
+  no object, so the entry is exactly four bytes. Treating every counted entry as a full event
+  desynchronises on the first one.
+- **The ordinal appears twice.** The list reads it to choose the class; `GameEvent::Serialize` then
+  reads it again into the event's own field — but *after* the control block and two `PIC_DATA`, not
+  immediately. Both are real bytes.
+- **Ordinals are positional.** The C++ enum assigns no explicit values below 1000, so an ordinal
+  only means "index into this exact sequence". Inserting a member anywhere but the end renumbers
+  everything after it and silently reinterprets every event in every existing level. Several
+  ordinals also share one layout — `Stairs`, `Teleporter` and `TransferModule` are all
+  `TRANSFER_EVENT_DATA`.
+
+Every event opens with the same base: an `EVENT_CONTROL` (which has its own ASL), two `PIC_DATA`,
+the type, id, x, y, two chain ids, three strings, and the event ASL. That the two ASL markers
+appear in **equal counts** in a real level file is a cheap structural check on the whole shape.
+
+`EVENT_CONTROL` gates on the `version` parameter in some places and on the **global**
+`LoadingVersion` in others, sometimes four lines apart (`GameEvent.cpp:1641` vs `:1644`). They
+should agree when loading a design, but the inconsistency is real.
 
 ---
 
