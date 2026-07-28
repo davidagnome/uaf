@@ -1110,12 +1110,39 @@ Verified against four designs spanning the format's whole life — the uncompres
 (0.914) plus compressed designs at 2.53, 3.55 and 5.28 — with the plain block decoded
 independently in Python before the C# was trusted.
 
-One gap remains, and it is worth stating plainly: the compressed ASL path is still exercised only
-through hand-decoded bytes. Driving `AslReader` against a `CarArchiveReader` properly needs an
-intern table built by reading the stream from its start — which record walking now provides for
-`items.dat`, but the compressed designs are `game.dat`, whose own record walk is not yet written.
-So the compressed path is verified as a *format* (three designs, three versions) but not yet
-through the reader itself.
+##### Compressed designs walk with no changes
+
+The same `ItemRecordReader` was pointed at the LZW-compressed `items.dat` of three designs — 2.53,
+3.55 and 5.28 — and walked all three end to end **without a single code change**. That is the
+strongest evidence so far that the version gates are modelled correctly rather than merely fitted
+to one file: these take the opposite branch from DefaultDesign at nearly every fork.
+
+| | DefaultDesign | The three compressed designs |
+|---|---|---|
+| Archive tier | plain / uncompressed `CAR` | `compressType 2` (LZW) |
+| `Specab` | legacy conversion (< 0.920) | modern `A_CStringPAIR_L` |
+| Usability | `Usable_by_Class` bitmask | `BASECLASS_ID` string list |
+| `PIC_DATA` | no `RestartFrame` | `RestartFrame` present (≥ 5.24) |
+| Records | 285 | 562 / 551 / 479 |
+
+Each walk decodes its ammo-type list correctly *after* every record and then finds the LZW stream
+exhausted at exactly that point. Specab pairs carry real content (`item_WeaponType` = `piercing`),
+and `BASECLASS_ID` values decode as names (`assassin`, `fighter`, `paladin`, `ranger`) — reading
+those as integers, the `SPELL_ID` mistake, would desynchronise on the first record.
+
+One finding worth recording: a few pairs have an empty key *and* value. That is genuine data. The
+two sibling structures disagree here — `A_ASLENTRY_L::Update` refuses an empty key
+(`ASL.cpp:1311`), which makes "keys are never empty" a tempting invariant, but
+`A_CStringPAIR_L::Serialize` (`ASL.cpp:1875`) inserts whatever is on the wire. A reader that
+validates non-empty keys rejects designs the reference loads without complaint.
+
+**What remains open.** `AslReader`'s compressed overload is now genuinely driven — 562 blocks
+located with their map names verified, against a live intern table, which cannot happen by
+accident. But every one of those blocks has a count of zero, so the key/flags/value loop and the
+compressed-only key fixup are still unexercised on real data. The non-empty compressed ASLs live
+in `game.dat` (`GLOBAL_STATS_ATTRIBUTES`, four entries), so that last step waits on a `game.dat`
+record walk. This is asserted in the tests rather than left implicit, so it stays visible instead
+of reading as coverage it is not.
 
 #### Progress
 
@@ -1125,9 +1152,9 @@ through the reader itself.
 | Tier 2 — `CAR` uncompressed | Three databases verified; counts 285 / 44 / 117 agree with the oracle |
 | Tier 3 — `CAR` + LZW | Verified against real encoder output at 2.53, 3.55, 5.28 and 5.29 |
 | `GLOBAL_STATS` | Scalars, art strings and both picture-import blocks diffed against the oracle |
-| `ITEM_DATA` | **Complete.** All 285 records walked; every name and all 25 dumped fields match the oracle; stream lands exactly on EOF |
-| `ASL`, `Specab`, `PIC_DATA` | Ported and exercised at every one of the 285 records |
-| Remaining | ~40 further data classes; `game.dat`'s own record walk (which will close the compressed-ASL gap) |
+| `ITEM_DATA` | **Complete.** 285 uncompressed records match the oracle field by field; 562 / 551 / 479 compressed records at 5.28 / 3.55 / 2.53 walk to exact EOF with no code changes |
+| `ASL`, `Specab`, `PIC_DATA` | Ported; exercised at every record of all four designs, on both sides of the 0.920 Specab fork |
+| Remaining | ~40 further data classes; `game.dat`'s own record walk (which will close the last compressed-ASL gap) |
 
 The pattern is now established and mechanical: extend the dumper for a type → write the C# reader
 → diff. `ITEM_DATA` is the worked template.
