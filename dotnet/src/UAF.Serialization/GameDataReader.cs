@@ -57,6 +57,18 @@ public static class GameDataReader
         /// <summary>The version as read from the payload.</summary>
         public DesignVersion Version { get; } = version;
 
+        /// <summary>
+        /// The underlying archive as raw primitives, for readers that need to apply the
+        /// <c>DAS</c> convention selectively rather than to every string.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately a separate surface from this class's own <c>Read*</c> methods: those
+        /// decode every string, which is right for the fields immediately after the prologue but
+        /// wrong in general — <c>A_CStringPAIR_L</c>, for one, reads strings verbatim.
+        /// </remarks>
+        public IArchiveCursor Body { get; } =
+            car is not null ? ArchiveCursor.For(car) : ArchiveCursor.For(plain!);
+
         public int ReadInt32() => car?.ReadInt32() ?? plain!.ReadInt32();
 
         public byte ReadByte() => car?.ReadByte() ?? plain!.ReadByte();

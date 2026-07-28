@@ -198,11 +198,10 @@ public class CompressedItemWalkTests
         // and matching "ITEM_DATA_ATTRIBUTES" 562 times running cannot happen by chance. So the
         // compressed reader is genuinely driving AslReader with a live intern table.
         //
-        // But every block has a count of zero, so the key/flags/value loop -- and with it the
-        // compressed-only key fixup -- is still not exercised on real data. The non-empty
-        // compressed ASLs live in game.dat (GLOBAL_STATS_ATTRIBUTES, four entries), so closing
-        // that last gap waits on a game.dat record walk. Asserted rather than left implicit so
-        // this stays visible instead of looking like coverage it is not.
+        // But every block has a count of zero, so the key/flags/value loop is not exercised
+        // *here*. That coverage comes from GlobalStatsCompressedTests, which reaches the
+        // four-entry GLOBAL_STATS_ATTRIBUTES list in game.dat. Asserted rather than left implicit
+        // so this file does not read as coverage it does not provide.
         Assert.All(db.Items, i => Assert.Empty(i.Tail.Attributes));
     }
 

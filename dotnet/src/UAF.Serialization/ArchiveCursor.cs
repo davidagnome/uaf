@@ -36,6 +36,9 @@ public interface IArchiveCursor
 
     double ReadDouble();
 
+    /// <summary>Reads raw bytes — used for struct blits such as <c>LOGFONT</c>.</summary>
+    byte[] ReadBytes(int count);
+
     /// <summary>Reads a counted string verbatim, without the <c>DAS</c> blank convention.</summary>
     string ReadString();
 }
@@ -61,6 +64,8 @@ public static class ArchiveCursor
 
         public double ReadDouble() => reader.ReadDouble();
 
+        public byte[] ReadBytes(int count) => reader.ReadBytes(count);
+
         public string ReadString() => reader.ReadString();
     }
 
@@ -77,6 +82,8 @@ public static class ArchiveCursor
         public byte ReadByte() => reader.ReadByte();
 
         public double ReadDouble() => reader.ReadDouble();
+
+        public byte[] ReadBytes(int count) => reader.ReadBytes(count);
 
         public string ReadString() => reader.ReadString();
     }

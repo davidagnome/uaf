@@ -1136,13 +1136,44 @@ two sibling structures disagree here — `A_ASLENTRY_L::Update` refuses an empty
 `A_CStringPAIR_L::Serialize` (`ASL.cpp:1875`) inserts whatever is on the wire. A reader that
 validates non-empty keys rejects designs the reference loads without complaint.
 
-**What remains open.** `AslReader`'s compressed overload is now genuinely driven — 562 blocks
-located with their map names verified, against a live intern table, which cannot happen by
-accident. But every one of those blocks has a count of zero, so the key/flags/value loop and the
-compressed-only key fixup are still unexercised on real data. The non-empty compressed ASLs live
-in `game.dat` (`GLOBAL_STATS_ATTRIBUTES`, four entries), so that last step waits on a `game.dat`
-record walk. This is asserted in the tests rather than left implicit, so it stays visible instead
-of reading as coverage it is not.
+##### The compressed ASL gap is closed
+
+`GLOBAL_STATS::Serialize(CAR&)` (`GlobalData.cpp:4244`) is now walked through its attribute list on
+all three compressed designs. That was the missing coverage: every ASL in `items.dat` has a count
+of zero, so those walks proved only that a block could be *located*. `GLOBAL_STATS` carries four
+entries, which finally exercises the key/flags/value loop, the compressed-only key fixup, and the
+resolution of values held as string-table back-references.
+
+The reader produces exactly what an independent by-hand decode of the raw bytes predicted, down to
+the ordering:
+
+```
+'GuidedTourVersion'        0x05  '3.56'
+'ItemUseEventVersion'      0x05  '3.56'
+'RunAsVersion'             0x05  '3.56'
+'SpecialItemKeyQtyVersion' 0x05  '3.56'
+```
+
+Two things are worth drawing out. All four values are the same string, so only the first is written
+literally and the rest are table indices — getting identical text back for all four is proof the
+back-references resolved, since a broken table returns a *wrong string* rather than an error. And
+the order confirms the earlier hash-order finding independently: the uncompressed DefaultDesign
+leads with `RunAsVersion`, every compressed design leads with `GuidedTourVersion`.
+
+Note also that the file declares **5.28** while its attributes say **3.56**. These are not the same
+thing and must not be conflated: the container version describes the format, the attributes record
+the behaviour version the design wants, which is why the engine consults them separately.
+
+Three details of the prefix were worth getting right. `LOGFONT` is blitted into the archive as a
+raw 60-byte struct at 0.830 and above (`GlobalData.cpp:4411`) — this is an MBCS build, so
+`LOGFONTA`; assuming the wide variant would be 92 bytes and desynchronise everything after.
+`creditsData` exists only at 5.25 and above, and below that the credits art is a single string read
+much earlier in the record, so the fixtures cover both branches. And `TITLE_SCREEN_DATA` counts
+with a `DWORD` where most neighbouring lists use `int`.
+
+Note this is the **`CAR`** path. The uncompressed DefaultDesign takes
+`Serialize(CArchive&)` (`GlobalData.cpp:3855`) instead — a different function with its own field
+order. A third overload at `GlobalData.cpp:4960` has an identical signature and is commented out.
 
 #### Progress
 
@@ -1153,8 +1184,9 @@ of reading as coverage it is not.
 | Tier 3 — `CAR` + LZW | Verified against real encoder output at 2.53, 3.55, 5.28 and 5.29 |
 | `GLOBAL_STATS` | Scalars, art strings and both picture-import blocks diffed against the oracle |
 | `ITEM_DATA` | **Complete.** 285 uncompressed records match the oracle field by field; 562 / 551 / 479 compressed records at 5.28 / 3.55 / 2.53 walk to exact EOF with no code changes |
-| `ASL`, `Specab`, `PIC_DATA` | Ported; exercised at every record of all four designs, on both sides of the 0.920 Specab fork |
-| Remaining | ~40 further data classes; `game.dat`'s own record walk (which will close the last compressed-ASL gap) |
+| `ASL`, `Specab`, `PIC_DATA` | Ported; exercised at every record of all four designs, on both sides of the 0.920 Specab fork. **Both** ASL encodings now driven through the reader, including a non-empty compressed block with resolved back-references |
+| `GLOBAL_STATS` | `CAR` path walked through the ASL on all three compressed designs; `CArchive` path verified to offset 1651 of 4343 |
+| Remaining | ~40 further data classes; the trailing `GLOBAL_STATS` art records after the ASL |
 
 The pattern is now established and mechanical: extend the dumper for a type → write the C# reader
 → diff. `ITEM_DATA` is the worked template.
