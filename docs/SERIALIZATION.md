@@ -347,6 +347,18 @@ appear in **equal counts** in a real level file is a cheap structural check on t
 `LoadingVersion` in others, sometimes four lines apart (`GameEvent.cpp:1641` vs `:1644`). They
 should agree when loading a design, but the inconsistency is real.
 
+### Level files are not compressed
+
+`LEVEL::Serialize` (`Level.cpp:1224`) runs: dimensions (`BYTE` each), the cell grid at **15 bytes
+per cell**, `eventData`, `zoneData`, the level ASL, step events (8 below 1.0210, otherwise
+`MAX_STEP_EVENTS`), wall and background sets, then blockage keys.
+
+`eventData` comes *before* `zoneData`, so the event list is reachable with only the cell grid read.
+
+Note that a `.lvl` file reads as **plain** even in a design whose databases are LZW-compressed —
+Case.dsn is 2.53, well past the 0.930 compression gate, and its levels are still uncompressed. The
+compression decision is per file kind, not per design; do not infer one from the other.
+
 ---
 
 ## 8. Type traps
