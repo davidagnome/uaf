@@ -36,6 +36,9 @@ public interface IArchiveCursor
 
     double ReadDouble();
 
+    /// <summary>A 4-byte float. Distinct from <see cref="ReadDouble"/>; both occur in records.</summary>
+    float ReadSingle();
+
     /// <summary>Reads raw bytes — used for struct blits such as <c>LOGFONT</c>.</summary>
     byte[] ReadBytes(int count);
 
@@ -76,6 +79,8 @@ public static class ArchiveCursor
 
         public double ReadDouble() => reader.ReadDouble();
 
+        public float ReadSingle() => reader.ReadSingle();
+
         public byte[] ReadBytes(int count) => reader.ReadBytes(count);
 
         public uint ReadCount() => ReadMfcCount(this);
@@ -96,6 +101,8 @@ public static class ArchiveCursor
         public byte ReadByte() => reader.ReadByte();
 
         public double ReadDouble() => reader.ReadDouble();
+
+        public float ReadSingle() => reader.ReadSingle();
 
         public byte[] ReadBytes(int count) => reader.ReadBytes(count);
 

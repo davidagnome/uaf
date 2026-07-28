@@ -1191,7 +1191,9 @@ order. A third overload at `GlobalData.cpp:4960` has an identical signature and 
 | `ITEM_DATA` | **Complete.** 285 uncompressed records match the oracle field by field; 562 / 551 / 479 compressed records at 5.28 / 3.55 / 2.53 walk to exact EOF with no code changes |
 | `ASL`, `Specab`, `PIC_DATA` | Ported; exercised at every record of all four designs, on both sides of the 0.920 Specab fork. **Both** ASL encodings now driven through the reader, including a non-empty compressed block with resolved back-references |
 | `GLOBAL_STATS` | `CAR` path walked through the ASL on all three compressed designs; `CArchive` path verified to offset 1651 of 4343 |
-| Remaining | ~40 further data classes; the trailing `GLOBAL_STATS` art records after the ASL |
+| `SPELL_DATA` | **Complete.** 117 uncompressed records match the oracle by name; 423 / 377 / 318 compressed at 5.28 / 3.55 / 2.53 exhaust exactly |
+| `MONSTER_DATA` | **Complete.** 44 uncompressed match the oracle; 171 / 195 / 160 compressed exhaust exactly |
+| Remaining | ~35 further data classes; the trailing `GLOBAL_STATS` art records after the ASL |
 
 The pattern is now established and mechanical: extend the dumper for a type → write the C# reader
 → diff. `ITEM_DATA` is the worked template.

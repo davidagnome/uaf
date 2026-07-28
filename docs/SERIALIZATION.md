@@ -309,6 +309,22 @@ Win32 `BOOL` is a **4-byte int**, not a byte. Beyond that:
 |---|---|---|
 | `PIC_DATA.AlphaValue` | `WORD` | 2 bytes among 4-byte neighbours |
 | `ITEM_DATA.ROF_Per_Round` | `double` | 8 bytes among `long`s |
+| `MONSTER_DATA.Hit_Dice` | `float` | **same width**, wrong value — see below |
+| `ITEM.cursed` | `BYTE` | 1 byte between `int`s |
+| `MONSTER_DATA.ItemMask` | `BYTE` | retired, but still on the wire below 0.998101 |
+| `DICEPLUS.m_numDice`, `m_bonus`, `m_sign` | `char` | 1 byte each, int-sounding names |
+| `SPELL_EFFECTS_DATA.changeResult` | `double` | 8 bytes among `DWORD`s |
+
+### The width trap that alignment checks cannot catch
+
+`MONSTER_DATA.Hit_Dice` is a **`float`** among `long`s (`Monster.h:410`). Every other entry above
+changes how many bytes are consumed, so getting one wrong desynchronises the stream and something
+downstream fails loudly. This one does not: four bytes either way, so the walk still lands on EOF
+and every name still matches — the value is simply nonsense.
+
+A kobold has a *quarter* hit die. Read as a float, `Hit_Dice` is `0.25`; read as an int, the same
+bytes are `1,048,576,000`. Nothing in a structural check distinguishes these. **Assert on a known
+value.**
 | `GLOBAL_STATS.startX/Y/Facing` | `BYTE` | three singles among `int`s |
 | `GLOBAL_STATS.logfont` | `LOGFONT` | a raw **60-byte** struct blit (`LOGFONTA`; the wide variant would be 92) |
 | `TITLE_SCREEN_DATA` count | `DWORD` | where neighbouring lists use `int` |
@@ -341,6 +357,10 @@ Things read *after* an obvious loop or branch, which a reader can miss while app
   *outside* the record loop (`Items.cpp:3091`). Stopping at the last record leaves 22 bytes
   unconsumed in DefaultDesign.
 - **`ITEM_DATA` reads `HitArt` twice** — once in the early art block, again at ≥ 0.690.
+- **`MONSTER_DATA` continues past its ASL.** `myItems` (> 0.693) and `money` (≥ 0.906) follow the
+  attribute list (`Monster.cpp:851`). It is the only record type where the ASL is not last, so a
+  reader modelled on `ITEM_DATA` stops three structures early.
+- **`ITEM_LIST` ends with a `READY_ITEMS`** — twelve equipment slots after the item loop.
 
 ### Wire order follows source order, not version order
 
