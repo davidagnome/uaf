@@ -331,12 +331,29 @@ the raw ordinal disagrees with the reference on every old design, with nothing t
 
 ## 9. Structures that hide extra bytes
 
-Things read *after* an obvious loop, which a reader can miss while appearing to succeed:
+Things read *after* an obvious loop or branch, which a reader can miss while appearing to succeed:
 
+- **Check the lines after the closing brace of every `Serialize`.** Fields placed *outside* the
+  `if (IsStoring()) … else …` run on both paths and belong to every record. `SPELL_EFFECTS_DATA`
+  ends with `changeData.Serialize(ar)` — a whole `DICEPLUS` — at `Spell.cpp:273`, one line past the
+  brace that closes the loading branch. `ITEM_DATA` parks its `specAbs` and ASL the same way.
 - **`items.dat` ends with an ammo-type list** — `int count` then that many `DAS` strings, at ≥ 0.690,
   *outside* the record loop (`Items.cpp:3091`). Stopping at the last record leaves 22 bytes
   unconsumed in DefaultDesign.
 - **`ITEM_DATA` reads `HitArt` twice** — once in the early art block, again at ≥ 0.690.
+
+### Wire order follows source order, not version order
+
+In `SPELL_DATA`'s script block the `>= 2.6` group is written **before** the `>= 1.0303` group
+(`Spell.cpp:4232`, `:4241`). A design at 2.53 therefore reads the *second* group and not the first.
+Sorting version gates numerically when transcribing gets both the order and the count wrong for
+everything in between.
+
+### Sentinels that look like corruption
+
+`SPELL_EFFECTS_DATA.changeResult` is a `double` whose "no change" value is
+`-1.2345678901234568e18` — the digits `1234567890123456`. It reads like a misaligned field and is
+not one.
 
 > This is why **"the stream lands exactly on EOF" is the highest-value cheap assertion available.**
 > It is what surfaced the ammo list, and it is hard to satisfy by accident: any wrong field width
