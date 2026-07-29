@@ -21,7 +21,7 @@ namespace UAF.Serialization.Tests;
 public class EventWalkTests
 {
     /// <summary>How far the walk reached when this test was last updated.</summary>
-    private const int KnownReach = 60;
+    private const int KnownReach = 174;
 
     private static DirectoryInfo RepoRoot()
     {
@@ -51,6 +51,15 @@ public class EventWalkTests
                 return true;
             case EventType.SpecialItem:
                 SpecialItemEventReader.Read(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.QuestStage:
+                QuestEventReader.Read(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.Utilities:
+                UtilitiesEventReader.Read(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.ChainEventType:
+                SimpleEventReaders.ReadChain(ar, version, ArchiveRole.Editor);
                 return true;
             default:
                 return false;
@@ -123,10 +132,13 @@ public class EventWalkTests
 
         // Reading one event of a type could be luck; reading dozens in sequence could not, since
         // each depends on the previous ending in exactly the right place.
-        Assert.True(seen.GetValueOrDefault(EventType.TextStatement) > 20,
+        Assert.True(seen.GetValueOrDefault(EventType.TextStatement) > 100,
                     "expected many text events");
-        Assert.True(seen.GetValueOrDefault(EventType.GuidedTour) >= 3);
-        Assert.True(seen.GetValueOrDefault(EventType.SpecialItem) >= 3);
+        Assert.True(seen.GetValueOrDefault(EventType.QuestStage) >= 16);
+        Assert.True(seen.GetValueOrDefault(EventType.Utilities) >= 14);
+        Assert.True(seen.GetValueOrDefault(EventType.GuidedTour) >= 9);
+        Assert.True(seen.GetValueOrDefault(EventType.SpecialItem) >= 6);
+        Assert.True(seen.GetValueOrDefault(EventType.ChainEventType) >= 4);
     }
 
     [Fact]
