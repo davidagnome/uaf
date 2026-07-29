@@ -39,6 +39,8 @@ public class EventWalkTests
     }
 
     /// <summary>Reads one event of a ported type, or returns false for anything else.</summary>
+    internal static bool TryPublic(IArchiveCursor ar, EventType t, DesignVersion v) => TryReadEvent(ar, t, v);
+
     private static bool TryReadEvent(IArchiveCursor ar, EventType type, DesignVersion version)
     {
         switch (type)

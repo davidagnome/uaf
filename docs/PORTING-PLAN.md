@@ -1194,7 +1194,8 @@ order. A third overload at `GlobalData.cpp:4960` has an identical signature and 
 | `SPELL_DATA` | **Complete.** 117 uncompressed records match the oracle by name; 423 / 377 / 318 compressed at 5.28 / 3.55 / 2.53 exhaust exactly |
 | `MONSTER_DATA` | **Complete.** 44 uncompressed match the oracle; 171 / 195 / 160 compressed exhaust exactly |
 | Events | **Complete for every fixture.** 27 event subclasses across 29 ordinals; all 22 levels of 4 designs walk end to end — 6,234 events spanning 2.53 → 5.28 |
-| Remaining | ~25 further data classes; `ZONE`/`LEVEL` tails; the trailing `GLOBAL_STATS` art records |
+| `LEVEL` / `ZONE` | **Complete.** All 22 levels of 4 designs read to exactly their last byte — grid, events, zones, step events, wall/background sets, blockage keys |
+| Remaining | ~20 further data classes (`CHARACTER`, `PARTY`, quests, globals); the trailing `GLOBAL_STATS` art records |
 
 The pattern is now established and mechanical: extend the dumper for a type → write the C# reader
 → diff. `ITEM_DATA` is the worked template.

@@ -402,6 +402,23 @@ guards make that failure loud instead of silent:
 `LoadingVersion` in others, sometimes four lines apart (`GameEvent.cpp:1641` vs `:1644`). They
 should agree when loading a design, but the inconsistency is real.
 
+### The whole level is one chain
+
+`LEVEL::Serialize` (`Level.cpp:1224`) runs: dimensions (`BYTE` each), the cell grid at **15 bytes
+per cell**, the event list, `zoneData`, the level ASL, step events, wall sets, background sets,
+then blockage keys. Nothing is length-prefixed at the file level, so every structure sits at
+whatever offset the previous one left behind.
+
+That makes **"the file reads to exactly its last byte"** the single strongest assertion available
+for a level — it certifies the grid, every event, and every trailing table at once.
+
+Fixed tables, written in full regardless of use: 16 zones, 8 blockage keys, 24 guided-tour steps,
+5 question options, 5 tavern drinks. Counted tables whose count arrived later: wall sets (0.600),
+background sets (0.660), tavern tales (0.910). Step events are 8 slots below 1.0210 and 255 above.
+
+`STEP_EVENT_DATA` is **not** a `GameEvent` despite the name — no shared base, and its own ASL name
+`STEPEVENT_ATTR`.
+
 ### Level files are not compressed
 
 `LEVEL::Serialize` (`Level.cpp:1224`) runs: dimensions (`BYTE` each), the cell grid at **15 bytes

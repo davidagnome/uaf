@@ -34,7 +34,7 @@ public sealed record TrainableBaseclass(
 
 /// <summary>A <c>TRAININGHALL</c> — levels up characters of listed baseclasses.</summary>
 public sealed record TrainingHallEvent(
-    GameEventBase Base, int ForceExit, IReadOnlyList<TrainableBaseclass> Trainable);
+    GameEventBase Base, int ForceExit, IReadOnlyList<TrainableBaseclass> Trainable, int Cost);
 
 /// <summary>A <c>SHOP</c> — buys and sells items, with optional identify/appraise services.</summary>
 public sealed record ShopEvent(
@@ -290,7 +290,11 @@ public static class MoreEventReaders
             }
         }
 
-        return new TrainingHallEvent(baseEvent, forceExit, trainable);
+        // After the list, outside the version gate -- the recurring "read past the closing brace"
+        // shape. Missing it desynchronised every level containing a training hall.
+        int cost = ar.ReadInt32();
+
+        return new TrainingHallEvent(baseEvent, forceExit, trainable, cost);
     }
 
     /// <summary>Reads a <c>REMOVE_NPC_DATA</c>.</summary>
