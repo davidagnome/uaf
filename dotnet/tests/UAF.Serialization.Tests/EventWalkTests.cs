@@ -21,7 +21,11 @@ namespace UAF.Serialization.Tests;
 public class EventWalkTests
 {
     /// <summary>How far the walk reached when this test was last updated.</summary>
-    private const int KnownReach = 552;
+    /// <summary>
+    /// The walk now covers this level completely. Kept as a floor rather than an equality so a
+    /// regression names the event it broke on.
+    /// </summary>
+    private const int KnownReach = 575;
 
     private static DirectoryInfo RepoRoot()
     {
@@ -80,6 +84,42 @@ public class EventWalkTests
                 return true;
             case EventType.LogicBlock:
                 LogicBlockEventReader.Read(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.NPCSays:
+                MoreEventReaders.ReadNpcSays(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.TavernEvent:
+                MoreEventReaders.ReadTavern(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.TempleEvent:
+                MoreEventReaders.ReadTemple(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.ShopEvent:
+                MoreEventReaders.ReadShop(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.RemoveNPCEvent:
+                MoreEventReaders.ReadRemoveNpc(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.Camp:
+                MoreEventReaders.ReadCamp(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.TrainingHallEvent:
+                MoreEventReaders.ReadTrainingHall(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.Sounds:
+                MoreEventReaders.ReadSound(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.GainExperience:
+                MoreEventReaders.ReadGainExperience(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.FlowControl:
+                MoreEventReaders.ReadFlowControl(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.WhoPays:
+                MoreEventReaders.ReadWhoPays(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.RandomEvent:
+                SimpleEventReaders.ReadRandom(ar, version, ArchiveRole.Editor);
                 return true;
             case EventType.AddNpc:
                 SimpleEventReaders.ReadAddNpc(ar, version, ArchiveRole.Editor);
@@ -164,6 +204,10 @@ public class EventWalkTests
         Assert.True(reached >= KnownReach,
                     $"walk regressed: reached {reached}, previously {KnownReach}");
 
+        // Every event in a 575-event level, read end to end. Each one's fields are reachable only
+        // through the previous event's, so this is 575 consecutive exact-length reads.
+        Assert.Equal(declared, reached);
+
         // THE drift detector. Every event that actually reads a body writes exactly one
         // EVENT_DATA_ATTR marker, so the number of bodies read must equal the number of markers
         // lying before where the walk stopped. Skipping unrecognised ordinals cannot fake this:
@@ -196,6 +240,62 @@ public class EventWalkTests
         Assert.True(seen.GetValueOrDefault(EventType.GuidedTour) >= 9);
         Assert.True(seen.GetValueOrDefault(EventType.SpecialItem) >= 6);
         Assert.True(seen.GetValueOrDefault(EventType.ChainEventType) >= 4);
+    }
+
+    /// <summary>Walks every level in a design, returning how many walked to completion.</summary>
+    private static (int Complete, int Total, List<string> Details) WalkDesign(string rel)
+    {
+        var dir = new DirectoryInfo(Path.Combine(RepoRoot().FullName, rel));
+        if (!dir.Exists) return (0, 0, []);
+
+        int complete = 0, total = 0;
+        var details = new List<string>();
+        foreach (var file in dir.GetFiles("*.lvl").OrderBy(f => f.Name))
+        {
+            total++;
+            var (reached, _, declared, _, _) = Walk(Path.Combine(rel, file.Name));
+            if (reached == declared) complete++;
+            else details.Add($"{file.Name}: {reached}/{declared}");
+        }
+        return (complete, total, details);
+    }
+
+    /// <summary>design folder, level count, total events.</summary>
+    public static TheoryData<string, int, int> Designs => new()
+    {
+        { "reference/Case.dsn/Data", 10, 4244 },
+        { "reference/Ambassador's_Letter/Data", 3, 1529 },
+        { "reference/SomethingWild.dsn/Data", 8, 461 },
+        { "reference/dc-default/data-files", 1, 0 },
+    };
+
+    [Theory]
+    [MemberData(nameof(Designs))]
+    public void Every_level_of_every_design_walks_completely(
+        string rel, int expectedLevels, int expectedEvents)
+    {
+        var (complete, total, details) = WalkDesign(rel);
+        if (total == 0) return;                          // gitignored fixture absent
+
+        // Every event's fields are reachable only through the previous event's, so a single wrong
+        // field width anywhere in any of these records would stop a walk short. Across the four
+        // designs this is 6,234 consecutive exact-length reads spanning versions 2.53 to 5.28.
+        Assert.Equal(expectedLevels, total);
+        Assert.Equal(total, complete);
+        Assert.Empty(details);
+        Assert.Equal(expectedEvents, TotalEvents(rel));
+    }
+
+    /// <summary>Sums the events read across every level of a design.</summary>
+    private static int TotalEvents(string rel)
+    {
+        var dir = new DirectoryInfo(Path.Combine(RepoRoot().FullName, rel));
+        int events = 0;
+        foreach (var file in dir.GetFiles("*.lvl"))
+        {
+            events += Walk(Path.Combine(rel, file.Name)).Reached;
+        }
+        return events;
     }
 
     [Fact]

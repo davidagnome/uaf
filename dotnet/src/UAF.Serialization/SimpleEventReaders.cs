@@ -24,6 +24,12 @@ public sealed record PassTimeEvent(
     GameEventBase Base, byte Days, byte Hours, byte Minutes,
     int AllowStop, int SetTime, int PassSilent);
 
+/// <summary>One branch of a random event: a chained event id and its percentage chance.</summary>
+public sealed record RandomBranch(uint Chain, byte Chance);
+
+/// <summary>A <c>RANDOM_EVENT_DATA</c> — picks one of several chained events by chance.</summary>
+public sealed record RandomEvent(GameEventBase Base, IReadOnlyList<RandomBranch> Branches);
+
 /// <summary>An <c>ADD_NPC_DATA</c> — joins an NPC to the party.</summary>
 public sealed record AddNpcEvent(
     GameEventBase Base, int Operation, string CharacterId, int HitPointMod, int UseOriginal);
@@ -108,6 +114,36 @@ public static class SimpleEventReaders
     }
 
     /// <summary>
+    /// The array holds <c>MAX_RANDOM_EVENTS</c> = 14 entries, but only this many are serialized.
+    /// </summary>
+    /// <remarks>
+    /// <c>GameEvent.cpp:10052</c> loops <c>for (i = 1; i &lt; MAX_RANDOM_EVENTS; i++)</c> and
+    /// indexes <c>[i - 1]</c> — so it covers indices 0..12 and never touches the fourteenth slot.
+    /// Sizing the read from the array declaration rather than the loop over-reads by five bytes.
+    /// </remarks>
+    public const int SerializedRandomBranches = 13;
+
+    /// <summary>Reads a <c>RANDOM_EVENT_DATA</c> (<c>GameEvent.cpp:10048</c>).</summary>
+    /// <remarks>
+    /// Each branch is a <c>DWORD</c> chain id followed by a <b><c>BYTE</c></b> chance, so a branch
+    /// is five bytes and the block is 65 — not 13 × 8.
+    /// </remarks>
+    public static RandomEvent ReadRandom(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        var branches = new List<RandomBranch>(SerializedRandomBranches);
+        for (int i = 0; i < SerializedRandomBranches; i++)
+        {
+            branches.Add(new RandomBranch(ar.ReadUInt32(), ar.ReadByte()));
+        }
+
+        return new RandomEvent(baseEvent, branches);
+    }
+
+    /// <summary>
     /// Reads an <c>ADD_NPC_DATA</c> (<c>GameEvent.cpp:6613</c>).
     /// </summary>
     /// <remarks>
@@ -160,16 +196,24 @@ public static class SimpleEventReaders
         int destroyDrow = ar.ReadInt32();
         int activateBeforeEntry = ar.ReadInt32();
 
-        var destination = new TransferData(
+        var destination = ReadTransferData(ar);
+
+        return new TransferEvent(baseEvent, askYesNo, transferOnYes, destroyDrow,
+                                 activateBeforeEntry, destination);
+    }
+
+    /// <summary>Reads a <c>TRANSFER_DATA</c> (<c>GameEvent.cpp:4640</c>): six ints.</summary>
+    public static TransferData ReadTransferData(IArchiveCursor ar)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        return new TransferData(
             ar.ReadInt32(),                              // execEvent
             ar.ReadInt32(),                              // destEP
             ar.ReadInt32(),                              // destLevel
             ar.ReadInt32(),                              // destX
             ar.ReadInt32(),                              // destY
             ar.ReadInt32());                             // m_facing
-
-        return new TransferEvent(baseEvent, askYesNo, transferOnYes, destroyDrow,
-                                 activateBeforeEntry, destination);
     }
 
     /// <summary>
