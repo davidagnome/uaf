@@ -343,6 +343,28 @@ Every event opens with the same base: an `EVENT_CONTROL` (which has its own ASL)
 the type, id, x, y, two chain ids, three strings, and the event ASL. That the two ASL markers
 appear in **equal counts** in a real level file is a cheap structural check on the whole shape.
 
+### Member names are not types
+
+Three different classes declare a member called `items`, with three different types.
+`SPECIAL_ITEM_KEY_EVENT_DATA::items` is a `SPECIAL_OBJECT_EVENT_LIST` — ten bytes per entry — while
+others of that name are `ITEM_LIST`s. Grepping for `items;` and taking the first hit produces a
+reader that runs, consumes plausible-looking bytes, and desynchronises a few events later.
+
+**Read the member declaration inside the class you are porting**, not the first match in the
+header.
+
+### Walking an event list is self-checking
+
+Because each event's fields are only reachable through the previous event's, reading the *N*th
+event at all means the preceding *N*−1 were each read at exactly the right length. Two cheap
+guards make that failure loud instead of silent:
+
+- **Stop on an ordinal outside the enum.** A drifted stream produces values like 65536 or
+  1884488752. Skipping them (as "unknown, reads nothing") hides the drift and lets the walk limp
+  on for dozens of entries.
+- **Distinguish "unported" from "reads nothing".** They look identical to a reader that only asks
+  whether it has a handler.
+
 `EVENT_CONTROL` gates on the `version` parameter in some places and on the **global**
 `LoadingVersion` in others, sometimes four lines apart (`GameEvent.cpp:1641` vs `:1644`). They
 should agree when loading a design, but the inconsistency is real.
