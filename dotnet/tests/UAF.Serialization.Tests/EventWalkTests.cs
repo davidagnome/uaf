@@ -21,7 +21,7 @@ namespace UAF.Serialization.Tests;
 public class EventWalkTests
 {
     /// <summary>How far the walk reached when this test was last updated.</summary>
-    private const int KnownReach = 247;
+    private const int KnownReach = 554;
 
     private static DirectoryInfo RepoRoot()
     {
@@ -78,13 +78,37 @@ public class EventWalkTests
             case EventType.TransferModule:
                 SimpleEventReaders.ReadTransfer(ar, version, ArchiveRole.Editor);
                 return true;
+            case EventType.LogicBlock:
+                LogicBlockEventReader.Read(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.GiveTreasure:
+                TreasureEventReaders.ReadGiveTreasure(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.CombatTreasure:
+                TreasureEventReaders.ReadCombatTreasure(ar, version, ArchiveRole.Editor);
+                return true;
             default:
                 return false;
         }
     }
 
-    private static (int Reached, Dictionary<EventType, int> Seen, int Declared) Walk(string rel)
+    /// <summary>Counts <c>EVENT_DATA_ATTR</c> markers occurring before a byte offset.</summary>
+    private static int MarkersBefore(string rel, long offset)
     {
+        byte[] data = File.ReadAllBytes(Path.Combine(RepoRoot().FullName, rel));
+        byte[] needle = System.Text.Encoding.ASCII.GetBytes(AslMaps.EventData);
+        int count = 0;
+        for (int i = 0; i + needle.Length <= data.Length && i < offset; i++)
+        {
+            if (data.AsSpan(i, needle.Length).SequenceEqual(needle)) count++;
+        }
+        return count;
+    }
+
+    private static (int Reached, Dictionary<EventType, int> Seen, int Declared, int Handled,
+                    long EndPosition) Walk(string rel)
+    {
+        int handled = 0;
         using var fs = File.OpenRead(Path.Combine(RepoRoot().FullName, rel));
         var header = DesignFileHeader.Read(fs, DesignFileKind.LevelData);
         var plain = new MfcArchiveReader(fs);
@@ -104,22 +128,25 @@ public class EventWalkTests
         for (int i = 0; i < declared; i++)
         {
             var type = (EventType)ar.ReadInt32();
-
-            // An ordinal outside the enum means the stream drifted. Stopping here rather than
-            // skipping is what turned a silent desync into a locatable failure while porting
-            // SPECIAL_ITEM_KEY_EVENT_DATA.
-            if (!Enum.IsDefined(type)) break;
-
             seen[type] = seen.GetValueOrDefault(type) + 1;
 
+            // Mirror CreateNewEvent (GameEvent.cpp:3833): ANY ordinal it does not recognise --
+            // not just NoEvent -- yields a null object, so nothing further is read and the entry
+            // is just its four bytes. Case.dsn's Level001 really does contain two such ordinals
+            // (600 and 1800).
+            //
+            // Skipping them is therefore correct, but it also hides drift, since a desynchronised
+            // stream produces unrecognised ordinals too. Marker counting below is what actually
+            // detects that.
             if (EventDispatch.ReadsNothing(type) || TryReadEvent(ar, type, header.Version))
             {
+                if (!EventDispatch.ReadsNothing(type)) handled++;
                 reached = i + 1;
                 continue;
             }
             break;                                       // an unported type; stop cleanly
         }
-        return (reached, seen, declared);
+        return (reached, seen, declared, handled, fs.Position);
     }
 
     [Fact]
@@ -128,15 +155,17 @@ public class EventWalkTests
         string path = Path.Combine(RepoRoot().FullName, "reference/Case.dsn/Data/Level001.lvl");
         if (!File.Exists(path)) return;
 
-        var (reached, seen, declared) = Walk("reference/Case.dsn/Data/Level001.lvl");
+        var (reached, seen, declared, handled, endPosition) = Walk("reference/Case.dsn/Data/Level001.lvl");
 
         Assert.Equal(575, declared);
         Assert.True(reached >= KnownReach,
                     $"walk regressed: reached {reached}, previously {KnownReach}");
 
-        // Every ordinal encountered must be a real event type -- garbage here means a desync
-        // upstream that the length checks did not catch.
-        Assert.All(seen.Keys, t => Assert.True(Enum.IsDefined(t)));
+        // THE drift detector. Every event that actually reads a body writes exactly one
+        // EVENT_DATA_ATTR marker, so the number of bodies read must equal the number of markers
+        // lying before where the walk stopped. Skipping unrecognised ordinals cannot fake this:
+        // a desynchronised stream drifts away from the marker positions immediately.
+        Assert.Equal(MarkersBefore("reference/Case.dsn/Data/Level001.lvl", endPosition), handled);
     }
 
     [Fact]
@@ -145,7 +174,7 @@ public class EventWalkTests
         string path = Path.Combine(RepoRoot().FullName, "reference/Case.dsn/Data/Level001.lvl");
         if (!File.Exists(path)) return;
 
-        var (_, seen, _) = Walk("reference/Case.dsn/Data/Level001.lvl");
+        var (_, seen, _, _, _) = Walk("reference/Case.dsn/Data/Level001.lvl");
 
         // Reading one event of a type could be luck; reading dozens in sequence could not, since
         // each depends on the previous ending in exactly the right place.
@@ -161,7 +190,7 @@ public class EventWalkTests
     [Fact]
     public void DefaultDesign_level_walks_completely()
     {
-        var (reached, seen, declared) = Walk("src/UAFWinEd/DefaultDesign.dsn/Data/Level000.lvl");
+        var (reached, seen, declared, _, _) = Walk("src/UAFWinEd/DefaultDesign.dsn/Data/Level000.lvl");
 
         // Both of this level's entries are ported types, so the walk finishes.
         Assert.Equal(2, declared);

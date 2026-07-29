@@ -24,6 +24,10 @@ public sealed record PassTimeEvent(
     GameEventBase Base, byte Days, byte Hours, byte Minutes,
     int AllowStop, int SetTime, int PassSilent);
 
+/// <summary>An <c>ADD_NPC_DATA</c> — joins an NPC to the party.</summary>
+public sealed record AddNpcEvent(
+    GameEventBase Base, int Operation, string CharacterId, int HitPointMod, int UseOriginal);
+
 /// <summary>Where a transfer sends the party (<c>GameEvent.cpp:4640</c>).</summary>
 public sealed record TransferData(
     int ExecuteEvent, int DestEntryPoint, int DestLevel, int DestX, int DestY, int Facing);
@@ -101,6 +105,39 @@ public static class SimpleEventReaders
         int numButtons = ar.ReadInt32();
 
         return new QuestionEvent(baseEvent, string.Empty, numButtons, ReadOptions(ar));
+    }
+
+    /// <summary>
+    /// Reads an <c>ADD_NPC_DATA</c> (<c>GameEvent.cpp:6613</c>).
+    /// </summary>
+    /// <remarks>
+    /// Note the gate on the character reference uses the <c>version</c> parameter while
+    /// <c>useOriginal</c> uses the global <c>LoadingVersion</c> — the same mixed-source pattern as
+    /// <c>EVENT_CONTROL</c>, four lines apart again.
+    /// </remarks>
+    public static AddNpcEvent ReadAddNpc(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        int operation = ar.ReadInt32();
+
+        string characterId;
+        if (role == ArchiveRole.Editor && version < DesignVersion.SpellNames)
+        {
+            int key = ar.ReadInt32();
+            characterId = key <= 0 ? string.Empty : key.ToString();
+        }
+        else
+        {
+            characterId = ar.ReadString();
+        }
+
+        int hitPointMod = ar.ReadInt32();
+        int useOriginal = version >= DesignVersion.V0695 ? ar.ReadInt32() : 0;
+
+        return new AddNpcEvent(baseEvent, operation, characterId, hitPointMod, useOriginal);
     }
 
     /// <summary>

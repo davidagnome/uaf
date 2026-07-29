@@ -7,7 +7,7 @@ public sealed record MonsterEvent(
     int Quantity, int Type, string MonsterId, string CharacterId,
     int Friendly, int MoraleAdjustment,
     int QtyDiceSides, int QtyDiceQty, int QtyBonus, int UseQty,
-    MoneySack? Money);
+    MoneySack? Money, ItemList Items);
 
 /// <summary>
 /// A <c>COMBAT_EVENT_DATA</c> — the shared event base plus the encounter's own fields.
@@ -118,7 +118,17 @@ public static class CombatEventReader
         return monsters;
     }
 
-    /// <summary>Reads one <c>MONSTER_EVENT</c> (<c>GameEvent.cpp:4748</c>).</summary>
+    /// <summary>
+    /// Reads one <c>MONSTER_EVENT</c> (<c>GameEvent.cpp:4748</c>).
+    /// </summary>
+    /// <remarks>
+    /// Ends with a <c>MONEY_SACK</c> and then an <c>ITEM_LIST</c> — the monster's carried
+    /// treasure and inventory. The item list is outside the storing/loading branch.
+    /// <para>
+    /// This only bites on encounters that actually define monsters. DefaultDesign's single combat
+    /// event has none, so the omission was invisible until a level with populated encounters.
+    /// </para>
+    /// </remarks>
     public static MonsterEvent ReadMonsterEvent(IArchiveCursor ar, DesignVersion version,
                                                 ArchiveRole role)
     {
@@ -166,9 +176,13 @@ public static class CombatEventReader
             ? MonsterLeafReaders.ReadMoneySack(ar, version)
             : null;
 
+        // Outside the storing/loading branch (GameEvent.cpp:4816), and ungated. Easy to miss:
+        // it sits after the closing brace of the else, past where a grep window usually stops.
+        var items = MonsterLeafReaders.ReadItemList(ar, version, role);
+
         return new MonsterEvent(quantity, type, monsterId, characterId, friendly,
                                 moraleAdjustment, qtyDiceSides, qtyDiceQty, qtyBonus, useQty,
-                                money);
+                                money, items);
     }
 
     private static string ReadDas(IArchiveCursor ar) =>
