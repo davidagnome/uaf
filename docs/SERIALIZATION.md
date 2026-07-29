@@ -343,6 +343,19 @@ Every event opens with the same base: an `EVENT_CONTROL` (which has its own ASL)
 the type, id, x, y, two chain ids, three strings, and the event ASL. That the two ASL markers
 appear in **equal counts** in a real level file is a cheap structural check on the whole shape.
 
+Recurring shapes across the concrete subclasses, worth expecting rather than discovering:
+
+- **Fixed-size arrays with no count.** `GUIDED_TOUR` writes 24 steps, question events write 5
+  options, `TAVERN` writes 5 drinks — always, regardless of how many are used. Unused slots carry
+  the blank sentinel.
+- **Counted lists whose count is *not* the array size.** `RANDOM_EVENT_DATA` declares 14 slots and
+  serializes 13 (`for i = 1; i < 14` indexing `[i-1]`).
+- **Trailing structures outside the branch.** `COMBAT_EVENT_DATA` ends with its monster list,
+  `SHOP` and `WHO_PAYS` with an item list and two transfer blocks. Always read past the closing
+  brace.
+- **Shapes that change at a version.** `TAVERN` writes ten bare tales below 0.910 and a counted
+  list above it.
+
 ### Member names are not types
 
 This is the single most expensive mistake in the port — it has cost four separate bugs.
