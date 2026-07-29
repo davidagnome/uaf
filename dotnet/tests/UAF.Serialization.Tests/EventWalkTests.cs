@@ -21,7 +21,11 @@ namespace UAF.Serialization.Tests;
 public class EventWalkTests
 {
     /// <summary>How far the walk reached when this test was last updated.</summary>
-    private const int KnownReach = 554;
+    // 518 is the last reach verified clean. The walk currently runs further, but event 550 is a
+    // COMBAT_EVENT_DATA that under-reads on this design, after which the 4-byte reads land on
+    // garbage (ordinals 600 and 1800) that skipping makes look like unhandled event types. Held
+    // at the verified figure rather than the optimistic one until that is fixed.
+    private const int KnownReach = 518;
 
     private static DirectoryInfo RepoRoot()
     {
