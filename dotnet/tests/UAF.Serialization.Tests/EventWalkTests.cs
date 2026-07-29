@@ -61,6 +61,12 @@ public class EventWalkTests
             case EventType.ChainEventType:
                 SimpleEventReaders.ReadChain(ar, version, ArchiveRole.Editor);
                 return true;
+            case EventType.QuestionList:
+                SimpleEventReaders.ReadQuestionList(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.QuestionButton:
+                SimpleEventReaders.ReadQuestionButton(ar, version, ArchiveRole.Editor);
+                return true;
             default:
                 return false;
         }
