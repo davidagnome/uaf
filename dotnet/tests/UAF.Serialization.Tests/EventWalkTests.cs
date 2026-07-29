@@ -21,7 +21,7 @@ namespace UAF.Serialization.Tests;
 public class EventWalkTests
 {
     /// <summary>How far the walk reached when this test was last updated.</summary>
-    private const int KnownReach = 174;
+    private const int KnownReach = 247;
 
     private static DirectoryInfo RepoRoot()
     {
@@ -66,6 +66,17 @@ public class EventWalkTests
                 return true;
             case EventType.QuestionButton:
                 SimpleEventReaders.ReadQuestionButton(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.QuestionYesNo:
+                SimpleEventReaders.ReadYesNo(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.PassTime:
+                SimpleEventReaders.ReadPassTime(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.Stairs:
+            case EventType.Teleporter:
+            case EventType.TransferModule:
+                SimpleEventReaders.ReadTransfer(ar, version, ArchiveRole.Editor);
                 return true;
             default:
                 return false;
@@ -138,7 +149,7 @@ public class EventWalkTests
 
         // Reading one event of a type could be luck; reading dozens in sequence could not, since
         // each depends on the previous ending in exactly the right place.
-        Assert.True(seen.GetValueOrDefault(EventType.TextStatement) > 100,
+        Assert.True(seen.GetValueOrDefault(EventType.TextStatement) > 180,
                     "expected many text events");
         Assert.True(seen.GetValueOrDefault(EventType.QuestStage) >= 16);
         Assert.True(seen.GetValueOrDefault(EventType.Utilities) >= 14);

@@ -15,6 +15,26 @@ public sealed record ChainEvent(GameEventBase Base, uint Chain);
 /// </remarks>
 public sealed record QuestionOption(string Label, int Present, int PostChainAction, uint Chain);
 
+/// <summary>A <c>QUESTION_YES_NO</c> — two fixed branches rather than an option array.</summary>
+public sealed record YesNoEvent(
+    GameEventBase Base, int YesChainAction, int NoChainAction, uint YesChain, uint NoChain);
+
+/// <summary>A <c>PASS_TIME_EVENT_DATA</c> — advances the clock.</summary>
+public sealed record PassTimeEvent(
+    GameEventBase Base, byte Days, byte Hours, byte Minutes,
+    int AllowStop, int SetTime, int PassSilent);
+
+/// <summary>Where a transfer sends the party (<c>GameEvent.cpp:4640</c>).</summary>
+public sealed record TransferData(
+    int ExecuteEvent, int DestEntryPoint, int DestLevel, int DestX, int DestY, int Facing);
+
+/// <summary>
+/// A <c>TRANSFER_EVENT_DATA</c> — stairs, a teleporter or a module transfer.
+/// </summary>
+public sealed record TransferEvent(
+    GameEventBase Base, int AskYesNo, int TransferOnYes, int DestroyDrow,
+    int ActivateBeforeEntry, TransferData Destination);
+
 /// <summary>A question event: an optional title and a fixed array of options.</summary>
 public sealed record QuestionEvent(
     GameEventBase Base, string Title, int NumButtons, IReadOnlyList<QuestionOption> Options);
@@ -81,6 +101,92 @@ public static class SimpleEventReaders
         int numButtons = ar.ReadInt32();
 
         return new QuestionEvent(baseEvent, string.Empty, numButtons, ReadOptions(ar));
+    }
+
+    /// <summary>
+    /// Reads a <c>TRANSFER_EVENT_DATA</c> (<c>GameEvent.cpp:8734</c>).
+    /// </summary>
+    /// <remarks>
+    /// Serves three event ordinals — <see cref="EventType.Stairs"/>,
+    /// <see cref="EventType.Teleporter"/> and <see cref="EventType.TransferModule"/> — which share
+    /// this one layout. The destination block is read outside the storing/loading branch.
+    /// </remarks>
+    public static TransferEvent ReadTransfer(IArchiveCursor ar, DesignVersion version,
+                                             ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        int askYesNo = ar.ReadInt32();
+        int transferOnYes = ar.ReadInt32();
+        int destroyDrow = ar.ReadInt32();
+        int activateBeforeEntry = ar.ReadInt32();
+
+        var destination = new TransferData(
+            ar.ReadInt32(),                              // execEvent
+            ar.ReadInt32(),                              // destEP
+            ar.ReadInt32(),                              // destLevel
+            ar.ReadInt32(),                              // destX
+            ar.ReadInt32(),                              // destY
+            ar.ReadInt32());                             // m_facing
+
+        return new TransferEvent(baseEvent, askYesNo, transferOnYes, destroyDrow,
+                                 activateBeforeEntry, destination);
+    }
+
+    /// <summary>
+    /// Reads a <c>PASS_TIME_EVENT_DATA</c> (<c>GameEvent.cpp:9309</c>).
+    /// </summary>
+    /// <remarks>
+    /// The duration is three <c>BYTE</c>s and the flags three 4-byte <c>BOOL</c>s, so the record is
+    /// 15 bytes at 0.830 and above and 3 below it. Reading the duration as ints would consume the
+    /// flags as well.
+    /// </remarks>
+    public static PassTimeEvent ReadPassTime(IArchiveCursor ar, DesignVersion version,
+                                             ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        byte days = ar.ReadByte();
+        byte hours = ar.ReadByte();
+        byte minutes = ar.ReadByte();
+
+        int allowStop = 0;
+        int setTime = 0;
+        int passSilent = 0;
+        if (version >= DesignVersion.V0830)
+        {
+            allowStop = ar.ReadInt32();
+            setTime = ar.ReadInt32();
+            passSilent = ar.ReadInt32();
+        }
+
+        return new PassTimeEvent(baseEvent, days, hours, minutes,
+                                 allowStop, setTime, passSilent);
+    }
+
+    /// <summary>
+    /// Reads a <c>QUESTION_YES_NO</c> (<c>GameEvent.cpp:7227</c>).
+    /// </summary>
+    /// <remarks>
+    /// Despite the family resemblance this has no option array at all — just two post-chain
+    /// actions and two chain targets, in action/action/chain/chain order rather than interleaved.
+    /// </remarks>
+    public static YesNoEvent ReadYesNo(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        int yesChainAction = ar.ReadInt32();
+        int noChainAction = ar.ReadInt32();
+        uint yesChain = ar.ReadUInt32();
+        uint noChain = ar.ReadUInt32();
+
+        return new YesNoEvent(baseEvent, yesChainAction, noChainAction, yesChain, noChain);
     }
 
     /// <summary>
