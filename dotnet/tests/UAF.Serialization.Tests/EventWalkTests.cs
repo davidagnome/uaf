@@ -21,11 +21,7 @@ namespace UAF.Serialization.Tests;
 public class EventWalkTests
 {
     /// <summary>How far the walk reached when this test was last updated.</summary>
-    // 518 is the last reach verified clean. The walk currently runs further, but event 550 is a
-    // COMBAT_EVENT_DATA that under-reads on this design, after which the 4-byte reads land on
-    // garbage (ordinals 600 and 1800) that skipping makes look like unhandled event types. Held
-    // at the verified figure rather than the optimistic one until that is fixed.
-    private const int KnownReach = 518;
+    private const int KnownReach = 552;
 
     private static DirectoryInfo RepoRoot()
     {
@@ -84,6 +80,9 @@ public class EventWalkTests
                 return true;
             case EventType.LogicBlock:
                 LogicBlockEventReader.Read(ar, version, ArchiveRole.Editor);
+                return true;
+            case EventType.AddNpc:
+                SimpleEventReaders.ReadAddNpc(ar, version, ArchiveRole.Editor);
                 return true;
             case EventType.GiveTreasure:
                 TreasureEventReaders.ReadGiveTreasure(ar, version, ArchiveRole.Editor);
@@ -182,8 +181,16 @@ public class EventWalkTests
 
         // Reading one event of a type could be luck; reading dozens in sequence could not, since
         // each depends on the previous ending in exactly the right place.
-        Assert.True(seen.GetValueOrDefault(EventType.TextStatement) > 180,
+        Assert.True(seen.GetValueOrDefault(EventType.TextStatement) > 400,
                     "expected many text events");
+
+        // Every ordinal must now be a real event type. Before BACKGROUND_SOUND_DATA was modelled
+        // correctly, this level appeared to contain ordinals 600 and 1800 -- they were actually a
+        // combat event's EndTime and StartTime, read as event headers after a 16-byte shortfall.
+        Assert.All(seen.Keys, k => Assert.True(Enum.IsDefined(k), $"ordinal {(int)k} is not a type"));
+
+        // ...and no NoEvent entries, which the drift also faked.
+        Assert.False(seen.ContainsKey(EventType.NoEvent));
         Assert.True(seen.GetValueOrDefault(EventType.QuestStage) >= 16);
         Assert.True(seen.GetValueOrDefault(EventType.Utilities) >= 14);
         Assert.True(seen.GetValueOrDefault(EventType.GuidedTour) >= 9);
@@ -196,10 +203,11 @@ public class EventWalkTests
     {
         var (reached, seen, declared, _, _) = Walk("src/UAFWinEd/DefaultDesign.dsn/Data/Level000.lvl");
 
-        // Both of this level's entries are ported types, so the walk finishes.
+        // Both of this level's entries are combats, and both are ported, so the walk finishes.
+        // (It formerly read as Combat + NoEvent; that was the BACKGROUND_SOUND_DATA shortfall.)
         Assert.Equal(2, declared);
         Assert.Equal(2, reached);
-        Assert.Equal(1, seen[EventType.Combat]);
-        Assert.Equal(1, seen[EventType.NoEvent]);
+        Assert.Equal(2, seen[EventType.Combat]);
+        Assert.False(seen.ContainsKey(EventType.NoEvent));
     }
 }

@@ -66,29 +66,40 @@ public class CombatEventTests
             Assert.Equal("CharDeath.wav", combat.DeathSound);
             Assert.Equal(EventType.Combat, (EventType)combat.Base.EventType);
 
-            // This encounter defines no monsters, which is legal: the list is a plain count.
-            Assert.Empty(combat.Monsters);
+            // One monster, referenced by a legacy numeric key because this design predates
+            // VersionSpellNames. Reading the encounter's monsters at all depends on
+            // BACKGROUND_SOUND_DATA being modelled correctly -- see the class remarks.
+            var monster = Assert.Single(combat.Monsters);
+            Assert.Equal(1, monster.Quantity);
+            Assert.Equal("44", monster.MonsterId);
+
+            // Two sound queues, both empty here, plus the night-time hours.
+            Assert.Empty(combat.BackgroundSounds.Day);
+            Assert.Empty(combat.BackgroundSounds.Night);
+            Assert.Equal(600, combat.BackgroundSounds.EndTime);
+            Assert.Equal(1800, combat.BackgroundSounds.StartTime);
         }
     }
 
     [Fact]
-    public void NoEvent_entry_consumes_exactly_four_bytes()
+    public void Both_events_in_this_level_are_combats()
     {
-        var (cursor, fs, version, _) = OpenEventList(
+        var (cursor, fs, version, count) = OpenEventList(
             "src/UAFWinEd/DefaultDesign.dsn/Data/Level000.lvl");
         using (fs)
         {
-            cursor.ReadInt32();                      // event 0's ordinal
-            CombatEventReader.Read(cursor, version, ArchiveRole.Editor);
+            Assert.Equal(2, count);
 
-            long before = fs.Position;
-            var second = (EventType)cursor.ReadInt32();
-
-            // CreateNewEvent returns null, so Serialize is never called and the entry is just its
-            // ordinal. Confirmed here against real data rather than inferred from the source.
-            Assert.Equal(EventType.NoEvent, second);
-            Assert.True(EventDispatch.ReadsNothing(second));
-            Assert.Equal(4, fs.Position - before);
+            // This level was long believed to hold a Combat followed by a NoEvent. It does not --
+            // that reading was an artefact of a 16-byte shortfall in COMBAT_EVENT_DATA, which made
+            // four bytes of the first combat's tail look like a null-dispatch entry. Both events
+            // are combats, and both carry a monster.
+            for (int i = 0; i < count; i++)
+            {
+                Assert.Equal(EventType.Combat, (EventType)cursor.ReadInt32());
+                var combat = CombatEventReader.Read(cursor, version, ArchiveRole.Editor);
+                Assert.Single(combat.Monsters);
+            }
         }
     }
 
@@ -107,6 +118,10 @@ public class CombatEventTests
                 Assert.Equal(EventType.Combat, type);
                 CombatEventReader.Read(cursor, version, ArchiveRole.Editor);
             }
+
+            // The second combat's text, read only if the first was consumed to exactly the right
+            // length.
+            Assert.True(fs.Position > 2000);
 
             // zoneData, the level ASL, step events and the wall sets all follow, so the list must
             // NOT land on EOF -- that would mean it had over-read.

@@ -345,13 +345,33 @@ appear in **equal counts** in a real level file is a cheap structural check on t
 
 ### Member names are not types
 
+This is the single most expensive mistake in the port — it has cost four separate bugs.
+
 Three different classes declare a member called `items`, with three different types.
 `SPECIAL_ITEM_KEY_EVENT_DATA::items` is a `SPECIAL_OBJECT_EVENT_LIST` — ten bytes per entry — while
 others of that name are `ITEM_LIST`s. Grepping for `items;` and taking the first hit produces a
 reader that runs, consumes plausible-looking bytes, and desynchronises a few events later.
 
+Worse, the *types themselves* come in near-identical pairs:
+
+| Member | Looks like | Actually is |
+|---|---|---|
+| `COMBAT_EVENT_DATA::bgSounds` | `BACKGROUND_SOUNDS` | **`BACKGROUND_SOUND_DATA`** |
+| `SPECIAL_ITEM_KEY_EVENT_DATA::items` | `ITEM_LIST` | **`SPECIAL_OBJECT_EVENT_LIST`** |
+| `QUESTION_LIST_DATA::buttons` | same as `QUESTION_BUTTON_DATA::buttons` | `QLIST_DATA` vs `QBUTTON_DATA` |
+
+`BACKGROUND_SOUNDS` is one list of names. `BACKGROUND_SOUND_DATA` wraps **two** of them (day and
+night) and adds `UseNightMusic`, `EndTime` and `StartTime`. Reading the wrong one costs 16 bytes
+per combat event — and because those 16 bytes swallow the monster count that follows, every
+encounter appears to have zero monsters and the event list drifts from there on.
+
+> That one took two full sessions to find. The symptoms pointed everywhere except at it: phantom
+> event ordinals (600 and 1800 — actually `EndTime` and `StartTime`), phantom `NoEvent` entries,
+> and a level that appeared to contain a combat followed by a null dispatch when it actually
+> contains two combats.
+
 **Read the member declaration inside the class you are porting**, not the first match in the
-header.
+header. When two types share a name prefix, check which one.
 
 ### Walking an event list is self-checking
 

@@ -18,8 +18,21 @@ public sealed record CombatEvent(
     int Distance, int Direction, int Surprise, int AutoApproach,
     int Outdoors, int NoMonsterTreasure, int PartyNeverDies, int NoMagic,
     int MonsterMorale, int Terrain, int RandomMonster, int PartyNoExperience,
-    IReadOnlyList<string> BackgroundSounds,
+    BackgroundSoundData BackgroundSounds,
     IReadOnlyList<MonsterEvent> Monsters);
+
+/// <summary>
+/// A <c>BACKGROUND_SOUND_DATA</c> — day and night sound queues plus the hours that switch between
+/// them (<c>SoundMgr.cpp:662</c>).
+/// </summary>
+/// <remarks>
+/// <b>Not the same type as <c>BACKGROUND_SOUNDS</c></b>, which is one bare list. This wraps
+/// <i>two</i> of those and adds three scalars. The names differ by a single word, and the member
+/// is called <c>bgSounds</c> in both places that use them.
+/// </remarks>
+public sealed record BackgroundSoundData(
+    IReadOnlyList<string> Day, IReadOnlyList<string> Night,
+    int UseNightMusic, int EndTime, int StartTime);
 
 /// <summary>
 /// Reads <c>COMBAT_EVENT_DATA</c> (<c>GameEvent.cpp:6947</c>) and the structures it contains.
@@ -68,8 +81,8 @@ public static class CombatEventReader
         int partyNoExperience = version >= DesignVersion.V0860 ? ar.ReadInt32() : 0;
 
         var backgroundSounds = version >= DesignVersion.V0790
-            ? ReadBackgroundSounds(ar)
-            : [];
+            ? ReadBackgroundSoundData(ar)
+            : new BackgroundSoundData([], [], 0, 0, 0);
 
         // Outside the branch -- always read.
         var monsters = ReadMonsterEventData(ar, version, role);
@@ -80,6 +93,29 @@ public static class CombatEventReader
             outdoors, noMonsterTreasure, partyNeverDies, noMagic,
             monsterMorale, terrain, randomMonster, partyNoExperience,
             backgroundSounds, monsters);
+    }
+
+    /// <summary>
+    /// Reads a <c>BACKGROUND_SOUND_DATA</c> (<c>SoundMgr.cpp:662</c>): two sound queues then
+    /// three scalars.
+    /// </summary>
+    /// <remarks>
+    /// The nested lists make this look like a single list at a glance, which is exactly how it was
+    /// first mis-ported as a bare <c>BACKGROUND_SOUNDS</c> — costing 16 bytes per combat event and
+    /// swallowing the monster count that follows.
+    /// </remarks>
+    public static BackgroundSoundData ReadBackgroundSoundData(IArchiveCursor ar)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var day = ReadBackgroundSounds(ar);
+        var night = ReadBackgroundSounds(ar);
+
+        return new BackgroundSoundData(
+            day, night,
+            ar.ReadInt32(),                              // UseNightMusic -- BOOL
+            ar.ReadInt32(),                              // EndTime, in game minutes
+            ar.ReadInt32());                             // StartTime
     }
 
     /// <summary>
