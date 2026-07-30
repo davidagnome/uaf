@@ -23,6 +23,7 @@ public sealed record GlobalStatsPrefix(
     int AutoDarkenViewport, int AutoDarkenAmount,
     int MinPcs, int MaxPartyMaxPcs, int Flags,
     string MapArt, string IconBackgroundArt, string BackgroundArt,
+    LogFont Font,
     IReadOnlyList<PicRecord> SmallPicImports, IReadOnlyList<PicRecord> IconPicImports,
     TitleScreenData? TitleData, TitleScreenData? CreditsData,
     IReadOnlyList<AslEntry> Attributes,
@@ -147,18 +148,20 @@ public static class GlobalStatsReader
 
         string mapArt = ReadDas(ar);
 
+        // Below 0.830 the font was a name and a byte height rather than a struct.
+        var font = LogFont.Default;
         if (version < DesignVersion.V0830)
         {
-            ar.ReadString();                     // font name
-            if (version >= DesignVersion.V0681)
-            {
-                ar.ReadByte();                   // fontSize -- a BYTE
-            }
+            string faceName = ar.ReadString();
+            int height = version >= DesignVersion.V0681 ? ar.ReadByte() : LogFont.Default.Height;
+            font = faceName.Length == 0
+                ? LogFont.Default
+                : LogFont.Default with { FaceName = faceName, Height = height };
         }
         else
         {
             // A raw struct blit, not a field-by-field write.
-            ar.ReadBytes(LogFontSize);
+            font = LogFont.Parse(ar.ReadBytes(LogFontSize));
         }
 
         if (version < DesignVersion.V0800)
@@ -224,7 +227,7 @@ public static class GlobalStatsReader
                 version, designName, startLevel, startX, startY, startFacing,
                 startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
                 autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
-                mapArt, iconBackgroundArt, backgroundArt, smallPics, iconPics,
+                mapArt, iconBackgroundArt, backgroundArt, font, smallPics, iconPics,
                 titleData, creditsData, attributes,
                 art, sounds, keys, specialItems, quests, characters,
                 null, null, null, 0, [], null);
@@ -281,7 +284,7 @@ public static class GlobalStatsReader
             new(version, designName, startLevel, startX, startY, startFacing,
                 startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
                 autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
-                mapArt, iconBackgroundArt, backgroundArt, smallPics, iconPics,
+                mapArt, iconBackgroundArt, backgroundArt, font, smallPics, iconPics,
                 titleData, creditsData, attributes,
                 art, sounds, keys, specialItems, quests, characters,
                 levels, money, difficulty, events, j, fix);

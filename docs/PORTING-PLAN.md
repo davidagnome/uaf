@@ -573,9 +573,36 @@ of SDL**, not a stable release — which is what osu! itself runs on, and the pa
 it exactly, but it is a materially different claim from "SDL 3.4.12" and should not be discovered
 later. `SDL3-CS` tracks tagged releases instead, and that is its one real advantage.
 
-The reason not to switch on that basis alone: `SDL3-CS` publishes **no SDL3_image companion**, and
-the media layer now depends on one for the legacy art formats (§7 Phase 3). Revisit if the
-development-branch dependency ever causes a concrete problem.
+**Correction to the correction: `SDL3-CS` does ship the companion libraries.** An earlier revision
+of this section claimed it had no SDL_image binding. That was wrong, and wrong in an instructive
+way — the conclusion came from probing four *guessed* package names (`SDL3-Image-CS`,
+`SDL3_image-CS`, `SDL3-CS.Image`, `SDL3-Image-CS.Native`), getting four 404s, and treating that as
+evidence of absence. The real scheme is `SDL3-CS.{Platform}.Image`. This is the same failure shape
+that produced five serialization bugs: a first guess taken as fact instead of read from the source.
+
+What it actually publishes, all tracking **tagged upstream releases**:
+
+| Component | Package | Native version |
+|---|---|---|
+| Bindings | `SDL3-CS` | SDL 3.4.12 |
+| Core natives | `SDL3-CS.{Platform}` | SDL 3.4.12 |
+| Image | `SDL3-CS.{Platform}.Image` | SDL_image 3.4.4 |
+| Fonts | `SDL3-CS.{Platform}.TTF` | SDL_ttf 3.2.2 |
+| Audio | `SDL3-CS.{Platform}.Mixer` | SDL_mixer 3.2.4 |
+
+`{Platform}` is `Windows`, `Linux`, `MacOS`, `Android`, `iOS` or `tvOS`, so natives arrive as
+per-platform, per-component references that have to be **guarded by condition in the csproj** —
+nine of them for three desktop platforms with image and TTF. That is the real cost, against ppy's
+single all-RID package per component.
+
+So the trade is now: **tagged stable natives plus csproj guards** (`SDL3-CS`) against
+**development-branch natives with zero packaging friction and roughly a hundred times the field
+usage** (`ppy`). Downloads for the per-platform natives sit at 3–5k, against 522k for
+`ppy.SDL3-CS`. Both are zlib/MIT and both offer image and TTF at matching versions.
+
+The port currently uses `ppy`. Switching is a real but bounded cost — the SDL-facing code is
+`SdlPresenter`, `SdlAudioDevice`, `SdlInputSource`, `SdlPlatform` and `SdlImageDecoder`, all
+binding the same C API under different namespaces and marshalling conventions.
 
 The spike deliberately exercises **the port's actual model**, not just `SDL_Init`: a managed
 `uint[]` framebuffer with a colour key, written entirely in C#, pushed through a
