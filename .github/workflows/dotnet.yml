@@ -64,7 +64,14 @@ jobs:
       - name: Build
         run: dotnet build dotnet/UAF.slnx --no-restore -c Release
 
+      # UAF.Media.Tests exercises the real SDL3 backend -- window, streaming texture, event queue and
+      # audio device. It forces the dummy drivers from inside the process (see HeadlessDrivers.cs,
+      # which explains why a hint and not an environment variable), so these two are belt and braces:
+      # they make the intent visible here and cover anything run outside the test host.
       - name: Test
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
         run: dotnet test dotnet/UAF.slnx --no-build -c Release --verbosity normal
 
       # OracleDiffTests return early when the golden dump is absent (xUnit 2.9 has no

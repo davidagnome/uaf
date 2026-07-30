@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- The binding hands back raw pointers for pixel data and event structs, so uploads need
+         fixed + a cast. Noted in docs/PORTING-PLAN.md section 6.2 as a consequence of the choice. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!--
+    The SDL3 half of the media layer: window, presentation, input and the audio device. Nothing
+    above this project knows SDL exists.
+
+    Decided in docs/PORTING-PLAN.md section 6.2 and proved by dotnet/spike/Sdl3Spike on all three
+    desktop platforms. SDL3 is zlib-licensed, so GPL v2 compatible, and it bundles native binaries
+    for every RID this project targets, so there is no separate native-acquisition step.
+  -->
+  <ItemGroup>
+    <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\UAF.Media\UAF.Media.csproj" />
+  </ItemGroup>
+
+</Project>
