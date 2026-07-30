@@ -599,9 +599,15 @@ option that plays legacy community content rather than just modern files.
   suits blitting into the shared framebuffer. Drop to `FFmpeg.AutoGen` if frame-level control or
   exotic pixel formats demand it. Avoid `Xabe.FFmpeg` — it shells out to the `ffmpeg` executable
   rather than linking libav, so it cannot hand back frames in-process.
-- **Licensing:** LGPL builds are the default and sit comfortably under this project's GPL v2
-  ("or, at your option, any later version"), so either an LGPL or a GPL FFmpeg build is
-  compatible. Prefer LGPL to keep distribution simple.
+- **Licensing — this section originally checked only FFmpeg's own licence, which was the wrong
+  question.** FFmpeg LGPL builds do sit under GPL v2-or-later. But every C# *binding* is
+  **LGPL v3**: `FFmpeg.AutoGen` and `Sdcb.FFmpeg` directly, and `FFMediaToolkit` (MIT itself) by
+  depending on the former. Linking any of them makes the combined work GPL **v3**. That is
+  permitted by "or any later version", but it removes the v2 option for any build that includes
+  video — a decision to take deliberately, not by accident. Second independent reason to keep the
+  video decoder in its own optional assembly, loaded only if present.
+- **Version pinning:** `FFMediaToolkit` pins `FFmpeg.AutoGen` 7.1.1 and so requires FFmpeg 7; it
+  fails against FFmpeg 8.
 - **Integration:** decode to RGB frames and blit into the same managed framebuffer everything else
   draws into, so movie playback needs no special path in the renderer and stays testable by frame
   hashing. Audio tracks go to the existing `IAudioBackend`.
@@ -1215,9 +1221,15 @@ readings of identical bytes can be compared directly. That last property is what
 These are pure computation with no platform coupling — the best-value work in the project and
 fully unit-testable.
 
-- GPDL compiler (`GPDLcomp.cpp`, 4,769) and bytecode VM (`GPDLexec.cpp`, 8,377) against
-  `GPDLOpCodes.h`. `src/GPDL/language.txt`, `functions.txt`, and `talk.txt` are the spec and
-  conformance corpus.
+- GPDL compiler (`Shared/GPDLcomp.cpp`, 4,769) and bytecode VM (`GPDLexec.cpp`, 8,377) against
+  `GPDLOpCodes.h`.
+- **Correction:** `src/GPDL/language.txt`, `functions.txt` and `talk.txt` are **not** a usable
+  conformance corpus, as this plan previously claimed. All three are stale, in the same way the
+  dead `ProjectVersion.h` was. `talk.txt` does not compile with *either* compiler — line 357 calls
+  `$SET_CHAR_CHA`/`$GET_CHAR_CHA`, which appear nowhere in `systemfunctions[]`, so the reference
+  rejects it too. `language.txt`'s headline example is wrong (`$EQUAL("3","03")` is true, and
+  `$nEQUAL` does not exist) and `functions.txt` documents three functions that no longer survive.
+  The corpus is now purpose-written scripts under `oracle/golden/gpdl/`.
 - The Forth VM (`UAFWin/Forth.cpp`, 2,534) used for spell effects.
 - `GameRules.cpp` (4,167), `Specab.cpp` (2,240), `Money.cpp` (2,026).
 
