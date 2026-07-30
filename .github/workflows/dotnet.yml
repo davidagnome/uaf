@@ -12,6 +12,12 @@ on:
       # DesignVersion.Generated.cs is transcribed from these, and the staleness job checks it.
       - 'src/Shared/Externs.h'
       - 'src/Shared/Globals.cpp'
+      # UAF.Scripting.Tests read these directly: TalkCorpusTests pins talk.txt's byte length and
+      # the line number of its first dead call, and asserts which names are absent from
+      # systemfunctions[]. Editing either without re-running the tests hides a real divergence.
+      - 'src/GPDL/**'
+      - 'src/Shared/GPDLOpCodes.h'
+      - 'src/Shared/GPDLcomp.cpp'
       - '.github/workflows/dotnet.yml'
   pull_request:
   workflow_dispatch:
@@ -124,6 +130,25 @@ jobs:
             echo "golden dump present - OracleDiffTests are comparing against the reference"
           else
             echo "::warning::oracle/golden/DefaultDesign.json is missing; OracleDiffTests did NOT compare against the C++ reference. Produce it with the Oracle workflow and commit it."
+          fi
+
+      # Same shape as the check above, for the same reason: GpdlOracleDiffTests return early when
+      # the reference bytecode is absent, so a green suite over an empty corpus looks identical to a
+      # green suite over a matching one. Byte-identity with GPDLcomp.exe is Phase 2's exit criterion
+      # and it cannot be demonstrated without these files.
+      - name: Warn if the GPDL reference bytecode is missing
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          scripts=$(ls oracle/golden/gpdl/*.txt 2>/dev/null | wc -l | tr -d ' ')
+          goldens=$(ls oracle/golden/gpdl/*.bin 2>/dev/null | wc -l | tr -d ' ')
+          echo "GPDL corpus: $scripts script(s), $goldens golden(s)"
+          if [ "$scripts" = "0" ]; then
+            echo "::error::oracle/golden/gpdl holds no scripts; the GPDL corpus has gone missing"
+            exit 1
+          fi
+          if [ "$goldens" != "$scripts" ]; then
+            echo "::warning::$goldens of $scripts GPDL scripts have reference bytecode; GpdlOracleDiffTests skipped the rest, so gpdlc has NOT been shown to be byte-identical to GPDLcomp.exe. See oracle/golden/gpdl/README.md."
           fi
 
   generated-code-is-current:

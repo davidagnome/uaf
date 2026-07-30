@@ -1,0 +1,105 @@
+// Loops, switches and $RESPOND. This file exists mainly to pin the back-patching: break and
+// continue chains are threaded through the low bits of the jump cells themselves, so a mistake
+// produces jumps to plausible-looking addresses rather than an error.
+
+$VAR accumulator;
+$VAR counter;
+
+$PUBLIC $FUNC whileWithBreak() {
+	counter = "0";
+	accumulator = "";
+	$WHILE (1) {
+		$IF (counter ==# 5) { $BREAK; };
+		accumulator = accumulator + counter;
+		counter = counter +# 1;
+	};
+	$RETURN accumulator;
+} whileWithBreak;
+
+$PUBLIC $FUNC whileWithContinue() {
+	counter = "0";
+	accumulator = "";
+	$WHILE (counter <# 10) {
+		counter = counter +# 1;
+		$IF (counter %# 2 ==# 0) { $CONTINUE; };
+		accumulator = accumulator + counter;
+	};
+	$RETURN accumulator;
+} whileWithContinue;
+
+$PUBLIC $FUNC nestedLoops() {
+	// The inner loop saves and restores the outer loop's break and continue chains. If it did
+	// not, the outer $BREAK would resolve to the inner loop's exit.
+	$VAR outer;
+	$VAR inner;
+	outer = "0";
+	accumulator = "";
+	$WHILE (outer <# 3) {
+		inner = "0";
+		$WHILE (inner <# 3) {
+			$IF (inner ==# 2) { $BREAK; };
+			accumulator = accumulator + outer + inner;
+			inner = inner +# 1;
+		};
+		outer = outer +# 1;
+	};
+	$RETURN accumulator;
+} nestedLoops;
+
+$PUBLIC $FUNC switchWithDefault(subject) {
+	$SWITCH (subject) {
+		$CASE "one":   $RETURN "1";
+		$CASE "two":   $RETURN "2";
+		$CASE "three": $RETURN "3";
+		$DEFAULT:      $RETURN "?";
+	} $ENDSWITCH;
+} switchWithDefault;
+
+$PUBLIC $FUNC switchFallThrough(subject) {
+	// No $BREAK after the first two arms, so control flows into the next arm's *code* while
+	// jumping over its test.
+	accumulator = "";
+	$SWITCH (subject) {
+		$CASE "a": accumulator = accumulator + "A";
+		$CASE "b": accumulator = accumulator + "B";
+		$CASE "c": accumulator = accumulator + "C"; $BREAK;
+		$DEFAULT:  accumulator = "none";
+	} $ENDSWITCH;
+	$RETURN accumulator;
+} switchFallThrough;
+
+$PUBLIC $FUNC switchGrepCase(subject) {
+	// $GCASE greps instead of comparing, which needs the operands swapped first because
+	// $GREP takes (pattern, string) and the switch subject is the string.
+	$SWITCH (subject) {
+		$GCASE "^ye":   $RETURN "affirmative";
+		$GCASE "\\bno\\b": $RETURN "negative";
+		$DEFAULT:       $RETURN "unclear";
+	} $ENDSWITCH;
+} switchGrepCase;
+
+$PUBLIC $FUNC switchInsideLoop(subject) {
+	// A $BREAK inside the switch must leave the switch, not the loop.
+	counter = "0";
+	$WHILE (counter <# 3) {
+		counter = counter +# 1;
+		$SWITCH (subject) {
+			$CASE "stop": $BREAK;
+			$DEFAULT:     accumulator = accumulator + "x";
+		} $ENDSWITCH;
+	};
+	$RETURN accumulator;
+} switchInsideLoop;
+
+$PUBLIC $FUNC conversation() {
+	// $RESPOND is a macro: grep the listen text, say the reply, discard $SAY's result, and
+	// $CONTINUE -- which is why it only works inside a loop.
+	$WHILE ($LISTEN()) {
+		$RESPOND("\\bhi\\b|hello", "Hello, there.");
+		$RESPOND("job", "I clean these park benches for a living.");
+		$RESPOND("name", "My name is Jason McCall Stevenson.  "
+		                 "You can call me 'Sir'.");
+		$SAY("I did not follow that.");
+	};
+	$RETURN "done";
+} conversation;

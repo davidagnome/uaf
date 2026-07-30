@@ -1,0 +1,62 @@
+// Literals, concatenation, constant interning, conditionals, string relations.
+// Every construct here is chosen so that a codegen difference shows up in a short listing.
+
+$PUBLIC $FUNC literals() {
+	// Adjacent literals concatenate at compile time into ONE pool entry.
+	$RETURN "abc" "def";
+} literals;
+
+$PUBLIC $FUNC interning() {
+	// "dup" must appear in the pool exactly once. If de-duplication were lost, every pool
+	// index after the first repeat would shift and the whole constants segment would differ.
+	$RETURN "dup" + "dup" + "dup";
+} interning;
+
+$PUBLIC $FUNC integerLiteral() {
+	// Integers become string constants -- 0x2A and 42 are the same pool entry.
+	$RETURN 42 + " " + 0x2A;
+} integerLiteral;
+
+$PUBLIC $FUNC emptyReturn() {
+	// No value: RETURN alone, with no STORE_FP before it. The caller's default result stands.
+	$RETURN;
+} emptyReturn;
+
+$PUBLIC $FUNC noReturnAtAll() {
+	// The compiler still plants a trailing RETURN.
+	$DebugWrite("nothing to see");
+} noReturnAtAll;
+
+$PUBLIC $FUNC ifElse(flag) {
+	$IF (flag) {
+		$RETURN "then";
+	}
+	$ELSE {
+		$RETURN "else";
+	};
+} ifElse;
+
+$PUBLIC $FUNC ifNoElse(flag) {
+	$IF (flag) { $RETURN "then"; };
+	$RETURN "fell through";
+} ifNoElse;
+
+$PUBLIC $FUNC relations(a, b) {
+	// Textual comparison -- strcmp order, not numeric.
+	$IF (a == b) { $RETURN "eq"; };
+	$IF (a != b) {
+		$IF (a < b)  { $RETURN "lt"; };
+		$IF (a <= b) { $RETURN "le"; };
+		$IF (a > b)  { $RETURN "gt"; };
+		$IF (a >= b) { $RETURN "ge"; };
+	};
+	$RETURN "";
+} relations;
+
+$PUBLIC $FUNC truthLiterals() {
+	// 'true' and 'false' are not keywords: they are resolved only after symbol lookup fails,
+	// and become the constants "1" and "".
+	$IF (true) { $RETURN "t"; };
+	$IF (false) { $RETURN "f"; };
+	$RETURN "neither";
+} truthLiterals;

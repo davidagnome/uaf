@@ -1,0 +1,93 @@
+// Both arithmetic families, operator precedence, and the string functions.
+//
+// GPDL has two entirely separate arithmetics and they disagree. The '$' functions are
+// arbitrary-precision decimal-string arithmetic; the '#' operators are hardware 32-bit integers.
+// $DIV by zero yields "999999"; /# by zero substitutes a divisor of 1.
+
+$PUBLIC $FUNC bignum(a, b) {
+	$RETURN $PLUS(a, b)  + "|"
+	      + $MINUS(a, b) + "|"
+	      + $TIMES(a, b) + "|"
+	      + $DIV(a, b)   + "|"
+	      + $MOD(a, b);
+} bignum;
+
+$PUBLIC $FUNC bignumRelations(a, b) {
+	$IF ($EQUAL(a, b))   { $RETURN "eq"; };
+	$IF ($LESS(a, b))    { $RETURN "lt"; };
+	$IF ($GREATER(a, b)) { $RETURN "gt"; };
+	$RETURN "";
+} bignumRelations;
+
+$PUBLIC $FUNC hardware(a, b) {
+	$RETURN a +# b  + "|"
+	      + a -# b  + "|"
+	      + a *# b  + "|"
+	      + a /# b  + "|"
+	      + a %# b;
+} hardware;
+
+$PUBLIC $FUNC bitwise(a, b) {
+	$RETURN a &# b + "|" + a |# b + "|" + a ^# b;
+} bitwise;
+
+$PUBLIC $FUNC numericRelations(a, b) {
+	$IF (a ==# b) { $RETURN "eq"; };
+	$IF (a !=# b) {
+		$IF (a <#  b) { $RETURN "lt"; };
+		$IF (a <=# b) { $RETURN "le"; };
+		$IF (a >#  b) { $RETURN "gt"; };
+		$IF (a >=# b) { $RETURN "ge"; };
+	};
+	$RETURN "";
+} numericRelations;
+
+$PUBLIC $FUNC precedence() {
+	// *# (45) binds tighter than +# (40), which binds tighter than ==# (30), which binds
+	// tighter than && (10), which binds tighter than || (5). One expression, five levels.
+	$RETURN 2 +# 3 *# 4 ==# 14 && 1 || "";
+} precedence;
+
+$PUBLIC $FUNC unaryOperators(n) {
+	// A leading ! or -# is stacked at priority 999, so it is emitted as soon as any binary
+	// operator arrives. -5 with no space is a single unary-minus token followed by 5.
+	$VAR negated;
+	negated = -5;
+	$RETURN !n + "|" + -#n + "|" + negated;
+} unaryOperators;
+
+$PUBLIC $FUNC forceNumeric(text) {
+	// '=#' runs the value through SUBOP_FORCENUMERIC on the way into the variable, so a
+	// non-numeric string becomes "0" rather than staying as text.
+	$VAR n;
+	n =# text;
+	$RETURN n;
+} forceNumeric;
+
+$PUBLIC $FUNC stringOps(text) {
+	$RETURN $LENGTH(text)              + "|"
+	      + $MIDDLE(text, 1, 3)        + "|"
+	      + $UpCase(text)              + "|"
+	      + $DownCase(text)            + "|"
+	      + $Capitalize(text)          + "|"
+	      + $NUMERIC(text)             + "|"
+	      + $NOT(text);
+} stringOps;
+
+$PUBLIC $FUNC delimited(list) {
+	// The FIRST character of the string is its delimiter, so ",a,b,c" is three elements.
+	$RETURN $DelimitedStringCount(list)           + "|"
+	      + $DelimitedStringSubstring(list, 1)    + "|"
+	      + $DelimitedStringHead(list)            + "|"
+	      + $DelimitedStringTail(list)            + "|"
+	      + $DelimitedStringAdd(list, "new", ",");
+} delimited;
+
+$PUBLIC $FUNC grepAndWiggle(pattern, text) {
+	// $WIGGLE reads capture groups out of the previous $GREP -- the two are coupled through
+	// interpreter state, not through the stack.
+	$IF ($GREP(pattern, text)) {
+		$RETURN $WIGGLE(1) + "/" + $WIGGLE(2);
+	};
+	$RETURN "";
+} grepAndWiggle;
