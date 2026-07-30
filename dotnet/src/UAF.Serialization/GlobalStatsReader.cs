@@ -9,11 +9,11 @@ public sealed record TitleScreen(string BackgroundArt, int UseTrans, int UseBlen
 public sealed record TitleScreenData(uint Timeout, IReadOnlyList<TitleScreen> Titles);
 
 /// <summary>
-/// The <c>GLOBAL_STATS</c> prefix, read up to and including its attribute list.
+/// The <c>GLOBAL_STATS</c> record, read from the payload start through its quest list.
 /// </summary>
 /// <remarks>
-/// Stops at the ASL rather than continuing into the trailing art records, which is where the
-/// remaining ~30 structures begin.
+/// Stops at <c>charData</c> — the pre-generated character database — which needs
+/// <c>CHARACTER</c>.
 /// </remarks>
 public sealed record GlobalStatsPrefix(
     DesignVersion Version, string DesignName,
@@ -25,7 +25,12 @@ public sealed record GlobalStatsPrefix(
     string MapArt, string IconBackgroundArt, string BackgroundArt,
     IReadOnlyList<PicRecord> SmallPicImports, IReadOnlyList<PicRecord> IconPicImports,
     TitleScreenData? TitleData, TitleScreenData? CreditsData,
-    IReadOnlyList<AslEntry> Attributes);
+    IReadOnlyList<AslEntry> Attributes,
+    IReadOnlyList<PicDataSlot> Art, GlobalSounds? Sounds,
+    IReadOnlyList<SpecialObject> Keys, IReadOnlyList<SpecialObject> SpecialItems,
+    IReadOnlyList<Quest> Quests, IReadOnlyList<CharacterRecord> Characters,
+    LevelInfo? Levels, MoneyData? Money, DifficultyData? Difficulty,
+    int GlobalEventCount, IReadOnlyList<JournalEntry> Journal, SpellBook? FixSpellBook);
 
 /// <summary>
 /// Reads <c>GLOBAL_STATS::Serialize(CAR&amp;)</c> (<c>GlobalData.cpp:4244</c>) as far as the
@@ -64,7 +69,31 @@ public static class GlobalStatsReader
     public static GlobalStatsPrefix Read(CarArchiveReader car, DesignVersion version) =>
         Read(ArchiveCursor.For(car), version);
 
-    public static GlobalStatsPrefix Read(IArchiveCursor ar, DesignVersion version)
+    public static GlobalStatsPrefix Read(IArchiveCursor ar, DesignVersion version) =>
+        Read(ar, version, ArchiveRole.Editor);
+
+    public static GlobalStatsPrefix Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role) =>
+        Read(ar, version, role, null);
+
+    /// <summary>
+    /// Reads only as far as the character list, leaving the level table and everything after it
+    /// unread.
+    /// </summary>
+    /// <remarks>
+    /// Useful for designs whose <c>LEVEL_STATS</c> carries the unported 5.x cell-content tables,
+    /// and for callers that only want the design's identity and databases.
+    /// </remarks>
+    public static GlobalStatsPrefix ReadThroughCharacters(
+        IArchiveCursor ar, DesignVersion version, ArchiveRole role = ArchiveRole.Editor) =>
+        Read(ar, version, role, null, stopAfterCharacters: true);
+
+    /// <summary>
+    /// Reads the record. Pass <paramref name="readEvent"/> to consume the global event list;
+    /// without it, reading stops before that list.
+    /// </summary>
+    public static GlobalStatsPrefix Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role,
+        Func<IArchiveCursor, EventType, DesignVersion, bool>? readEvent,
+        bool stopAfterCharacters = false)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -180,12 +209,104 @@ public static class GlobalStatsReader
 
         var attributes = AslReader.Read(ar, version, AslMaps.GlobalStats);
 
-        return new GlobalStatsPrefix(
-            version, designName, startLevel, startX, startY, startFacing,
-            startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
-            autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
-            mapArt, iconBackgroundArt, backgroundArt, smallPics, iconPics,
-            titleData, creditsData, attributes);
+        // Everything past the ASL: the art slots, then the global sound queues, then three
+        // record lists. Stops before charData, which needs CHARACTER.
+        var art = GlobalTailReaders.ReadArtBlock(ar, version);
+        var sounds = GlobalTailReaders.ReadSounds(ar, version);
+        var keys = GlobalTailReaders.ReadSpecialObjects(ar, version);
+        var specialItems = GlobalTailReaders.ReadSpecialObjects(ar, version);
+        var quests = GlobalTailReaders.ReadQuests(ar, version);
+        var characters = CharacterReader.ReadList(ar, version, role);
+
+        if (stopAfterCharacters)
+        {
+            return new GlobalStatsPrefix(
+                version, designName, startLevel, startX, startY, startFacing,
+                startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
+                autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
+                mapArt, iconBackgroundArt, backgroundArt, smallPics, iconPics,
+                titleData, creditsData, attributes,
+                art, sounds, keys, specialItems, quests, characters,
+                null, null, null, 0, [], null);
+        }
+
+        // Below 0.661 a savegame vault sat here. No fixture is that old.
+        if (version < DesignVersion.V0661)
+        {
+            throw new NotSupportedException(
+                $"GLOBAL_STATS below {DesignVersion.V0661} (this is {version}) writes a savegame " +
+                "vault here (GlobalData.cpp:4531). Not ported: no fixture reaches it.");
+        }
+
+        var levels = GlobalStatsTailReaders.ReadLevelInfo(ar, version);
+
+        var money = version >= DesignVersion.V0642
+            ? GlobalStatsTailReaders.ReadMoneyData(ar, version)
+            : null;
+
+        var difficulty = version >= DesignVersion.V0697
+            ? GlobalStatsTailReaders.ReadDifficulty(ar)
+            : null;
+
+        // The design's GLOBAL_ART event list -- the same GameEventList the levels use.
+        int globalEventCount = 0;
+        if (version >= DesignVersion.V0681)
+        {
+            if (readEvent is null)
+            {
+                return Build(globalEventCount, [], null);
+            }
+            globalEventCount = ReadEventList(ar, version, readEvent);
+        }
+
+        // A retired spell-special block existed only in this window.
+        if (version >= DesignVersion.V06991 && version <= DesignVersion.V0842)
+        {
+            throw new NotSupportedException(
+                $"SPELL_SPECIAL_DATA is written between {DesignVersion.V06991} and " +
+                $"{DesignVersion.V0842} (this is {version}); GlobalData.cpp:4620. Not ported.");
+        }
+
+        var journal = version >= DesignVersion.V0780
+            ? GlobalStatsTailReaders.ReadJournal(ar)
+            : [];
+
+        var fixSpellBook = version >= DesignVersion.V0909
+            ? MoreEventReaders.ReadSpellBook(ar, version, role)
+            : null;
+
+        return Build(globalEventCount, journal, fixSpellBook);
+
+        GlobalStatsPrefix Build(int events, IReadOnlyList<JournalEntry> j, SpellBook? fix) =>
+            new(version, designName, startLevel, startX, startY, startFacing,
+                startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
+                autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
+                mapArt, iconBackgroundArt, backgroundArt, smallPics, iconPics,
+                titleData, creditsData, attributes,
+                art, sounds, keys, specialItems, quests, characters,
+                levels, money, difficulty, events, j, fix);
+    }
+
+    /// <summary>Reads the global <c>GameEventList</c>, returning how many events it held.</summary>
+    private static int ReadEventList(IArchiveCursor ar, DesignVersion version,
+        Func<IArchiveCursor, EventType, DesignVersion, bool> readEvent)
+    {
+        ar.ReadInt32();                                  // m_level
+        int count = ar.ReadInt32();
+
+        for (int i = 0; i < count; i++)
+        {
+            var eventType = (EventType)ar.ReadInt32();
+            if (EventDispatch.ReadsNothing(eventType)) continue;
+
+            if (!readEvent(ar, eventType, version))
+            {
+                throw new NotSupportedException(
+                    $"Global event {i} of {count} has type {eventType}, which the caller " +
+                    "cannot read.");
+            }
+        }
+        return count;
     }
 
     /// <summary>Reads a <c>TITLE_SCREEN_DATA</c> (<c>GlobalData.cpp:373</c>).</summary>

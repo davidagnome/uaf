@@ -371,7 +371,12 @@ Worse, the *types themselves* come in near-identical pairs:
 |---|---|---|
 | `COMBAT_EVENT_DATA::bgSounds` | `BACKGROUND_SOUNDS` | **`BACKGROUND_SOUND_DATA`** |
 | `SPECIAL_ITEM_KEY_EVENT_DATA::items` | `ITEM_LIST` | **`SPECIAL_OBJECT_EVENT_LIST`** |
+| `CHARACTER::blockageData` | `BlockageDataType` | **`BLOCKAGE_STATUS`** (a *list* of them) |
 | `QUESTION_LIST_DATA::buttons` | same as `QUESTION_BUTTON_DATA::buttons` | `QLIST_DATA` vs `QBUTTON_DATA` |
+
+`CHARACTER::blockageData` is the subtlest of these: `BLOCKAGE_STATUS` is a counted **list** of
+`BlockageDataType`, so reading the singular type consumes 14 bytes where the file holds a 4-byte
+count. It only bites on designs that actually have characters.
 
 `BACKGROUND_SOUNDS` is one list of names. `BACKGROUND_SOUND_DATA` wraps **two** of them (day and
 night) and adds `UseNightMusic`, `EndTime` and `StartTime`. Reading the wrong one costs 16 bytes
@@ -385,6 +390,15 @@ encounter appears to have zero monsters and the event list drifts from there on.
 
 **Read the member declaration inside the class you are porting**, not the first match in the
 header. When two types share a name prefix, check which one.
+
+### Raw `char` arrays are not strings
+
+`GEM_CONFIG::name` and `COIN_TYPE::Name` are declared `char name[MAX + 1]`, and the loop writes
+`MAX` *characters* one at a time — ten single bytes, NUL-padded, not ten counted strings and not
+one counted string. The `+ 1` is the terminator and is never serialized.
+
+Also note `MONEY_DATA_TYPE::Coins` is an array of `COIN_TYPE` **records** while
+`MONEY_SACK::Coins` of the same name is a plain `int[]`.
 
 ### Walking an event list is self-checking
 

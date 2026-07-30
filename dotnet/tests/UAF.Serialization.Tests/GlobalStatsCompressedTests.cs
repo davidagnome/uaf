@@ -49,7 +49,9 @@ public class GlobalStatsCompressedTests
         using var fs = File.OpenRead(path);
         var cursor = GameDataReader.Open(fs);
         Assert.Equal(GameDataFraming.CompressedMidStream, cursor.Framing);
-        return GlobalStatsReader.Read(cursor.Body, cursor.Version);
+        // Stops at the level table: this class is about the prefix, the ASL and the record lists.
+        // Reading further would hit the unported 5.x cell-content tables on one of the fixtures.
+        return GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version);
     }
 
     [Theory]
@@ -139,6 +141,59 @@ public class GlobalStatsCompressedTests
         // wants, which is why the engine consults them separately from the container version.
         Assert.Equal(5.28, g.Version.Value, 6);
         Assert.All(g.Attributes, e => Assert.Equal("3.56", e.Value));
+    }
+
+    /// <summary>folder, art slot count, special items, quests.</summary>
+    public static TheoryData<string, int, int, int> Tails => new()
+    {
+        { "dc-default/data-files", 11, 0, 0 },
+        { "SomethingWild.dsn/Data", 10, 12, 0 },
+        { "Case.dsn/Data", 10, 7, 171 },
+    };
+
+    [Theory]
+    [MemberData(nameof(Tails))]
+    public void Structures_after_the_asl_read_correctly(
+        string rel, int expectedArt, int expectedItems, int expectedQuests)
+    {
+        string? path = GameDat(rel);
+        if (path is null) return;
+
+        var g = Read(path);
+
+        // The art slot count is version-dependent: eight unconditional slots, plus
+        // CharViewFrameVPArt at 5.26 and CombatPetrifiedIconArt at 0.930204, plus CombatDeathArt.
+        // Only the 5.28 design gets the first of those, which is why the counts differ by one.
+        Assert.Equal(expectedArt, g.Art.Count);
+        Assert.All(g.Art, a => Assert.All(a.Name, ch => Assert.InRange(ch, ' ', '~')));
+
+        // Real sound filenames this deep into the record mean the whole ASL and art block landed.
+        Assert.NotNull(g.Sounds);
+        Assert.Equal("sound_Hit.wav", g.Sounds!.CharHit);
+        Assert.NotEmpty(g.Sounds.IntroMusic);
+
+        Assert.Equal(expectedItems, g.SpecialItems.Count);
+        Assert.Equal(expectedQuests, g.Quests.Count);
+
+        // stage is a WORD in both record types; a 4-byte read would desynchronise the list.
+        Assert.All(g.Quests, q => Assert.All(q.Name, ch => Assert.InRange(ch, ' ', '~')));
+        Assert.All(g.SpecialItems, s => Assert.All(s.Name, ch => Assert.InRange(ch, ' ', '~')));
+    }
+
+    [Fact]
+    public void Quest_records_carry_names_and_attributes()
+    {
+        string? path = GameDat("Case.dsn/Data");
+        if (path is null) return;
+
+        var g = Read(path);
+
+        Assert.Equal(171, g.Quests.Count);
+        Assert.Equal("Ba_Wi_Dw_no", g.Quests[0].Name);
+
+        // Reading 171 consecutive quests, each ending in its own ASL, is only possible if every
+        // record's WORD stage and attribute block were sized right.
+        Assert.All(g.Quests, q => Assert.NotEmpty(q.Name));
     }
 
     [Fact]
