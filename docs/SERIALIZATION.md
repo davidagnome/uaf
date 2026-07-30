@@ -558,3 +558,96 @@ Assertions worth writing, in descending order of value:
 4. **Round decimals** (`startTime` = 800, `startExp` = 30,000,000) — a one-byte slip yields
    arbitrary noise, not round numbers.
 5. Printability of names — the weakest; use it to *locate* drift, not to prove its absence.
+
+---
+
+## 11. `talk.bin` — the GPDL bytecode container
+
+Written by `GPDLcomp` (`src/GPDL/GPDL.cpp:96`), read by `GPDL::Load` (`GPDLexec.cpp:591`). Three
+segments through one plain `CArchive` — **no magic, no version, no object schema**, so the only
+integrity signal a reader gets is whether the counts are plausible and the stream lands on EOF:
+
+```
+uint32  codeLength                     CODE::write          GPDLcomp.cpp:840
+uint32 ×codeLength                     the code words
+uint32  globalCount                    GLOBALS::write       GPDLcomp.cpp:1905
+string ×globalCount                    constants; $VAR slots written as ""
+uint32  publicFunctionCount            DICTIONARY::write    GPDLcomp.cpp:1229
+{ string name; uint32 address } ×n
+```
+
+Strings are ordinary MFC counted strings (§5) with **no NUL terminator**. Because the projects are
+MBCS the Unicode tag is never written, so a reader must not honour `0xFF 0xFFFE`.
+
+**Address 0 is reserved.** The compiler plants `SUBOP_NOOP` there (`GPDLcomp.cpp:3543`) because
+`INDEX::lookup` returns 0 for "no such function" — an entry point of 0 is indistinguishable from a
+failed lookup.
+
+**Global-pool index 0 is never handed out** (`GPDLcomp.cpp:1791`) but is still written, so indices
+line up. Constants and global variables share one pool: a `'V'` entry serialises as the empty
+string, and the VM fills the slot at run time via `BINOP_ReferenceGLOBAL` with **bit 23 set** —
+that bit is the store/fetch flag, so the index is 23 bits, not 24.
+
+**The cell at a function's entry address is not an instruction.** It is a global reference to the
+marker `"name(paramCount)"`. `BINOP_CALL` steps over it (`GPDLexec.cpp:2359`) but `BeginExecute`
+does not — it starts *at* the marker and lets it execute as a push, then parses the parenthesised
+count back out of the string to validate the caller's argument list (`GPDLexec.cpp:1250`). Compiling
+an embedded script suppresses the marker text (`GPDLcomp.cpp:3504`), which is why that path cannot
+check argument counts.
+
+**`BINOP_RETURN` packs two counts and reads only one.** Locals in bits 12–23, parameters in bits
+0–11; the VM consumes `operand & 0xfff` and ignores the locals, because `SP = FP` has already
+discarded them. Both fields must still be emitted — they are on the wire.
+
+### Two script container formats, only one of which is this one
+
+`GPDLCOMP::CompileScript` (`GPDLcomp.cpp:3626`) builds a *different* blob for scripts embedded in
+design files: an entry-point table, then the code, then the constant pool appended as raw
+NUL-terminated text, with every `BINOP_ReferenceGLOBAL` rewritten into a `BINOP_FETCHTEXT` byte
+offset into that same buffer. Modelling one with the other mis-parses from the first word.
+`UAF.Scripting` implements the `talk.bin` form and raises `NotSupportedException` for
+`BINOP_FETCHTEXT`.
+
+### Traps in the language itself, not the container
+
+- **`src/GPDL/language.txt` is stale on the one point it emphasises.** It states `$EQUAL("3","03")`
+  is false and that `$nEQUAL` is the numeric form. In the shipped table `$EQUAL` maps to
+  `SUBOP_iEQUAL`, which is `LongCompare` — so it is **true** — and `$nEQUAL` does not exist as a
+  function at all. The textual comparison the spec describes is the `==` *operator*
+  (`SUBOP_ISEQUAL`). Same trap as `ProjectVersion.h`: a documentation file that outlived the code.
+- **`src/GPDL/functions.txt` is stale the same way.** It documents `$GETVAR`, `$SETVAR` and
+  `$GREPMATCH`; none are in `systemfunctions[]`. The capture-group accessor is now `$WIGGLE`, and
+  named variables are `$VAR` plus the ASL functions. Treat both spec files as historical notes and
+  the table as authoritative.
+- **`src/GPDL/talk.txt` does not compile.** It calls `$GET_CHAR_CHA`, `$SET_CHAR_CHA`, `$Race` and
+  `$Class`; none are in `systemfunctions[]` any more, and the reference compiler rejects it at
+  `talk.txt:357`. It is a stale sample, not a conformance corpus. `GPDL::m_Race`/`m_Class` still
+  exist in `GPDLexec.h:353`, so the implementations outlived their table rows.
+- **All arithmetic sanitises instead of validating.** `CleanNumber` (`GPDLexec.cpp:7864`) drops every
+  non-digit, so `$PLUS("3.75","0")` is `"375"` and `"N/A"` is zero. There is no error path.
+- **`$DIV` by zero yields the string `"999999"`** (`GPDLexec.cpp:8159`); `/#` by zero logs a warning
+  and substitutes a divisor of **1** (`GPDLexec.cpp:5032`). The two families disagree.
+- **`$MOD` with a divisor longer than the dividend returns the caller's raw string** as the
+  remainder, leading zeros intact (`GPDLexec.cpp:8161`). Every other path returns a cleaned value.
+- **Ordering compares bytes, not code units.** `CStringA::operator<` is `strcmp`, defined over
+  `unsigned char`. Decoding to UTF-16 first reorders everything above 0x7F — cp1252 byte 0x80 is
+  U+20AC, which sorts above byte 0xFF. Compare in the codepage.
+- **`MakeUpper`/`MakeLower` are ASCII-only.** They are `_strupr` in the "C" locale; the engine never
+  calls `setlocale`. `ToUpperInvariant` would additionally fold accented Latin-1 letters and change
+  `$UpCase` and the `$GREP` case folding.
+- **A `-` immediately before a digit is a different token** from a `-` with a space after it
+  (`GPDLcomp.cpp:561`): `a -5` gets `SUBOP_nNEGATE`, `a - 5` gets string subtraction. Whitespace
+  changes the generated code.
+- **A prototype at global level needs two semicolons.** `compileFunctionDecl` consumes one
+  (`GPDLcomp.cpp:3478`) and `CompileProgram` then demands another (`:3562`). And a prototype *with*
+  parameters can never be defined: `checkProtoParam` is called on the new definition, whose
+  parameter list is still empty (`:3439`).
+- **A lone `&` or `^` is not a token.** Both fall out of `m_getRawToken` with no `return`
+  (`GPDLcomp.cpp:586`, `:630`) and reach `return TKN_NONE`, i.e. a syntax error. A lone `|` returns
+  `TKN_NOT`.
+- **`SearchConstant`/`SearchVariable` advance with `result = result++`** (`GPDLcomp.cpp:1873`), which
+  as written leaves the pointer unmoved and spins forever once the pool holds two entries. The
+  shipped Release build demonstrably compiles, so MSVC's optimiser must have kept the increment and
+  dropped the self-assignment — the pool de-duplicates. If a reference `talk.bin` ever shows
+  duplicate pool entries, that assumption is what to revisit; every index after the first duplicate
+  would shift.

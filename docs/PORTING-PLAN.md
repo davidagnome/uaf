@@ -480,7 +480,8 @@ reference/                       (gitignored) proprietary FRUA game data
   dotnet.yml                     build + test on Linux/Windows/macOS, generator staleness check
 ```
 
-Scaffolded so far: `UAF.Common`, `UAF.Serialization`, `UAF.Data`, `UAF.Serialization.Tests`, both
+Scaffolded so far: `UAF.Common`, `UAF.Serialization`, `UAF.Data`, `UAF.Scripting`,
+`UAF.Serialization.Tests`, `UAF.Scripting.Tests`, `tools/gpdlc`, `tools/uaf-fileprobe`, both
 workflows, and the version generator. The rest are created as their phase begins — empty projects
 are just restore risk.
 
@@ -1224,17 +1225,55 @@ fully unit-testable.
 - GPDL compiler (`Shared/GPDLcomp.cpp`, 4,769) and bytecode VM (`GPDLexec.cpp`, 8,377) against
   `GPDLOpCodes.h`.
 - **Correction:** `src/GPDL/language.txt`, `functions.txt` and `talk.txt` are **not** a usable
-  conformance corpus, as this plan previously claimed. All three are stale, in the same way the
-  dead `ProjectVersion.h` was. `talk.txt` does not compile with *either* compiler — line 357 calls
-  `$SET_CHAR_CHA`/`$GET_CHAR_CHA`, which appear nowhere in `systemfunctions[]`, so the reference
-  rejects it too. `language.txt`'s headline example is wrong (`$EQUAL("3","03")` is true, and
-  `$nEQUAL` does not exist) and `functions.txt` documents three functions that no longer survive.
-  The corpus is now purpose-written scripts under `oracle/golden/gpdl/`.
+  conformance corpus, as this plan previously claimed — all three are stale, in the same way the
+  dead `ProjectVersion.h` was. The corpus is now purpose-written scripts under
+  `oracle/golden/gpdl/`. Detail in the Phase 2 status section below.
 - The Forth VM (`UAFWin/Forth.cpp`, 2,534) used for spell effects.
 - `GameRules.cpp` (4,167), `Specab.cpp` (2,240), `Money.cpp` (2,026).
 
 **Exit:** `gpdlc` produces byte-identical bytecode to the C++ compiler for every script in the
 fixture corpus; the VM produces identical execution traces.
+
+#### Phase 2 status — GPDL
+
+Delivered: `dotnet/src/UAF.Scripting/` and `dotnet/tools/gpdlc/`, with 199 tests in
+`dotnet/tests/UAF.Scripting.Tests/`. Format details and language traps are in
+[SERIALIZATION.md §11](SERIALIZATION.md).
+
+| Item | State |
+|---|---|
+| `GPDLOpCodes.h` — 11 `BINOPS`, 386 `SUBOPS`, 29 `COPS`, 14 `CTX_*` | Transcribed mechanically from the header, not by hand |
+| `systemfunctions[]` — 339 rows — and `requiredContexts[]` — 13 | Generated from GPDLcomp.cpp for the same reason |
+| Tokeniser (`INPUTFILE`, GPDLcomp.cpp:70–745) | Complete |
+| Compiler (`GPDLCOMP`, GPDLcomp.cpp) | Complete for the `talk.bin` path |
+| `talk.bin` writer and reader | Complete |
+| Assembly listing (`GPDLCOMP::list`) | Complete — the highest-value oracle artefact, since a mismatch names an address and a mnemonic |
+| VM control flow, frame protocol, both arithmetic families, string and delimited-string ops | Complete |
+| ~250 character / party / combat / special-ability sub-opcodes | **Not ported** — each throws `NotSupportedException` citing its source line |
+| `$GREP` / `$WIGGLE` | **Not ported** — needs the vendored Spencer engine (`regexp.cpp`); routed through `IGpdlHost` |
+| `CompileScript` embedded-script blob and `BINOP_FETCHTEXT` | **Not ported** — a second, different container (SERIALIZATION.md §11) |
+| `RDRCOMP`/`RDREXEC` (GPDLcomp.cpp:4131, GPDLexec.cpp:8249) | **Not ported** — a separate byte-coded expression language that happens to live in the same files |
+| Forth VM (`UAFWin/Forth.cpp`) | Not started |
+
+**Exit criterion 1 is not met, and cannot be met from this platform.** Byte-identity needs the
+reference `GPDLcomp.exe`, which only the Windows oracle can run. The diff harness is in place —
+`GpdlOracleDiffTests` compares bytes and listing lines against `oracle/golden/gpdl/*.{bin,lst}` and
+returns early when absent, the same pattern as `OracleDiffTests`. Two cautions for whoever adds the
+workflow step: GPDLcomp calls `gets_s` after every error message, so a failing compile **hangs the
+runner** unless stdin is redirected from NUL; and it always exits 0 (`GPDL.cpp:111`), so the step
+must check the `.bin` exists and is non-empty rather than trusting the exit code.
+
+**The named conformance corpus does not compile — with either compiler.** `src/GPDL/talk.txt` calls
+`$GET_CHAR_CHA`, `$SET_CHAR_CHA`, `$Race` and `$Class`; none survive in `systemfunctions[]`, and the
+reference compiler rejects the file at `talk.txt:357` exactly as this port does. It is a stale
+sample from an earlier revision of the table, not a test suite. `TalkCorpusTests` asserts the
+rejection (the message and line number are directly comparable against the reference's stderr, which
+makes it the cheapest whole-front-end oracle check available) and then compiles a repaired in-memory
+copy — four documented substitutions of same-arity, same-typing functions — which yields 860 code
+words, 153 pool entries and 14 public functions. The goldens the oracle produces should therefore be
+small purpose-written scripts committed *alongside* their expected output, not `talk.txt`.
+
+Exit criterion 3 is met: `dotnet test dotnet/UAF.slnx` passes on macOS.
 
 ### Phase 3 — Media layer (1.5–2 months, parallelizable with Phase 2)
 
