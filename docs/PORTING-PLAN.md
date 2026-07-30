@@ -1307,10 +1307,53 @@ Phase 5, since its only consumer is the editor.
 | Audio | WAV/MP3 decoders, MeltySynth MIDI, resampler, software mixer, deterministic music queues, `IAudioBackend`, SDL3 device |
 | Video | `IVideoDecoder`/`IVideoDecoderFactory` + `MoviePlayer` (timing, letterboxing, skip). **The FFmpeg adapter is not written** — see below |
 | Bitmap fonts | **Not started.** `CDXBitmapFont` rasterises with GDI from a `LOGFONT`, which has no cross-platform equivalent; it needs its own decision, not a transcription |
-| Image loaders | **Not started.** No PNG/BMP decoder yet, so nothing loads real art into a surface |
+| Image loaders | **PNG done**, hand-written and verified against libpng on all 1312 reference PNGs. `ImageLoader` sniffs signatures as the C++ did; BMP/PCX/JPG/TGA are recognised but not decoded — see below |
 
-169 tests, green on a machine with no display and no sound card. The SDL tests drive the real
+208 tests, green on a machine with no display and no sound card. The SDL tests drive the real
 backend on the dummy drivers rather than mocking it.
+
+##### The image decoder, and the SDL3_image question
+
+`PngDecoder` is hand-written over `ZLibStream`: a chunk walk, five row filters and a pixel unpack.
+It is diffed against Pillow — which wraps the same libpng the C++ used — across every PNG in the
+reference designs, 1312 files, byte-identical. `tools/png-oracle.py` regenerates the digests, and
+the digests are committed so the test needs no Python, exactly as the C++ dump works for
+serialization.
+
+Three semantics were worth the trouble to get right, none of them guessable from the file format:
+
+- **Alpha is discarded.** `png_set_strip_alpha` plus `PNG_TRANSFORM_STRIP_ALPHA`
+  (`cdximagepng.cpp:105,124`), and `tRNS` is never read. Transparency comes from the colour key —
+  the top-left pixel — so honouring real alpha would look like an improvement and break every
+  keyed sprite.
+- **`png_set_bgr` and the bottom-up row writes are not ported.** Both are Windows-DIB plumbing that
+  cancel against each other: a 24bpp DIB stores blue first, and `m_IsInverted` defaults to `FALSE`
+  (`cdximagebase.cpp:55`) so `biHeight` stays positive, i.e. bottom-up. Porting one gives a flipped
+  or colour-swapped image; porting both looks correct in a colour test and is still upside down.
+- **Gamma.** Exponent `1 / (file_gamma × screen_gamma)` with `screen_gamma` 2.2 and a default file
+  gamma of 0.45455 — chosen by the original author so the common case is the identity. It is: 1302
+  of 1312 files are untouched. The 10 that are not are all `SomethingWild` art declaring 0.55531,
+  and all truecolour, so the question of whether libpng gamma-corrects a palette in place never
+  arises here.
+
+**`SDL3_image` was dismissed for a wrong reason and deserves a second look.** It is fully
+cross-platform, and `ppy.SDL3_image-CS` — same publisher as the `ppy.SDL3-CS` already in use, same
+version stream — ships natives for all 13 RIDs the core package covers, MIT over zlib. The real
+arguments for the managed decoder are narrower than "no native dependency": it keeps `UAF.Media`
+headless-testable, and a general-purpose decoder would not reproduce the stripped alpha, the gamma
+convention or the 16-bit chop, so the fiddly part of this file would survive anyway.
+
+What the managed path does *not* cover is the legacy formats. The C++ sniffed BMP, PCX, PNG, PSD,
+JPG and TGA (`cdximage.cpp:262-312`). Of the reference art, PNG is 1286 truecolour + 14
+truecolour-alpha + 12 palette; the remainder is 8 JPEGs in a third-party design, 5 PCX from the
+1993 DOS original, and 3 BMPs that are Steam launcher chrome rather than game art. So the only
+real gap is JPEG, in one design. If those formats are wanted, `SDL3_image` in `UAF.Media.Sdl` is
+the cheaper answer than three more hand-written decoders — the same optional-assembly shape
+already chosen for the FFmpeg video decoder.
+
+Interlaced PNG is refused outright rather than guessed at. No file in any shipped design is
+interlaced; libpng handled Adam7 transparently, so this is a real gap, left explicit in the same
+style as the unported serialization branches.
 
 ##### Two findings that change the plan
 
