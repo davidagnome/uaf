@@ -131,6 +131,11 @@ public sealed class BitmapFont(FontAtlas atlas)
         }
     }
 
+    /// <inheritdoc cref="DrawClipped(Surface, int, int, ReadOnlySpan{byte}, SurfaceRect, bool, uint?, int)"/>
+    public int DrawClipped(Surface destination, int x, int y, string text, SurfaceRect clip,
+                           bool transparent = true, uint? tint = null, int length = -1) =>
+        DrawClipped(destination, x, y, Encode(text), clip, transparent, tint, length);
+
     /// <summary>
     /// <c>DrawAligned</c> / <c>DrawAlignedTrans</c> (<c>CDXBitmapFont.cpp:311</c>).
     /// </summary>
@@ -138,10 +143,16 @@ public sealed class BitmapFont(FontAtlas atlas)
     /// <para>
     /// The overflow behaviour is the part worth transcribing exactly rather than improving. When
     /// the text is wider than <paramref name="width"/>, the original does not clip mid-glyph and
-    /// does not ellipsise: it draws characters until adding the next one would exceed the field,
-    /// then stops (<c>CDXBitmapFont.cpp:346-355</c>). Note the test is on the running total
-    /// <i>after</i> adding the next width, so the last character that would have fit exactly is
-    /// still dropped.
+    /// does not ellipsise: it adds each glyph's width to a running total, stops as soon as that
+    /// total <i>exceeds</i> the field, and otherwise draws (<c>CDXBitmapFont.cpp:346-355</c>). A
+    /// character landing exactly on the boundary is therefore drawn, not dropped.
+    /// </para>
+    /// <para>
+    /// The genuine quirk is one line earlier: the centred branch is guarded by
+    /// <c>TWidth &lt; Width</c>, strictly. Text exactly as wide as its field takes the truncating
+    /// path instead of the centring one. Nothing visible follows from it here — the offset would
+    /// have been zero and the truncating path draws every character — but it is why the condition
+    /// below is <c>&lt;</c> rather than <c>&lt;=</c>.
     /// </para>
     /// <para>
     /// Right alignment has no overflow branch in the original at all — it computes an origin from

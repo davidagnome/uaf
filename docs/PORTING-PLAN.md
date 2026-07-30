@@ -600,9 +600,13 @@ So the trade is now: **tagged stable natives plus csproj guards** (`SDL3-CS`) ag
 usage** (`ppy`). Downloads for the per-platform natives sit at 3–5k, against 522k for
 `ppy.SDL3-CS`. Both are zlib/MIT and both offer image and TTF at matching versions.
 
-The port currently uses `ppy`. Switching is a real but bounded cost — the SDL-facing code is
+**Decision: stay on `ppy`.** Switching is a real but bounded cost — the SDL-facing code is
 `SdlPresenter`, `SdlAudioDevice`, `SdlInputSource`, `SdlPlatform` and `SdlImageDecoder`, all
-binding the same C API under different namespaces and marshalling conventions.
+binding the same C API under different namespaces and marshalling conventions — but the packaging
+friction and the hundredfold difference in field usage outweigh the tagged-release advantage for
+now. `ppy.SDL3_ttf-CS` exists at a matching version, so the font rasteriser needs no separate
+decision. Revisit if the development-branch dependency causes a concrete problem; this section now
+records enough to make that switch without re-deriving it.
 
 The spike deliberately exercises **the port's actual model**, not just `SDL_Init`: a managed
 `uint[]` framebuffer with a colour key, written entirely in C#, pushed through a
@@ -1348,11 +1352,49 @@ Phase 5, since its only consumer is the editor.
 | Presentation | `IPresenter` with an SDL3 streaming-texture implementation and a frame-hashing headless one |
 | Audio | WAV/MP3 decoders, MeltySynth MIDI, resampler, software mixer, deterministic music queues, `IAudioBackend`, SDL3 device |
 | Video | `IVideoDecoder`/`IVideoDecoderFactory` + `MoviePlayer` (timing, letterboxing, skip). **The FFmpeg adapter is not written** — see below |
-| Bitmap fonts | **Not started.** `CDXBitmapFont` rasterises with GDI from a `LOGFONT`, which has no cross-platform equivalent; it needs its own decision, not a transcription |
+| Bitmap fonts | **Portable half done.** `FontAtlas` + `BitmapFont` cover cell packing, measurement, drawing, clipping and alignment. The rasteriser that fills an atlas is still open — see below |
 | Image loaders | **PNG done**, hand-written and verified against libpng on all 1312 reference PNGs. `ImageLoader` sniffs signatures as the C++ did; BMP/PCX/JPG/TGA are recognised but not decoded — see below |
 
 208 tests, green on a machine with no display and no sound card. The SDL tests drive the real
 backend on the dummy drivers rather than mocking it.
+
+##### Fonts: what ported cleanly, and what is still open
+
+`CDXBitmapFont` splits neatly in two. Everything after the atlas exists is blits and accumulators
+— measure by summing advances, draw by blitting each cell and stepping X — and that half is now
+`FontAtlas` + `BitmapFont`, with 18 tests against authored atlases so the layer cannot come to
+depend on where glyph pixels came from.
+
+Facts established while porting it:
+
+- **Text is bytes, not UTF-16.** Glyph lookup is by `unsigned char` over 256 cells
+  (`CDXBitmapFont.cpp:533`), on the same Windows-1252 assumption the serialization layer records.
+  The API takes `ReadOnlySpan<byte>`; the `string` overloads encode first. Casting a `char` to a
+  byte would misindex every character above 127 — `Œ` is U+0152 but byte 0x8C.
+- **Designs request only four faces.** Parsing the `LOGFONT` rather than skipping it (which the
+  reader previously did) shows: `SYSTEM` at height 16 for dc-default and the CI fixture — and
+  `SYSTEM` is also the engine's own substitute when a design leaves the face empty
+  (`GlobalData.cpp:3901`) — plus `Times New Roman`, `System` and `Garamond` at −13.
+- **The original already coped with missing fonts.** It calls `EnumFontFamiliesEx` and warns
+  "Cannot find specified font named %s" (`GlobalData.cpp:5846`). Resolving `Garamond` on Linux is
+  therefore the same problem the original had on a machine without it, not a new one the port
+  introduces.
+- **Advance always equals cell width.** Both come from one `GetTextExtentPoint32` result, so the
+  font has no kerning and no side bearings.
+
+One deliberate deviation: the original rasterises **eleven separate atlases, one per colour**
+(`GlobalData.cpp:5964-5975`), because GDI baked the colour in at `TextOut` time. This port keeps
+one atlas and tints at draw time. That is better rather than merely cheaper — GDI's antialiased
+edges blend glyph colour toward the background, and since the colour key removes only *exact*
+background matches, the original's non-white fonts carry wrong-hued fringes.
+
+**Still open: the rasteriser.** `ppy.SDL3_ttf-CS` is the intended route. Two things to settle when
+it is written. Antialiasing should be **off** (`TTF_HINTING_MONO`, solid rendering): `SYSTEM` is a
+Windows raster font with no AA, and a non-antialiased atlas is what makes the flat colour
+replacement in `BitmapFont.TintBlit` correct rather than approximate. And `SYSTEM` itself has no
+TrueType equivalent to load, so the most-used face in the corpus needs a substitute chosen
+deliberately — that is the one remaining decision, and it is a visual-fidelity question, not a
+technical one.
 
 ##### The image decoder, and the SDL3_image question
 
