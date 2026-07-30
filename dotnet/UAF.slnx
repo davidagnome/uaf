@@ -2,10 +2,13 @@
   <Folder Name="/src/">
     <Project Path="src/UAF.Common/UAF.Common.csproj" />
     <Project Path="src/UAF.Data/UAF.Data.csproj" />
+    <Project Path="src/UAF.Media/UAF.Media.csproj" />
+    <Project Path="src/UAF.Media.Sdl/UAF.Media.Sdl.csproj" />
     <Project Path="src/UAF.Scripting/UAF.Scripting.csproj" />
     <Project Path="src/UAF.Serialization/UAF.Serialization.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/UAF.Media.Tests/UAF.Media.Tests.csproj" />
     <Project Path="tests/UAF.Scripting.Tests/UAF.Scripting.Tests.csproj" />
     <Project Path="tests/UAF.Serialization.Tests/UAF.Serialization.Tests.csproj" />
   </Folder>

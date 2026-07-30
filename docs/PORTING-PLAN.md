@@ -455,8 +455,8 @@ dotnet/
                                  CLASS, RACE, TRAIT, ASL, taglist, Property, PicSlot
     UAF.Rules/                   GameRules, Money, Specab, combat math, character progression
     UAF.Scripting/               GPDL compiler + VM, Forth VM, script host interface
-    UAF.Media/                   IRenderTarget, ISurfaceStore, sprites, bitmap fonts,
-                                 IAudioBackend, asset loaders (PNG/BMP/WAV/MID)
+    UAF.Media/                   software blitter, surface store, sprites, bitmap fonts,
+                                 IAudioBackend, movie player, asset loaders (PNG/BMP/WAV/MID)
     UAF.Media.Avalonia/          Avalonia presentation of the framebuffer (editor)
     UAF.Media.Sdl/               SDL3 presentation + input + audio (game)
     UAF.Import.Frua/             DOS FRUA importer: GEO/MONST/STRG/GAME .DAT, GLB, PCX/LBM
@@ -471,6 +471,7 @@ dotnet/
   tests/
     UAF.Serialization.Tests/     golden-file round-trip
     UAF.Data.Tests/              oracle diff vs. C++ dumper
+    UAF.Media.Tests/             blitter, sprites, audio, SDL3 on the dummy drivers
     UAF.Rules.Tests/
     UAF.Scripting.Tests/         GPDL/Forth conformance
     UAFcore.Tests/               headless engine, recorded input traces
@@ -480,10 +481,10 @@ reference/                       (gitignored) proprietary FRUA game data
   dotnet.yml                     build + test on Linux/Windows/macOS, generator staleness check
 ```
 
-Scaffolded so far: `UAF.Common`, `UAF.Serialization`, `UAF.Data`, `UAF.Scripting`,
-`UAF.Serialization.Tests`, `UAF.Scripting.Tests`, `tools/gpdlc`, `tools/uaf-fileprobe`, both
-workflows, and the version generator. The rest are created as their phase begins — empty projects
-are just restore risk.
+Scaffolded so far: `UAF.Common`, `UAF.Serialization`, `UAF.Data`, `UAF.Scripting`, `UAF.Media`,
+`UAF.Media.Sdl`, their three test projects, `tools/gpdlc`, `tools/uaf-fileprobe`, both workflows,
+and the version generator. The rest are created as their phase begins — empty projects are just
+restore risk.
 
 Dependency direction is strictly downward; `UAF.Data` must not reference `UAF.Media`, and nothing
 below `UAFcore` may reference Avalonia. `UAF.Media.Avalonia` is the only Avalonia-aware library —
@@ -606,7 +607,8 @@ option that plays legacy community content rather than just modern files.
   depending on the former. Linking any of them makes the combined work GPL **v3**. That is
   permitted by "or any later version", but it removes the v2 option for any build that includes
   video — a decision to take deliberately, not by accident. Second independent reason to keep the
-  video decoder in its own optional assembly, loaded only if present.
+  video decoder in its own optional assembly, loaded only if present. See the Phase 3 progress
+  section in §7.
 - **Version pinning:** `FFMediaToolkit` pins `FFmpeg.AutoGen` 7.1.1 and so requires FFmpeg 7; it
   fails against FFmpeg 8.
 - **Integration:** decode to RGB frames and blit into the same managed framebuffer everything else
@@ -1287,6 +1289,76 @@ Exit criterion 3 is met: `dotnet test dotnet/UAF.slnx` passes on macOS.
 **Exit:** a test harness renders known tile/sprite/font sequences and the framebuffer hash matches
 screenshots captured from the C++ build.
 
+#### Progress
+
+Scaffolded as **three** projects rather than the two named above. `UAF.Media` is the
+platform-agnostic half and has **no native dependency at all**; `UAF.Media.Sdl` holds the window,
+presentation, input and audio device. `UAF.Media.Avalonia` is still unwritten and belongs with
+Phase 5, since its only consumer is the editor.
+
+| Piece | State |
+|---|---|
+| Framebuffer | `Surface`, `SurfaceRect`, `SurfaceKind`. ARGB8888 only; the original's 15/16/24bpp paths are dropped, since a managed buffer has no reason to carry four blitters |
+| Blitter | Opaque, colour-keyed, alpha, keyed-alpha, mirrored, darken, fill. Ported from `cdxsurface.cpp`'s 32bpp cases with `ValidateBlt`'s clipping |
+| Surface store | `SurfaceStore`, including the key allocation and the reserved front/back/mouse buffer keys |
+| Sprites | `SpriteSheet` (frame grid) + `AnimatedSprite` (the `PIC_DATA` state machine over an injected clock) |
+| Input | `VirtualKey` on the Win32 numbering, `InputEvent`, `IInputSource`, `RecordedInputSource`; SDL scancode translation |
+| Presentation | `IPresenter` with an SDL3 streaming-texture implementation and a frame-hashing headless one |
+| Audio | WAV/MP3 decoders, MeltySynth MIDI, resampler, software mixer, deterministic music queues, `IAudioBackend`, SDL3 device |
+| Video | `IVideoDecoder`/`IVideoDecoderFactory` + `MoviePlayer` (timing, letterboxing, skip). **The FFmpeg adapter is not written** — see below |
+| Bitmap fonts | **Not started.** `CDXBitmapFont` rasterises with GDI from a `LOGFONT`, which has no cross-platform equivalent; it needs its own decision, not a transcription |
+| Image loaders | **Not started.** No PNG/BMP decoder yet, so nothing loads real art into a surface |
+
+169 tests, green on a machine with no display and no sound card. The SDL tests drive the real
+backend on the dummy drivers rather than mocking it.
+
+##### Two findings that change the plan
+
+**`Environment.SetEnvironmentVariable` cannot force SDL headless on macOS or Linux.** .NET keeps its
+own copy of the environment on Unix and never calls `setenv`, so a native library's `getenv` does not
+see it. It *does* work on Windows — headless that appears to work on one platform of three.
+`SdlPlatform.ForceDummyDrivers` uses `SDL_SetHintWithPriority(…, SDL_HINT_OVERRIDE)` instead;
+`SDL_HINT_OVERRIDE` is required because SDL consults a real environment variable ahead of a
+normal-priority hint. Setting the variables from outside the process, as the workflow does, still
+works and takes effect first.
+
+**Every C# FFmpeg binding is LGPL v3, which is a stronger constraint than §6.1 recorded.** §6.1
+considered FFmpeg's own licence (LGPL 2.1-or-later, fine under GPL v2) but not the bindings':
+`FFmpeg.AutoGen` and `Sdcb.FFmpeg` are both LGPL-3.0, and `FFMediaToolkit` (MIT itself) depends on
+the former. Linking any of them makes the combined work GPL v3 — permitted, because this project is
+GPL v2 *or later*, but it removes the v2 option for any build that includes it. That is a second,
+independent reason to keep video in its own optional assembly, on top of the packaging one.
+
+`FFMediaToolkit` also pins `FFmpeg.AutoGen` 7.1.1, so it loads FFmpeg **7** and fails against
+FFmpeg 8. The adapter was left unwritten rather than shipped unverified: it cannot be exercised in
+CI (no FFmpeg) and could not be exercised locally either (FFmpeg 8 installed). The abstraction is in
+place and its degradation path — `IsAvailable` false, `Start` returns false, the cutscene is
+skipped — is tested, which is the behaviour §6.1 actually requires.
+
+##### Notes for whoever continues
+
+- **The alpha argument runs backwards.** CDX blends with `out = ((A * (dst - src)) >> 8) + src`,
+  A in 0..256, so A weights the *destination*: 0 draws the source opaquely, 256 leaves the
+  destination untouched. `PIC_DATA::AlphaValue` and `BlendAmount` come out of design files in those
+  terms, so the port keeps the convention rather than inverting it in two places.
+- **A surface's colour key is its top-left pixel** (`CDXSurface::SetColorKey()` with no argument).
+  Nothing in the file format records it.
+- **`RestartFrame` is 1-based.** `Graphics::SetNextFrame` smuggles it through CDX's unrelated sprite
+  `Type` field and subtracts one (`Graphics.cpp:914`).
+- **`Graphics::BlitImage`'s `flipY` is a horizontal mirror.** It calls `DrawTransHFlip`, which asks
+  DirectDraw for `DDBLTFX_MIRRORLEFTRIGHT`. CDX's software fallback for that blit also has an
+  off-by-one that writes one pixel past the right edge (`cdxsurface.cpp:2074`); it only ran when the
+  hardware blit failed, so the port follows the DirectDraw behaviour.
+- **Colour keys compare 24 bits.** CDX masks the top byte off first, so a key matches on RGB alone.
+- **MIDI needs a SoundFont this repository does not ship.** MeltySynth is a synthesiser, not a
+  device; with no SoundFont configured (`UAF_SOUNDFONT`), `.mid` entries are skipped the way a
+  missing file is. That is the same optional-asset contract movies have.
+- **The music queues are `IPcmSource`s, not threads.** The original ran three `CThread`s blocking on
+  Win32 events; here a queue advances because the mixer read past the end of the current entry, so a
+  playlist can be played through in a test. One deliberate divergence: `SoundQueue::Thread` ends the
+  whole queue when a file will not play, silencing everything after it; the port skips the entry and
+  reports it.
+
 ### Phase 4 — UAFcore engine (4–6 months)
 
 - Dedicated engine thread + `Channel`-based input/render marshalling (§4.4).
@@ -1430,4 +1502,4 @@ after Phase 1, calendar time drops to roughly 12–15 months.
 | Audio backend | **SDL3 audio + MeltySynth** | Permissive licensing resolves the GPL v2 / BASS conflict; SDL3 is well-tested on arm64. Extended: SDL3 also provides the game's window, presentation and input (see §6) |
 | Format compatibility | **Read all versions, write current** | Matches original behaviour; preserves ~25 years of community designs |
 | Post-Phase-1 priority | **UAFedit first** | A read-only inspector validates the data layer end-to-end and grows into the editor; visible cross-platform result in ~2 months instead of ~8 |
-| Video decoding | **FFmpeg / libav** (LGPL build) | Only realistic way to decode the legacy VfW codecs in existing designs (Cinepak, Indeo, MS-Video1); optional at runtime |
+| Video decoding | **FFmpeg / libav** (LGPL build) | Only realistic way to decode the legacy VfW codecs in existing designs (Cinepak, Indeo, MS-Video1); optional at runtime, and in its own assembly because the C# bindings are LGPL v3 (§6.1 correction) |

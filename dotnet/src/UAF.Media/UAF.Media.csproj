@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 3, the platform-agnostic half of the media layer. See docs/PORTING-PLAN.md sections 6
+    and 7 (Phase 3).
+
+    This project deliberately has NO native dependencies. Everything here - the software blitter,
+    the sprite animation state machine, the audio decoders and mixer, the movie player's timing
+    and letterboxing - runs with no window, no audio device and no GPU, so it is fully testable on
+    a CI runner with no display. SDL3 lives in the sibling UAF.Media.Sdl; that split is what keeps
+    the C++ editor's failure mode (OpenDesign needs a live DirectX device, so it cannot run in CI
+    at all) from recurring here.
+
+    Both package references are pure managed C# for the same reason.
+  -->
+  <ItemGroup>
+    <!-- MIT. Pure C# MIDI synthesiser; replaces winmm MIDI, which is Windows-only.
+         Needs a SoundFont at runtime - see MidiPcmSource for the degradation contract. -->
+    <PackageReference Include="MeltySynth" Version="2.4.1" />
+
+    <!-- MIT. Pure C# MP3 decoder (the NAudio project's). SDL3 decodes only WAV, and the original
+         got MP3 from BASS, which is proprietary and incompatible with this project's GPL v2. -->
+    <PackageReference Include="NLayer" Version="2.0.1" />
+  </ItemGroup>
+
+</Project>
