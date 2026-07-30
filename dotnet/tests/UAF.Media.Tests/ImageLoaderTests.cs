@@ -12,7 +12,7 @@ public class ImageLoaderTests
         byte[] bytes = TestPng.Solid(2, 2, 0x11, 0x22, 0x33);
 
         Assert.Equal(ImageFormat.Png, ImageLoader.Identify(bytes));
-        Assert.Equal(4, ImageLoader.Decode(bytes).Pixels.Length);
+        Assert.Equal(4, ImageLoader.Default.Decode(bytes).Pixels.Length);
     }
 
     [Theory]
@@ -28,7 +28,7 @@ public class ImageLoaderTests
         // The distinction that matters: "we cannot decode JPEGs yet" is a supported-formats
         // decision, "these bytes are nonsense" is a broken file. Collapsing them into one error
         // would make a missing decoder look like design corruption.
-        var error = Assert.Throws<NotSupportedException>(() => ImageLoader.Decode(header));
+        var error = Assert.Throws<NotSupportedException>(() => ImageLoader.Default.Decode(header));
         Assert.Contains(expected.ToString(), error.Message);
     }
 
@@ -38,7 +38,7 @@ public class ImageLoaderTests
         byte[] noise = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
 
         Assert.Equal(ImageFormat.Unknown, ImageLoader.Identify(noise));
-        Assert.Throws<InvalidDataException>(() => ImageLoader.Decode(noise));
+        Assert.Throws<InvalidDataException>(() => ImageLoader.Default.Decode(noise));
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class ImageLoaderTests
         // extension would reject files the engine accepts.
         using var file = TestPaths.Temp(".bmp", TestPng.Solid(3, 1, 7, 8, 9));
 
-        var image = ImageLoader.Load(file.Path);
+        var image = ImageLoader.Default.Load(file.Path);
         Assert.Equal(3, image.Width);
     }
 
@@ -59,7 +59,7 @@ public class ImageLoaderTests
         // With 1300 art files, an error that does not say which one is nearly useless.
         using var file = TestPaths.Temp(".png", [0x00, 0x01, 0x02, 0x03]);
 
-        var error = Assert.Throws<InvalidDataException>(() => ImageLoader.Load(file.Path));
+        var error = Assert.Throws<InvalidDataException>(() => ImageLoader.Default.Load(file.Path));
         Assert.Contains(Path.GetFileName(file.Path), error.Message);
     }
 
@@ -68,7 +68,7 @@ public class ImageLoaderTests
     {
         using var file = TestPaths.Temp(".png", TestPng.Solid(2, 2, 0xFF, 0x00, 0xFF));
 
-        var sprite = ImageLoader.LoadSurface(file.Path, SurfaceKind.Sprite);
+        var sprite = ImageLoader.Default.LoadSurface(file.Path, SurfaceKind.Sprite);
 
         Assert.Equal(SurfaceKind.Sprite, sprite.Kind);
         Assert.True(sprite.IsKeyed);
@@ -79,6 +79,6 @@ public class ImageLoaderTests
     public void An_empty_file_is_rejected_rather_than_indexed_past()
     {
         Assert.Equal(ImageFormat.Unknown, ImageLoader.Identify([]));
-        Assert.Throws<InvalidDataException>(() => ImageLoader.Decode([]));
+        Assert.Throws<InvalidDataException>(() => ImageLoader.Default.Decode([]));
     }
 }

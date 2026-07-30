@@ -555,12 +555,27 @@ with a sibling `UAF.Media.Sdl` for the game.
 
 **Choice: `ppy.SDL3-CS`** (`dotnet/spike/Sdl3Spike`).
 
-Four candidates exist on NuGet — `SDL3-CS` (+ a separate `SDL3-CS.Native`), `ppy.SDL3-CS`,
-`Hexa.NET.SDL3`, and `Silk.NET.SDL` (which is SDL**2**, so not a candidate at all). `ppy.SDL3-CS`
-wins on the practical criteria: an order of magnitude more downloads, a 2026 build, and it is the
-osu! team's fork — a project that actually ships SDL on all three desktop platforms. It also
-bundles the native binaries for every RID this project needs (`win-x64`, `win-arm64`,
-`osx-arm64`, `osx-x64`, `linux-x64`), so there is no separate native-acquisition step.
+Four candidates exist on NuGet — `SDL3-CS` (+ a separate `SDL3-CS.Native`, which is
+edwardgushchin's), `ppy.SDL3-CS`, `Hexa.NET.SDL3`, and `Silk.NET.SDL` (which is SDL**2**, so not a
+candidate at all). `ppy.SDL3-CS` wins on the practical criteria: 522,981 downloads against 60,453
+for `SDL3-CS` and 20,962 for `Hexa.NET.SDL3`, and it is the osu! team's fork — a project that
+actually ships SDL on all three desktop platforms. It bundles native binaries for 13 RIDs in the
+same package, so binding and native cannot skew apart. That last point is not hypothetical:
+`SDL3-CS` is at 3.4.12.4 while its separate `SDL3-CS.Native` is still at 3.4.2.
+
+**Correction — what "a 2026 build" actually means.** This section originally cited recency as a
+virtue without checking what was being built. `ppy.SDL3-CS` 2026.722.0 bundles SDL stamped
+`SDL-3.5.0-a8591d9`, and **there is no SDL 3.5.0 release**. 3.5.0 is the in-development version
+`main` carries between releases; the newest tagged release is 3.4.12 (2026-07-01). Commit
+`a8591d9` is genuine upstream (2026-07-20, "Fix #15985") and is an ancestor of `main`, but it is
+1182 commits diverged from `release-3.4.x`. So this project ships a **development-branch snapshot
+of SDL**, not a stable release — which is what osu! itself runs on, and the package version pins
+it exactly, but it is a materially different claim from "SDL 3.4.12" and should not be discovered
+later. `SDL3-CS` tracks tagged releases instead, and that is its one real advantage.
+
+The reason not to switch on that basis alone: `SDL3-CS` publishes **no SDL3_image companion**, and
+the media layer now depends on one for the legacy art formats (§7 Phase 3). Revisit if the
+development-branch dependency ever causes a concrete problem.
 
 The spike deliberately exercises **the port's actual model**, not just `SDL_Init`: a managed
 `uint[]` framebuffer with a colour key, written entirely in C#, pushed through a
@@ -1316,7 +1331,7 @@ backend on the dummy drivers rather than mocking it.
 
 `PngDecoder` is hand-written over `ZLibStream`: a chunk walk, five row filters and a pixel unpack.
 It is diffed against Pillow — which wraps the same libpng the C++ used — across every PNG in the
-reference designs, 1312 files, byte-identical. `tools/png-oracle.py` regenerates the digests, and
+reference designs, 1312 files, byte-identical. `tools/art-oracle.py` regenerates the digests, and
 the digests are committed so the test needs no Python, exactly as the C++ dump works for
 serialization.
 
@@ -1343,13 +1358,21 @@ arguments for the managed decoder are narrower than "no native dependency": it k
 headless-testable, and a general-purpose decoder would not reproduce the stripped alpha, the gamma
 convention or the 16-bit chop, so the fiddly part of this file would survive anyway.
 
-What the managed path does *not* cover is the legacy formats. The C++ sniffed BMP, PCX, PNG, PSD,
-JPG and TGA (`cdximage.cpp:262-312`). Of the reference art, PNG is 1286 truecolour + 14
-truecolour-alpha + 12 palette; the remainder is 8 JPEGs in a third-party design, 5 PCX from the
-1993 DOS original, and 3 BMPs that are Steam launcher chrome rather than game art. So the only
-real gap is JPEG, in one design. If those formats are wanted, `SDL3_image` in `UAF.Media.Sdl` is
-the cheaper answer than three more hand-written decoders — the same optional-assembly shape
-already chosen for the FFmpeg video decoder.
+The legacy formats go to **SDL3_image**, via `ppy.SDL3_image-CS` in `UAF.Media.Sdl` — decided
+rather than deferred. `IImageDecoder` is the seam, shaped exactly like `IVideoDecoderFactory`:
+optional, probed at construction, and absent by default (`NullImageDecoder`), so a build without
+SDL still loads PNG. `SdlImageDecoder` deliberately does *not* claim PNG, because the managed
+decoder reproduces the engine's behaviour and is corpus-verified; routing PNG through a
+general-purpose decoder would change 1312 files to gain nothing.
+
+Verified against the real files: 5 PCX and 3 BMP match Pillow byte for byte, and the 8 JPEGs are
+compared by per-channel mean with a 1.5/255 tolerance, because JPEG's IDCT is specified only to a
+precision and two conformant decoders legitimately differ. A whole-image mean would survive a
+sheared or vertically flipped decode, so a top-left-quadrant mean is checked as well — that is the
+failure a pitch or row-order mistake actually produces.
+
+One accepted gap: SDL3_image has no PSD loader, where the C++ had `cdximagepsd.cpp`. No reference
+design ships a PSD.
 
 Interlaced PNG is refused outright rather than guessed at. No file in any shipped design is
 interlaced; libpng handled Adam7 transparently, so this is a real gap, left explicit in the same

@@ -16,6 +16,13 @@
   -->
   <ItemGroup>
     <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0" />
+
+    <!-- MIT binding over zlib-licensed SDL3_image, same publisher and version stream as the core
+         binding above, with natives for all 13 RIDs it covers. This is where the legacy art
+         formats live: the C++ sniffed BMP, PCX, PNG, PSD, JPG and TGA (cdx/cdximage.cpp:262-312),
+         and UAF.Media only decodes PNG. It sits in this project rather than UAF.Media so the
+         platform-agnostic half keeps its no-native-dependency guarantee. -->
+    <PackageReference Include="ppy.SDL3_image-CS" Version="2026.722.0" />
   </ItemGroup>
 
   <ItemGroup>

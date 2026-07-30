@@ -1,5 +1,5 @@
 # Independent PNG decode digests, generated from Pillow (libpng) by
-# tools/png-oracle.py. Format: relative-path|width|height|sha256-of-RGB-bytes.
+# tools/art-oracle.py. Format: relative-path|width|height|sha256-of-RGB-bytes.
 # RGB, not RGBA: the engine strips alpha. Gamma is pre-applied where it is not a no-op.
 Ambassador's_Letter/Resources/Ambassador_Intro.png|640|480|6a0bd51c834c4d3eccaa9d6456fefca0abdecb656e4a915fb9721a0df18c5f18
 Ambassador's_Letter/Resources/Ambassador_Logo.png|640|480|3e6510a70e980feddaa6345eca5f3e13f18051affd747cee729c48a92e3e6bdd

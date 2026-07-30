@@ -1,0 +1,26 @@
+# Independent decode digests for the formats SDL3_image handles, generated from Pillow by
+# tools/art-oracle.py. Format:
+#   relative-path|format|width|height|sha256|meanRGB|topLeftQuadrantMeanRGB
+#
+# BMP and PCX are lossless and simple enough that any two decoders agree byte for byte.
+# JPEG is NOT: the IDCT is only specified to a precision, so libjpeg-turbo and whatever
+# SDL3_image was built against may differ by a unit or two per channel. JPEG is therefore
+# checked against the two means with a tolerance instead of by hash. The quadrant mean is
+# there because a whole-image mean survives a sheared or vertically flipped decode, which is
+# exactly the failure a pitch or row-order mistake produces.
+Ambassador's_Letter/Resources/bu_HL_Shaman.jpg|Jpg|176|211|b0c95da69b533fd9bcda3f4d17d93d875e4839a0b823d952ada234c480e41ea9|81.235,44.816,32.486|96.835,52.287,33.959
+Ambassador's_Letter/Resources/bu_ev_TennoLifeguard.jpg|Jpg|176|211|e7b880bdea363982dd49e5da340e1b1be84f9fae29862bd24646bdac2fba3aae|117.845,106.664,84.394|118.418,116.576,104.542
+Ambassador's_Letter/Resources/bu_ev_helmetlion.jpg|Jpg|176|211|c127d8db12edcbf433a48cf6d687f9ab4ca8d4391b6565f94d33e1108f6a766c|89.809,65.385,44.131|65.019,45.679,34.026
+Ambassador's_Letter/Resources/bu_kneipierloewe.jpg|Jpg|176|211|245b49d878d54aea97f29839eabc13b12c760ba2296be304941691eefe50c3a1|110.505,105.055,90.197|110.233,101.447,87.691
+Ambassador's_Letter/Resources/bx_Assault.jpg|Jpg|608|288|ce45105a12acab9174bbecac6f51129ddd0ae8bf7745f097a764e4bbe38b192d|89.099,103.137,84.853|117.877,153.341,125.952
+Ambassador's_Letter/Resources/bx_Dorf01.jpg|Jpg|608|288|f421f427ac678c58fc0f175586177fbf5a6b0d9627c4cb154cc29b330b63bf68|101.720,108.540,104.484|93.145,130.887,154.935
+Ambassador's_Letter/Resources/bx_Helmettravel.jpg|Jpg|608|288|a1587e42cc307c2b99c6a59df1af5d1055f7e959cf83c7aaf466bc48a0a96040|89.086,25.513,85.151|101.501,9.625,95.670
+Unlimited Adventures -ENG/GAME/UA/ART/DRAWBPIC.PCX|Pcx|320|200|5aa401241870cea218bdd1b2fd5bfe3e0433fa1822933283345ae20303fadd25|145.169,121.937,145.010|202.462,198.446,202.462
+Unlimited Adventures -ENG/GAME/UA/ART/DRAWCPIC.PCX|Pcx|320|200|e66fa3e91bdad1059419e2ba959276b6562059da75d70e424b0141aad3e895a9|56.813,44.542,65.464|64.064,94.848,85.568
+Unlimited Adventures -ENG/GAME/UA/ART/DRAWPIC.PCX|Pcx|320|200|19b6d5c2e6e540b426f05841749cafef22caec3b60324715f568b80b76421254|53.003,27.251,52.843|115.460,97.482,115.460
+Unlimited Adventures -ENG/GAME/UA/ART/DRAWSPRT.PCX|Pcx|320|200|b0faa4c8718b5491929805b38e3bc0e36bd5db80e9d272a5b91fbb13aa27126c|47.693,39.675,56.380|60.067,121.647,87.647
+Unlimited Adventures -ENG/GAME/UA/ART/TOWN.PCX|Pcx|320|200|42bf4bec9253c0a2a83f0831d60779fa4a350c0d046be6f1a1c59cb5ee3c3e9c|48.031,20.017,47.433|97.036,69.441,95.189
+Unlimited Adventures -ENG/GBC/Games/10. Unlimited Adventures/Death_1.bmp|Bmp|24|24|771dd31df1d536baa89633733ffba40213b417d4f4a5cd309a16c0032e1fe0d1|161.604,82.358,80.920|188.618,90.500,90.500
+Unlimited Adventures -ENG/GBC/Games/10. Unlimited Adventures/Death_2.bmp|Bmp|24|24|cfae8758d9933506ad72029ca19ec6b5f05571d3188d3412e40f27c857fc8ac1|164.715,85.288,83.656|188.618,90.611,90.833
+Unlimited Adventures -ENG/GBC/Games/10. Unlimited Adventures/Icon.bmp|Bmp|1176|48|bd3850949b2609cc3c7c53f83bfee32b1d7154177f77b506ee5bb4e8a3381523|95.124,80.311,78.621|95.101,82.016,78.011
+example_dsn/SL4cover.jpg|Jpg|300|450|6163bffe669cf842f5b77f863d5663f3f6af61c05ba61e649b48c46e3f8cd03d|117.276,117.370,104.461|99.471,108.956,103.725

@@ -103,7 +103,7 @@ public class PngOracleTests
             DecodedImage image;
             try
             {
-                image = ImageLoader.Load(path);
+                image = ImageLoader.Default.Load(path);
             }
             catch (Exception e)
             {
@@ -156,7 +156,7 @@ public class PngOracleTests
 
         foreach (string path in withAlpha)
         {
-            var image = ImageLoader.Load(path);
+            var image = ImageLoader.Default.Load(path);
             Assert.All(image.Pixels, p => Assert.Equal(0xFF000000u, p & 0xFF000000u));
         }
     }

@@ -26,14 +26,28 @@ public enum ImageFormat
 /// nothing validates that the bytes match.
 /// </para>
 /// <para>
-/// Only PNG decodes today. The rest are recognised and named in the exception rather than reported
-/// as corrupt, because "this is a JPEG and we cannot decode JPEGs yet" and "these bytes are
-/// nonsense" need different fixes, and one of them is a supported-formats decision rather than a
-/// bug. See <see cref="PngDecoder"/> for what taking that on would involve.
+/// PNG is always decoded by <see cref="PngDecoder"/>, which reproduces the engine's own behaviour
+/// and is verified against libpng on the entire reference corpus. Everything else is delegated to
+/// an optional <see cref="IImageDecoder"/> — in practice SDL3_image, from <c>UAF.Media.Sdl</c>.
+/// When none is installed the format is still named in the exception rather than reported as
+/// corrupt, because "this is a JPEG and this build has no JPEG decoder" and "these bytes are
+/// nonsense" need different fixes.
 /// </para>
 /// </remarks>
-public static class ImageLoader
+public sealed class ImageLoader(IImageDecoder? extra = null)
 {
+    /// <summary>
+    /// The loader used when nothing has been composed: PNG only, no native decoder.
+    /// </summary>
+    /// <remarks>
+    /// Instance-based rather than a settable static, so that a test or a tool can construct a
+    /// loader with a different decoder without mutating global state that another test is using.
+    /// </remarks>
+    public static ImageLoader Default { get; } = new();
+
+    /// <summary>The decoder consulted for formats <see cref="PngDecoder"/> does not handle.</summary>
+    public IImageDecoder Extra { get; } = extra ?? NullImageDecoder.Instance;
+
     /// <summary>
     /// Bytes needed to identify every format the original sniffed. TGA is the constraint: it has no
     /// magic number at the start and is identified from an 18-byte footer, so a short file cannot be
@@ -77,17 +91,29 @@ public static class ImageLoader
     /// <summary>Decodes an art file already in memory.</summary>
     /// <exception cref="InvalidDataException">The bytes are not a recognised image.</exception>
     /// <exception cref="NotSupportedException">The format is recognised but has no decoder.</exception>
-    public static DecodedImage Decode(ReadOnlySpan<byte> file)
+    public DecodedImage Decode(ReadOnlySpan<byte> file)
     {
         var format = Identify(file);
-        return format switch
+
+        if (format == ImageFormat.Png)
         {
-            ImageFormat.Png => PngDecoder.Decode(file),
-            ImageFormat.Unknown => throw new InvalidDataException(
-                "unrecognised image format: no signature matched"),
-            _ => throw new NotSupportedException(
-                $"{format} files are recognised but not decoded yet; only PNG is implemented"),
-        };
+            return PngDecoder.Decode(file);
+        }
+
+        if (format == ImageFormat.Unknown)
+        {
+            throw new InvalidDataException("unrecognised image format: no signature matched");
+        }
+
+        if (Extra.IsAvailable && Extra.CanDecode(format))
+        {
+            return Extra.Decode(file, format);
+        }
+
+        // Naming the format and the reason separately: "we have no decoder for TGA" and "SDL3_image
+        // is missing from this build" need different fixes, and neither is a corrupt file.
+        throw new NotSupportedException(
+            $"{format} files need a native image decoder; {Extra.UnavailableReason ?? "this one does not handle " + format}");
     }
 
     /// <summary>Decodes an art file from disk.</summary>
@@ -96,7 +122,7 @@ public static class ImageLoader
     /// also why <c>CDXImagePNG::GetImage</c> takes a <c>CHAR*</c> and <c>fopen</c>s it. Callers that
     /// already hold bytes should use the span overload.
     /// </remarks>
-    public static DecodedImage Load(string path)
+    public DecodedImage Load(string path)
     {
         ArgumentNullException.ThrowIfNull(path);
 
@@ -112,7 +138,7 @@ public static class ImageLoader
     }
 
     /// <summary>Decodes an art file from disk straight into a surface of the given kind.</summary>
-    public static Surface LoadSurface(string path, SurfaceKind kind = SurfaceKind.Common) =>
+    public Surface LoadSurface(string path, SurfaceKind kind = SurfaceKind.Common) =>
         Load(path).ToSurface(kind);
 
     /// <summary>
