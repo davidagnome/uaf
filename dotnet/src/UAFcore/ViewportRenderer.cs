@@ -23,11 +23,11 @@ public enum DrawSlot
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Scope: square 0 only.</b> The original has a hand-written routine per viewport square, each
-/// with its own occlusion tests and door/overlay ordering, and they are not variations on a
-/// template — <c>RenderSquare0</c> alone consults four different neighbour cells before deciding
-/// whether to draw one sliver. This ports the primitive and the first square faithfully; the rest
-/// are the same shape of work and are listed in the class remarks rather than guessed at.
+/// <b>Scope: square 0, plus the seven squares that are plain sequences of passes
+/// (5, 6, 7, 8, 9, 10, 11).</b> The original has a hand-written routine per viewport square and
+/// they are not variations on a template — square 0 alone consults four different neighbour cells
+/// before deciding whether to draw one sliver. The seven remaining all carry occlusion tests of
+/// their own and need porting individually; extrapolating them from these would be a guess.
 /// </para>
 /// <para>
 /// <b>The blit is 1:1.</b> <c>BltSurface</c> takes the source rectangle's own width and height for
@@ -123,6 +123,125 @@ public sealed class ViewportRenderer(WallFormat format)
         }
 
         DrawSlotArt(screen, wallSheet, DrawSlot.J, x + SlotWidth(DrawSlot.P), y);
+    }
+
+    /// <summary>Which wall of a cell a pass draws, relative to the way the party faces.</summary>
+    public enum PassDirection
+    {
+        Front,
+        Left,
+        Right,
+    }
+
+    /// <summary>One draw pass: a cell face, and the slot its art is cut from.</summary>
+    public readonly record struct SquarePass(PassDirection Direction, DrawSlot Slot);
+
+    /// <summary>
+    /// The squares whose routine is a plain sequence of passes at one origin, and what those
+    /// passes are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read off <c>RenderSquare5</c>, <c>6</c>, <c>7</c>, <c>8</c>, <c>9</c>, <c>10</c> and
+    /// <c>11</c>. Each pass is the same three-layer draw — wall, then door and overlay in the wall
+    /// set's own order — at the square's origin, differing only in which face of the cell it asks
+    /// for and which rectangle it cuts.
+    /// </para>
+    /// <para>
+    /// <b>None of it is derivable.</b> Square 10 uses D and square 11 uses C; squares 7, 8 and 9
+    /// all draw the front face from <c>H</c> but at different origins, and their side passes use
+    /// N, O, F and G with no pattern relating slot to direction. The table is transcribed.
+    /// </para>
+    /// <para>
+    /// The eight squares absent from this table are the ones with occlusion tests — they consult
+    /// neighbouring cells before deciding what to draw, and each needs porting individually.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyDictionary<int, SquarePass[]> SquarePasses =
+        new Dictionary<int, SquarePass[]>
+        {
+            [5] = [new(PassDirection.Front, DrawSlot.M)],
+            [6] = [new(PassDirection.Front, DrawSlot.L)],
+            [7] = [new(PassDirection.Front, DrawSlot.H), new(PassDirection.Left, DrawSlot.N)],
+            [8] = [new(PassDirection.Front, DrawSlot.H), new(PassDirection.Right, DrawSlot.O)],
+            [9] = [new(PassDirection.Front, DrawSlot.H), new(PassDirection.Left, DrawSlot.F),
+                   new(PassDirection.Right, DrawSlot.G)],
+            [10] = [new(PassDirection.Front, DrawSlot.D)],
+            [11] = [new(PassDirection.Front, DrawSlot.C)],
+        };
+
+    /// <summary>
+    /// Draws one of the <see cref="SquarePasses"/> squares: each pass in order, and within a pass
+    /// the wall, then the door and overlay in the order the wall set asks for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The door/overlay order is per wall set, not global.</b> <c>RenderDoorBeforeOverlay</c>
+    /// returns <c>WallSets[slot].doorFirst</c> (<c>Viewport.cpp:1299</c>), so two walls in the same
+    /// view can disagree about it — and since it is read per pass, the front and left faces of one
+    /// cell can disagree too. Getting it wrong hides a door behind its own frame, which looks like
+    /// bad art rather than a bug.
+    /// </para>
+    /// <para>
+    /// All three layers of a pass land at the same point with the same draw slot; only the source
+    /// sheet differs.
+    /// </para>
+    /// </remarks>
+    public void RenderSquare(Surface screen, ViewMap view, WallResolver resolver, Facing facing,
+                             int square, int viewportX, int viewportY, Func<string, Surface?> art)
+    {
+        ArgumentNullException.ThrowIfNull(screen);
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(art);
+
+        if (!SquarePasses.TryGetValue(square, out var passes))
+        {
+            throw new ArgumentOutOfRangeException(nameof(square),
+                $"square {square} needs its own routine; it is not a plain sequence of passes");
+        }
+
+        var (originX, originY) = SquareOrigin(square);
+        int x = originX + viewportX;
+        int y = originY + viewportY;
+
+        foreach (var pass in passes)
+        {
+            var face = pass.Direction switch
+            {
+                PassDirection.Left => (Facing)(((int)facing + 3) & 3),
+                PassDirection.Right => (Facing)(((int)facing + 1) & 3),
+                _ => facing,
+            };
+
+            Draw(WallLayer.Wall, face, pass.Slot);
+
+            if (resolver.DoorFirst(view, square, face))
+            {
+                Draw(WallLayer.Door, face, pass.Slot);
+                Draw(WallLayer.Overlay, face, pass.Slot);
+            }
+            else
+            {
+                Draw(WallLayer.Overlay, face, pass.Slot);
+                Draw(WallLayer.Door, face, pass.Slot);
+            }
+        }
+
+        void Draw(WallLayer layer, Facing face, DrawSlot slot)
+        {
+            string? file = resolver.ArtFor(view, square, face, layer);
+            if (file is null)
+            {
+                return;
+            }
+
+            var sheet = art(file);
+            if (sheet is not null)
+            {
+                DrawSlotArt(screen, sheet, slot, x, y);
+            }
+        }
     }
 
     /// <summary>

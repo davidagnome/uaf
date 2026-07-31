@@ -132,6 +132,22 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
         return string.IsNullOrWhiteSpace(file) ? null : file;
     }
 
+    /// <summary>
+    /// Whether this cell's wall set wants its door drawn before its overlay.
+    /// </summary>
+    /// <remarks>
+    /// <c>RenderDoorBeforeOverlay</c> (<c>Viewport.cpp:1293</c>). Note it does <b>not</b> guard
+    /// index 0 the way the surface lookups do — it reads <c>WallSets[0].doorFirst</c> quite
+    /// happily. Harmless, since slot 0 is the unused entry and its flag is clear, but reproduced
+    /// rather than tidied: a design that put something in slot 0 would behave the same way here as
+    /// in the original.
+    /// </remarks>
+    public bool DoorFirst(ViewMap view, int slot, Facing facing)
+    {
+        int index = IndexAt(view, slot, facing);
+        return index < wallSets.Count && wallSets[index].DoorFirst != 0;
+    }
+
     /// <summary>Whether a slot has a wall at all — the occlusion tests' question.</summary>
     public bool HasWall(ViewMap view, int slot, Facing facing) =>
         IndexAt(view, slot, facing) != NoWall;

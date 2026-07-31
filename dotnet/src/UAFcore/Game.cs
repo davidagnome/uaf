@@ -58,8 +58,7 @@ public sealed class Game
         if (level is not null && Map is not null)
         {
             resolver = new WallResolver(Map, level.WallSets);
-            var formats = WallFormatReader.ReadAll(design.Config);
-            wallFormat = formats.Count > 0 ? formats[0] : null;
+            wallFormats = WallFormatReader.ReadAll(design.Config);
         }
 
         // The engine's own defaults, from GLOBAL_STATS. A design says where a new party starts.
@@ -70,7 +69,7 @@ public sealed class Game
     }
 
     private readonly WallResolver? resolver;
-    private readonly WallFormat? wallFormat;
+    private readonly IReadOnlyList<WallFormat> wallFormats = [];
 
     /// <summary>The current level's grid, or null when it could not be read.</summary>
     public Map? Map { get; }
@@ -249,42 +248,102 @@ public sealed class Game
     /// Draws the corridor's walls into the viewport.
     /// </summary>
     /// <remarks>
-    /// Only square 0 so far — the original has a hand-written routine per viewport square, and
-    /// they are not variations on a template. The clip is the viewport rectangle, because a wall
-    /// slot's own offsets can place it outside and the original relies on the viewport surface
-    /// being a separate, smaller surface to cut that off.
+    /// Square 0 and the four simple side squares so far; nine remain. The clip is the viewport
+    /// rectangle, because a wall slot's own offsets can place it outside and the original relies on
+    /// the viewport being a separate, smaller surface to cut that off.
     /// </remarks>
     private void DrawWalls(int viewportX, int viewportY, SurfaceRect viewport)
     {
-        if (resolver is null || wallFormat is null || Map is null)
+        if (resolver is null || wallFormats.Count == 0 || Map is null)
         {
             return;
         }
 
         var view = Map.View(X, Y, Facing);
-        string? art = resolver.ArtFor(view, 0, Facing, WallLayer.Wall);
-        if (art is null)
-        {
-            return;
-        }
-
-        var sheet = design.Art(art, SurfaceKind.Wall);
-        if (sheet is null)
-        {
-            return;
-        }
-
         var saved = screen.ClipRect;
+
         try
         {
             screen.ClipRect = viewport;
-            new ViewportRenderer(wallFormat)
-                .RenderSquare0(screen, sheet, view, resolver, Facing, viewportX, viewportY);
+
+            // Far squares first. The original draws back to front and relies on the keyed blits to
+            // let nearer walls cover further ones, so the order is load-bearing rather than
+            // cosmetic.
+            string? far = resolver.ArtFor(view, 0, Facing, WallLayer.Wall);
+            if (far is not null && design.Art(far, SurfaceKind.Wall) is Surface farSheet)
+            {
+                // The format is chosen per sheet, by its dimensions -- a design can mix wall packs
+                // with different layouts, and picking one format for the whole view would cut most
+                // of them from the wrong rectangles.
+                RendererFor(farSheet)?.RenderSquare0(screen, farSheet, view, resolver, Facing,
+                                                      viewportX, viewportY);
+            }
+
+            // Far to near, so a nearer wall's keyed blit covers a further one.
+            //
+            // The renderer is chosen from *any* face that resolves, not from the front one. An
+            // earlier revision picked the sheet from the front face and skipped the whole square
+            // when it was empty -- which silently discarded square 9, whose front face is often
+            // clear while its left and right walls are the corridor sides the player actually
+            // sees. Every pass then re-resolves its own sheet inside RenderSquare, so a square
+            // mixing two wall packs still cuts each from its own format.
+            foreach (int square in ViewportRenderer.SquarePasses.Keys.OrderBy(s => s))
+            {
+                var sheet = FirstSheet(view, square);
+                RendererFor(sheet)?.RenderSquare(screen, view, resolver, Facing, square,
+                                                 viewportX, viewportY,
+                                                 f => design.Art(f, SurfaceKind.Wall));
+            }
         }
         finally
         {
             screen.ClipRect = saved;
         }
+    }
+
+    /// <summary>
+    /// The first wall sheet any of a square's passes resolves to, or null when none do.
+    /// </summary>
+    /// <remarks>
+    /// Used only to choose the format. A square draws nothing when every face is clear, but one
+    /// clear face must not suppress the others.
+    /// </remarks>
+    private Surface? FirstSheet(ViewMap view, int square)
+    {
+        if (resolver is null || !ViewportRenderer.SquarePasses.TryGetValue(square, out var passes))
+        {
+            return null;
+        }
+
+        foreach (var pass in passes)
+        {
+            var face = pass.Direction switch
+            {
+                ViewportRenderer.PassDirection.Left => (Facing)(((int)Facing + 3) & 3),
+                ViewportRenderer.PassDirection.Right => (Facing)(((int)Facing + 1) & 3),
+                _ => Facing,
+            };
+
+            string? file = resolver.ArtFor(view, square, face, WallLayer.Wall);
+            if (file is not null && design.Art(file, SurfaceKind.Wall) is Surface sheet)
+            {
+                return sheet;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The renderer whose format matches a sheet's dimensions, or the default.</summary>
+    private ViewportRenderer? RendererFor(Surface? sheet)
+    {
+        if (sheet is null)
+        {
+            return null;
+        }
+
+        var format = WallFormatReader.SelectFor(wallFormats, sheet.Width, sheet.Height);
+        return format is null ? null : new ViewportRenderer(format);
     }
 
     private void Blit(DesignConfig config, Surface art, string sourceKey, string destinationKey)

@@ -173,6 +173,50 @@ public class WallResolverTests
     }
 
     [Fact]
+    public void The_pass_table_matches_what_the_square_routines_do()
+    {
+        // Transcribed, not derived -- square 10 uses D while 11 uses C, and squares 7, 8 and 9 all
+        // draw their front face from H but pair it with N, O, and F+G respectively.
+        var passes = ViewportRenderer.SquarePasses;
+
+        Assert.Equal(7, passes.Count);
+        Assert.Equal(DrawSlot.D, passes[10].Single().Slot);
+        Assert.Equal(DrawSlot.C, passes[11].Single().Slot);
+
+        // Square 9 is the only three-pass square: the cell straight ahead shows its front wall and
+        // both side walls.
+        Assert.Equal(3, passes[9].Length);
+        Assert.Equal(DrawSlot.H, passes[9][0].Slot);
+        Assert.Equal(ViewportRenderer.PassDirection.Front, passes[9][0].Direction);
+        Assert.Equal(DrawSlot.F, passes[9][1].Slot);
+        Assert.Equal(ViewportRenderer.PassDirection.Left, passes[9][1].Direction);
+        Assert.Equal(DrawSlot.G, passes[9][2].Slot);
+        Assert.Equal(ViewportRenderer.PassDirection.Right, passes[9][2].Direction);
+
+        // 7 and 8 are mirror images of each other, one side each.
+        Assert.Equal(ViewportRenderer.PassDirection.Left, passes[7][1].Direction);
+        Assert.Equal(ViewportRenderer.PassDirection.Right, passes[8][1].Direction);
+
+        // The eight squares with occlusion tests are deliberately absent.
+        foreach (int square in new[] { 0, 1, 2, 3, 4, 12, 13, 14 })
+        {
+            Assert.False(passes.ContainsKey(square), $"square {square} should need its own routine");
+        }
+    }
+
+    [Fact]
+    public void A_square_needing_its_own_routine_is_refused_rather_than_approximated()
+    {
+        var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
+        var renderer = new ViewportRenderer(WallFormatReader.ReadAll(config)[0]);
+        var map = BuildMap();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => renderer.RenderSquare(
+            new UAF.Media.Surface(64, 64), ViewMap.For(1, 1, Facing.North, 4, 4), Resolver(map),
+            Facing.North, square: 4, 0, 0, _ => null));
+    }
+
+    [Fact]
     public void Draw_slots_are_one_based_against_the_format_rectangles()
     {
         var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
