@@ -17,6 +17,12 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Golden viewport hashes. Generated from gitignored art, so a fresh checkout has none until
+       someone runs UAF_GOLDEN_UPDATE=1; GoldenFrameTests treats absence as "nothing to check". -->
+  <ItemGroup>
+    <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\UAFcore\UAFcore.csproj" />
   </ItemGroup>

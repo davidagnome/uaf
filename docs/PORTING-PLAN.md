@@ -1525,6 +1525,58 @@ skipped — is tested, which is the behaviour §6.1 actually requires.
 
 ### Phase 4 — UAFcore engine (4–6 months)
 
+#### Progress: the engine has a beachhead
+
+`UAFcore` is an executable. It opens a design, loads a level, walks a party around it and draws the
+screen; `Game` holds the state machine and renders into a managed `Surface` knowing nothing about
+SDL, so the whole engine runs headless from a `RecordedInputSource` into a `HeadlessPresenter`.
+That is the thing the C++ engine cannot do — its equivalent path needs a live DirectX device before
+it reads a record, which is why it has no automated tests. `--dump <path>` renders one frame and
+exits, so the executable itself is smoke-testable with no display.
+
+**The viewport is the deep water, and most of what makes it hard is undocumented.** What follows is
+what cost real time to establish; none of it is inferable from the structures.
+
+- **A level is a torus.** Both the viewport (`Viewport.cpp:4105`) and movement (`Party.cpp:1735`)
+  take coordinates modulo the map extent. A map has no edges — only walls. An early version of
+  `Game.Step` invented a boundary and reported "the map ends here".
+- **`ViewMap` slots 13 and 14 are deliberately unwrapped**, with the original's own comment that
+  "it is significant if they exceed the map boundaries". The occlusion tests ask
+  `!validCoords(viewMap[13])`; on a torus that could never be true and far slivers would vanish
+  wherever a corridor crossed an edge.
+- **Wall index 0 means "no wall", and the table is indexed directly.** `WallSets[wallSlot]` with no
+  adjustment, guarded by an early return for 0 — because the table *is* the full 192-entry
+  `MAX_WALLSETS` array with slot 0 present and unused. An index-minus-one is the natural guess and
+  is wrong; it survived its first test because that design's entries 1–3 all name the same file.
+- **There are two kinds of wall format and only one is numbered.** The default is built from
+  *unsuffixed* config keys (`A_WALL_RECT`, `VIEWPORT_COORD_0`) at index 0; the alternates come from
+  suffixed keys and are appended after it. `GetFormat` skips index 0 while searching and falls back
+  to it.
+- **A format is selected by the wall sheet's own dimensions**, not by anything about the party.
+  That is how a design drops in third-party wall packs — `SomethingWild`'s bands are labelled "from
+  Kevin's Tavern demo" and "from Kevin's New Walls", and its art is 1500×375, which matches band 5.
+- **`DRAW_A_WALL` is 1, not 0** (`GetWidth` does `Type--`), and **the blit is 1:1** — the
+  destination takes the *source* rectangle's size, so nothing scales at draw time.
+- **Slot rect heights are not uniform.** The default format's are 112×134, 48×58, 32×211 — real
+  per-distance sizes. The alternates are all 211 tall with the foreshortening painted in. A
+  renderer must read both dimensions rather than assume either convention.
+
+**Squares ported: 0 and 5–14. Remaining: 1, 2, 3, 4**, which carry 24–35 conditionals apiece and
+are the genuinely intricate ones.
+
+**Do not classify these routines by length.** Square 12 looks hard at 107 lines and is three plain
+passes — it draws the 112-wide front wall, so skipping it means dead ends never render. Squares 13
+and 14 read as occlusion squares and are single passes behind a layout gate (`if (WallCount == 5)
+return;`), which is also why `DistantWallCount` decides between 13 and 15 viewport coordinates:
+those coordinates exist exactly when those squares do.
+
+**The diagnostic loop that worked**, after several rounds of inference that did not: render the
+frame and look at it; when something is missing, probe the resolution chain (indices, art
+filenames, rects) to rule that layer out; then crop the source rectangles out of the sheet to rule
+out the art; what remains is the blit. That sequence found the front-face-only skip which discarded
+square 9 — the corridor's side walls — while every unit test passed.
+
+
 - Dedicated engine thread + `Channel`-based input/render marshalling (§4.4).
 - `CProcinp` task scheduler with `TASKSTATE` numbering preserved.
 - The 116 `GameEvent` subclasses and `RunEvent.cpp` (27,639 lines — budget accordingly).

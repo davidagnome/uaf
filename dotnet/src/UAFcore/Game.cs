@@ -248,7 +248,7 @@ public sealed class Game
     /// Draws the corridor's walls into the viewport.
     /// </summary>
     /// <remarks>
-    /// Square 0 and the four simple side squares so far; nine remain. The clip is the viewport
+    /// Square 0 plus squares 5-14; only 1, 2, 3 and 4 remain. The clip is the viewport
     /// rectangle, because a wall slot's own offsets can place it outside and the original relies on
     /// the viewport being a separate, smaller surface to cut that off.
     /// </remarks>

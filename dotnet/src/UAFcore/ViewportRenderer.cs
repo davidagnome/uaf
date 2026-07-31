@@ -23,12 +23,11 @@ public enum DrawSlot
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Scope: square 0, plus the eight squares that are plain sequences of passes
-/// (5–12).</b> The original has a hand-written routine per viewport square and they are not
-/// variations on a template — square 0 alone consults four different neighbour cells before
-/// deciding whether to draw one sliver. The six remaining (1, 2, 3, 4, 13, 14) carry 8 to 35
-/// conditionals apiece and need porting individually; extrapolating them from these would be a
-/// guess.
+/// <b>Scope: square 0, plus the ten squares that are plain sequences of passes (5–14).</b> The
+/// original has a hand-written routine per viewport square and they are not variations on a
+/// template — square 0 alone consults four different neighbour cells before deciding whether to
+/// draw one sliver. Only 1, 2, 3 and 4 remain, and those carry 24 to 35 conditionals apiece;
+/// extrapolating them from these would be a guess.
 /// </para>
 /// <para>
 /// <b>The blit is 1:1.</b> <c>BltSurface</c> takes the source rectangle's own width and height for
@@ -154,10 +153,10 @@ public sealed class ViewportRenderer(WallFormat format)
     /// N, O, F and G with no pattern relating slot to direction. The table is transcribed.
     /// </para>
     /// <para>
-    /// The six squares absent from this table are the ones with occlusion tests — 1, 2, 3 and 4
-    /// carry 24 to 35 conditionals each, 13 has 8 — and each needs porting individually. Square 12
-    /// looks like one of them from its length but is not: it is three plain passes, and was only
-    /// found to be so by reading it.
+    /// Only squares 1, 2, 3 and 4 are absent, and those carry 24 to 35 conditionals each. Two of
+    /// the six that looked hard were not: square 12 is three plain passes despite its length, and
+    /// squares 13 and 14 are single passes behind a layout gate rather than occlusion tests.
+    /// Classifying by size would have left three easy squares unported.
     /// </para>
     /// </remarks>
     public static readonly IReadOnlyDictionary<int, SquarePass[]> SquarePasses =
@@ -176,7 +175,23 @@ public sealed class ViewportRenderer(WallFormat format)
             // you face a dead end -- with A and B the near side walls either side of it.
             [12] = [new(PassDirection.Front, DrawSlot.E), new(PassDirection.Left, DrawSlot.A),
                     new(PassDirection.Right, DrawSlot.B)],
+
+            // The far outer cells. Single front pass each -- see SevenDistantWallOnly.
+            [13] = [new(PassDirection.Front, DrawSlot.J)],
+            [14] = [new(PassDirection.Front, DrawSlot.J)],
         };
+
+    /// <summary>
+    /// Squares that exist only in the seven-distant-wall layout.
+    /// </summary>
+    /// <remarks>
+    /// <c>RenderSquare13</c> and <c>RenderSquare14</c> open with
+    /// <c>if (WallCount == 5) return;</c> (<c>Viewport.cpp:3595</c>) — they are not occlusion
+    /// tests but a layout gate, so in the five-wall layout these two squares draw nothing at all.
+    /// That is the same <c>DistantWallCount</c> that decides whether a format carries 13 or 15
+    /// viewport coordinates, and it is why: coordinates 13 and 14 only exist when these squares do.
+    /// </remarks>
+    public static readonly IReadOnlySet<int> SevenDistantWallOnly = new HashSet<int> { 13, 14 };
 
     /// <summary>
     /// Draws one of the <see cref="SquarePasses"/> squares: each pass in order, and within a pass
@@ -207,6 +222,12 @@ public sealed class ViewportRenderer(WallFormat format)
         {
             throw new ArgumentOutOfRangeException(nameof(square),
                 $"square {square} needs its own routine; it is not a plain sequence of passes");
+        }
+
+        // Squares 13 and 14 are absent from the narrower layout entirely.
+        if (SevenDistantWallOnly.Contains(square) && format.DistantWallCount != 7)
+        {
+            return;
         }
 
         var (originX, originY) = SquareOrigin(square);

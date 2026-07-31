@@ -179,7 +179,13 @@ public class WallResolverTests
         // draw their front face from H but pair it with N, O, and F+G respectively.
         var passes = ViewportRenderer.SquarePasses;
 
-        Assert.Equal(8, passes.Count);
+        Assert.Equal(10, passes.Count);
+
+        // 13 and 14 are single front passes gated on the layout, not occlusion tests.
+        Assert.Single(passes[13]);
+        Assert.Single(passes[14]);
+        Assert.Contains(13, ViewportRenderer.SevenDistantWallOnly);
+        Assert.Contains(14, ViewportRenderer.SevenDistantWallOnly);
 
         // Square 12 is the party's own cell: the front wall you face plus both near side walls.
         Assert.Equal(3, passes[12].Length);
@@ -204,10 +210,30 @@ public class WallResolverTests
         Assert.Equal(ViewportRenderer.PassDirection.Right, passes[8][1].Direction);
 
         // The eight squares with occlusion tests are deliberately absent.
-        foreach (int square in new[] { 0, 1, 2, 3, 4, 13, 14 })
+        foreach (int square in new[] { 0, 1, 2, 3, 4 })
         {
             Assert.False(passes.ContainsKey(square), $"square {square} should need its own routine");
         }
+    }
+
+    [Fact]
+    public void Squares_13_and_14_draw_nothing_in_the_five_wall_layout()
+    {
+        var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
+        var format = WallFormatReader.ReadAll(config)[0];
+        Assert.Equal(5, format.DistantWallCount);
+
+        var renderer = new ViewportRenderer(format);
+        var map = BuildMap();
+        var screen = new UAF.Media.Surface(64, 64);
+        screen.Fill(0xFF123456);
+
+        // The gate is a return, not an occlusion test: in the narrower layout these squares do not
+        // exist, and their viewport coordinates are not even read.
+        renderer.RenderSquare(screen, ViewMap.For(1, 1, Facing.North, 4, 4), Resolver(map),
+                              Facing.North, 13, 0, 0, _ => null);
+
+        Assert.All(screen.Pixels, p => Assert.Equal(0xFF123456u, p));
     }
 
     [Fact]
