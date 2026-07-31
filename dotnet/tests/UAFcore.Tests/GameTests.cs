@@ -370,6 +370,42 @@ public class GameTests
         // filling the gaps, so anything between the two would mean the all-or-nothing rule broke.
         Assert.All(formats, f => Assert.True(f.ViewportCoords.Count is 13 or 15 or 0,
             $"band {f.Band} has {f.ViewportCoords.Count} coordinates"));
+
+        // The coordinate count follows the distant-wall count rather than being declared.
+        Assert.All(formats, f => Assert.Equal(
+            f.DistantWallCount == 7 ? 15 : 13, f.ViewportCoords.Count));
+    }
+
+    [Fact]
+    public void A_format_is_matched_by_the_wall_sheets_own_dimensions()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var formats = WallFormatReader.ReadAll(design.Config);
+
+        // These are third-party wall packs -- the config names them "Kevin's Tavern demo" and
+        // "Kevin's New Walls" -- and the engine tells them apart purely by sheet size. Band 2 is
+        // the one with seven distant walls, which is why it needs 15 coordinates rather than 13.
+        Assert.Equal(480, formats[0].ImageWidth);
+        Assert.Equal(360, formats[0].ImageHeight);
+        Assert.Equal(5, formats[0].DistantWallCount);
+
+        Assert.Equal(500, formats[1].ImageWidth);
+        Assert.Equal(375, formats[1].ImageHeight);
+        Assert.Equal(7, formats[1].DistantWallCount);
+        Assert.Equal(15, formats[1].ViewportCoords.Count);
+
+        Assert.True(formats[0].Matches(480, 360));
+        Assert.False(formats[0].Matches(500, 375));
+
+        // Distinct sizes, or matching could not select between them.
+        Assert.Equal(formats.Count,
+                     formats.Select(f => (f.ImageWidth, f.ImageHeight)).Distinct().Count());
     }
 
     [Fact]
@@ -425,5 +461,92 @@ public class GameTests
 
         Assert.Empty(WallFormatReader.ReadAll(empty));
         Assert.Null(WallFormatReader.Read(empty, 1));
+    }
+
+    [Fact]
+    public void The_map_is_a_torus_rather_than_a_bounded_grid()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var map = design.Map(0)!;
+
+        // Both the viewport and movement take coordinates modulo the extent, so a level has no
+        // edges at all -- only walls. An earlier version of Game reported "the map ends here",
+        // which is a rule the original does not have.
+        Assert.Equal((0, 0), map.Wrap(map.Width, map.Height));
+        Assert.Equal((map.Width - 1, map.Height - 1), map.Wrap(-1, -1));
+
+        // Negative wrap is the case a bare % gets wrong in C and C#alike: -1 % w is -1.
+        Assert.Equal(map.Width - 1, ViewMap.Wrap(-1, map.Width));
+        Assert.Equal(0, ViewMap.Wrap(map.Width, map.Width));
+    }
+
+    [Fact]
+    public void The_view_map_places_all_fifteen_slots_relative_to_the_party()
+    {
+        // Pure geometry, so it needs no design. A 20x20 map with the party in the middle keeps
+        // every slot in range and makes the offsets readable.
+        var view = ViewMap.For(10, 10, Facing.North, 20, 20);
+
+        Assert.Equal((10, 10), view[12]);   // here
+        Assert.Equal((10, 9), view[9]);     // forward 1
+        Assert.Equal((10, 8), view[4]);     // forward 2
+        Assert.Equal((9, 10), view[10]);    // left 1  (west of north)
+        Assert.Equal((11, 10), view[11]);   // right 1
+        Assert.Equal((9, 9), view[7]);      // forward 1, left 1
+        Assert.Equal((11, 9), view[8]);     // forward 1, right 1
+        Assert.Equal((8, 8), view[0]);      // forward 2, left 2
+        Assert.Equal((12, 8), view[1]);     // forward 2, right 2
+        Assert.Equal((7, 8), view[13]);     // forward 2, left 3
+        Assert.Equal((13, 8), view[14]);    // forward 2, right 3
+    }
+
+    [Theory]
+    [InlineData(Facing.North)]
+    [InlineData(Facing.East)]
+    [InlineData(Facing.South)]
+    [InlineData(Facing.West)]
+    public void The_view_map_rotates_with_the_facing(Facing facing)
+    {
+        var view = ViewMap.For(10, 10, facing, 20, 20);
+
+        // Slot 12 is always the party's own cell, whichever way it faces -- the one fixed point.
+        Assert.Equal((10, 10), view[12]);
+
+        // Slot 9 is always one step along the facing, which is the same delta movement uses.
+        (int dx, int dy) = facing switch
+        {
+            Facing.North => (0, -1),
+            Facing.East => (1, 0),
+            Facing.South => (0, 1),
+            _ => (-1, 0),
+        };
+        Assert.Equal((10 + dx, 10 + dy), view[9]);
+
+        // And slot 4 is two steps, so the depth axis follows the facing rather than the map.
+        Assert.Equal((10 + (dx * 2), 10 + (dy * 2)), view[4]);
+    }
+
+    [Fact]
+    public void Only_the_first_thirteen_slots_wrap()
+    {
+        // The party at the north-west corner facing north: the forward cells run off the top, and
+        // slots 0..12 must come back at the bottom while 13 and 14 must not.
+        var view = ViewMap.For(0, 0, Facing.North, 10, 10);
+
+        Assert.Equal((0, 9), view[9]);      // forward 1 wrapped to the far side
+        Assert.Equal((0, 8), view[4]);      // forward 2 likewise
+        Assert.Equal((9, 0), view[10]);     // left 1 wrapped in x
+
+        // 13 and 14 are left outside deliberately: the occlusion tests ask whether there is no
+        // cell there, and wrapping would make that question unanswerable.
+        Assert.Equal(-2, view[13].Y);
+        Assert.Equal(-3, view[13].X);
+        Assert.Equal(3, view[14].X);
     }
 }

@@ -148,11 +148,6 @@ public sealed class Game
                 return true;
             }
         }
-        else if (!Map.Contains(nextX, nextY))
-        {
-            Message = "The map ends here.";
-            return true;
-        }
         else if (!Map.CanLeave(X, Y, direction))
         {
             // The blockage type is named rather than reduced to "blocked", because a locked door
@@ -162,6 +157,14 @@ public sealed class Game
                 ? "A wall blocks your way."
                 : $"The way is {blockage}.";
             return true;
+        }
+
+        // A level is a torus, not a bounded grid: walking off the east edge arrives at the west
+        // (Party.cpp:1735). An earlier revision of this method reported "the map ends here"
+        // instead, which is a rule the original does not have -- only walls stop a party.
+        if (Map is not null)
+        {
+            (nextX, nextY) = Map.Wrap(nextX, nextY);
         }
 
         X = nextX;

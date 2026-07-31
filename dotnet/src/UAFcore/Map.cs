@@ -49,6 +49,21 @@ public sealed class Map(byte width, byte height, IReadOnlyList<AreaMapCell> cell
 
     public bool Contains(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
 
+    /// <summary>
+    /// Wraps a coordinate onto the map's torus.
+    /// </summary>
+    /// <remarks>
+    /// A level has no edges. Both the viewport (<c>Viewport.cpp:4105</c>) and movement
+    /// (<c>Party.cpp:1735</c>) take the coordinate modulo the map extent, so walking off the east
+    /// side arrives at the west. Only walls stop a party.
+    /// </remarks>
+    public (int X, int Y) Wrap(int x, int y) =>
+        (ViewMap.Wrap(x, Width), ViewMap.Wrap(y, Height));
+
+    /// <summary>The cells each viewport slot shows from a position and facing.</summary>
+    public ViewMap View(int x, int y, Facing facing) =>
+        ViewMap.For(x, y, facing, Width, Height);
+
     /// <summary>The cell at a coordinate, or null when outside the map.</summary>
     /// <remarks>
     /// Row-major: <c>ReadAreaMap</c> fills <c>width × height</c> cells in a single loop, so the

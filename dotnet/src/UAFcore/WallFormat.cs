@@ -9,9 +9,18 @@ namespace UAFcore;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Ported from <c>VIEWPORT</c>'s config loading (<c>Shared/Viewport.cpp:660-694</c>). A design
-/// declares several of these — <c>SomethingWild</c> has five — and the engine picks one according
-/// to how much of the corridor is visible.
+/// Ported from <c>VIEWPORT</c>'s config loading (<c>Shared/Viewport.cpp:640-694</c>). A design
+/// declares <c>MAX_ALTERNATE_WALL_FORMATS</c> of them — five, in every shipped config.
+/// </para>
+/// <para>
+/// <b>A format is selected by the wall art's own dimensions</b>, not by anything about the party
+/// or the corridor. <c>WallFormatMgr::GetFormat(width, height)</c> (<c>Viewport.h:203</c>) walks
+/// the formats looking for one whose <see cref="ImageWidth"/> and <see cref="ImageHeight"/> match
+/// the sheet that was loaded, and falls back to format 0 — which it skips while searching, because
+/// it is the built-in default layout. The config's own comments give this away: the bands are
+/// labelled "from Kevin's Tavern demo" and "from Kevin's New Walls", third-party wall packs at
+/// 480×360 and 500×375. So this is the mechanism that lets a design drop in community art with a
+/// different sheet layout and have the engine cut it up correctly.
 /// </para>
 /// <para>
 /// <b>The slot rectangles are source rects into the wall art, not screen rects.</b> Their widths
@@ -32,6 +41,7 @@ namespace UAFcore;
 /// </remarks>
 public sealed record WallFormat(
     int Band,
+    int ImageWidth, int ImageHeight, int DistantWallCount,
     IReadOnlyList<SurfaceRect> SlotRects,
     IReadOnlyList<(int X, int Y)> SlotOffsets,
     IReadOnlyList<(int X, int Y)> ViewportCoords,
@@ -42,6 +52,15 @@ public sealed record WallFormat(
 
     /// <summary>The slot letter for an index, as the config keys spell it.</summary>
     public static char SlotLetter(int index) => (char)('A' + index);
+
+    /// <summary>
+    /// The default when <c>NUM_DISTANT_WALLS_<i>n</i></c> is absent (<c>Viewport.cpp:658</c>).
+    /// </summary>
+    public const int DefaultDistantWallCount = 5;
+
+    /// <summary>Whether this format matches a wall sheet of the given size.</summary>
+    public bool Matches(int width, int height) =>
+        ImageWidth == width && ImageHeight == height;
 }
 
 /// <summary>Loads every wall format a design's config declares.</summary>
@@ -55,29 +74,34 @@ public static class WallFormatReader
     private const int LongCoordCount = 15;
 
     /// <summary>
-    /// Reads formats until one is missing, which is how the original terminates its own loop.
+    /// Reads every format the config declares, as <c>VIEWPORT::LoadAlternateWallFormats</c> does.
     /// </summary>
-    /// <param name="maxBands">
-    /// A stop, not an expectation. The C++ loops over a fixed format count; here the run ends at
-    /// the first band with no <c>A<i>n</i>_WALL_RECT</c>, so a design declaring three works as
-    /// well as one declaring five.
-    /// </param>
-    public static List<WallFormat> ReadAll(DesignConfig config, int maxBands = 16)
+    /// <remarks>
+    /// The count comes from <c>MAX_ALTERNATE_WALL_FORMATS</c> rather than from probing until a
+    /// band is missing (<c>Viewport.cpp:640</c>). A band that fails to load is skipped rather than
+    /// ending the run, so a config with a gap still yields the bands after it — which matters,
+    /// because the band index is not the array index once one has been skipped.
+    /// </remarks>
+    public static List<WallFormat> ReadAll(DesignConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        // Peeking rather than consuming: DesignConfig hands a token out once by default, and these
-        // keys are read repeatedly while probing for the end of the run.
-        var formats = new List<WallFormat>();
-        for (int band = 1; band <= maxBands; band++)
+        if (!config.TryGetValue("MAX_ALTERNATE_WALL_FORMATS", out string raw, consume: false) ||
+            !int.TryParse(raw.Split('/')[0].Trim(), out int count))
+        {
+            return [];
+        }
+
+        // Peeking rather than consuming: DesignConfig hands a token out once by default, and a
+        // caller may well read these more than once.
+        var formats = new List<WallFormat>(Math.Max(count, 0));
+        for (int band = 1; band <= count; band++)
         {
             var format = Read(config, band);
-            if (format is null)
+            if (format is not null)
             {
-                break;
+                formats.Add(format);
             }
-
-            formats.Add(format);
         }
 
         return formats;
@@ -87,6 +111,23 @@ public static class WallFormatReader
     public static WallFormat? Read(DesignConfig config, int band)
     {
         ArgumentNullException.ThrowIfNull(config);
+
+        // The sheet dimensions are what GetFormat matches on, so a band without them can never
+        // be selected and the original treats it as a failure.
+        if (!config.TryGetValue($"WIDTH_WALL_FORMAT_{band}", out string widthText, consume: false) ||
+            !config.TryGetValue($"HEIGHT_WALL_FORMAT_{band}", out string heightText, consume: false) ||
+            !int.TryParse(widthText.Split('/')[0].Trim(), out int imageWidth) ||
+            !int.TryParse(heightText.Split('/')[0].Trim(), out int imageHeight))
+        {
+            return null;
+        }
+
+        int distantWalls = WallFormat.DefaultDistantWallCount;
+        if (config.TryGetValue($"NUM_DISTANT_WALLS_{band}", out string distantText, consume: false)
+            && int.TryParse(distantText.Split('/')[0].Trim(), out int parsedDistant))
+        {
+            distantWalls = parsedDistant;
+        }
 
         var rects = new List<SurfaceRect>(WallFormat.MaxSlotTypes);
         var offsets = new List<(int, int)>(WallFormat.MaxSlotTypes);
@@ -108,10 +149,13 @@ public static class WallFormatReader
             offsets.Add((ox, oy));
         }
 
-        var coords = ReadCoords(config, band, LongCoordCount)
-                     ?? ReadCoords(config, band, ShortCoordCount);
+        // 15 coordinates when there are seven distant walls, 13 otherwise -- decided by the data
+        // rather than declared (Viewport.cpp:675).
+        int expected = distantWalls == 7 ? LongCoordCount : ShortCoordCount;
+        var coords = ReadCoords(config, band, expected);
 
-        return new WallFormat(band, rects, offsets, coords ?? [], coords is null);
+        return new WallFormat(band, imageWidth, imageHeight, distantWalls,
+                              rects, offsets, coords ?? [], coords is null);
     }
 
     /// <summary>
