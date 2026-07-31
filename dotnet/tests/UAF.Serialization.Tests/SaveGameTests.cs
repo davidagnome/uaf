@@ -140,4 +140,120 @@ public class SaveGameTests
         var error = Assert.Throws<NotSupportedException>(() => SaveGameReader.Read(bytes));
         Assert.Contains("VersionSpellNames", error.Message);
     }
+
+    [Theory]
+    [MemberData(nameof(Saves))]
+    public void The_whole_party_record_reads(string relative, double version, int tasks,
+                                             byte level, int x, int y, byte characters,
+                                             int flagLevels)
+    {
+        string? path = Path_(relative);
+        if (path is null)
+        {
+            return;
+        }
+
+        using var stream = File.OpenRead(path);
+        var save = SaveGameReader.Read(stream);
+
+        // Twelve slots always, however many are occupied -- the storing side writes
+        // MAX_PARTY_MEMBERS records regardless. Reading by the active count would misalign the
+        // rest of the save by six whole CHARACTER records.
+        Assert.Equal(SaveGameReader.MaxPartyMembers, save.Characters.Count);
+
+        // ...and the occupied ones match the prologue's separate count.
+        Assert.Equal(characters, save.Characters.Count(c => c.Name.Length > 0));
+
+        // VISIT_DATA is 255 slots whatever the design's level count, so a one-level design still
+        // writes 254 empty pairs.
+        Assert.NotEmpty(save.Visited);
+        Assert.All(save.Visited, v => Assert.NotEmpty(v.Bitmap));
+
+        Assert.NotNull(save.Pool);
+        _ = (version, tasks, level, x, y, flagLevels);
+    }
+
+    [Fact]
+    public void The_saved_party_is_the_same_six_characters_the_design_ships_as_chr_files()
+    {
+        string? save = Path_("SomethingWild.dsn/Saves/SaveA.pty");
+        if (save is null)
+        {
+            return;
+        }
+
+        string saves = System.IO.Path.GetDirectoryName(save)!;
+        var onDisk = Directory.EnumerateFiles(saves, "*.chr")
+                              .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
+                              .OrderBy(n => n, StringComparer.Ordinal)
+                              .ToList();
+        if (onDisk.Count == 0)
+        {
+            return;
+        }
+
+        using var stream = File.OpenRead(save);
+        var inSave = SaveGameReader.Read(stream).Characters
+                                   .Select(c => c.Name)
+                                   .Where(n => n.Length > 0)
+                                   .OrderBy(n => n, StringComparer.Ordinal)
+                                   .ToList();
+
+        // Two entirely separate readers over two different container framings -- .pty is a
+        // compressed CAR, .chr is plain MFC behind a magic -- arriving at the same six names.
+        // Nothing in either code path knows about the other.
+        Assert.Equal(onDisk, inSave);
+    }
+
+    [Theory]
+    [MemberData(nameof(Saves))]
+    public void The_tables_after_the_party_read(string relative, double version, int tasks,
+                                                byte level, int x, int y, byte characters,
+                                                int flagLevels)
+    {
+        string? path = Path_(relative);
+        if (path is null)
+        {
+            return;
+        }
+
+        using var stream = File.OpenRead(path);
+        var save = SaveGameReader.Read(stream);
+
+        // Always the full MAX_GLOBAL_VAULTS -- the count is written as the constant, not as the
+        // number in use, so an empty vault still occupies a money sack and an item list.
+        Assert.Equal(SaveGameReader.MaxGlobalVaults, save.Vaults.Count);
+        Assert.All(save.Vaults, v => Assert.NotNull(v.Money));
+
+        // Quests and special objects are lists the design also carries; a save snapshots them.
+        Assert.NotNull(save.Quests);
+        Assert.NotNull(save.SpecialItems);
+        Assert.NotNull(save.Keys);
+
+        _ = (version, tasks, level, x, y, characters, flagLevels);
+    }
+
+    [Fact]
+    public void A_saves_special_items_match_the_design_it_was_saved_from()
+    {
+        string? save = Path_("SomethingWild.dsn/Saves/SaveA.pty");
+        string? design = Path_("SomethingWild.dsn/Data/game.dat");
+        if (save is null || design is null)
+        {
+            return;
+        }
+
+        using var designStream = File.OpenRead(design);
+        var cursor = GameDataReader.Open(designStream);
+        var globals = GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version);
+
+        using var saveStream = File.OpenRead(save);
+        var saved = SaveGameReader.Read(saveStream);
+
+        // A save snapshots the design's tables, so the counts agree -- and they are read here by
+        // two different paths through two different container framings, neither aware of the
+        // other. That agreement is worth more than either count on its own.
+        Assert.Equal(globals.SpecialItems.Count, saved.SpecialItems.Count);
+        Assert.Equal(globals.Quests.Count, saved.Quests.Count);
+    }
 }

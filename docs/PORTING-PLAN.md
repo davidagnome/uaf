@@ -1527,6 +1527,49 @@ skipped — is tested, which is the behaviour §6.1 actually requires.
 
 #### Progress: the engine has a beachhead
 
+#### Where to resume, and in what order
+
+As of the engine's first working corridor, the bottleneck is **not** more event readers — every
+event type in every reference design already parses, and `EventBodyReader` dispatches all of them.
+It is the **text and menu layer**.
+
+Count the event types by what they need. Roughly half — `QuestionButton`, `QuestionYesNo`,
+`QuestionList`, `Shop`, `Tavern`, `Temple`, `TrainingHall`, `Camp`, `NPCSays`, `GuidedTour` —
+cannot be implemented *at all* without a way to present text and take a choice. They are blocked on
+UI, not on their own logic. The other half — `Teleporter`, `GiveTreasure`, `GainExperience`,
+`PassTime`, `Sounds`, `FlowControl` — need nothing new and can proceed in parallel.
+
+So, in order:
+
+1. **Word-wrapped text into the config's `TEXTBOX` rectangle, then the menu system** at
+   `DEFAULT_MENU_HORZ` / `DEFAULT_MENU_VERT`. `BitmapFont` already measures and draws; what is
+   missing is layout and input focus. This one piece unblocks half the content layer.
+2. **The events needing no UI**, which make designs partly playable without waiting for (1).
+3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
+   happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
+   connects to the savegame, which already reads those flags.
+4. **Screenshots from a Windows C++ build.** `GoldenFrameTests` guards regressions but is *not* an
+   oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
+   and have no equivalent of the serialization dump to diff against.
+
+##### A caution that is worth more than any of the above
+
+Porting this viewport and savegame code produced **eight wrong claims from a careful reading** —
+two constants (`MAX_PARTY_MEMBERS` is 12 not 8; `BlockageStats.StatsFull` is a `WORD` not a
+`DWORD`), three about the wall-format system, an index-minus-one that passed its first test only
+because that design's first three wall sets name the same file, and two package-availability claims
+drawn from guessed names rather than checked ones.
+
+**Every one was caught by rendering output or probing real files. None by reasoning, and several
+survived a full green test suite.**
+
+The loop that works: read the loading branch *from its start* (not from where a search lands), run
+it against real data, look at the result, and narrow by ruling out layers — resolution, then art,
+then the blit. Two habits follow from it. Do not classify a routine by its length: `RenderSquare12`
+looks hard at 107 lines and is three plain passes, while squares 13 and 14 read as occlusion cases
+and are single passes behind a layout gate. And when a test passes on the first try against real
+data, check what would have failed — twice here, nothing would have.
+
 `UAFcore` is an executable. It opens a design, loads a level, walks a party around it and draws the
 screen; `Game` holds the state machine and renders into a managed `Surface` knowing nothing about
 SDL, so the whole engine runs headless from a `RecordedInputSource` into a `HeadlessPresenter`.

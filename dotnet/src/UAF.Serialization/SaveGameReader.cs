@@ -30,10 +30,26 @@ public sealed record PartyState(
 /// </remarks>
 public sealed record LevelFlags(uint[] StepCounts, IReadOnlyDictionary<uint, int> EventResults);
 
-/// <summary>A <c>.pty</c> savegame header, its party state, and a cursor at the rest.</summary>
+/// <summary>Which cells of a level the party has seen (<c>VISIT_DATA</c>).</summary>
+/// <remarks>
+/// One entry per level that has any visited cells; <c>Bitmap</c> is a packed
+/// <c>TAG_LIST_2D</c> over the map, one bit per cell.
+/// </remarks>
+public sealed record VisitedLevel(int Level, byte[] Bitmap);
+
+/// <summary>A <c>.pty</c> savegame: the header, the whole <c>PARTY</c>, and a cursor at the rest.</summary>
 public sealed record SaveGame(
     DesignVersion Version, PartyState Party, IReadOnlyList<LevelFlags> EventFlags,
+    IReadOnlyList<VisitedLevel> Visited, IReadOnlyList<BlockageData> Blockages,
+    IReadOnlyList<CharacterRecord> Characters, MoneySack? Pool,
+    IReadOnlyList<JournalEntry> Journal, IReadOnlyList<AslEntry> Attributes,
+    IReadOnlyList<Quest> Quests, IReadOnlyList<SpecialObject> SpecialItems,
+    IReadOnlyList<SpecialObject> Keys, IReadOnlyList<Vault> Vaults,
     IArchiveCursor Body);
+
+/// <summary>One global vault's contents (<c>GLOBAL_VAULT_DATA</c>).</summary>
+/// <remarks>A money sack and an item list, nothing else.</remarks>
+public sealed record Vault(MoneySack Money, ItemList Items);
 
 /// <summary>
 /// Reads a saved game (<c>.pty</c>), written by <c>serializeGame</c>
@@ -47,13 +63,18 @@ public sealed record SaveGame(
 /// shipped files, so this is tier 3, the same LZW layer as a compressed <c>game.dat</c>.
 /// </para>
 /// <para>
-/// <b>Only the framing is ported. The body is not.</b> A savegame continues with
-/// <c>PARTY::Serialize(CAR&amp;)</c> (<c>Party.cpp:953</c>) and then
+/// <b>Most of the body is ported.</b> A savegame is <c>PARTY::Serialize(CAR&amp;)</c>
+/// (<c>Party.cpp:953</c>) and then
 /// <c>QUEST_LIST</c>, two <c>SPECIAL_OBJECT_LIST</c>s, the global vaults, an
-/// <c>QUEST_LIST</c>, two <c>SPECIAL_OBJECT_LIST</c>s, the global vaults, an
-/// <c>ACTIVE_SPELL_LIST</c>, and seven <c>Restore</c> calls covering spells, globals, level info,
-/// keys, special items, items and monsters (<c>Dgngame.cpp:188-236</c>) — a different verb from
-/// <c>Serialize</c>, and one not yet examined.
+/// an <c>ACTIVE_SPELL_LIST</c> and seven <c>Restore</c> calls covering spells, globals, level
+/// info, keys, special items, items and monsters (<c>Dgngame.cpp:216-236</c>). <c>Restore</c> is a
+/// different verb from <c>Serialize</c> and has not been examined; <c>ACTIVE_SPELL_LIST</c> is a
+/// counted list of <c>ACTIVE_SPELL</c>, whose own serializer was not located in
+/// <c>Shared/*.cpp</c> and needs finding before it can be transcribed.
+/// </para>
+/// <para>
+/// Everything before that point <i>is</i> read: the whole <c>PARTY</c> record, then
+/// <c>QUEST_LIST</c>, both <c>SPECIAL_OBJECT_LIST</c>s and the global vaults.
 /// </para>
 /// <para>
 /// <b>Two traps in <c>PARTY</c>, both of which produced confident nonsense before being found.</b>
@@ -102,6 +123,25 @@ public static class SaveGameReader
     /// <summary><c>MAX_ZONES</c> (<c>Externs.h:858</c>), the length of a <c>STEP_COUNTER</c>.</summary>
     private const int MaxZones = 16;
 
+    /// <summary><c>MAX_LEVELS</c> (<c>Externs.h:905</c>).</summary>
+    private const int MaxLevels = 255;
+
+    /// <summary>
+    /// <c>MAX_PARTY_MEMBERS</c> (<c>Externs.h:929</c>) — the number of character slots a save
+    /// writes, and the cap the count is clamped to (<c>Party.cpp:1095</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Twelve, not the six a party can field.</b> The storing side writes
+    /// <c>MAX_PARTY_MEMBERS</c> and then that many records regardless of how many are occupied, so
+    /// the list length is a constant and <c>PARTY::numCharacters</c> — the active party size — is a
+    /// separate, smaller number. Reading the list by the active count leaves the rest of the save
+    /// misaligned by six whole CHARACTER records.
+    /// </remarks>
+    public const int MaxPartyMembers = 12;
+
+    /// <summary><c>MAX_GLOBAL_VAULTS</c> (<c>GlobalData.h:425</c>).</summary>
+    public const int MaxGlobalVaults = 15;
+
     public static SaveGame Read(Stream stream, ArchiveRole role = ArchiveRole.Engine)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -141,7 +181,43 @@ public static class SaveGameReader
                 $"'{tag}'. The stream is misaligned somewhere in PARTY.");
         }
 
-        return new SaveGame(version, party, eventFlags, cursor);
+        var visited = ReadVisitData(cursor);
+        var blockages = ReadBlockageStatus(cursor);
+
+        // MAX_PARTY_MEMBERS is the declared cap, but the count is read and clamped rather than
+        // trusted -- the original warns "Bogus value for MAX_PARTY_MEMBERS" and carries on
+        // (Party.cpp:1092).
+        int characterCount = cursor.ReadInt32();
+        if (characterCount > MaxPartyMembers)
+        {
+            characterCount = MaxPartyMembers;
+        }
+
+        var characters = new List<CharacterRecord>(Math.Max(characterCount, 0));
+        for (int i = 0; i < characterCount; i++)
+        {
+            characters.Add(CharacterReader.Read(cursor, version, role));
+        }
+
+        var pool = version >= DesignVersion.V0661
+            ? MonsterLeafReaders.ReadMoneySack(cursor, version)
+            : null;
+
+        var journal = version >= DesignVersion.V0780
+            ? GlobalStatsTailReaders.ReadJournal(cursor)
+            : [];
+
+        var attributes = AslReader.Read(cursor, version, AslMaps.Party);
+
+        // Everything past PARTY, in the order serializeGame writes it (Dgngame.cpp:188-215).
+        var quests = GlobalTailReaders.ReadQuests(cursor, version);
+        var specialItems = GlobalTailReaders.ReadSpecialObjects(cursor, version);
+        var keys = GlobalTailReaders.ReadSpecialObjects(cursor, version);
+        var vaults = ReadVaults(cursor, version, role);
+
+        return new SaveGame(version, party, eventFlags, visited, blockages,
+                            characters, pool, journal, attributes,
+                            quests, specialItems, keys, vaults, cursor);
     }
 
     public static SaveGame Read(string path, ArchiveRole role = ArchiveRole.Engine)
@@ -279,5 +355,107 @@ public static class SaveGameReader
         }
 
         return levels;
+    }
+
+    /// <summary>
+    /// Reads <c>VISIT_DATA</c>'s body — the tag has already been consumed as an alignment check.
+    /// </summary>
+    /// <remarks>
+    /// <b>255 slots, always, however many levels the design has.</b> The loop is over
+    /// <c>MAX_LEVELS</c> rather than the level count (<c>Party.cpp:4636</c>), so a one-level design
+    /// still writes 254 empty pairs — a fixed 2,040 bytes before any bitmap. Reading only the
+    /// design's levels would leave the rest of the file misaligned by however many are missing.
+    /// </remarks>
+    public static List<VisitedLevel> ReadVisitData(IArchiveCursor ar)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var visited = new List<VisitedLevel>();
+        for (int i = 0; i < MaxLevels; i++)
+        {
+            int level = ar.ReadInt32();
+            int count = ar.ReadInt32();
+
+            // A zero count means the level was never entered and carries no bitmap.
+            if (count > 0)
+            {
+                visited.Add(new VisitedLevel(level, ar.ReadBytes(count)));
+            }
+        }
+
+        return visited;
+    }
+
+    /// <summary>
+    /// Reads the party's <c>BLOCKAGE_STATUS</c> — doors it has opened, and the like.
+    /// </summary>
+    /// <remarks>
+    /// The same counted list of <c>BlockageDataType</c> that <c>CHARACTER</c> carries. The member
+    /// is singular in both places and the type is a list in both; that mismatch already cost this
+    /// port once when reading characters.
+    /// </remarks>
+    public static List<BlockageData> ReadBlockageStatus(IArchiveCursor ar)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        int count = ar.ReadInt32();
+        var blockages = new List<BlockageData>(Math.Max(count, 0));
+        for (int i = 0; i < count; i++)
+        {
+            // Stats is a WORD -- 16 flags in two bytes, not four. Reading it wide drifts the
+            // stream by two bytes per entry, which CharacterReader already had to get right.
+            blockages.Add(new BlockageData(ar.ReadInt32(), ar.ReadInt32(), ar.ReadInt32(),
+                                           ar.ReadUInt16()));
+        }
+
+        return blockages;
+    }
+
+    /// <summary>
+    /// Reads the global vaults (<c>Dgngame.cpp:200-214</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>One vault below 0.910, a counted list above it.</b> The older form writes a single
+    /// <c>GLOBAL_VAULT_DATA</c> with no count at all, so a reader that always expects a count
+    /// consumes the vault's own money sack as one.
+    /// <para>
+    /// The count is checked rather than trusted: the original calls <c>die(0xab4da)</c> on a
+    /// mismatch and then clamps, which is a hard failure in a debug build and a clamp in a release
+    /// one. Clamping is the behaviour that ships, so it is what is reproduced.
+    /// </para>
+    /// </remarks>
+    public static List<Vault> ReadVaults(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var vaults = new List<Vault>();
+
+        if (version < DesignVersion.V0910)
+        {
+            vaults.Add(ReadVault(ar, version, role));
+            return vaults;
+        }
+
+        int count = ar.ReadInt32();
+        if (count > MaxGlobalVaults)
+        {
+            count = MaxGlobalVaults;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            vaults.Add(ReadVault(ar, version, role));
+        }
+
+        return vaults;
+    }
+
+    /// <summary>Reads one <c>GLOBAL_VAULT_DATA</c>: a money sack then an item list.</summary>
+    public static Vault ReadVault(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        return new Vault(MonsterLeafReaders.ReadMoneySack(ar, version),
+                         MonsterLeafReaders.ReadItemList(ar, version, role));
     }
 }

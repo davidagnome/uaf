@@ -944,4 +944,79 @@ public class GameTests
         var lookup = new EventLookup(level.Events);
         Assert.Same(other, lookup.FirstAt(other.Base.X, other.Base.Y));
     }
+
+    private static UAF.Serialization.EventControl Control(EventTriggerType type, int chance = 0,
+                                                          int x = 0, int y = 0) =>
+        new((int)0, 0, 0, 0, (int)type, string.Empty, 0, chance, 0, string.Empty,
+            string.Empty, string.Empty, [], string.Empty, 0, x, y, string.Empty, 0, 0);
+
+    [Fact]
+    public void Always_fires_and_party_position_compares_coordinates()
+    {
+        Assert.Equal(TriggerResult.Fire,
+                     EventTrigger.Evaluate(Control(EventTriggerType.Always), 0, 0));
+
+        Assert.Equal(TriggerResult.Fire,
+                     EventTrigger.Evaluate(Control(EventTriggerType.PartyAtXy, x: 4, y: 7), 4, 7));
+        Assert.Equal(TriggerResult.Suppress,
+                     EventTrigger.Evaluate(Control(EventTriggerType.PartyAtXy, x: 4, y: 7), 4, 8));
+    }
+
+    [Fact]
+    public void Random_chance_is_a_d100_roll_against_the_stored_chance()
+    {
+        // RollDice(100,1,0) <= chance, so 100 always fires and 0 never does -- the boundary is
+        // inclusive, and getting it exclusive would silently make every 1-in-100 event impossible.
+        var ninety = Control(EventTriggerType.RandomChance, chance: 90);
+
+        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(ninety, 0, 0, () => 90));
+        Assert.Equal(TriggerResult.Suppress, EventTrigger.Evaluate(ninety, 0, 0, () => 91));
+        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(ninety, 0, 0, () => 1));
+
+        Assert.Equal(TriggerResult.Suppress,
+                     EventTrigger.Evaluate(Control(EventTriggerType.RandomChance, 0), 0, 0, () => 1));
+    }
+
+    [Fact]
+    public void Both_facing_forms_fire_unconditionally_as_the_original_does()
+    {
+        // The stored facing is parsed and never consulted -- both cases fall through to TRUE in
+        // EventShouldTrigger. It reads like an unfinished feature, and it is reproduced because
+        // designs have been getting an always-trigger from it for twenty years.
+        Assert.Equal(TriggerResult.Fire,
+                     EventTrigger.Evaluate(Control(EventTriggerType.FacingDirection), 0, 0));
+        Assert.Equal(TriggerResult.Fire,
+                     EventTrigger.Evaluate(Control(EventTriggerType.FacingDirectionAnyTime), 0, 0));
+    }
+
+    [Fact]
+    public void Conditions_needing_absent_state_report_unknown_rather_than_false()
+    {
+        // The distinction that matters while the engine is incomplete: "the party lacks the item"
+        // and "there is no inventory to ask" must not look the same, or a design reads as empty.
+        foreach (var type in new[]
+                 {
+                     EventTriggerType.PartyHaveItem, EventTriggerType.QuestComplete,
+                     EventTriggerType.ClassInParty, EventTriggerType.SpellMemorized,
+                     EventTriggerType.ExecuteGpdl, EventTriggerType.Daytime,
+                 })
+        {
+            Assert.Equal(TriggerResult.Unknown, EventTrigger.Evaluate(Control(type), 0, 0));
+            Assert.False(EventTrigger.IsEvaluable(type));
+        }
+    }
+
+    [Fact]
+    public void The_trigger_ordinals_match_the_headers_order()
+    {
+        // Stored as an int, so a renumbering repoints every design's conditions. The awkward ones
+        // are worth pinning: FacingDirectionAnyTime is 24, not adjacent to FacingDirection at 8,
+        // because entries were appended as they were invented.
+        Assert.Equal(0, (int)EventTriggerType.Always);
+        Assert.Equal(5, (int)EventTriggerType.RandomChance);
+        Assert.Equal(8, (int)EventTriggerType.FacingDirection);
+        Assert.Equal(24, (int)EventTriggerType.FacingDirectionAnyTime);
+        Assert.Equal(29, (int)EventTriggerType.PartyAtXy);
+        Assert.Equal(37, (int)EventTriggerType.QuestStageNotEqual);
+    }
 }

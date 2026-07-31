@@ -231,9 +231,32 @@ public sealed class Game
     /// </remarks>
     private void TriggerEvent()
     {
-        CurrentEvent = events?.FirstAt(X, Y);
-        if (CurrentEvent is null)
+        var candidate = events?.FirstAt(X, Y);
+        if (candidate is null)
         {
+            CurrentEvent = null;
+            return;
+        }
+
+        // EVENT_CONTROL decides whether the event fires at all. Most conditions ask about state
+        // this engine does not have yet -- inventory, quests, party composition -- and those come
+        // back Unknown rather than false, so a design does not look empty when it is only
+        // unevaluated.
+        var verdict = EventTrigger.Evaluate(candidate.Base.Control, X, Y);
+        var type = (EventTriggerType)candidate.Base.Control.EventTrigger;
+
+        if (verdict == TriggerResult.Suppress)
+        {
+            CurrentEvent = null;
+            Message = $"[{candidate.GetType().Name} suppressed by {type}]";
+            return;
+        }
+
+        CurrentEvent = candidate;
+
+        if (verdict == TriggerResult.Unknown)
+        {
+            Message = $"[{candidate.GetType().Name} needs {type} -- cannot evaluate yet]";
             return;
         }
 
