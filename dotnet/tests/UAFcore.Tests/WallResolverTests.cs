@@ -35,8 +35,15 @@ public class WallResolverTests
         return new Map(4, 4, cells);
     }
 
+    /// <summary>
+    /// Wall sets indexed directly, with a blank slot 0 — the shape a real level actually has.
+    /// </summary>
+    /// <remarks>
+    /// The fixture used to omit slot 0 and rely on an index-minus-one in the resolver. That
+    /// matched a real design only by accident, because its first few entries name the same file.
+    /// </remarks>
     private static WallResolver Resolver(Map map) =>
-        new(map, [Set("first"), Set("second"), Set("third")]);
+        new(map, [Set("unused"), Set("first"), Set("second"), Set("third")]);
 
     [Fact]
     public void A_slot_resolves_to_the_wall_index_on_the_cells_facing()
@@ -74,7 +81,8 @@ public class WallResolverTests
         var resolver = Resolver(map);
         var view = ViewMap.For(1, 2, Facing.North, 4, 4);
 
-        // Index 1 is the design's *first* wall set, not its second. An off-by-one here shifts
+        // Index 1 addresses entry 1, not entry 0. The table is the full MAX_WALLSETS array with
+        // slot 0 present and unused, so no adjustment is applied -- an off-by-one here shifts
         // every wall in the level to its neighbour's texture, which reads as bad art rather than
         // a bad index.
         Assert.Equal("first_wall.png", resolver.ArtFor(view, 9, Facing.North, WallLayer.Wall));
@@ -124,7 +132,7 @@ public class WallResolverTests
             cells[i] = Cell(3, 0, 0, 0);        // in range, but the design declares one set
         }
 
-        var resolver = new WallResolver(new Map(2, 2, cells), [Set("only")]);
+        var resolver = new WallResolver(new Map(2, 2, cells), [Set("unused")]);
         var view = ViewMap.For(0, 0, Facing.North, 2, 2);
 
         // In range for the engine but past the end of this design's table -- a different fault

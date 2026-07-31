@@ -93,9 +93,19 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
     /// The art filename for a slot, or null when nothing is drawn there.
     /// </summary>
     /// <remarks>
-    /// Wall sets are indexed from 1 in the cell data because 0 is the "none" sentinel, so the
-    /// design's list is offset by one. Getting that wrong shifts every wall in the level to its
-    /// neighbour's texture — a failure that looks like bad art rather than a bad index.
+    /// <para>
+    /// <b>The index addresses the table directly.</b> An earlier revision subtracted one, reasoning
+    /// that since 0 is the "none" sentinel the real entries must start at 1 — plausible, and wrong.
+    /// The C++ does <c>WallSets[wallSlot]</c> with no adjustment, guarded only by an early return
+    /// for 0 (<c>Viewport.cpp:1150</c>), because the table <i>is</i> the full 192-entry
+    /// <c>MAX_WALLSETS</c> array with slot 0 present and unused. A design's level really does carry
+    /// all 192, most of them blank.
+    /// </para>
+    /// <para>
+    /// The off-by-one survived its first test because entries 1, 2 and 3 of the design used for it
+    /// all name the same file — so every reference still resolved to art that exists. It took
+    /// printing the table to see it.
+    /// </para>
     /// </remarks>
     public string? ArtFor(ViewMap view, int slot, Facing facing, WallLayer layer)
     {
@@ -105,14 +115,13 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
             return null;
         }
 
-        int position = index - 1;
-        if (position < 0 || position >= wallSets.Count)
+        if (index >= wallSets.Count)
         {
             Warnings.Add($"wall index {index} has no wall set (design declares {wallSets.Count})");
             return null;
         }
 
-        var set = wallSets[position];
+        var set = wallSets[index];
         string file = layer switch
         {
             WallLayer.Door => set.DoorFile,
