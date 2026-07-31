@@ -36,6 +36,14 @@ public sealed unsafe class SdlFontRasterizer : IFontRasterizer, IDisposable
     {
         try
         {
+            // Touch core SDL first. SDL3_ttf's dylib links libSDL3 through @rpath, and a .NET host
+            // dlopen()s it without an LC_RPATH that resolves it -- so loading SDL3_ttf into a
+            // process that has not already loaded libSDL3 fails with "no LC_RPATH's found".
+            // Whether that happens depended entirely on which decoder a caller constructed first,
+            // which is exactly the sort of dependency that works in tests and fails in the
+            // application. This call makes the order explicit and harmless.
+            _ = SDL_GetVersion();
+
             if (!TTF_Init())
             {
                 unavailable = $"TTF_Init failed: {SDL_GetError()}";

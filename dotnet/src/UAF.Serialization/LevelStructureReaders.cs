@@ -261,6 +261,7 @@ public static class LevelStructureReaders
 /// <summary>A complete level file.</summary>
 public sealed record LevelFile(
     DesignVersion Version, byte Width, byte Height,
+    IReadOnlyList<AreaMapCell> Cells,
     int EventCount, ZoneData Zones, IReadOnlyList<AslEntry> Attributes,
     IReadOnlyList<StepEvent> StepEvents,
     IReadOnlyList<WallSetSlot> WallSets, IReadOnlyList<BackgroundSlot> BackgroundSets,
@@ -282,6 +283,26 @@ public sealed record LevelFile(
 public static class LevelFileReader
 {
     /// <summary>
+    /// Reads only a level's dimensions and cell grid, stopping before the event list.
+    /// </summary>
+    /// <remarks>
+    /// The grid is self-delimiting — <c>width × height</c> fixed-size cells straight after the
+    /// dimensions — so it can be read without a dispatcher for every event subclass. Movement and
+    /// wall rendering need nothing else, and requiring the full walk for them would mean a level
+    /// containing one unported event type could not be walked at all.
+    /// </remarks>
+    public static (DesignVersion Version, byte Width, byte Height, AreaMapCell[] Cells)
+        ReadAreaMapOnly(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        var header = DesignFileHeader.Read(stream, DesignFileKind.LevelData);
+        var plain = new MfcArchiveReader(stream);
+        var (width, height, cells) = LevelReader.ReadAreaMap(plain, header.Version);
+        return (header.Version, width, height, cells);
+    }
+
+    /// <summary>
     /// Reads a level, using <paramref name="readEvent"/> to consume each event body.
     /// </summary>
     /// <param name="readEvent">
@@ -298,10 +319,14 @@ public static class LevelFileReader
         var plain = new MfcArchiveReader(stream);
         var version = header.Version;
 
+        // The grid was previously read and discarded, which was fine while nothing needed it.
+        // It carries per-cell walls and blockage, which is what movement and wall rendering
+        // consult, so it is kept now.
         var (width, height) = LevelReader.ReadDimensions(plain);
-        for (int i = 0; i < width * height; i++)
+        var cells = new AreaMapCell[width * height];
+        for (int i = 0; i < cells.Length; i++)
         {
-            LevelReader.ReadCell(plain, version);
+            cells[i] = LevelReader.ReadCell(plain, version);
         }
 
         var ar = ArchiveCursor.For(plain);
@@ -359,7 +384,7 @@ public static class LevelFileReader
             ? LevelStructureReaders.ReadBlockageKeys(ar)
             : [];
 
-        return new LevelFile(version, width, height, eventCount, zones, attributes,
+        return new LevelFile(version, width, height, cells, eventCount, zones, attributes,
                              stepEvents, wallSets, backgroundSets, blockageKeys);
     }
 }
