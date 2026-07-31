@@ -51,9 +51,11 @@ if (dumpPath is not null)
 {
     // Walk a few steps first, so the dump exercises the state machine rather than only the
     // initial draw.
-    foreach (var key in new[] { VirtualKey.Right, VirtualKey.Up, VirtualKey.Up })
+    // Walk until an event fires, so the dump shows the executor doing something rather than an
+    // empty corridor.
+    for (int i = 0; i < 200 && game.CurrentEvent is null; i++)
     {
-        game.Update(InputEvent.KeyDown(key));
+        game.Update(InputEvent.KeyDown(i % 3 == 2 ? VirtualKey.Right : VirtualKey.Up));
     }
 
     var frame = game.Render();

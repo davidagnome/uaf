@@ -1,5 +1,6 @@
 using UAF.Data;
 using UAF.Media;
+using UAF.Serialization;
 
 namespace UAFcore;
 
@@ -57,6 +58,7 @@ public sealed class Game
 
         if (level is not null && Map is not null)
         {
+            events = new EventLookup(level.Events);
             resolver = new WallResolver(Map, level.WallSets);
             wallFormats = WallFormatReader.ReadAll(design.Config);
         }
@@ -68,6 +70,7 @@ public sealed class Game
         Minutes = design.Globals.StartTime;
     }
 
+    private readonly EventLookup? events;
     private readonly WallResolver? resolver;
     private readonly IReadOnlyList<WallFormat> wallFormats = [];
 
@@ -76,6 +79,12 @@ public sealed class Game
 
     /// <summary>Resolves viewport slots to wall art, when the level's wall sets were readable.</summary>
     public WallResolver? Walls => resolver;
+
+    /// <summary>The level's events, when it was readable past its event list.</summary>
+    public EventLookup? Events => events;
+
+    /// <summary>The event the party is standing on, or null.</summary>
+    public IGameEvent? CurrentEvent { get; private set; }
 
     public int X { get; private set; }
 
@@ -194,7 +203,50 @@ public sealed class Game
         // party's speed and the zone, which is rules work rather than engine plumbing.
         Minutes++;
         Message = $"Moved {(forward ? "forward" : "back")} to ({X}, {Y}).";
+
+        TriggerEvent();
         return true;
+    }
+
+    /// <summary>
+    /// Runs whatever event the party has just stepped onto.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The first execution of anything in this port. Only <c>TextStatement</c> does anything yet:
+    /// it puts its text in the message line, which is what the original does with it too — text
+    /// events are how a design narrates.
+    /// </para>
+    /// <para>
+    /// <b>Every other type is recognised and named rather than ignored.</b> Silently doing nothing
+    /// for an unimplemented event would be indistinguishable from a design with no event there,
+    /// and the difference matters constantly while the executor is being built out.
+    /// </para>
+    /// <para>
+    /// Not ported yet, and each is a decision rather than a transcription: the chain that lets
+    /// several events share a cell, <c>EVENT_CONTROL</c>'s trigger conditions — which decide
+    /// whether an event fires at all, how often, and for which party — and the
+    /// happened/not-happened flags that <c>PARTY</c> carries and a savegame persists.
+    /// </para>
+    /// </remarks>
+    private void TriggerEvent()
+    {
+        CurrentEvent = events?.FirstAt(X, Y);
+        if (CurrentEvent is null)
+        {
+            return;
+        }
+
+        if (CurrentEvent is TextEvent text)
+        {
+            string body = text.Base.Text;
+            Message = string.IsNullOrWhiteSpace(body)
+                ? "(a text event with no text)"
+                : ArchiveStringConventions.Decode(body);
+            return;
+        }
+
+        Message = $"[{CurrentEvent.GetType().Name} here -- not implemented]";
     }
 
     /// <summary>Draws the current state and returns the framebuffer.</summary>

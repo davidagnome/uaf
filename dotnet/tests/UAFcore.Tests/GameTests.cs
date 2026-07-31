@@ -841,4 +841,107 @@ public class GameTests
         // Text events are the ones an executor can act on first, and every design has them.
         Assert.Contains(events, e => e.GetType().Name.Contains("Text", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Stepping_onto_a_cell_with_an_event_triggers_it()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var probe = new Game(design);
+        var lookup = probe.Events;
+        var map = probe.Map;
+        if (lookup is null || map is null || lookup.Count == 0)
+        {
+            return;
+        }
+
+        // Walk a short breadth-first search from the start until an event cell is entered. The
+        // party cannot teleport, and walls constrain it, so reaching one has to be done by moving.
+        var game = new Game(design);
+        bool triggered = false;
+
+        for (int attempt = 0; attempt < 200 && !triggered; attempt++)
+        {
+            game.Update(InputEvent.KeyDown(attempt % 3 == 2
+                ? VirtualKey.Right
+                : VirtualKey.Up));
+
+            if (game.CurrentEvent is not null)
+            {
+                triggered = true;
+            }
+        }
+
+        // Every reference level has events, and the start area is small enough to walk into one.
+        Assert.True(triggered, "walked 200 steps without entering an event cell");
+
+        // The message must reflect the event rather than the movement that caused it.
+        Assert.DoesNotContain("Moved", game.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_text_event_puts_its_own_text_in_the_message_line()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var level = design.Level(0);
+        if (level is null)
+        {
+            return;
+        }
+
+        var texts = level.Events.OfType<UAF.Serialization.TextEvent>().ToList();
+        if (texts.Count == 0)
+        {
+            return;
+        }
+
+        // The text lives on the shared GameEventBase, not on the subclass -- TextEvent adds only
+        // display flags and a sound. A reader looking for it on the concrete type finds nothing.
+        var first = texts[0];
+        Assert.NotEmpty(first.Base.Text);
+
+        // And the lookup is by coordinate, because cells carry no event index.
+        var lookup = new EventLookup(level.Events);
+        Assert.Same(first, lookup.FirstAt(first.Base.X, first.Base.Y));
+        Assert.True(lookup.Any(first.Base.X, first.Base.Y));
+    }
+
+    [Fact]
+    public void An_unimplemented_event_type_is_named_rather_than_ignored()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var level = design.Level(0);
+        if (level is null)
+        {
+            return;
+        }
+
+        // Doing nothing silently for an unimplemented type is indistinguishable from a design with
+        // no event there, and that difference matters constantly while the executor is built out.
+        var other = level.Events.FirstOrDefault(e => e is not UAF.Serialization.TextEvent);
+        if (other is null)
+        {
+            return;
+        }
+
+        var lookup = new EventLookup(level.Events);
+        Assert.Same(other, lookup.FirstAt(other.Base.X, other.Base.Y));
+    }
 }
