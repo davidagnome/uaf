@@ -1,16 +1,17 @@
 namespace UAF.Serialization.Tests;
 
 /// <summary>
-/// Covers the <c>.pty</c> savegame framing — the version header and the compressed archive
-/// underneath it. The body is not ported; see <see cref="SaveGameReader"/>.
+/// Covers the <c>.pty</c> savegame: its version header, the compressed archive underneath, the
+/// <c>PARTY</c> scalars and the event-trigger flags. The rest of the body is not ported — see
+/// <see cref="SaveGameReader"/> for what remains.
 /// </summary>
 public class SaveGameTests
 {
-    /// <summary>design-relative path, expected version, expected leading task count.</summary>
-    public static TheoryData<string, double, int> Saves => new()
+    /// <summary>path, version, tasks, party level, x, y, characters, event-flag levels.</summary>
+    public static TheoryData<string, double, int, byte, int, int, byte, int> Saves => new()
     {
-        { "SomethingWild.dsn/Saves/SaveA.pty", 3.65, 5 },
-        { "Ambassador's_Letter/Saves/SaveA.pty", 2.81, 4 },
+        { "SomethingWild.dsn/Saves/SaveA.pty", 3.65, 5, 1, 24, 17, 6, 2 },
+        { "Ambassador's_Letter/Saves/SaveA.pty", 2.81, 4, 49, 19, 14, 1, 50 },
     };
 
     private static string? Path_(string relative)
@@ -33,8 +34,9 @@ public class SaveGameTests
 
     [Theory]
     [MemberData(nameof(Saves))]
-    public void The_version_is_a_raw_double_at_offset_zero(string relative, double expected,
-                                                            int taskCount)
+    public void A_save_reads_its_party_and_lands_on_the_engines_own_alignment_tag(
+        string relative, double version, int tasks, byte level, int x, int y,
+        byte characters, int flagLevels)
     {
         string? path = Path_(relative);
         if (path is null)
@@ -45,17 +47,29 @@ public class SaveGameTests
         using var stream = File.OpenRead(path);
         var save = SaveGameReader.Read(stream);
 
-        // Read straight off the file rather than through any archive, which is why it is legible
-        // in a hex dump while everything after it is not.
-        Assert.Equal(expected, save.Version.Value, 6);
-        _ = taskCount;
+        // The version is read straight off the file rather than through the archive, which is why
+        // it is legible in a hex dump while everything after it is not.
+        Assert.Equal(version, save.Version.Value, 6);
+
+        Assert.Equal(tasks, save.Party.TaskStack.Count);
+        Assert.Equal(level, save.Party.Level);
+        Assert.Equal(x, save.Party.PosX);
+        Assert.Equal(y, save.Party.PosY);
+        Assert.Equal(characters, save.Party.CharacterCount);
+        Assert.Equal(flagLevels, save.EventFlags.Count);
+
+        // Reaching this line at all is the real assertion: SaveGameReader throws unless the
+        // VISIT_DATA tag lands exactly where the C++ asserts it should, so every field width in
+        // PARTY is checked rather than merely plausible. The values above only pin *which*
+        // alignment was reached.
+        Assert.All(save.EventFlags, f => Assert.Equal(16, f.StepCounts.Length));
     }
 
     [Theory]
     [MemberData(nameof(Saves))]
-    public void The_body_inflates_and_yields_a_plausible_leading_count(string relative,
-                                                                       double expected,
-                                                                       int taskCount)
+    public void Party_scalars_are_the_narrow_types_they_are_declared_as(
+        string relative, double version, int tasks, byte level, int x, int y,
+        byte characters, int flagLevels)
     {
         string? path = Path_(relative);
         if (path is null)
@@ -64,16 +78,38 @@ public class SaveGameTests
         }
 
         using var stream = File.OpenRead(path);
-        var save = SaveGameReader.Read(stream);
+        var party = SaveGameReader.Read(stream).Party;
 
-        // The compression-type byte at offset 8 reads 0x02, so this exercises the same LZW layer
-        // as a compressed game.dat -- on a different container, which is the point. If the layer
-        // were misaligned the first value out would be noise rather than a small integer.
-        int first = save.Body.ReadInt32();
+        // BYTEs interleaved among 4-byte BOOLs (Party.h:599-613). Reading them as ints gives a
+        // party at map position (196608, 131072) -- a value that is obviously wrong only if you
+        // happen to look, which is how this was found.
+        Assert.InRange(party.PosX, 0, 255);
+        Assert.InRange(party.PosY, 0, 255);
+        Assert.InRange(party.Facing, (byte)0, (byte)7);
+        Assert.InRange(party.CharacterCount, (byte)0, (byte)8);
+        Assert.InRange(party.Days, 0, 100000);
+        Assert.InRange(party.Hours, 0, 23);
+        Assert.InRange(party.Minutes, 0, 59);
 
-        Assert.Equal(taskCount, first);
-        Assert.InRange(first, 0, 64);
-        _ = expected;
+        _ = (version, tasks, level, x, y, characters, flagLevels);
+    }
+
+    [Fact]
+    public void A_misaligned_body_is_reported_against_the_tag_rather_than_read_on()
+    {
+        string? path = Path_("SomethingWild.dsn/Saves/SaveA.pty");
+        if (path is null)
+        {
+            return;
+        }
+
+        // Corrupting one byte of the party scalars must surface as a tag mismatch, not as a
+        // wrong-but-accepted party. This is what makes the tag worth checking at all.
+        byte[] bytes = File.ReadAllBytes(path);
+        bytes[64] ^= 0xFF;
+        using var stream = new MemoryStream(bytes);
+
+        Assert.ThrowsAny<Exception>(() => SaveGameReader.Read(stream));
     }
 
     [Fact]
