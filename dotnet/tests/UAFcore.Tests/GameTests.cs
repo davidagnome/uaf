@@ -349,4 +349,81 @@ public class GameTests
 
         Assert.Equal(BlockageType.Blocked, map.Blockage(-1, -1, Facing.North));
     }
+
+    [Fact]
+    public void Every_wall_format_the_design_declares_loads_completely()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var formats = WallFormatReader.ReadAll(design.Config);
+
+        Assert.Equal(5, formats.Count);
+        Assert.All(formats, f => Assert.Equal(WallFormat.MaxSlotTypes, f.SlotRects.Count));
+        Assert.All(formats, f => Assert.Equal(WallFormat.MaxSlotTypes, f.SlotOffsets.Count));
+
+        // 13 or 15, never a partial run -- the original discards an incomplete set rather than
+        // filling the gaps, so anything between the two would mean the all-or-nothing rule broke.
+        Assert.All(formats, f => Assert.True(f.ViewportCoords.Count is 13 or 15 or 0,
+            $"band {f.Band} has {f.ViewportCoords.Count} coordinates"));
+    }
+
+    [Fact]
+    public void Slot_widths_encode_the_fake_3d_scale()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var first = WallFormatReader.ReadAll(design.Config)[0];
+
+        // The design's own config header documents these: "WallPic 112 x 134, 48 x 58, 16 x 19".
+        // E is the wall straight ahead, H one cell further, I..P further still, and the rest are
+        // 32-wide side walls. If a rect were read as a screen rectangle rather than a source one,
+        // these widths would be meaningless.
+        Assert.Equal(112, first.SlotRects[4].Width);    // E
+        Assert.Equal(48, first.SlotRects[7].Width);     // H
+        Assert.Equal(16, first.SlotRects[8].Width);     // I
+        Assert.Equal(32, first.SlotRects[0].Width);     // A
+
+        // Every slot is the full art height; only width varies with distance, because the
+        // vertical foreshortening is painted into the artwork rather than computed.
+        Assert.All(first.SlotRects, r => Assert.Equal(211, r.Height));
+    }
+
+    [Fact]
+    public void Reading_wall_formats_does_not_consume_the_config()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+
+        // DesignConfig hands a token out once by default, and probing for the end of the format
+        // run reads these keys repeatedly. Reading twice must give the same answer.
+        var first = WallFormatReader.ReadAll(design.Config);
+        var second = WallFormatReader.ReadAll(design.Config);
+
+        Assert.Equal(first.Count, second.Count);
+        Assert.Equal(first[0].SlotRects[4], second[0].SlotRects[4]);
+    }
+
+    [Fact]
+    public void A_config_with_no_wall_formats_yields_none_rather_than_throwing()
+    {
+        var empty = UAF.Data.DesignConfig.Parse(["SOMETHING = 1,2"]);
+
+        Assert.Empty(WallFormatReader.ReadAll(empty));
+        Assert.Null(WallFormatReader.Read(empty, 1));
+    }
 }
