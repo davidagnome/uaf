@@ -46,7 +46,21 @@ public sealed class Game
 
         this.design = design;
         screen = new Surface(width, height);
-        Map = design.Map(levelIndex);
+
+        // The full level gives the wall sets, which sit after the event list; the map-only read is
+        // the fallback for a level whose events cannot all be decoded, since movement needs the
+        // grid and nothing else.
+        var level = design.Level(levelIndex);
+        Map = level is not null
+            ? new Map(level.Width, level.Height, level.Cells)
+            : design.Map(levelIndex);
+
+        if (level is not null && Map is not null)
+        {
+            resolver = new WallResolver(Map, level.WallSets);
+            var formats = WallFormatReader.ReadAll(design.Config);
+            wallFormat = formats.Count > 0 ? formats[0] : null;
+        }
 
         // The engine's own defaults, from GLOBAL_STATS. A design says where a new party starts.
         X = design.Globals.StartX;
@@ -55,8 +69,14 @@ public sealed class Game
         Minutes = design.Globals.StartTime;
     }
 
+    private readonly WallResolver? resolver;
+    private readonly WallFormat? wallFormat;
+
     /// <summary>The current level's grid, or null when it could not be read.</summary>
     public Map? Map { get; }
+
+    /// <summary>Resolves viewport slots to wall art, when the level's wall sets were readable.</summary>
+    public WallResolver? Walls => resolver;
 
     public int X { get; private set; }
 
@@ -211,14 +231,60 @@ public sealed class Game
         }
 
         var backdrop = design.Art("backdrop_IndoorGreyStone.png", SurfaceKind.Background);
-        if (backdrop is not null &&
-            config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out _, out _))
+        if (config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out int vr, out int vb))
         {
-            Blitter.BlitOpaque(screen, vx, vy, backdrop);
+            if (backdrop is not null)
+            {
+                Blitter.BlitOpaque(screen, vx, vy, backdrop);
+            }
+
+            DrawWalls(vx, vy, new SurfaceRect(vx, vy, vr, vb));
         }
 
         DrawText(config);
         return screen;
+    }
+
+    /// <summary>
+    /// Draws the corridor's walls into the viewport.
+    /// </summary>
+    /// <remarks>
+    /// Only square 0 so far — the original has a hand-written routine per viewport square, and
+    /// they are not variations on a template. The clip is the viewport rectangle, because a wall
+    /// slot's own offsets can place it outside and the original relies on the viewport surface
+    /// being a separate, smaller surface to cut that off.
+    /// </remarks>
+    private void DrawWalls(int viewportX, int viewportY, SurfaceRect viewport)
+    {
+        if (resolver is null || wallFormat is null || Map is null)
+        {
+            return;
+        }
+
+        var view = Map.View(X, Y, Facing);
+        string? art = resolver.ArtFor(view, 0, Facing, WallLayer.Wall);
+        if (art is null)
+        {
+            return;
+        }
+
+        var sheet = design.Art(art, SurfaceKind.Wall);
+        if (sheet is null)
+        {
+            return;
+        }
+
+        var saved = screen.ClipRect;
+        try
+        {
+            screen.ClipRect = viewport;
+            new ViewportRenderer(wallFormat)
+                .RenderSquare0(screen, sheet, view, resolver, Facing, viewportX, viewportY);
+        }
+        finally
+        {
+            screen.ClipRect = saved;
+        }
     }
 
     private void Blit(DesignConfig config, Surface art, string sourceKey, string destinationKey)

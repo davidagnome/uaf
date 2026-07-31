@@ -160,14 +160,42 @@ public sealed class LoadedDesign : IDisposable
             : [];
 
     /// <summary>
+    /// Reads a whole level by index, wall sets included, or null when it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// The wall and background tables sit after the event list, so this needs a reader for every
+    /// event type in the file. <see cref="EventBodyReader"/> aborts on one it does not know, and a
+    /// level containing such an event comes back null rather than partial — the alternative is a
+    /// wall table read out of the middle of an event body.
+    /// </remarks>
+    public LevelFile? Level(int index)
+    {
+        var files = LevelFiles;
+        if (index < 0 || index >= files.Count)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(files[index]);
+            return LevelFileReader.Read(stream, ArchiveRole.Editor,
+                (ar, type, version) => EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor));
+        }
+        catch (Exception e) when (e is InvalidDataException or NotSupportedException
+                                    or EndOfStreamException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Reads a level's map by index into <see cref="LevelFiles"/>, or null when there is none.
     /// </summary>
     /// <remarks>
-    /// Only the grid is read. A full level walk needs a reader for every event subclass, and the
-    /// dispatcher for those currently lives in the serialization tests rather than in the library
-    /// — so requiring it here would make the engine depend on test code, and would stop a level
-    /// loading at all if it contained one unported event type. Movement needs the cells and
-    /// nothing more.
+    /// Only the grid is read, which always succeeds: the cells are fixed-size and sit before the
+    /// event list. <see cref="Level"/> reads everything but can fail on an unported event type, so
+    /// movement uses this and wall rendering uses that.
     /// </remarks>
     public Map? Map(int index)
     {

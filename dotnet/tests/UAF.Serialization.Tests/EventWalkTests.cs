@@ -41,101 +41,16 @@ public class EventWalkTests
     /// <summary>Reads one event of a ported type, or returns false for anything else.</summary>
     internal static bool TryPublic(IArchiveCursor ar, EventType t, DesignVersion v) => TryReadEvent(ar, t, v);
 
-    private static bool TryReadEvent(IArchiveCursor ar, EventType type, DesignVersion version)
-    {
-        switch (type)
-        {
-            case EventType.Combat:
-            case EventType.PickOneCombat:
-                CombatEventReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.TextStatement:
-                TextEventReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.GuidedTour:
-                GuidedTourReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.SpecialItem:
-                SpecialItemEventReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.QuestStage:
-                QuestEventReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.Utilities:
-                UtilitiesEventReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.ChainEventType:
-                SimpleEventReaders.ReadChain(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.QuestionList:
-                SimpleEventReaders.ReadQuestionList(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.QuestionButton:
-                SimpleEventReaders.ReadQuestionButton(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.QuestionYesNo:
-                SimpleEventReaders.ReadYesNo(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.PassTime:
-                SimpleEventReaders.ReadPassTime(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.Stairs:
-            case EventType.Teleporter:
-            case EventType.TransferModule:
-                SimpleEventReaders.ReadTransfer(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.LogicBlock:
-                LogicBlockEventReader.Read(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.NPCSays:
-                MoreEventReaders.ReadNpcSays(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.TavernEvent:
-                MoreEventReaders.ReadTavern(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.TempleEvent:
-                MoreEventReaders.ReadTemple(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.ShopEvent:
-                MoreEventReaders.ReadShop(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.RemoveNPCEvent:
-                MoreEventReaders.ReadRemoveNpc(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.Camp:
-                MoreEventReaders.ReadCamp(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.TrainingHallEvent:
-                MoreEventReaders.ReadTrainingHall(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.Sounds:
-                MoreEventReaders.ReadSound(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.GainExperience:
-                MoreEventReaders.ReadGainExperience(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.FlowControl:
-                MoreEventReaders.ReadFlowControl(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.WhoPays:
-                MoreEventReaders.ReadWhoPays(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.RandomEvent:
-                SimpleEventReaders.ReadRandom(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.AddNpc:
-                SimpleEventReaders.ReadAddNpc(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.GiveTreasure:
-                TreasureEventReaders.ReadGiveTreasure(ar, version, ArchiveRole.Editor);
-                return true;
-            case EventType.CombatTreasure:
-                TreasureEventReaders.ReadCombatTreasure(ar, version, ArchiveRole.Editor);
-                return true;
-            default:
-                return false;
-        }
-    }
+    /// <summary>
+    /// Delegates to the library dispatcher, which this test's own copy became.
+    /// </summary>
+    /// <remarks>
+    /// Editor role, because that is what wrote every shipped level file. Keeping the switch
+    /// here as well would mean two dispatchers to keep in step, and the walk would stop
+    /// proving anything about the one the engine actually uses.
+    /// </remarks>
+    private static bool TryReadEvent(IArchiveCursor ar, EventType type, DesignVersion version) =>
+        EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor);
 
     /// <summary>Counts <c>EVENT_DATA_ATTR</c> markers occurring before a byte offset.</summary>
     private static int MarkersBefore(string rel, long offset)

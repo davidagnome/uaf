@@ -7,10 +7,10 @@ namespace UAFcore.Tests;
 /// Covers <see cref="WallResolver"/> against a hand-built map, where every wall index is known.
 /// </summary>
 /// <remarks>
-/// Synthetic rather than a real design, deliberately. The wall-set table sits after the event list
-/// in a <c>.lvl</c> file, so reading it needs a decoder for every event subclass — and that
-/// dispatcher is still in the serialization tests rather than the library. Until it moves, the
-/// resolver can be verified but not yet wired to a design's own wall art.
+/// Synthetic on purpose: a hand-built map is the only way to know what every index should resolve
+/// to, so these pin the rules. <c>GameTests</c> checks the same resolver against a real design's
+/// levels, where the assertion is that no index is out of range and no wall names art the design
+/// does not ship.
 /// </remarks>
 public class WallResolverTests
 {
@@ -162,5 +162,106 @@ public class WallResolverTests
         Assert.Equal(WallResolver.NoWall, resolver.IndexAt(view, 13, Facing.North));
         Assert.Equal(WallResolver.NoWall, resolver.IndexAt(view, 99, Facing.North));
         Assert.False(resolver.CellExists(view, -1));
+    }
+
+    [Fact]
+    public void Draw_slots_are_one_based_against_the_format_rectangles()
+    {
+        var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
+        var format = WallFormatReader.ReadAll(config)[0];
+        var renderer = new ViewportRenderer(format);
+
+        // DRAW_A_WALL is 1 and addresses rect 0 -- GetWidth does Type-- before indexing. Using the
+        // enum value directly would draw a 32-pixel side wall where a 112-pixel front wall goes.
+        Assert.Equal(format.SlotRects[0], renderer.SlotRect(DrawSlot.A));
+        Assert.Equal(format.SlotRects[15], renderer.SlotRect(DrawSlot.P));
+        Assert.Equal(format.SlotRects[4].Width, renderer.SlotWidth(DrawSlot.E));
+    }
+
+    [Fact]
+    public void The_far_sliver_is_drawn_when_slot_13_falls_off_the_map()
+    {
+        // Every wall index zero, so the only thing that can trigger the test is slot 13 having no
+        // cell at all -- which is exactly what the unwrapped outer slots exist to express.
+        var cells = new AreaMapCell[16];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            cells[i] = Cell(0, 0, 0, 0);
+        }
+
+        var map = new Map(4, 4, cells);
+        var resolver = new WallResolver(map, [Set("only")]);
+        var view = ViewMap.For(0, 0, Facing.North, 4, 4);
+
+        Assert.False(resolver.CellExists(view, 13));
+        Assert.True(ViewportRenderer.ShouldDrawFarSliver(
+            view, resolver, Facing.North, Facing.West, Facing.East));
+    }
+
+    [Fact]
+    public void The_far_sliver_is_skipped_when_nothing_occludes_it()
+    {
+        // A map big enough that slot 13 lands inside it, and no walls anywhere: all four
+        // disjuncts false, so the sliver is not drawn.
+        var cells = new AreaMapCell[400];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            cells[i] = Cell(0, 0, 0, 0);
+        }
+
+        var map = new Map(20, 20, cells);
+        var resolver = new WallResolver(map, [Set("only")]);
+        var view = ViewMap.For(10, 10, Facing.North, 20, 20);
+
+        Assert.True(resolver.CellExists(view, 13));
+        Assert.False(ViewportRenderer.ShouldDrawFarSliver(
+            view, resolver, Facing.North, Facing.West, Facing.East));
+    }
+
+    [Fact]
+    public void Any_one_of_the_four_conditions_is_enough()
+    {
+        var cells = new AreaMapCell[400];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            cells[i] = Cell(0, 0, 0, 0);
+        }
+
+        // A wall on the left face of slot 0 alone must trigger it. Slot 0 from (10,10) facing
+        // north is two forward and two left, i.e. (8,8).
+        var view = ViewMap.For(10, 10, Facing.North, 20, 20);
+        Assert.Equal((8, 8), view[0]);
+
+        cells[(8 * 20) + 8] = Cell(0, 0, 0, 1);        // west face has wall 1
+        var resolver = new WallResolver(new Map(20, 20, cells), [Set("only")]);
+
+        Assert.True(resolver.HasWall(view, 0, Facing.West));
+        Assert.True(ViewportRenderer.ShouldDrawFarSliver(
+            view, resolver, Facing.North, Facing.West, Facing.East));
+    }
+
+    /// <summary>A minimal one-band wall format, so the renderer can be built without a design.</summary>
+    private static string[] BuildFormatConfig()
+    {
+        var lines = new List<string> { "MAX_ALTERNATE_WALL_FORMATS = 1",
+                                       "WIDTH_WALL_FORMAT_1 = 480",
+                                       "HEIGHT_WALL_FORMAT_1 = 360",
+                                       "NUM_DISTANT_WALLS_1 = 5" };
+
+        // Widths that mirror the real thing: E is the 112-wide front wall, the rest are narrower.
+        for (int slot = 0; slot < WallFormat.MaxSlotTypes; slot++)
+        {
+            char letter = WallFormat.SlotLetter(slot);
+            int width = slot == 4 ? 112 : slot == 7 ? 48 : slot >= 8 ? 16 : 32;
+            lines.Add($"{letter}1_WALL_RECT = 0,0,{width},211");
+            lines.Add($"{letter}1_OFF = 0,0");
+        }
+
+        for (int i = 0; i < 13; i++)
+        {
+            lines.Add($"VIEWPORT_COORD_{i}_1 = {i * 4},0");
+        }
+
+        return [.. lines];
     }
 }

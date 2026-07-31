@@ -549,4 +549,93 @@ public class GameTests
         Assert.Equal(-3, view[13].X);
         Assert.Equal(3, view[14].X);
     }
+
+    [Fact]
+    public void A_full_level_read_reaches_the_wall_sets_past_the_event_list()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+
+        // The wall table sits after the event list, so this only succeeds now that the event
+        // dispatcher lives in the library rather than in the serialization tests. Levels that
+        // contain an unported event type still come back null, which is why this reports how many
+        // of the design's levels made it rather than demanding all of them.
+        var levels = Enumerable.Range(0, design.LevelFiles.Count)
+                               .Select(design.Level)
+                               .ToList();
+
+        int readable = levels.Count(l => l is not null);
+        Assert.True(readable > 0,
+            $"none of {design.LevelFiles.Count} levels could be read past their events");
+
+        var first = levels.First(l => l is not null)!;
+        Assert.NotEmpty(first.WallSets);
+        Assert.NotEmpty(first.Cells);
+        Assert.Equal(first.Width * first.Height, first.Cells.Count);
+
+        // Real art filenames, which is the payoff: a resolver can now turn a cell's wall index
+        // into something the image loader can open.
+        Assert.Contains(first.WallSets, w => w.WallFile.Length > 0);
+    }
+
+    [Fact]
+    public void Wall_indices_in_a_real_level_resolve_to_art_that_exists()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var level = Enumerable.Range(0, design.LevelFiles.Count)
+                              .Select(design.Level)
+                              .FirstOrDefault(l => l is not null);
+        if (level is null)
+        {
+            return;
+        }
+
+        var map = new Map(level.Width, level.Height, level.Cells);
+        var resolver = new WallResolver(map, level.WallSets);
+
+        // Walk the whole level and resolve every wall the party could face. This is the first
+        // check that the index-from-one convention holds against real data rather than a fixture.
+        int resolved = 0, missingArt = 0;
+        for (int y = 0; y < map.Height; y++)
+        {
+            for (int x = 0; x < map.Width; x++)
+            {
+                var view = ViewMap.For(x, y, Facing.North, map.Width, map.Height);
+                foreach (Facing facing in Enum.GetValues<Facing>())
+                {
+                    string? art = resolver.ArtFor(view, 12, facing, WallLayer.Wall);
+                    if (art is null)
+                    {
+                        continue;
+                    }
+
+                    resolved++;
+                    if (design.Art(art) is null)
+                    {
+                        missingArt++;
+                    }
+                }
+            }
+        }
+
+        Assert.True(resolved > 0, "the level has no walls at all");
+
+        // An out-of-range index would show up as warnings; a wrong base would show up as art the
+        // design does not ship. Neither is acceptable against a design's own level.
+        Assert.True(resolver.Warnings.Count == 0,
+            $"{resolver.Warnings.Count} bad wall indices: {string.Join("; ", resolver.Warnings.Take(3))}");
+        Assert.True(missingArt == 0,
+            $"{missingArt} of {resolved} wall references name art the design does not ship");
+    }
 }
