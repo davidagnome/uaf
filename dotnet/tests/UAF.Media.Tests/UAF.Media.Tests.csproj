@@ -29,6 +29,12 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\UAF.Media\UAF.Media.csproj" />
     <ProjectReference Include="..\..\src\UAF.Media.Sdl\UAF.Media.Sdl.csproj" />
+
+    <!-- FrameCompositionTests is an integration test across both halves of the port: it reads a
+         real design with UAF.Serialization and draws it with UAF.Media. Nothing else here needs
+         serialization, and UAF.Media itself does not reference it. -->
+    <ProjectReference Include="..\..\src\UAF.Serialization\UAF.Serialization.csproj" />
+    <ProjectReference Include="..\..\src\UAF.Data\UAF.Data.csproj" />
   </ItemGroup>
 
 </Project>
