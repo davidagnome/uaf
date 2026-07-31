@@ -269,14 +269,23 @@ public sealed class Game
             // Far squares first. The original draws back to front and relies on the keyed blits to
             // let nearer walls cover further ones, so the order is load-bearing rather than
             // cosmetic.
-            string? far = resolver.ArtFor(view, 0, Facing, WallLayer.Wall);
-            if (far is not null && design.Art(far, SurfaceKind.Wall) is Surface farSheet)
+            // The two far corner squares, whose slivers sit behind everything else.
+            foreach (int square in new[] { 0, 1 })
             {
-                // The format is chosen per sheet, by its dimensions -- a design can mix wall packs
-                // with different layouts, and picking one format for the whole view would cut most
-                // of them from the wrong rectangles.
-                RendererFor(farSheet)?.RenderSquare0(screen, farSheet, view, resolver, Facing,
-                                                      viewportX, viewportY);
+                string? file = resolver.ArtFor(view, square, Facing, WallLayer.Wall);
+                var sheet = file is null ? null : design.Art(file, SurfaceKind.Wall);
+                RendererFor(sheet)?.RenderFarSquare(screen, view, resolver, Facing, square,
+                                                    viewportX, viewportY,
+                                                    f => design.Art(f, SurfaceKind.Wall));
+            }
+
+            // Square 2 sits between the far corners and the near squares.
+            {
+                string? file = resolver.ArtFor(view, 2, Facing, WallLayer.Wall);
+                var sheet = file is null ? null : design.Art(file, SurfaceKind.Wall);
+                RendererFor(sheet)?.RenderSquare2(screen, view, resolver, Facing,
+                                                  viewportX, viewportY,
+                                                  f => design.Art(f, SurfaceKind.Wall));
             }
 
             // Far to near, so a nearer wall's keyed blit covers a further one.

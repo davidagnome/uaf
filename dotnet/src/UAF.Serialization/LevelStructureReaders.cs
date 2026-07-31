@@ -262,7 +262,8 @@ public static class LevelStructureReaders
 public sealed record LevelFile(
     DesignVersion Version, byte Width, byte Height,
     IReadOnlyList<AreaMapCell> Cells,
-    int EventCount, ZoneData Zones, IReadOnlyList<AslEntry> Attributes,
+    int EventCount, IReadOnlyList<IGameEvent> Events,
+    ZoneData Zones, IReadOnlyList<AslEntry> Attributes,
     IReadOnlyList<StepEvent> StepEvents,
     IReadOnlyList<WallSetSlot> WallSets, IReadOnlyList<BackgroundSlot> BackgroundSets,
     IReadOnlyList<int> BlockageKeys);
@@ -306,11 +307,13 @@ public static class LevelFileReader
     /// Reads a level, using <paramref name="readEvent"/> to consume each event body.
     /// </summary>
     /// <param name="readEvent">
-    /// Returns false for an event type the caller cannot read, which aborts the walk. Injected
-    /// rather than referenced directly so this reader does not depend on every event subclass.
+    /// Returns null for an event type the caller cannot read, which aborts the walk. Injected
+    /// rather than referenced directly so this reader does not depend on every event subclass —
+    /// and it now returns the parsed event, which the level retains. It previously returned
+    /// <c>bool</c>, so every event was understood and then thrown away.
     /// </param>
     public static LevelFile Read(Stream stream, ArchiveRole role,
-                                 Func<IArchiveCursor, EventType, DesignVersion, bool> readEvent)
+                                 Func<IArchiveCursor, EventType, DesignVersion, IGameEvent?> readEvent)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(readEvent);
@@ -333,16 +336,23 @@ public static class LevelFileReader
 
         ar.ReadInt32();                                  // m_level
         int eventCount = ar.ReadInt32();
+        var events = new List<IGameEvent>(Math.Max(eventCount, 0));
         for (int i = 0; i < eventCount; i++)
         {
             var type = (EventType)ar.ReadInt32();
-            if (EventDispatch.ReadsNothing(type)) continue;
 
-            if (!readEvent(ar, type, version))
+            // Some types carry no body at all -- the tag is the whole event -- so there is nothing
+            // to retain and nothing to read.
+            if (EventDispatch.ReadsNothing(type))
             {
-                throw new NotSupportedException(
-                    $"Event {i} of {eventCount} has type {type}, which the caller cannot read.");
+                continue;
             }
+
+            var parsed = readEvent(ar, type, version)
+                ?? throw new NotSupportedException(
+                    $"Event {i} of {eventCount} has type {type}, which the caller cannot read.");
+
+            events.Add(parsed);
         }
 
         var zones = LevelStructureReaders.ReadZoneData(ar, version, role);
@@ -384,7 +394,7 @@ public static class LevelFileReader
             ? LevelStructureReaders.ReadBlockageKeys(ar)
             : [];
 
-        return new LevelFile(version, width, height, cells, eventCount, zones, attributes,
+        return new LevelFile(version, width, height, cells, eventCount, events, zones, attributes,
                              stepEvents, wallSets, backgroundSets, blockageKeys);
     }
 }

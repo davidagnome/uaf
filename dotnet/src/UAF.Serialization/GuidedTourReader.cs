@@ -9,7 +9,7 @@ public sealed record TourStep(string Text, int Step);
 public sealed record GuidedTour(
     GameEventBase Base,
     int TourX, int TourY, int Facing, int UseStartLocation, int ExecuteEvent,
-    IReadOnlyList<TourStep> Steps);
+    IReadOnlyList<TourStep> Steps) : IGameEvent;
 
 /// <summary>
 /// Reads <c>GUIDED_TOUR</c> (<c>GameEvent.cpp:7125</c>) and its steps.

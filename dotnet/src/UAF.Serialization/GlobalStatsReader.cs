@@ -93,7 +93,7 @@ public static class GlobalStatsReader
     /// without it, reading stops before that list.
     /// </summary>
     public static GlobalStatsPrefix Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role,
-        Func<IArchiveCursor, EventType, DesignVersion, bool>? readEvent,
+        Func<IArchiveCursor, EventType, DesignVersion, IGameEvent?>? readEvent,
         bool stopAfterCharacters = false)
     {
         ArgumentNullException.ThrowIfNull(ar);
@@ -292,7 +292,7 @@ public static class GlobalStatsReader
 
     /// <summary>Reads the global <c>GameEventList</c>, returning how many events it held.</summary>
     private static int ReadEventList(IArchiveCursor ar, DesignVersion version,
-        Func<IArchiveCursor, EventType, DesignVersion, bool> readEvent)
+        Func<IArchiveCursor, EventType, DesignVersion, IGameEvent?> readEvent)
     {
         ar.ReadInt32();                                  // m_level
         int count = ar.ReadInt32();
@@ -302,7 +302,7 @@ public static class GlobalStatsReader
             var eventType = (EventType)ar.ReadInt32();
             if (EventDispatch.ReadsNothing(eventType)) continue;
 
-            if (!readEvent(ar, eventType, version))
+            if (readEvent(ar, eventType, version) is null)
             {
                 throw new NotSupportedException(
                     $"Global event {i} of {count} has type {eventType}, which the caller " +

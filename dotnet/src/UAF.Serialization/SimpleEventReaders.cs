@@ -3,7 +3,7 @@ using UAF.Common;
 namespace UAF.Serialization;
 
 /// <summary>A <c>CHAIN_EVENT</c> — jumps to another event by key.</summary>
-public sealed record ChainEvent(GameEventBase Base, uint Chain);
+public sealed record ChainEvent(GameEventBase Base, uint Chain) : IGameEvent;
 
 /// <summary>
 /// One selectable option on a question event: a label, whether it is shown, what to do after the
@@ -17,22 +17,22 @@ public sealed record QuestionOption(string Label, int Present, int PostChainActi
 
 /// <summary>A <c>QUESTION_YES_NO</c> — two fixed branches rather than an option array.</summary>
 public sealed record YesNoEvent(
-    GameEventBase Base, int YesChainAction, int NoChainAction, uint YesChain, uint NoChain);
+    GameEventBase Base, int YesChainAction, int NoChainAction, uint YesChain, uint NoChain) : IGameEvent;
 
 /// <summary>A <c>PASS_TIME_EVENT_DATA</c> — advances the clock.</summary>
 public sealed record PassTimeEvent(
     GameEventBase Base, byte Days, byte Hours, byte Minutes,
-    int AllowStop, int SetTime, int PassSilent);
+    int AllowStop, int SetTime, int PassSilent) : IGameEvent;
 
 /// <summary>One branch of a random event: a chained event id and its percentage chance.</summary>
 public sealed record RandomBranch(uint Chain, byte Chance);
 
 /// <summary>A <c>RANDOM_EVENT_DATA</c> — picks one of several chained events by chance.</summary>
-public sealed record RandomEvent(GameEventBase Base, IReadOnlyList<RandomBranch> Branches);
+public sealed record RandomEvent(GameEventBase Base, IReadOnlyList<RandomBranch> Branches) : IGameEvent;
 
 /// <summary>An <c>ADD_NPC_DATA</c> — joins an NPC to the party.</summary>
 public sealed record AddNpcEvent(
-    GameEventBase Base, int Operation, string CharacterId, int HitPointMod, int UseOriginal);
+    GameEventBase Base, int Operation, string CharacterId, int HitPointMod, int UseOriginal) : IGameEvent;
 
 /// <summary>Where a transfer sends the party (<c>GameEvent.cpp:4640</c>).</summary>
 public sealed record TransferData(
@@ -43,11 +43,11 @@ public sealed record TransferData(
 /// </summary>
 public sealed record TransferEvent(
     GameEventBase Base, int AskYesNo, int TransferOnYes, int DestroyDrow,
-    int ActivateBeforeEntry, TransferData Destination);
+    int ActivateBeforeEntry, TransferData Destination) : IGameEvent;
 
 /// <summary>A question event: an optional title and a fixed array of options.</summary>
 public sealed record QuestionEvent(
-    GameEventBase Base, string Title, int NumButtons, IReadOnlyList<QuestionOption> Options);
+    GameEventBase Base, string Title, int NumButtons, IReadOnlyList<QuestionOption> Options) : IGameEvent;
 
 /// <summary>
 /// Event subclasses small enough not to warrant a file each.

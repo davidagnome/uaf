@@ -39,7 +39,7 @@ public class EventWalkTests
     }
 
     /// <summary>Reads one event of a ported type, or returns false for anything else.</summary>
-    internal static bool TryPublic(IArchiveCursor ar, EventType t, DesignVersion v) => TryReadEvent(ar, t, v);
+    internal static IGameEvent? TryPublic(IArchiveCursor ar, EventType t, DesignVersion v) => TryReadEvent(ar, t, v);
 
     /// <summary>
     /// Delegates to the library dispatcher, which this test's own copy became.
@@ -49,7 +49,8 @@ public class EventWalkTests
     /// here as well would mean two dispatchers to keep in step, and the walk would stop
     /// proving anything about the one the engine actually uses.
     /// </remarks>
-    private static bool TryReadEvent(IArchiveCursor ar, EventType type, DesignVersion version) =>
+    private static IGameEvent? TryReadEvent(IArchiveCursor ar, EventType type,
+                                            DesignVersion version) =>
         EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor);
 
     /// <summary>Counts <c>EVENT_DATA_ATTR</c> markers occurring before a byte offset.</summary>
@@ -98,7 +99,8 @@ public class EventWalkTests
             // Skipping them is therefore correct, but it also hides drift, since a desynchronised
             // stream produces unrecognised ordinals too. Marker counting below is what actually
             // detects that.
-            if (EventDispatch.ReadsNothing(type) || TryReadEvent(ar, type, header.Version))
+            if (EventDispatch.ReadsNothing(type) ||
+                TryReadEvent(ar, type, header.Version) is not null)
             {
                 if (!EventDispatch.ReadsNothing(type)) handled++;
                 reached = i + 1;

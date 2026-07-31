@@ -19,7 +19,7 @@ public sealed record CombatEvent(
     int Outdoors, int NoMonsterTreasure, int PartyNeverDies, int NoMagic,
     int MonsterMorale, int Terrain, int RandomMonster, int PartyNoExperience,
     BackgroundSoundData BackgroundSounds,
-    IReadOnlyList<MonsterEvent> Monsters);
+    IReadOnlyList<MonsterEvent> Monsters) : IGameEvent;
 
 /// <summary>
 /// A <c>BACKGROUND_SOUND_DATA</c> — day and night sound queues plus the hours that switch between

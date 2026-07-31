@@ -175,7 +175,8 @@ public sealed record EntryPoint(int X, int Y);
 public sealed record LevelStats(
     byte Height, byte Width, int Used, int Overland, int AreaViewStyle, string Name,
     IReadOnlyList<EntryPoint> EntryPoints, string StepSound, string BumpSound,
-    BackgroundSoundData? Sounds, IReadOnlyList<AslEntry> Attributes);
+    BackgroundSoundData? Sounds, WallOverrides? Overrides, CellLevelContents? Contents,
+    IReadOnlyList<AslEntry> Attributes);
 
 /// <summary>The design's level table.</summary>
 public sealed record LevelInfo(int NumberOfLevels, IReadOnlyDictionary<uint, LevelStats> Levels);
@@ -228,9 +229,9 @@ public static class GlobalStatsTailReaders
     /// Above this version, <c>LEVEL_STATS</c> carries wall overrides and cell contents.
     /// </summary>
     /// <remarks>
-    /// <c>_CELL_CONTENTS_VERSION</c> is 5.0 (<c>Externs.h:191</c>). Those two structures are
-    /// deeply nested — hand-allocated arrays of row and column objects — and are not ported. A
-    /// 5.x design therefore stops here rather than being read wrongly.
+    /// <c>_CELL_CONTENTS_VERSION</c> is 5.0 (<c>Externs.h:191</c>). Both structures are now read —
+    /// see <see cref="CellContentsReaders"/> — which is what lets a 5.x design be walked past this
+    /// point at all.
     /// </remarks>
     public static DesignVersion CellContentsGate => new(5.0);
 
@@ -270,15 +271,16 @@ public static class GlobalStatsTailReaders
             sounds = CombatEventReader.ReadBackgroundSoundData(ar);
         }
 
+        WallOverrides? overrides = null;
+        CellLevelContents? contents = null;
         if (version >= CellContentsGate)
         {
-            throw new NotSupportedException(
-                $"LEVEL_STATS at {version} carries m_wallOverrides and m_cellContents " +
-                "(GlobalData.cpp:3263), which are not ported. See CellContentsGate.");
+            overrides = CellContentsReaders.ReadWallOverrides(ar);
+            contents = CellContentsReaders.ReadCellContents(ar);
         }
 
         return new LevelStats(height, width, used, overland, areaViewStyle, name,
-                              entryPoints, stepSound, bumpSound, sounds,
+                              entryPoints, stepSound, bumpSound, sounds, overrides, contents,
                               AslReader.Read(ar, version, AslMaps.LevelStats));
     }
 

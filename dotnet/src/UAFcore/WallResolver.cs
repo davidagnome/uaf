@@ -75,10 +75,11 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
         int index = (int)facing < cell.Walls.Length ? cell.Walls[(int)facing] : NoWall;
 
         // The 5.x per-cell override tables (WALL_OVERRIDE_INDEX 6, DOOR_OVERRIDE_INDEX 7 --
-        // GlobalData.h:479) would be consulted here and would win. They are not ported: they live
-        // in the LEVEL_STATS cell-content tables that UAF.Serialization refuses at
-        // _CELL_CONTENTS_VERSION. A design using them will draw its unoverridden walls, which is
-        // wrong but bounded, and no design read so far reaches that version.
+        // GlobalData.h:479) are consulted here in the original and *win* over the cell's own
+        // index. They are now read -- see CellContentsReaders -- but not yet threaded through to
+        // this resolver, which needs the level's LEVEL_STATS rather than just its grid. Every
+        // shipped design's tables are empty, so nothing is currently lost; a design that authored
+        // overrides would draw its unoverridden walls.
 
         if (index >= MaxWallSets)
         {

@@ -23,11 +23,9 @@ public enum DrawSlot
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Scope: square 0, plus the ten squares that are plain sequences of passes (5–14).</b> The
-/// original has a hand-written routine per viewport square and they are not variations on a
-/// template — square 0 alone consults four different neighbour cells before deciding whether to
-/// draw one sliver. Only 1, 2, 3 and 4 remain, and those carry 24 to 35 conditionals apiece;
-/// extrapolating them from these would be a guess.
+/// <b>Scope: the far corner squares 0 and 1, square 2, and the ten that are plain sequences of
+/// passes (5–14).</b> Only squares 3 and 4 remain — 3 is likely square 2's mirror but has not been
+/// read, and 4 carries 35 conditionals, the most of any.
 /// </para>
 /// <para>
 /// <b>The blit is 1:1.</b> <c>BltSurface</c> takes the source rectangle's own width and height for
@@ -80,49 +78,237 @@ public sealed class ViewportRenderer(WallFormat format)
     }
 
     /// <summary>
-    /// Draws viewport square 0 — the far left square, two forward and two left.
+    /// Draws a far corner square — 0 (two forward and two left) or 1 (two forward and two right).
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Ported from <c>RenderSquare0</c>'s five-distant-wall branch (<c>Viewport.cpp:2348</c>). Two
-    /// slots come off the same sheet: <c>P</c> at the square's origin and <c>J</c> immediately to
-    /// its right, <c>J</c> always and <c>P</c> only when something further left would hide the seam.
+    /// Ported from <c>RenderSquare0</c> and <c>RenderSquare1</c>'s five-distant-wall branches
+    /// (<c>Viewport.cpp:2348,2486</c>). Two slots come off one sheet — <c>P</c> at the square's
+    /// origin and <c>J</c> immediately right of it — and one of them is gated by an occlusion test.
     /// </para>
     /// <para>
-    /// <b>The occlusion test is a disjunction of four unrelated questions</b> — is there a wall on
-    /// the facing side of slot 13, or on the left side of slot 0, or on the right side of slot 13,
-    /// or is slot 13 off the map entirely. That last one is why <see cref="ViewMap"/> leaves slots
-    /// 13 and 14 unwrapped: on a torus the question could never be yes, and the sliver would go
-    /// missing wherever the corridor crossed an edge.
+    /// <b>The two squares are mirrors, and the mirroring swaps which slot is gated.</b> Square 0
+    /// draws <c>J</c> unconditionally and gates <c>P</c>; square 1 draws <c>P</c> unconditionally
+    /// and gates <c>J</c>. Assuming the same slot is conditional in both — the natural reading of
+    /// "square 1 is square 0 mirrored" — draws the wrong sliver on one side of every corridor.
+    /// </para>
+    /// <para>
+    /// The test itself is a disjunction of four unrelated questions, mirrored likewise: for square
+    /// 0 it asks about slot 13 on the facing side, slot 0 on the left, slot 13 on the right, and
+    /// whether slot 13 exists at all; square 1 asks the same with 14, right, and left. That last
+    /// disjunct is why <see cref="ViewMap"/> leaves slots 13 and 14 unwrapped — on a torus it could
+    /// never be true, and the sliver would vanish wherever a corridor crossed a map edge.
+    /// </para>
+    /// <para>
+    /// The door draws only at the <i>unconditional</i> slot, never the gated one, and the overlay
+    /// repeats the gate. Both follow the original exactly rather than any principle I can state.
     /// </para>
     /// </remarks>
-    public void RenderSquare0(Surface screen, Surface? wallSheet, ViewMap view,
-                              WallResolver resolver, Facing facing, int viewportX, int viewportY)
+    public void RenderFarSquare(Surface screen, ViewMap view, WallResolver resolver, Facing facing,
+                                int square, int viewportX, int viewportY, Func<string, Surface?> art)
     {
         ArgumentNullException.ThrowIfNull(screen);
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(art);
 
-        if (wallSheet is null || format.DistantWallCount != 5)
+        if (square is not (0 or 1))
         {
-            // The seven-distant-wall layout is a different routine in the original, not this one
-            // with a different constant.
+            throw new ArgumentOutOfRangeException(nameof(square), "only squares 0 and 1");
+        }
+
+        // The seven-distant-wall layout is a different routine in the original, not this one with
+        // a different constant.
+        if (format.DistantWallCount != 5)
+        {
             return;
         }
 
-        var (originX, originY) = SquareOrigin(0);
+        var (originX, originY) = SquareOrigin(square);
         int x = originX + viewportX;
         int y = originY + viewportY;
+        int pWidth = SlotWidth(DrawSlot.P);
 
         var left = (Facing)(((int)facing + 3) & 3);
         var right = (Facing)(((int)facing + 1) & 3);
 
-        if (ShouldDrawFarSliver(view, resolver, facing, left, right))
+        // Square 0 looks outward past slot 13 and inward via its own left face; square 1 mirrors
+        // that onto 14 and its own right face.
+        int outer = square == 0 ? 13 : 14;
+        var ownFace = square == 0 ? left : right;
+        var outerFace = square == 0 ? right : left;
+
+        bool gateOpen = resolver.HasWall(view, outer, facing) ||
+                        resolver.HasWall(view, square, ownFace) ||
+                        resolver.HasWall(view, outer, outerFace) ||
+                        !resolver.CellExists(view, outer);
+
+        // Square 0 gates P and always draws J; square 1 is the other way round.
+        bool gatesP = square == 0;
+
+        DrawPair(WallLayer.Wall);
+
+        if (resolver.DoorFirst(view, square, facing))
         {
-            DrawSlotArt(screen, wallSheet, DrawSlot.P, x, y);
+            DrawDoor();
+            DrawPair(WallLayer.Overlay);
+        }
+        else
+        {
+            DrawPair(WallLayer.Overlay);
+            DrawDoor();
         }
 
-        DrawSlotArt(screen, wallSheet, DrawSlot.J, x + SlotWidth(DrawSlot.P), y);
+        void DrawPair(WallLayer layer)
+        {
+            var sheet = Sheet(layer);
+            if (sheet is null)
+            {
+                return;
+            }
+
+            if (!gatesP || gateOpen)
+            {
+                DrawSlotArt(screen, sheet, DrawSlot.P, x, y);
+            }
+
+            if (gatesP || gateOpen)
+            {
+                DrawSlotArt(screen, sheet, DrawSlot.J, x + pWidth, y);
+            }
+        }
+
+        // The door lands on whichever slot is not gated, and is never repeated on the other.
+        void DrawDoor()
+        {
+            var sheet = Sheet(WallLayer.Door);
+            if (sheet is not null)
+            {
+                DrawSlotArt(screen, sheet, gatesP ? DrawSlot.J : DrawSlot.P,
+                            gatesP ? x + pWidth : x, y);
+            }
+        }
+
+        Surface? Sheet(WallLayer layer)
+        {
+            string? file = resolver.ArtFor(view, square, facing, layer);
+            return file is null ? null : art(file);
+        }
+    }
+
+    /// <summary>
+    /// The occlusion test for a far corner square, exposed so each disjunct can be checked alone.
+    /// </summary>
+    public static bool FarSquareGateOpen(ViewMap view, WallResolver resolver, Facing facing,
+                                         int square)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+
+        var left = (Facing)(((int)facing + 3) & 3);
+        var right = (Facing)(((int)facing + 1) & 3);
+        int outer = square == 0 ? 13 : 14;
+        var ownFace = square == 0 ? left : right;
+        var outerFace = square == 0 ? right : left;
+
+        return resolver.HasWall(view, outer, facing) ||
+               resolver.HasWall(view, square, ownFace) ||
+               resolver.HasWall(view, outer, outerFace) ||
+               !resolver.CellExists(view, outer);
+    }
+
+    /// <summary>
+    /// Draws viewport square 2 — two forward and one left.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Ported from <c>RenderSquare2</c>'s five-distant-wall branch (<c>Viewport.cpp:2621</c>). Two
+    /// slots off one sheet: <c>J</c> at the origin, gated, and <c>P</c> beside it, always.
+    /// </para>
+    /// <para>
+    /// <b>Three irregularities, all transcribed rather than tidied.</b> The gate has only two
+    /// disjuncts — a wall on the facing side of slot 0, or on the left side of slot 2 — with no
+    /// <c>validCoords</c> term, unlike squares 0 and 1. <c>P</c> is offset by <b><c>J</c>'s</b>
+    /// width, not its own. And the door draws its <c>J</c> slot at <c>pt + p_width</c>, a
+    /// different place from where the <c>J</c> <i>wall</i> went and using the other slot's width
+    /// to get there.
+    /// </para>
+    /// <para>
+    /// That last one reads like a defect in the original — a door landing somewhere its own wall
+    /// does not — but it is what the engine does, and designs have been authored against it for
+    /// twenty years. Reproduced; if it ever needs changing that is a decision to take knowingly.
+    /// </para>
+    /// </remarks>
+    public void RenderSquare2(Surface screen, ViewMap view, WallResolver resolver, Facing facing,
+                              int viewportX, int viewportY, Func<string, Surface?> art)
+    {
+        ArgumentNullException.ThrowIfNull(screen);
+        ArgumentNullException.ThrowIfNull(view);
+        ArgumentNullException.ThrowIfNull(resolver);
+        ArgumentNullException.ThrowIfNull(art);
+
+        if (format.DistantWallCount != 5)
+        {
+            return;
+        }
+
+        var (originX, originY) = SquareOrigin(2);
+        int x = originX + viewportX;
+        int y = originY + viewportY;
+        int pWidth = SlotWidth(DrawSlot.P);
+        int jWidth = SlotWidth(DrawSlot.J);
+
+        var left = (Facing)(((int)facing + 3) & 3);
+        bool gateOpen = resolver.HasWall(view, 0, facing) || resolver.HasWall(view, 2, left);
+
+        DrawPair(WallLayer.Wall);
+
+        if (resolver.DoorFirst(view, 2, facing))
+        {
+            DrawDoor();
+            DrawPair(WallLayer.Overlay);
+        }
+        else
+        {
+            DrawPair(WallLayer.Overlay);
+            DrawDoor();
+        }
+
+        void DrawPair(WallLayer layer)
+        {
+            string? file = resolver.ArtFor(view, 2, facing, layer);
+            var sheet = file is null ? null : art(file);
+            if (sheet is null)
+            {
+                return;
+            }
+
+            if (gateOpen)
+            {
+                DrawSlotArt(screen, sheet, DrawSlot.J, x, y);
+            }
+
+            // Offset by J's width, not P's.
+            DrawSlotArt(screen, sheet, DrawSlot.P, x + jWidth, y);
+        }
+
+        void DrawDoor()
+        {
+            string? file = resolver.ArtFor(view, 2, facing, WallLayer.Door);
+            var sheet = file is null ? null : art(file);
+            if (sheet is not null)
+            {
+                // p_width, for a J slot, ungated -- see the remarks.
+                DrawSlotArt(screen, sheet, DrawSlot.J, x + pWidth, y);
+            }
+        }
+    }
+
+    /// <summary>Square 2's gate, exposed for testing. Two disjuncts, no validity term.</summary>
+    public static bool Square2GateOpen(ViewMap view, WallResolver resolver, Facing facing)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        var left = (Facing)(((int)facing + 3) & 3);
+        return resolver.HasWall(view, 0, facing) || resolver.HasWall(view, 2, left);
     }
 
     /// <summary>Which wall of a cell a pass draws, relative to the way the party faces.</summary>
@@ -273,13 +459,4 @@ public sealed class ViewportRenderer(WallFormat format)
         }
     }
 
-    /// <summary>
-    /// <c>RenderSquare0</c>'s occlusion test, named so it can be checked on its own.
-    /// </summary>
-    public static bool ShouldDrawFarSliver(ViewMap view, WallResolver resolver,
-                                           Facing facing, Facing left, Facing right) =>
-        resolver.HasWall(view, 13, facing) ||
-        resolver.HasWall(view, 0, left) ||
-        resolver.HasWall(view, 13, right) ||
-        !resolver.CellExists(view, 13);
 }

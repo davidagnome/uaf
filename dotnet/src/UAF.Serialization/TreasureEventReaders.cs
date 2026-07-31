@@ -4,7 +4,7 @@ namespace UAF.Serialization;
 
 /// <summary>A treasure event — money and items handed to the party.</summary>
 public sealed record TreasureEvent(
-    GameEventBase Base, MoneySack Money, ItemList Items, int SilentGiveToActiveChar);
+    GameEventBase Base, MoneySack Money, ItemList Items, int SilentGiveToActiveChar) : IGameEvent;
 
 /// <summary>
 /// Reads the two treasure events, <c>GIVE_TREASURE_DATA</c> (<c>GameEvent.cpp:7768</c>) and

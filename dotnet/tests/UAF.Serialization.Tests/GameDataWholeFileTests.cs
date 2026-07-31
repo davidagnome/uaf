@@ -105,20 +105,27 @@ public class GameDataWholeFileTests
     }
 
     [Fact]
-    public void A_5x_design_stops_at_the_documented_cell_contents_boundary()
+    public void A_5x_design_reads_through_the_cell_contents_tables()
     {
         string? path = GameDat("dc-default/data-files");
         if (path is null) return;
 
         using var fs = File.OpenRead(path);
         var cursor = GameDataReader.Open(fs);
-
-        // Rather than reading LEVEL_STATS wrongly, the reader refuses and says why. Asserted so the
-        // gap stays visible and cannot be mistaken for coverage.
-        var ex = Assert.Throws<NotSupportedException>(
-            () => GlobalStatsReader.Read(cursor.Body, cursor.Version, ArchiveRole.Editor,
-                                        EventWalkTests.TryPublic));
-        Assert.Contains("m_cellContents", ex.Message);
         Assert.True(cursor.Version >= GlobalStatsTailReaders.CellContentsGate);
+
+        // This test previously asserted the opposite -- that the reader refused here, so the gap
+        // stayed visible. The two 5.x tables are ported now, so the assertion inverts: a design
+        // above the gate must read through rather than stop.
+        var g = GlobalStatsReader.Read(cursor.Body, cursor.Version, ArchiveRole.Editor,
+                                       EventWalkTests.TryPublic);
+
+        Assert.NotNull(g.Levels);
+        Assert.NotEmpty(g.Levels!.Levels);
+        Assert.All(g.Levels.Levels.Values, s =>
+        {
+            Assert.NotNull(s.Overrides);
+            Assert.NotNull(s.Contents);
+        });
     }
 }

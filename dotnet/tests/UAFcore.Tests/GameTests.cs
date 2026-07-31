@@ -776,4 +776,69 @@ public class GameTests
         }
         return hash;
     }
+
+    [Fact]
+    public void A_levels_events_are_retained_rather_than_counted()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var levels = Enumerable.Range(0, design.LevelFiles.Count)
+                               .Select(design.Level)
+                               .Where(l => l is not null)
+                               .ToList();
+
+        Assert.NotEmpty(levels);
+
+        // Until the reader's callback returned the parsed event instead of a bool, LevelFile
+        // carried EventCount and nothing else -- the port could prove it understood every event in
+        // every design and could not hand one to a caller.
+        int total = levels.Sum(l => l!.Events.Count);
+        Assert.True(total > 0, "no level retained a single event");
+
+        foreach (var level in levels)
+        {
+            // Some event types are a bare tag with no body, so the retained count is at most the
+            // declared one rather than equal to it.
+            Assert.True(level!.Events.Count <= level.EventCount,
+                $"retained {level.Events.Count} events but only {level.EventCount} were declared");
+
+            Assert.All(level.Events, e => Assert.NotNull(e.Base));
+        }
+    }
+
+    [Fact]
+    public void Retained_events_carry_their_concrete_types()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var events = Enumerable.Range(0, design.LevelFiles.Count)
+                               .Select(design.Level)
+                               .Where(l => l is not null)
+                               .SelectMany(l => l!.Events)
+                               .ToList();
+
+        if (events.Count == 0)
+        {
+            return;
+        }
+
+        // The interface exists so callers can pattern-match to the subclass they care about --
+        // which is what an event executor will do. More than one distinct type across a design's
+        // levels means the dispatch really is returning what it parsed rather than a placeholder.
+        var kinds = events.Select(e => e.GetType().Name).Distinct().ToList();
+        Assert.True(kinds.Count > 1, $"only one event type retained: {kinds[0]}");
+
+        // Text events are the ones an executor can act on first, and every design has them.
+        Assert.Contains(events, e => e.GetType().Name.Contains("Text", StringComparison.Ordinal));
+    }
 }

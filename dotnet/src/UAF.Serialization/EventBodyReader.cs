@@ -19,23 +19,23 @@ namespace UAF.Serialization;
 /// one dispatcher to keep correct rather than two.
 /// </para>
 /// <para>
-/// <b>Returning false is not "skip".</b> There is no way to skip a body of unknown length, so a
-/// false answer must abort the walk — a caller that treated it as "ignore and continue" would read
+/// <b>Returning null is not "skip".</b> There is no way to step over a body of unknown length, so
+/// a null answer must abort the walk — a caller that treated it as "ignore and continue" would read
 /// the next event's fields out of the middle of this one.
 /// </para>
 /// </remarks>
 public static class EventBodyReader
 {
     /// <summary>
-    /// Reads one event body, or returns false when its type has no reader.
+    /// Reads one event body, or returns null when its type has no reader.
     /// </summary>
     /// <param name="role">
     /// Engine and editor builds serialize several events differently, so this cannot be assumed.
     /// The walk tests use <see cref="ArchiveRole.Editor"/> because that is what the shipped level
     /// files were written by.
     /// </param>
-    public static bool TryRead(IArchiveCursor ar, EventType type, DesignVersion version,
-                               ArchiveRole role)
+    public static IGameEvent? TryRead(IArchiveCursor ar, EventType type, DesignVersion version,
+                                      ArchiveRole role)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -43,93 +43,65 @@ public static class EventBodyReader
         {
             case EventType.Combat:
             case EventType.PickOneCombat:
-                CombatEventReader.Read(ar, version, role);
-                return true;
+                return CombatEventReader.Read(ar, version, role);
             case EventType.TextStatement:
-                TextEventReader.Read(ar, version, role);
-                return true;
+                return TextEventReader.Read(ar, version, role);
             case EventType.GuidedTour:
-                GuidedTourReader.Read(ar, version, role);
-                return true;
+                return GuidedTourReader.Read(ar, version, role);
             case EventType.SpecialItem:
-                SpecialItemEventReader.Read(ar, version, role);
-                return true;
+                return SpecialItemEventReader.Read(ar, version, role);
             case EventType.QuestStage:
-                QuestEventReader.Read(ar, version, role);
-                return true;
+                return QuestEventReader.Read(ar, version, role);
             case EventType.Utilities:
-                UtilitiesEventReader.Read(ar, version, role);
-                return true;
+                return UtilitiesEventReader.Read(ar, version, role);
             case EventType.ChainEventType:
-                SimpleEventReaders.ReadChain(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadChain(ar, version, role);
             case EventType.QuestionList:
-                SimpleEventReaders.ReadQuestionList(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadQuestionList(ar, version, role);
             case EventType.QuestionButton:
-                SimpleEventReaders.ReadQuestionButton(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadQuestionButton(ar, version, role);
             case EventType.QuestionYesNo:
-                SimpleEventReaders.ReadYesNo(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadYesNo(ar, version, role);
             case EventType.PassTime:
-                SimpleEventReaders.ReadPassTime(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadPassTime(ar, version, role);
             case EventType.Stairs:
             case EventType.Teleporter:
             case EventType.TransferModule:
-                SimpleEventReaders.ReadTransfer(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadTransfer(ar, version, role);
             case EventType.LogicBlock:
-                LogicBlockEventReader.Read(ar, version, role);
-                return true;
+                return LogicBlockEventReader.Read(ar, version, role);
             case EventType.NPCSays:
-                MoreEventReaders.ReadNpcSays(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadNpcSays(ar, version, role);
             case EventType.TavernEvent:
-                MoreEventReaders.ReadTavern(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadTavern(ar, version, role);
             case EventType.TempleEvent:
-                MoreEventReaders.ReadTemple(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadTemple(ar, version, role);
             case EventType.ShopEvent:
-                MoreEventReaders.ReadShop(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadShop(ar, version, role);
             case EventType.RemoveNPCEvent:
-                MoreEventReaders.ReadRemoveNpc(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadRemoveNpc(ar, version, role);
             case EventType.Camp:
-                MoreEventReaders.ReadCamp(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadCamp(ar, version, role);
             case EventType.TrainingHallEvent:
-                MoreEventReaders.ReadTrainingHall(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadTrainingHall(ar, version, role);
             case EventType.Sounds:
-                MoreEventReaders.ReadSound(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadSound(ar, version, role);
             case EventType.GainExperience:
-                MoreEventReaders.ReadGainExperience(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadGainExperience(ar, version, role);
             case EventType.FlowControl:
-                MoreEventReaders.ReadFlowControl(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadFlowControl(ar, version, role);
             case EventType.WhoPays:
-                MoreEventReaders.ReadWhoPays(ar, version, role);
-                return true;
+                return MoreEventReaders.ReadWhoPays(ar, version, role);
             case EventType.RandomEvent:
-                SimpleEventReaders.ReadRandom(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadRandom(ar, version, role);
             case EventType.AddNpc:
-                SimpleEventReaders.ReadAddNpc(ar, version, role);
-                return true;
+                return SimpleEventReaders.ReadAddNpc(ar, version, role);
             case EventType.GiveTreasure:
-                TreasureEventReaders.ReadGiveTreasure(ar, version, role);
-                return true;
+                return TreasureEventReaders.ReadGiveTreasure(ar, version, role);
             case EventType.CombatTreasure:
-                TreasureEventReaders.ReadCombatTreasure(ar, version, role);
-                return true;
+                return TreasureEventReaders.ReadCombatTreasure(ar, version, role);
             default:
-                return false;
+                return null;
         }
     }
 }

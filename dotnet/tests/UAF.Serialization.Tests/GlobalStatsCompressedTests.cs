@@ -211,4 +211,60 @@ public class GlobalStatsCompressedTests
         Assert.NotEqual("RunAsVersion", g.Attributes[0].Key);   // the uncompressed file's first key
         Assert.Equal(ExpectedKeys, g.Attributes.Select(e => e.Key));
     }
+
+    [Fact]
+    public void A_five_x_design_reads_past_the_cell_contents_gate()
+    {
+        string? path = GameDat("dc-default/data-files");
+        if (path is null)
+        {
+            return;
+        }
+
+        using var fs = File.OpenRead(path);
+        var cursor = GameDataReader.Open(fs);
+        Assert.True(cursor.Version >= GlobalStatsTailReaders.CellContentsGate);
+
+        // This threw until the two 5.x tables were ported -- LEVEL_STATS carries m_wallOverrides
+        // and m_cellContents above _CELL_CONTENTS_VERSION, and stopping there was why dc-default
+        // could not be walked past its level table at all.
+        var globals = GlobalStatsReader.Read(cursor.Body, cursor.Version);
+
+        Assert.NotNull(globals.Levels);
+        Assert.NotEmpty(globals.Levels!.Levels);
+
+        // Present but empty in every shipped design: the tables are sparse, and a level with no
+        // per-cell overrides writes a zero count rather than nothing at all. Distinguishing
+        // "read an empty table" from "did not read a table" is the point -- a reader that skipped
+        // the counts would desynchronise everything after them.
+        Assert.All(globals.Levels.Levels.Values, stats =>
+        {
+            Assert.NotNull(stats.Overrides);
+            Assert.NotNull(stats.Contents);
+        });
+    }
+
+    [Fact]
+    public void Pre_five_x_designs_have_no_cell_content_tables_at_all()
+    {
+        string? path = GameDat("SomethingWild.dsn/Data");
+        if (path is null)
+        {
+            return;
+        }
+
+        using var fs = File.OpenRead(path);
+        var cursor = GameDataReader.Open(fs);
+        Assert.True(cursor.Version < GlobalStatsTailReaders.CellContentsGate);
+
+        var globals = GlobalStatsReader.Read(cursor.Body, cursor.Version);
+
+        // Null rather than empty: below the gate these bytes are not in the file, and conflating
+        // "absent" with "present and empty" would hide a version-gate mistake.
+        Assert.All(globals.Levels!.Levels.Values, stats =>
+        {
+            Assert.Null(stats.Overrides);
+            Assert.Null(stats.Contents);
+        });
+    }
 }

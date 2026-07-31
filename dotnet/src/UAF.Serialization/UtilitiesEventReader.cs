@@ -7,7 +7,7 @@ public sealed record UtilitiesEvent(
     GameEventBase Base, int EndPlay, int Operation, int ItemCheck,
     byte MathItemType, byte ResultItemType, ushort MathAmount,
     int MathItemIndex, int ResultItemIndex,
-    IReadOnlyList<SpecialObjectEvent> Items);
+    IReadOnlyList<SpecialObjectEvent> Items) : IGameEvent;
 
 /// <summary>
 /// Reads <c>UTILITIES_EVENT_DATA</c> (<c>GameEvent.cpp:10712</c>).

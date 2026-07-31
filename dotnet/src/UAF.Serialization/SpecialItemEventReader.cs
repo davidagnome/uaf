@@ -14,7 +14,7 @@ public sealed record SpecialObjectEvent(byte ItemType, byte Operation, int Index
 /// <summary>A <c>SPECIAL_ITEM_KEY_EVENT_DATA</c> — a gate opened by carrying certain items.</summary>
 public sealed record SpecialItemEvent(
     GameEventBase Base, IReadOnlyList<SpecialObjectEvent> Items,
-    int ForceExit, int WaitForReturn);
+    int ForceExit, int WaitForReturn) : IGameEvent;
 
 /// <summary>
 /// Reads <c>SPECIAL_ITEM_KEY_EVENT_DATA</c> (<c>GameEvent.cpp:9243</c>).

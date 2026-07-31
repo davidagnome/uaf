@@ -17,7 +17,7 @@ public sealed record LogicBlockEvent(
     IReadOnlyList<byte> ActionTypes,
     byte ChainIfFalse, byte ChainIfTrue, byte NoChain,
     IReadOnlyList<byte> Negations, IReadOnlyList<byte> IfTrue,
-    byte Flags, string Misc);
+    byte Flags, string Misc) : IGameEvent;
 
 /// <summary>
 /// Reads <c>LOGIC_BLOCK_DATA</c> (<c>GameEvent.cpp:14103</c>).

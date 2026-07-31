@@ -5,7 +5,7 @@ namespace UAF.Serialization;
 /// <summary>A <c>TEXT_EVENT_DATA</c> — the shared base plus display options and a sound.</summary>
 public sealed record TextEvent(
     GameEventBase Base,
-    int WaitForReturn, int ForceBackup, int HighlightText, int Distance, string Sound);
+    int WaitForReturn, int ForceBackup, int HighlightText, int Distance, string Sound) : IGameEvent;
 
 /// <summary>
 /// Reads <c>TEXT_EVENT_DATA</c> (<c>GameEvent.cpp:8516</c>).

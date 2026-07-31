@@ -3,30 +3,30 @@ using UAF.Common;
 namespace UAF.Serialization;
 
 /// <summary>A <c>SOUND_EVENT</c> — plays a queue of sounds.</summary>
-public sealed record SoundEvent(GameEventBase Base, IReadOnlyList<string> Sounds);
+public sealed record SoundEvent(GameEventBase Base, IReadOnlyList<string> Sounds) : IGameEvent;
 
 /// <summary>A <c>GAIN_EXP_DATA</c> — awards experience.</summary>
 public sealed record GainExperienceEvent(
-    GameEventBase Base, int Experience, string Sound, int Chance, int Who);
+    GameEventBase Base, int Experience, string Sound, int Chance, int Who) : IGameEvent;
 
 /// <summary>A <c>FLOW_CONTROL_EVENT_DATA</c> — named markers and global-variable actions.</summary>
 public sealed record FlowControlEvent(
     GameEventBase Base, int Version,
     string EntryMarker, string ExitMarker, string DestinationMarker,
     string GlobalVariableName, string Value,
-    uint DestinationId, int ValueModification, int ActionCondition, int Action, uint Flags);
+    uint DestinationId, int ValueModification, int ActionCondition, int Action, uint Flags) : IGameEvent;
 
 /// <summary>A <c>WHO_PAYS_EVENT_DATA</c> — a toll, with success and failure transfers.</summary>
 public sealed record WhoPaysEvent(
     GameEventBase Base, int Impossible, int Gems, int Jewels, int Platinum,
     uint SuccessChain, int SuccessAction, int FailAction, uint FailChain, int MoneyType,
-    TransferData SuccessTransfer, TransferData FailTransfer);
+    TransferData SuccessTransfer, TransferData FailTransfer) : IGameEvent;
 
 /// <summary>A <c>REMOVE_NPC_DATA</c> — removes an NPC from the party.</summary>
-public sealed record RemoveNpcEvent(GameEventBase Base, int Distance, string CharacterId);
+public sealed record RemoveNpcEvent(GameEventBase Base, int Distance, string CharacterId) : IGameEvent;
 
 /// <summary>A <c>CAMP_EVENT_DATA</c> — lets the party rest.</summary>
-public sealed record CampEvent(GameEventBase Base, int ForceExit);
+public sealed record CampEvent(GameEventBase Base, int ForceExit) : IGameEvent;
 
 /// <summary>One baseclass a training hall will train, and the levels it covers.</summary>
 public sealed record TrainableBaseclass(
@@ -34,13 +34,13 @@ public sealed record TrainableBaseclass(
 
 /// <summary>A <c>TRAININGHALL</c> — levels up characters of listed baseclasses.</summary>
 public sealed record TrainingHallEvent(
-    GameEventBase Base, int ForceExit, IReadOnlyList<TrainableBaseclass> Trainable, int Cost);
+    GameEventBase Base, int ForceExit, IReadOnlyList<TrainableBaseclass> Trainable, int Cost) : IGameEvent;
 
 /// <summary>A <c>SHOP</c> — buys and sells items, with optional identify/appraise services.</summary>
 public sealed record ShopEvent(
     GameEventBase Base, int ForceExit, int CostFactor, int CostToIdentify,
     int BuybackPercentage, int CanIdentify, int CanAppraiseGems, int CanAppraiseJewels,
-    int BuyItemsSoldOnly, ItemList ItemsAvailable);
+    int BuyItemsSoldOnly, ItemList ItemsAvailable) : IGameEvent;
 
 /// <summary>One spell in a spell book.</summary>
 public sealed record CharacterSpell(string SpellId, int Memorized, int Level, int Selected);
@@ -51,7 +51,7 @@ public sealed record SpellBook(int UseLimits, IReadOnlyList<CharacterSpell> Spel
 /// <summary>A <c>TEMPLE</c> — healing services and donations.</summary>
 public sealed record TempleEvent(
     GameEventBase Base, int ForceExit, int AllowDonations, int CostFactor, int MaxLevel,
-    int DonationTrigger, uint DonationChain, SpellBook TempleSpells, int TotalDonation);
+    int DonationTrigger, uint DonationChain, SpellBook TempleSpells, int TotalDonation) : IGameEvent;
 
 /// <summary>One tavern tale, and how many times it has been told.</summary>
 public sealed record Tale(string Text, int Count);
@@ -64,12 +64,12 @@ public sealed record TavernEvent(
     GameEventBase Base, int ForceExit, int Inflation, int Barkeep,
     int AllowFights, int AllowDrinks, uint FightChain, uint DrinkChain,
     int DrinkPointTrigger, int TaleOrder, int EachTaleOnceOnly,
-    IReadOnlyList<Tale> Tales, IReadOnlyList<Drink> Drinks);
+    IReadOnlyList<Tale> Tales, IReadOnlyList<Drink> Drinks) : IGameEvent;
 
 /// <summary>An <c>NPC_SAYS_DATA</c> — an NPC speaks to the party.</summary>
 public sealed record NpcSaysEvent(
     GameEventBase Base, string CharacterId, int Distance, string Sound,
-    int MustHitReturn, int Highlight);
+    int MustHitReturn, int Highlight) : IGameEvent;
 
 /// <summary>Further event subclasses.</summary>
 public static class MoreEventReaders

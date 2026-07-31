@@ -5,7 +5,7 @@ namespace UAF.Serialization;
 /// <summary>A <c>QUEST_EVENT_DATA</c> — advances or resolves a quest stage.</summary>
 public sealed record QuestEvent(
     GameEventBase Base, int Operation, int CompleteOnAccept, int FailOnRejection,
-    int Quest, ushort Stage, uint AcceptChain, uint RejectChain);
+    int Quest, ushort Stage, uint AcceptChain, uint RejectChain) : IGameEvent;
 
 /// <summary>
 /// Reads <c>QUEST_EVENT_DATA</c> (<c>GameEvent.cpp:9458</c>).

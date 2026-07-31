@@ -278,8 +278,7 @@ public class WallResolverTests
         var view = ViewMap.For(0, 0, Facing.North, 4, 4);
 
         Assert.False(resolver.CellExists(view, 13));
-        Assert.True(ViewportRenderer.ShouldDrawFarSliver(
-            view, resolver, Facing.North, Facing.West, Facing.East));
+        Assert.True(ViewportRenderer.FarSquareGateOpen(view, resolver, Facing.North, 0));
     }
 
     [Fact]
@@ -298,8 +297,7 @@ public class WallResolverTests
         var view = ViewMap.For(10, 10, Facing.North, 20, 20);
 
         Assert.True(resolver.CellExists(view, 13));
-        Assert.False(ViewportRenderer.ShouldDrawFarSliver(
-            view, resolver, Facing.North, Facing.West, Facing.East));
+        Assert.False(ViewportRenderer.FarSquareGateOpen(view, resolver, Facing.North, 0));
     }
 
     [Fact]
@@ -320,8 +318,7 @@ public class WallResolverTests
         var resolver = new WallResolver(new Map(20, 20, cells), [Set("only")]);
 
         Assert.True(resolver.HasWall(view, 0, Facing.West));
-        Assert.True(ViewportRenderer.ShouldDrawFarSliver(
-            view, resolver, Facing.North, Facing.West, Facing.East));
+        Assert.True(ViewportRenderer.FarSquareGateOpen(view, resolver, Facing.North, 0));
     }
 
     /// <summary>A minimal one-band wall format, so the renderer can be built without a design.</summary>
@@ -336,7 +333,18 @@ public class WallResolverTests
         for (int slot = 0; slot < WallFormat.MaxSlotTypes; slot++)
         {
             char letter = WallFormat.SlotLetter(slot);
-            int width = slot == 4 ? 112 : slot == 7 ? 48 : slot >= 8 ? 16 : 32;
+            // P (15) and J (9) are given different widths on purpose: square 2 offsets P by J's
+            // width, and a fixture where they match cannot tell a correct renderer from one using
+            // the wrong one.
+            int width = slot switch
+            {
+                4 => 112,        // E, the front wall
+                7 => 48,         // H
+                9 => 24,         // J
+                15 => 16,        // P
+                >= 8 => 16,
+                _ => 32,
+            };
             lines.Add($"{letter}1_WALL_RECT = 0,0,{width},211");
             lines.Add($"{letter}1_OFF = 0,0");
         }
@@ -347,5 +355,88 @@ public class WallResolverTests
         }
 
         return [.. lines];
+    }
+
+    [Fact]
+    public void The_two_far_squares_gate_opposite_slots()
+    {
+        // Square 0 draws J always and gates P; square 1 draws P always and gates J. Reading
+        // "square 1 is square 0 mirrored" as "the same slot is conditional" puts the wrong sliver
+        // on one side of every corridor, and nothing else would catch it.
+        var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
+        var renderer = new ViewportRenderer(WallFormatReader.ReadAll(config)[0]);
+
+        var cells = new AreaMapCell[400];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            cells[i] = Cell(0, 0, 0, 0);
+        }
+
+        // Mid-map so slots 13 and 14 both land inside it: with no walls anywhere, both gates are
+        // shut and only the unconditional slot of each square draws.
+        var map = new Map(20, 20, cells);
+        var resolver = new WallResolver(map, [Set("unused"), Set("only")]);
+        var view = ViewMap.For(10, 10, Facing.North, 20, 20);
+
+        Assert.False(ViewportRenderer.FarSquareGateOpen(view, resolver, Facing.North, 0));
+        Assert.False(ViewportRenderer.FarSquareGateOpen(view, resolver, Facing.North, 1));
+
+        // Square 0's gate is opened by its own *left* face; square 1's by its own *right*.
+        // Setting the left face of square 0's cell must open one and not the other.
+        var (sq0x, sq0y) = view[0];
+        cells[(sq0y * 20) + sq0x] = Cell(0, 0, 0, 1);        // west face
+        var opened = new WallResolver(new Map(20, 20, cells), [Set("unused"), Set("only")]);
+
+        Assert.True(ViewportRenderer.FarSquareGateOpen(view, opened, Facing.North, 0));
+        Assert.False(ViewportRenderer.FarSquareGateOpen(view, opened, Facing.North, 1));
+    }
+
+    [Fact]
+    public void A_far_square_helper_refuses_squares_it_does_not_cover()
+    {
+        var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
+        var renderer = new ViewportRenderer(WallFormatReader.ReadAll(config)[0]);
+        var map = BuildMap();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => renderer.RenderFarSquare(
+            new UAF.Media.Surface(64, 64), ViewMap.For(1, 1, Facing.North, 4, 4), Resolver(map),
+            Facing.North, square: 2, 0, 0, _ => null));
+    }
+
+    [Fact]
+    public void Square_2_gate_has_only_two_disjuncts_and_no_validity_term()
+    {
+        // Unlike squares 0 and 1, square 2's gate never asks whether a cell exists -- so putting
+        // the party where slot 0 falls off the map must NOT open it. That asymmetry between
+        // otherwise similar routines is exactly the kind of thing a shared helper would erase.
+        var cells = new AreaMapCell[400];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            cells[i] = Cell(0, 0, 0, 0);
+        }
+
+        var map = new Map(20, 20, cells);
+        var resolver = new WallResolver(map, [Set("unused"), Set("only")]);
+        var view = ViewMap.For(10, 10, Facing.North, 20, 20);
+
+        Assert.False(ViewportRenderer.Square2GateOpen(view, resolver, Facing.North));
+
+        // A wall on the facing side of slot 0 opens it.
+        var (x0, y0) = view[0];
+        cells[(y0 * 20) + x0] = Cell(1, 0, 0, 0);
+        var opened = new WallResolver(new Map(20, 20, cells), [Set("unused"), Set("only")]);
+        Assert.True(ViewportRenderer.Square2GateOpen(view, opened, Facing.North));
+    }
+
+    [Fact]
+    public void Square_2_offsets_P_by_Js_width_not_its_own()
+    {
+        // The original computes both widths and uses the other one. With P at 16 and J at 88 in
+        // this fixture the two are far apart, so a renderer using P's own width would place it
+        // 72 pixels off -- silently, and only on this one square.
+        var config = UAF.Data.DesignConfig.Parse(BuildFormatConfig());
+        var renderer = new ViewportRenderer(WallFormatReader.ReadAll(config)[0]);
+
+        Assert.NotEqual(renderer.SlotWidth(DrawSlot.P), renderer.SlotWidth(DrawSlot.J));
     }
 }
