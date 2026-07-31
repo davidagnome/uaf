@@ -1352,7 +1352,7 @@ Phase 5, since its only consumer is the editor.
 | Presentation | `IPresenter` with an SDL3 streaming-texture implementation and a frame-hashing headless one |
 | Audio | WAV/MP3 decoders, MeltySynth MIDI, resampler, software mixer, deterministic music queues, `IAudioBackend`, SDL3 device |
 | Video | `IVideoDecoder`/`IVideoDecoderFactory` + `MoviePlayer` (timing, letterboxing, skip). **The FFmpeg adapter is not written** — see below |
-| Bitmap fonts | **Portable half done.** `FontAtlas` + `BitmapFont` cover cell packing, measurement, drawing, clipping and alignment. The rasteriser that fills an atlas is still open — see below |
+| Bitmap fonts | **Done.** `FontAtlas` + `BitmapFont` (portable) and `SdlFontRasterizer` over SDL3_ttf, with PT Serif bundled in all four styles as the substitute for Windows' `SYSTEM` raster face |
 | Image loaders | **PNG done**, hand-written and verified against libpng on all 1312 reference PNGs. `ImageLoader` sniffs signatures as the C++ did; BMP/PCX/JPG/TGA are recognised but not decoded — see below |
 
 208 tests, green on a machine with no display and no sound card. The SDL tests drive the real
@@ -1388,13 +1388,42 @@ one atlas and tints at draw time. That is better rather than merely cheaper — 
 edges blend glyph colour toward the background, and since the colour key removes only *exact*
 background matches, the original's non-white fonts carry wrong-hued fringes.
 
-**Still open: the rasteriser.** `ppy.SDL3_ttf-CS` is the intended route. Two things to settle when
-it is written. Antialiasing should be **off** (`TTF_HINTING_MONO`, solid rendering): `SYSTEM` is a
-Windows raster font with no AA, and a non-antialiased atlas is what makes the flat colour
-replacement in `BitmapFont.TintBlit` correct rather than approximate. And `SYSTEM` itself has no
-TrueType equivalent to load, so the most-used face in the corpus needs a substitute chosen
-deliberately — that is the one remaining decision, and it is a visual-fidelity question, not a
-technical one.
+**The rasteriser** is `SdlFontRasterizer` over `ppy.SDL3_ttf-CS`. It measures all 256 codepage
+bytes, packs them with `FontAtlas.Layout`, and renders each into its cell — the original's
+structure, minus the per-glyph clip region it needed (`CDXBitmapFont.cpp:277-282`) to stop
+descenders bleeding into neighbouring cells, which cannot happen when each glyph is rendered to
+its own surface.
+
+Three things settled while building it:
+
+- **The advance comes from `TTF_GetStringSize`, not from the rendered bitmap's width.** They are
+  different numbers, and the original used the former (`GetTextExtentPoint32` reports the advance).
+  A space renders to an empty bitmap but has a real advance; taking the surface width would
+  collapse every gap between words in the game.
+- **Coverage is stored as a grey ramp, not thresholded.** The atlas cannot use its alpha byte —
+  `Surface` treats alpha as meaningless and forces it opaque — so glyphs are rendered white on
+  black and the grey level *is* the coverage, which `BitmapFont` reads back as a blend weight. An
+  earlier revision thresholded it, which does not produce aliased text: it produces text **dilated
+  by about a pixel all round**, and it passed every other test.
+- **Antialiasing off remains the faithful default**, since `SYSTEM` is a raster face. With coverage
+  stored properly the blend degenerates to an exact flat replacement at 1-bit, so the option costs
+  the faithful path nothing.
+
+**The substitute face is PT Serif** (SIL OFL 1.1, © ParaType), bundled in all four styles —
+regular, bold, italic, bold-italic — rather than synthesising the last three, because designs carry
+weight and italic in their `LOGFONT` and SDL_ttf's synthetic italic is a shear, not a set of drawn
+letterforms. About 840 KB embedded. It is a text face rather than a display one, which suits what
+this engine actually draws: dense UI at 13 and 16 pixels. It is not a metric match and nothing
+could be one, since the original's advances came from a bitmap face, so text will not wrap
+identically to the C++ build.
+
+**A correction worth keeping.** An earlier revision of this section claimed the bundled face lacked
+Windows-1252 `0x80`–`0x9F` and shipped a substitution table to paper over it. There was no gap. The
+audit had checked whether Unicode `U+0080`–`U+009F` were present — those are C1 control characters
+and no font has them — instead of the codepoints Windows-1252 actually maps that block to,
+`U+2018`…`U+2026`. Both the finding and the table it justified were deleted. This is the third
+instance in this port of a conclusion drawn from the wrong first lookup rather than from the
+source; the other two are recorded in §6.2 and in the type-trap list of `docs/SERIALIZATION.md`.
 
 ##### The image decoder, and the SDL3_image question
 

@@ -23,6 +23,10 @@
          and UAF.Media only decodes PNG. It sits in this project rather than UAF.Media so the
          platform-agnostic half keeps its no-native-dependency guarantee. -->
     <PackageReference Include="ppy.SDL3_image-CS" Version="2026.722.0" />
+
+    <!-- MIT binding over zlib-licensed SDL3_ttf (FreeType inside). Replaces CDXBitmapFont's GDI
+         rasterisation, which is the only part of the font layer that needs a platform. -->
+    <PackageReference Include="ppy.SDL3_ttf-CS" Version="2026.722.0" />
   </ItemGroup>
 
   <ItemGroup>

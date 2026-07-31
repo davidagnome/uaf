@@ -23,4 +23,19 @@
     <PackageReference Include="NLayer" Version="2.0.1" />
   </ItemGroup>
 
+  <!-- PT Serif, SIL Open Font License 1.1, (c) ParaType Ltd (see Assets/Fonts/OFL.txt). Bundled
+       because the most-used face in the reference designs is Windows' SYSTEM raster font, which
+       has no TrueType equivalent to load on any platform - including Windows.
+
+       All four styles are embedded rather than synthesising bold and italic from the regular:
+       designs carry weight and italic in their LOGFONT, and a real italic is a different set of
+       letterforms, not a sheared upright. About 840 KB in total. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\Fonts\PTSerif-Regular.ttf" />
+    <EmbeddedResource Include="Assets\Fonts\PTSerif-Bold.ttf" />
+    <EmbeddedResource Include="Assets\Fonts\PTSerif-Italic.ttf" />
+    <EmbeddedResource Include="Assets\Fonts\PTSerif-BoldItalic.ttf" />
+    <None Include="Assets\Fonts\OFL.txt" Pack="true" PackagePath="" />
+  </ItemGroup>
+
 </Project>

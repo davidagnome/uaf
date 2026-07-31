@@ -241,11 +241,17 @@ public sealed class BitmapFont(FontAtlas atlas)
     /// Blits a cell with every non-key pixel replaced by <paramref name="colour"/>.
     /// </summary>
     /// <remarks>
-    /// Deliberately a flat replacement rather than a multiply. The atlas cells this port targets
-    /// are solid-colour glyphs on a keyed background — the shape carries the information, not the
-    /// intensity — so multiplying would darken a white glyph toward the tint twice over. A
-    /// coverage-based rasteriser that emits antialiased edges will want a weighted blend instead,
-    /// which is a change to make when such a rasteriser exists rather than in anticipation of one.
+    /// <para>
+    /// A glyph pixel's grey level <i>is</i> its coverage: the rasteriser renders white on black, so
+    /// a fully covered pixel is 0xFF and an edge pixel is somewhere between. This blends the tint
+    /// onto the destination by that weight.
+    /// </para>
+    /// <para>
+    /// For a non-antialiased atlas — the default, and what matches the original's raster
+    /// <c>SYSTEM</c> face — every pixel is 0 or 0xFF, so the blend degenerates to exactly the flat
+    /// replacement it would otherwise be, at no cost. Thresholding instead would not merely
+    /// approximate antialiased text, it would dilate it by about a pixel all round.
+    /// </para>
     /// </remarks>
     private void TintBlit(Surface destination, int x, int y, SurfaceRect source, uint colour,
                           bool transparent)
@@ -277,8 +283,26 @@ public sealed class BitmapFont(FontAtlas atlas)
                     continue;
                 }
 
-                destination[destinationX, destinationY] = colour | 0xFF000000u;
+                int coverage = (int)(pixel & 0xFF);
+                if (coverage == 0)
+                {
+                    continue;
+                }
+
+                destination[destinationX, destinationY] = coverage == 0xFF
+                    ? colour | 0xFF000000u
+                    : Mix(colour, destination[destinationX, destinationY], coverage);
             }
         }
+    }
+
+    /// <summary>Blends <paramref name="ink"/> over <paramref name="under"/> by a 0–255 weight.</summary>
+    private static uint Mix(uint ink, uint under, int weight)
+    {
+        int inverse = 255 - weight;
+        uint r = (uint)(((((ink >> 16) & 0xFF) * weight) + (((under >> 16) & 0xFF) * inverse)) / 255);
+        uint g = (uint)(((((ink >> 8) & 0xFF) * weight) + (((under >> 8) & 0xFF) * inverse)) / 255);
+        uint b = (uint)((((ink & 0xFF) * weight) + ((under & 0xFF) * inverse)) / 255);
+        return 0xFF000000u | (r << 16) | (g << 8) | b;
     }
 }
