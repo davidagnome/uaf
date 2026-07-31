@@ -179,7 +179,13 @@ public class WallResolverTests
         // draw their front face from H but pair it with N, O, and F+G respectively.
         var passes = ViewportRenderer.SquarePasses;
 
-        Assert.Equal(7, passes.Count);
+        Assert.Equal(8, passes.Count);
+
+        // Square 12 is the party's own cell: the front wall you face plus both near side walls.
+        Assert.Equal(3, passes[12].Length);
+        Assert.Equal(DrawSlot.E, passes[12][0].Slot);
+        Assert.Equal(DrawSlot.A, passes[12][1].Slot);
+        Assert.Equal(DrawSlot.B, passes[12][2].Slot);
         Assert.Equal(DrawSlot.D, passes[10].Single().Slot);
         Assert.Equal(DrawSlot.C, passes[11].Single().Slot);
 
@@ -198,7 +204,7 @@ public class WallResolverTests
         Assert.Equal(ViewportRenderer.PassDirection.Right, passes[8][1].Direction);
 
         // The eight squares with occlusion tests are deliberately absent.
-        foreach (int square in new[] { 0, 1, 2, 3, 4, 12, 13, 14 })
+        foreach (int square in new[] { 0, 1, 2, 3, 4, 13, 14 })
         {
             Assert.False(passes.ContainsKey(square), $"square {square} should need its own routine");
         }
