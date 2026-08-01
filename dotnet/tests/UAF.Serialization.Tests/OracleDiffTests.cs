@@ -200,4 +200,80 @@ public class OracleDiffTests
         Assert.Equal(g.GetProperty("backgroundArt").GetString(), backgroundArt);
         Assert.Equal(string.Empty, backgroundArt);
     }
+
+    /// <summary>
+    /// Diffs the baseclass reader against the reference — <b>on the design the reference actually
+    /// had in memory</b>, which is not the one the dump is named after.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The golden reports 13 baseclasses for <c>DefaultDesign</c>, and its own
+    /// <c>baseclass.dat</c> holds 7. Neither number is wrong: the file's records are <c>Bcd1</c>,
+    /// below the floor at <c>class.cpp:5731</c>, so the reference refuses them and
+    /// <c>LoadUADefaults</c> fills in 13 built-in baseclasses instead. The dump therefore describes
+    /// the editor's defaults rather than anything on disk — which is a trap for anyone comparing
+    /// the two directly, and the reason this test does not.
+    /// </para>
+    /// <para>
+    /// Those defaults are readable, though: the Oracle workflow's <c>-savedesign</c> pass writes
+    /// them out at 5.29 as <c>Bcd5</c>, which is the design kept at <c>reference/ci-tier3</c>. So
+    /// the C++ wrote these records and the C# reads them back, which is a genuine cross-check of
+    /// the reader rather than the reader confirming itself.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Baseclass_names_round_trip_from_the_reference_that_wrote_them()
+    {
+        if (Golden() is not { } root) { return; }
+
+        var expected = root.GetProperty("baseclassNames")
+                           .EnumerateArray()
+                           .Select(e => e.GetString())
+                           .ToArray();
+
+        Assert.Equal(13, expected.Length);
+        Assert.Equal(root.GetProperty("counts").GetProperty("baseclasses").GetInt32(),
+                     expected.Length);
+
+        string saved = Path.Combine(RepoRoot(), "reference", "ci-tier3");
+        if (!Directory.Exists(saved)) { return; }   // the CI-saved design is gitignored
+
+        string path = Path.Combine(saved, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Baseclass));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Baseclass, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            var ours = BaseclassRecordReader.ReadAll(body, header.Count)
+                                            .Select(r => r.Name)
+                                            .ToArray();
+
+            Assert.Equal(expected, ours);
+
+            // And the whole file is consumed, which is what says every record's tail was read.
+            Assert.Throws<EndOfStreamException>(() => body.ReadBytes(1));
+        }
+    }
+
+    /// <summary>
+    /// The reference reads no baseclasses at all from <c>DefaultDesign</c>'s own file, and this
+    /// port refuses it for the same reason.
+    /// </summary>
+    [Fact]
+    public void The_designs_own_baseclass_file_is_refused_by_both_implementations()
+    {
+        if (Golden() is not { } root) { return; }
+
+        // 13 defaults, against 7 records actually in the file: proof the reference did not read it.
+        Assert.Equal(13, root.GetProperty("counts").GetProperty("baseclasses").GetInt32());
+
+        string path = DataFile("baseclass.dat");
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Baseclass, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            Assert.Equal(7u, header.Count);
+            Assert.Throws<InvalidDataException>(() => BaseclassRecordReader.Read(body));
+        }
+    }
 }

@@ -1769,10 +1769,21 @@ database has no per-record length, so record *n* is reachable only by having con
 > concluding "that is the last piece" from where the drift *appeared* rather than from reading the
 > loading branch to its end. A byte map only shows you the structure you already suspect.
 
-> **`baseclass.dat` now has an oracle too.** `DumpJson.cpp` emits `baseclassNames` for every record
-> plus full detail for the first three. Note `DefaultDesign` cannot exercise it — its `Bcd1` is
-> below the engine's floor, so the reference loads nothing — but the workflow's `-savedesign` dump
-> upgrades a copy to 5.29 and yields the 13-record `Bcd5` file above.
+> **`baseclass.dat` now has an oracle, and it has been diffed.** `DumpJson.cpp` emits
+> `baseclassNames` for every record plus full detail for the first three.
+>
+> **The dump is not describing the file, and that is a trap worth stating plainly.** The golden
+> reports **13** baseclasses for `DefaultDesign` while its `baseclass.dat` holds **7**. Neither is
+> wrong: the file's records are `Bcd1`, below the floor at `class.cpp:5731`, so the reference
+> refuses them and `LoadUADefaults` supplies 13 built-ins instead. Comparing the dump against the
+> file directly would look like a 6-record disagreement and be neither implementation's fault.
+>
+> Those defaults *are* readable, because the workflow's `-savedesign` pass writes them out at 5.29
+> as `Bcd5` — the design kept at `reference/ci-tier3`. Reading it back gives
+> `Fighter, Cleric, Ranger, Paladin, Magic User, Thief, Druid` plus six lowercase duplicates, in
+> exactly the golden's order, and consumes the file to its last byte. The C++ wrote those records
+> and the C# reads them back, which is a real cross-check rather than the reader confirming itself
+> — and it is the first thing to have independently corroborated the EOF-walk evidence.
 
 > The reverted attempt is the point of this section. A drifted reader on this file produces
 > plausible-looking records, and `baseclass.dat` has **no oracle** — the dumper does not emit it,

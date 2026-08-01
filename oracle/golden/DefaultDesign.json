@@ -17,13 +17,365 @@
       "loadDesign reported failure but data is present (likely CheckLevelVersions declining the Level000->Level001 rename) - continuing",
       "items    -> 285 (via loadDesign)",
       "monsters -> 44 (via loadDesign)",
-      "spells   -> 117 (via loadDesign)"
+      "spells   -> 117 (via loadDesign)",
+      "baseclasses -> 13 (via loadDesign)"
     ],
     "engineVersion": 5.29,
     "ok": true,
     "productVersion": 5.29
   },
+  "baseclassDetails": [
+    {
+      "abilityRequirements": [
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 100,
+          "min": 9,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        }
+      ],
+      "allowedAlignments": 511,
+      "allowedRaces": [],
+      "castingInfoCount": 0,
+      "expLevels": [],
+      "hitDice": [
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        },
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        },
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        }
+      ],
+      "name": "Fighter",
+      "preSpellNameKey": -1,
+      "thac0": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "abilityRequirements": [
+        {
+          "abilityId": "",
+          "max": 3,
+          "maxMod": 0,
+          "min": 18,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 3,
+          "maxMod": 0,
+          "min": 18,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 3,
+          "maxMod": 0,
+          "min": 18,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 3,
+          "maxMod": 0,
+          "min": 18,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 3,
+          "maxMod": 0,
+          "min": 18,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 3,
+          "maxMod": 0,
+          "min": 18,
+          "minMod": 0
+        }
+      ],
+      "allowedAlignments": 511,
+      "allowedRaces": [],
+      "castingInfoCount": 0,
+      "expLevels": [],
+      "hitDice": [
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        },
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        },
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        }
+      ],
+      "name": "Cleric",
+      "preSpellNameKey": -1,
+      "thac0": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "abilityRequirements": [
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 3,
+          "minMod": 0
+        },
+        {
+          "abilityId": "",
+          "max": 18,
+          "maxMod": 0,
+          "min": 9,
+          "minMod": 0
+        }
+      ],
+      "allowedAlignments": 7,
+      "allowedRaces": [],
+      "castingInfoCount": 0,
+      "expLevels": [],
+      "hitDice": [
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        },
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        },
+        {
+          "bonus": 0,
+          "nbr": 0,
+          "sides": 0
+        }
+      ],
+      "name": "Ranger",
+      "preSpellNameKey": -1,
+      "thac0": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "baseclassNames": [
+    "Fighter",
+    "Cleric",
+    "Ranger",
+    "Paladin",
+    "Magic User",
+    "Thief",
+    "Druid",
+    "fighter",
+    "cleric",
+    "ranger",
+    "paladin",
+    "thief",
+    "druid"
+  ],
   "counts": {
+    "baseclasses": 13,
     "items": 285,
     "monsters": 44,
     "spells": 117
