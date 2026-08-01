@@ -12,9 +12,9 @@ namespace UAFcore;
 /// tables are transcribed from <c>CharStatsForm.cpp:54-86</c>.
 /// </para>
 /// <para>
-/// <b>The derived combat fields are deliberately left empty.</b> Armour class, THAC0, damage,
-/// encumbrance and movement come from <c>GameRules.cpp</c>, which is not ported —
-/// <c>CHARACTER::GetAdjAC</c> alone folds in armour, dexterity, spell effects and racial
+/// <b>Encumbrance and movement are filled in; armour class, THAC0 and damage are not.</b> The first
+/// two are self-contained tables over a strength score (<see cref="Encumbrance"/>); the rest need
+/// the parts of <c>GameRules.cpp</c> that fold in armour, dexterity, spell effects and racial
 /// adjustments. The record carries a stored <c>ArmorClass</c>, but it is the value as saved rather
 /// than the adjusted one the sheet shows, and printing it would look right while being wrong for
 /// any character wearing anything.
@@ -75,7 +75,10 @@ public static class CharacterSheetBuilder
             MaxHits: $"/{character.MaxHitPoints}",
             ExperienceLines: experience,
             Abilities: Abilities(record.Abilities),
-            Coins: Coins(character));
+            Coins: Coins(character),
+            Thac0: Thac0Of(character, baseclasses),
+            Encumbrance: $"{record.Encumbrance}",
+            Movement: $"{Movement(record)}");
     }
 
     /// <summary>
@@ -134,6 +137,50 @@ public static class CharacterSheetBuilder
             scores.Charisma.ToString(),
         ];
     }
+
+    /// <summary>
+    /// The character's attack number, from its baseclasses' own tables.
+    /// </summary>
+    /// <remarks>
+    /// Blank when the design's baseclasses cannot be read, rather than the unskilled 20 — an
+    /// unreadable database is not the same as a character who cannot fight, and a plausible wrong
+    /// number is worse than an empty field.
+    /// </remarks>
+    private static string Thac0Of(
+        Character character,
+        IReadOnlyDictionary<string, UAF.Serialization.BaseclassRecord>? baseclasses)
+    {
+        if (baseclasses is null)
+        {
+            return string.Empty;
+        }
+
+        var standings = new List<BaseclassStanding>();
+        foreach (var progress in character.Baseclasses)
+        {
+            if (baseclasses.TryGetValue(progress.BaseclassId, out var baseclass))
+            {
+                standings.Add(new BaseclassStanding(progress.CurrentLevel, progress.PreviousLevel,
+                                                    baseclass.Thac0));
+            }
+        }
+
+        return standings.Count > 0 ? Thac0.ForCharacter(standings).ToString() : string.Empty;
+    }
+
+    /// <summary>
+    /// The movement rate the character's load allows (<c>determineMaxMovement</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference divides by the <i>effective</i> encumbrance, which ignores magical items</b>
+    /// (<c>determineEffectiveEncumbrance</c>); this uses the stored total, because item records are
+    /// not resolved here. The two agree for a character carrying nothing magical, and this one
+    /// reports a character as slower than they are otherwise — the safe direction, and recorded
+    /// rather than hidden.
+    /// </remarks>
+    private static int Movement(UAF.Serialization.CharacterRecord record) =>
+        Encumbrance.MaxMovementFor(record.Encumbrance,
+                                   record.Abilities.Strength, record.Abilities.StrengthMod);
 
     /// <summary>The character's purse, with the design's own coin names.</summary>
     private static ItemsFormCoin[] Coins(Character character)

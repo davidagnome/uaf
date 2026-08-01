@@ -2224,8 +2224,45 @@ Second: **levelling**, as `Levelling` — `GetLevel`, `GetAllowedLevel`, `IsRead
 reading the design author's stored flag, falling back to the flag when `baseclass.dat` cannot be
 read — which is the real state for `DefaultDesign`, whose `Bcd1` the reference engine refuses too.
 
-Still nothing of `GameRules.cpp` (4,167 lines) — combat math, saving throws, THAC0. That is Phase
-2's other half and it is still ahead.
+Third: the **encumbrance and movement tables** (`GameRules.cpp:2109`, `Char.cpp:5719`), as
+`Encumbrance` — the first piece of `GameRules.cpp` in the port, chosen because it is entirely
+self-contained: two tables over a strength score, no equipment or spell effects involved. The
+character sheet now shows both.
+
+- **The allowance is a table, not a formula** — the steps are irregular (350, 100, 200, 350, 500 …)
+  and the exceptional-strength bands are irregular again. Strengths 19–25 are the project's own
+  addition to the original rules.
+- **A strength of 3 or below computes to exactly zero and is floored at 1.** That matters because
+  the movement bands divide the carried weight by it; a zero would make such a character maximally
+  encumbered no matter what they carried.
+- **The percentile is read as a `BYTE`**, so 256 wraps to 0 rather than saturating at the top band.
+- **The bottom movement band is 1, not 0** — a character loaded past four times their allowance
+  still moves, barely.
+
+> One deviation, recorded rather than hidden: the reference divides by the **effective**
+> encumbrance, which ignores magical items (`determineEffectiveEncumbrance`), while this uses the
+> stored total because item records are not resolved in the sheet builder. The two agree for a
+> character carrying nothing magical, and this errs toward reporting a character as slower than
+> they are.
+
+Fourth: **THAC0**, as `Thac0` — the attack number, from each baseclass's own 40-byte table. The
+sheet shows it, so three of its five derived fields are now filled.
+
+- **There are two definitions of `getCharTHAC0` and only one is compiled.** They sit either side of
+  `#ifdef OldDualClass20180126`, which is defined nowhere in the tree, so the `#else` half
+  (`Char.cpp:6023`) is live and the other is dead. Checking before transcribing is the
+  `ProjectVersion.h` lesson; here the two halves differ.
+- **Lower is better, so the best baseclass wins.** The walk starts at 20 and keeps the *minimum*,
+  which is why a fighter/mage attacks as a fighter.
+- **A drained baseclass keeps the number it had**, through `previousLevel` rather than falling back
+  to unskilled.
+- **`CanUseBaseclass` is the dual-class rule** (`Char.cpp:7427`): a *previous* baseclass counts only
+  once some current one has climbed **strictly** past the level it was abandoned at, and only an
+  undrained baseclass can release it — two abandoned halves cannot release each other.
+
+Still ahead in `GameRules.cpp`: armour class and damage. Both need a character's readied equipment
+resolved against the item database plus the spell-effect layer, which is the part that does not
+decompose into standalone tables — and it is the same machinery combat needs.
 
 - **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
   `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;
