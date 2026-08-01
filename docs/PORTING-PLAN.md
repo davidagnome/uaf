@@ -1546,9 +1546,11 @@ So, in order:
    layer, and it no longer is.
 2. ~~**The events needing no UI**, and the ones that were blocked on it~~ — **done** for
    `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays`, `PassTime` and
-   `Teleporter`, with chaining. See the event section below. What remains needs *party* state
-   rather than UI: `GiveTreasure`, `GainExperience`, `Shop`, `Tavern`, `Temple`, `TrainingHall`,
-   `Camp`, `Combat`.
+   `Teleporter`, with chaining. See the event section below.
+3. ~~**Party state**~~ — **done** as a roster, world flags and the trigger conditions they answer;
+   see the party section. What remains of the content layer needs *rules*: giving and taking items
+   and money (`GiveTreasure`, shops, temples), awarding experience and levelling
+   (`GainExperience`, `TrainingHall`), and combat.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
@@ -1691,6 +1693,51 @@ chains to renders its five real options at the textbox anchor.
 > This is the fourth instance in this port of a conclusion drawn from a plausible first reading
 > rather than from the source, and the third caught by rendering output rather than by a test. The
 > full suite was green before and after; only the picture was wrong.
+
+##### Party and world state, as ported
+
+`Party` (roster, flags, pooled money) and `WorldState` (quests, special items, keys) in `UAFcore`,
+seeded from `GLOBAL_STATS`. Every trigger condition but two is now answered. 15 tests, plus the
+roster drawn from `displayPartyNames`.
+
+- **`FacingDirection` was ported wrong and is corrected.** An earlier revision returned Fire
+  unconditionally for both facing forms, documented as "the original ignores the stored facing".
+  It does not: only `Any` and `InFront` fire unconditionally (`GameEvent.cpp:918`), and everything
+  else is a four-way switch comparing the party's direction against the stored `eventDirType` —
+  fifteen named combinations (`N_S`, `N_W_E`, …) compared with `==`, not a bit field. A design
+  gating an event on "only from the north" was getting it from all four sides. `Any` is ordinal 0,
+  so events that never set the field are unaffected.
+- **Three operands are ASL attributes, not fields.** `gender`, `specialItem` and `specialKey` are
+  moved into `eventcontrol_asl` as `"Gen"`, `"SpIt"`, `"SpKy"` before writing and pulled back after
+  reading (`PreSerialize`/`PostSerialize`, `GameEvent.cpp:1318`). They are read with `atoi`, so a
+  missing key is 0 — which for gender means Male, not "unset".
+- **`QuestStageEqual` reuses `partyX` as the stage number** (`GameEvent.cpp:1017`). The field is a
+  coordinate on every other condition.
+- **Special items and keys are world state, not inventory.** `PARTY::hasSpecialItem` and
+  `hasSpecialKey` read `globalData`, never a character (`Party.cpp:3275`, `:3293`), and "has" is
+  `GetStage(id) > 0` — the stage doubles as the possession flag. Modelling them as party inventory
+  would put them in the wrong half of the savegame.
+- **The two searching conditions are not mirror images.** `PartySearching` is
+  `PartyIsSearching() | looking`; `PartyNotSearching` is the plain negation of `PartyIsSearching()`
+  and ignores `looking`. A party that is looking but not searching satisfies **both**.
+- **Daylight is `hours >= 6 && hours <= 18`** — inclusive at both ends, so thirteen hours, and
+  18:30 is still day.
+- **A quest is "present" once it is anything but `NotStarted`** — a failed or completed quest is
+  still present.
+- **Baseclass is not class.** A multiclass character's baseclasses come from its `BaseclassStats`
+  list, so a cleric/fighter answers to "fighter" as a baseclass while its class is "cleric".
+- **The roster's columns are fixed pixel offsets** — name at `x`, AC at `x+225`, HP at `x+300`
+  (`Disptext.cpp:1069`) — and the line step comes *before* each row, so the header and first name
+  never share a line. Status is carried entirely by colour: name blue when ready to train, hit
+  points red at zero, yellow below maximum, green at full.
+- Still unanswerable: `SpellMemorized` needs a spellbook indexed by class and level, and
+  `ExecuteGpdl` needs the VM attached to a running game.
+
+> **The party is seeded from the design's pre-generated characters, which is not how a game
+> starts.** The engine builds a party through the add-character flow or restores one from a
+> savegame. Taking the first six of `GLOBAL_STATS::Characters` is a stand-in so the conditions and
+> the roster have real data to read; it is real data placed by a rule the original does not have,
+> and it should be replaced when party creation or savegame loading lands.
 
 ##### A caution that is worth more than any of the above
 

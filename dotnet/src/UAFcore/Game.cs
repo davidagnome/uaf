@@ -69,6 +69,15 @@ public sealed class Game
         Y = design.Globals.StartY;
         Facing = (Facing)(design.Globals.StartFacing & 3);
         Minutes = design.Globals.StartTime;
+
+        World = WorldState.FromDesign(design.Globals.Quests, design.Globals.SpecialItems,
+                                      design.Globals.Keys);
+
+        // A stand-in party -- see the remarks on the property.
+        foreach (var member in design.Globals.Characters.Take(6))
+        {
+            Party.Add(member);
+        }
     }
 
     private readonly EventLookup? events;
@@ -122,6 +131,40 @@ public sealed class Game
 
     /// <summary>Which level is loaded. A transfer to any other one is not carried out yet.</summary>
     public int LevelIndex { get; }
+
+    /// <summary>The adventuring party.</summary>
+    /// <remarks>
+    /// <b>Seeded from the design's pre-generated characters, which is not how a game starts.</b>
+    /// The engine builds a party from the "add character" flow or restores one from a savegame;
+    /// taking the first few of <c>GLOBAL_STATS::Characters</c> is a stand-in so the trigger
+    /// conditions and the roster have something real to read. It is real data — the same records a
+    /// savegame carries — placed by a rule the original does not have.
+    /// </remarks>
+    public Party Party { get; } = new();
+
+    /// <summary>Quest, special-item and key state.</summary>
+    public WorldState World { get; }
+
+    /// <summary>
+    /// Column offsets from the roster's left edge (<c>displayPartyNames</c>,
+    /// <c>UAFWin/Disptext.cpp:1069</c>).
+    /// </summary>
+    /// <remarks>
+    /// Fixed pixel offsets, not a proportion of anything: the header row is drawn at <c>x</c>,
+    /// <c>x + 225</c> and <c>x + 300</c>, and the original's own commented-out constants
+    /// (<c>displayText(500, …)</c>, <c>displayText(575, …)</c>) are those offsets added to the
+    /// default name column of 275.
+    /// </remarks>
+    private const int ArmorClassColumn = 225;
+
+    /// <inheritdoc cref="ArmorClassColumn"/>
+    private const int HitPointColumn = 300;
+
+    /// <summary>The hour of day the clock reads, 0–23.</summary>
+    public int Hours => (Minutes / 60) % 24;
+
+    /// <summary>The day number, counting from 1.</summary>
+    public int Days => 1 + (Minutes / 1440);
 
     /// <summary>The event currently on screen, and its text and menu.</summary>
     public EventRunner Runner { get; } = new();
@@ -299,7 +342,8 @@ public sealed class Game
         // this engine does not have yet -- inventory, quests, party composition -- and those come
         // back Unknown rather than false, so a design does not look empty when it is only
         // unevaluated.
-        var verdict = EventTrigger.Evaluate(candidate.Base.Control, X, Y);
+        var verdict = EventTrigger.Evaluate(candidate.Base.Control, X, Y, Facing,
+                                            party: Party, world: World, hours: Hours);
         var type = (EventTriggerType)candidate.Base.Control.EventTrigger;
 
         if (verdict == TriggerResult.Suppress)
@@ -663,23 +707,87 @@ public sealed class Game
 
         if (config.TryGetInts("PARTYNAMES", out int[] roster, 4))
         {
-            int y = roster[3];
-            font.Draw(screen, roster[2], y, design.Name, tint: 0xFFE8C86A);
-            y += font.Atlas.MaxCharHeight + 2;
-
-            font.Draw(screen, roster[2], y,
-                      $"({X}, {Y}) facing {Facing}", tint: 0xFFF0E6D2);
-            y += font.Atlas.MaxCharHeight;
-
-            font.Draw(screen, roster[2], y,
-                      $"Day {1 + (Minutes / 1440)}  {(Minutes / 60) % 24:00}:{Minutes % 60:00}",
-                      tint: 0xFF9A9AB0);
-            y += font.Atlas.MaxCharHeight;
-
-            font.Draw(screen, roster[2], y, $"{Steps} steps", tint: 0xFF9A9AB0);
+            DrawRoster(font, roster[2], roster[3]);
         }
 
         DrawMessageBox(config, font);
+    }
+
+    /// <summary>
+    /// Draws the party roster and the clock in the config's <c>PARTYNAMES</c> column.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Transcribed from <c>displayPartyNames</c> (<c>UAFWin/Disptext.cpp:1022</c>): a
+    /// <c>NAME</c>/<c>AC</c>/<c>HP</c> header, then one row per member. <b>The line height is the
+    /// font's tallest glyph plus two</b>, and <b>the step comes before each row rather than after
+    /// it</b>, so the first name sits one full line below the header rather than against it.
+    /// </para>
+    /// <para>
+    /// Colour carries the status: a name is blue when the character is ready to train and green
+    /// otherwise; hit points are red at zero or below, yellow when below the maximum, green at
+    /// full. That is the whole of the status display — there is no separate condition column.
+    /// </para>
+    /// <para>
+    /// The design name and the position/clock lines below are the port's own diagnostics rather
+    /// than anything the original draws. They earn their place while the engine is being built out.
+    /// </para>
+    /// </remarks>
+    private void DrawRoster(BitmapFont font, int x, int y)
+    {
+        int lineHeight = font.Atlas.MaxCharHeight + 2;
+
+        font.Draw(screen, x, y, design.Name, tint: 0xFFE8C86A);
+        y += lineHeight;
+
+        font.Draw(screen, x, y, "NAME", tint: FontPalette.Resolve(FontColor.White));
+        font.Draw(screen, x + ArmorClassColumn, y, " AC",
+                  tint: FontPalette.Resolve(FontColor.White));
+        font.Draw(screen, x + HitPointColumn, y, " HP",
+                  tint: FontPalette.Resolve(FontColor.White));
+
+        for (int i = 0; i < Party.Count; i++)
+        {
+            var member = Party.Members[i];
+
+            // The step comes first, matching the original's `y += LineHeight` at the head of the
+            // loop body -- so the header and the first row are never on the same line.
+            y += lineHeight;
+
+            uint nameTint = FontPalette.Resolve(
+                member.ReadyToTrain != 0 ? FontColor.Blue : FontColor.Green);
+
+            var hitPoints = member.HitPoints <= 0 ? FontColor.Red
+                          : member.HitPoints < member.MaxHitPoints ? FontColor.Yellow
+                          : FontColor.Green;
+
+            // The active character is drawn highlighted, which is the same reverse video the menu
+            // uses -- here it marks whose turn it is rather than what a keypress would choose.
+            if (i == Party.ActiveCharacter)
+            {
+                screen.FillRect(
+                    new SurfaceRect(x, y, x + font.GetTextWidth(member.Name), y + lineHeight - 2),
+                    MenuPalette.Default.HighlightBackground);
+                font.Draw(screen, x, y, member.Name, tint: MenuPalette.Default.HighlightInk);
+            }
+            else
+            {
+                font.Draw(screen, x, y, member.Name, tint: nameTint);
+            }
+
+            font.Draw(screen, x + ArmorClassColumn, y, $"{member.ArmorClass}", tint: nameTint);
+            font.Draw(screen, x + HitPointColumn, y, $"{member.HitPoints}",
+                      tint: FontPalette.Resolve(hitPoints));
+        }
+
+        y += lineHeight + 2;
+        font.Draw(screen, x, y, $"({X}, {Y}) facing {Facing}", tint: 0xFFF0E6D2);
+        y += lineHeight;
+
+        font.Draw(screen, x, y, $"Day {Days}  {Hours:00}:{Minutes % 60:00}", tint: 0xFF9A9AB0);
+        y += lineHeight;
+
+        font.Draw(screen, x, y, $"{Steps} steps", tint: 0xFF9A9AB0);
     }
 
     /// <summary>

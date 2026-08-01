@@ -947,8 +947,8 @@ public class GameTests
     }
 
     private static UAF.Serialization.EventControl Control(EventTriggerType type, int chance = 0,
-                                                          int x = 0, int y = 0) =>
-        new((int)0, 0, 0, 0, (int)type, string.Empty, 0, chance, 0, string.Empty,
+                                                          int x = 0, int y = 0, int facing = 0) =>
+        new((int)0, 0, 0, 0, (int)type, string.Empty, 0, chance, facing, string.Empty,
             string.Empty, string.Empty, [], string.Empty, 0, x, y, string.Empty, 0, 0);
 
     [Fact]
@@ -970,31 +970,97 @@ public class GameTests
         // inclusive, and getting it exclusive would silently make every 1-in-100 event impossible.
         var ninety = Control(EventTriggerType.RandomChance, chance: 90);
 
-        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(ninety, 0, 0, () => 90));
-        Assert.Equal(TriggerResult.Suppress, EventTrigger.Evaluate(ninety, 0, 0, () => 91));
-        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(ninety, 0, 0, () => 1));
+        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(ninety, 0, 0, roll: () => 90));
+        Assert.Equal(TriggerResult.Suppress, EventTrigger.Evaluate(ninety, 0, 0, roll: () => 91));
+        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(ninety, 0, 0, roll: () => 1));
 
         Assert.Equal(TriggerResult.Suppress,
-                     EventTrigger.Evaluate(Control(EventTriggerType.RandomChance, 0), 0, 0, () => 1));
+                     EventTrigger.Evaluate(Control(EventTriggerType.RandomChance, 0), 0, 0, roll: () => 1));
     }
 
     [Fact]
-    public void Both_facing_forms_fire_unconditionally_as_the_original_does()
+    public void Any_and_in_front_accept_every_facing()
     {
-        // The stored facing is parsed and never consulted -- both cases fall through to TRUE in
-        // EventShouldTrigger. It reads like an unfinished feature, and it is reproduced because
-        // designs have been getting an always-trigger from it for twenty years.
-        Assert.Equal(TriggerResult.Fire,
-                     EventTrigger.Evaluate(Control(EventTriggerType.FacingDirection), 0, 0));
-        Assert.Equal(TriggerResult.Fire,
-                     EventTrigger.Evaluate(Control(EventTriggerType.FacingDirectionAnyTime), 0, 0));
+        // These are the only two that fire without looking at the party (GameEvent.cpp:918), and
+        // InFront carries the original's own note that it "shouldn't happen".
+        foreach (var facing in Enum.GetValues<Facing>())
+        {
+            Assert.True(EventTrigger.Accepts(EventFacing.Any, facing));
+            Assert.True(EventTrigger.Accepts(EventFacing.InFront, facing));
+        }
     }
 
     [Fact]
-    public void Conditions_needing_absent_state_report_unknown_rather_than_false()
+    public void A_facing_condition_accepts_exactly_the_directions_its_name_spells()
     {
-        // The distinction that matters while the engine is incomplete: "the party lacks the item"
-        // and "there is no inventory to ask" must not look the same, or a design reads as empty.
+        // Transcribed from the four per-facing lists in GameEvent.cpp:923-961. Checking every
+        // combination against every facing is cheap and is what catches a mistranscribed entry --
+        // the lists overlap heavily, so a single wrong member is invisible in a spot check.
+        var expected = new Dictionary<EventFacing, Facing[]>
+        {
+            [EventFacing.North] = [Facing.North],
+            [EventFacing.South] = [Facing.South],
+            [EventFacing.East] = [Facing.East],
+            [EventFacing.West] = [Facing.West],
+            [EventFacing.N_S] = [Facing.North, Facing.South],
+            [EventFacing.N_E] = [Facing.North, Facing.East],
+            [EventFacing.N_W] = [Facing.North, Facing.West],
+            [EventFacing.S_E] = [Facing.South, Facing.East],
+            [EventFacing.S_W] = [Facing.South, Facing.West],
+            [EventFacing.E_W] = [Facing.East, Facing.West],
+            [EventFacing.N_S_E] = [Facing.North, Facing.South, Facing.East],
+            [EventFacing.N_S_W] = [Facing.North, Facing.South, Facing.West],
+            [EventFacing.N_W_E] = [Facing.North, Facing.West, Facing.East],
+            [EventFacing.W_S_E] = [Facing.West, Facing.South, Facing.East],
+        };
+
+        foreach (var (condition, accepted) in expected)
+        {
+            foreach (var facing in Enum.GetValues<Facing>())
+            {
+                Assert.Equal(accepted.Contains(facing),
+                             EventTrigger.Accepts(condition, facing));
+            }
+        }
+    }
+
+    [Fact]
+    public void A_facing_event_is_suppressed_when_the_party_faces_the_wrong_way()
+    {
+        // This is the correction: an earlier revision of this port returned Fire unconditionally
+        // for both facing forms, on a misreading of EventShouldTrigger. A design gating an event on
+        // "only from the north" was getting it from all four sides.
+        var north = Control(EventTriggerType.FacingDirection, facing: (int)EventFacing.North);
+
+        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(north, 0, 0, Facing.North));
+        Assert.Equal(TriggerResult.Suppress, EventTrigger.Evaluate(north, 0, 0, Facing.South));
+
+        // AnyTime answers identically -- what differs is when the scheduler asks, not the answer.
+        var anyTime = Control(EventTriggerType.FacingDirectionAnyTime,
+                              facing: (int)EventFacing.E_W);
+
+        Assert.Equal(TriggerResult.Fire, EventTrigger.Evaluate(anyTime, 0, 0, Facing.West));
+        Assert.Equal(TriggerResult.Suppress, EventTrigger.Evaluate(anyTime, 0, 0, Facing.North));
+    }
+
+    [Fact]
+    public void A_facing_condition_defaults_to_Any_so_an_unset_field_still_fires()
+    {
+        // Any is ordinal 0, so an event whose author never touched the field accepts everything --
+        // which is what keeps the correction above from silently disabling existing content.
+        Assert.Equal(0, (int)EventFacing.Any);
+        Assert.Equal(TriggerResult.Fire,
+                     EventTrigger.Evaluate(Control(EventTriggerType.FacingDirection), 0, 0,
+                                           Facing.South));
+    }
+
+    [Fact]
+    public void A_caller_with_no_game_state_gets_unknown_rather_than_a_guess()
+    {
+        // The distinction that matters: "the party lacks the item" and "there is no party to ask"
+        // must not look the same, or a design reads as empty. These are all answerable now -- see
+        // PartyTests -- but only when a party and world are supplied, which the editor and a bare
+        // unit test do not have.
         foreach (var type in new[]
                  {
                      EventTriggerType.PartyHaveItem, EventTriggerType.QuestComplete,
@@ -1003,8 +1069,11 @@ public class GameTests
                  })
         {
             Assert.Equal(TriggerResult.Unknown, EventTrigger.Evaluate(Control(type), 0, 0));
-            Assert.False(EventTrigger.IsEvaluable(type));
         }
+
+        // The position and chance conditions need neither, so they answer regardless.
+        Assert.Equal(TriggerResult.Fire,
+                     EventTrigger.Evaluate(Control(EventTriggerType.Always), 0, 0));
     }
 
     [Fact]
