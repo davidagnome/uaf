@@ -7,8 +7,22 @@
 **Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
 corpus parses, diffed against the oracle — but **no writer exists**, so its round-trip exit
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
-running engine: it opens a design, walks a level, renders the viewport and executes nine of the 44
-event types. Phases 5–7 have not started. 940 tests, green on macOS, Linux and Windows.
+running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
+event types, and presents the treasure and character screens. Phases 5–7 have not started.
+**1,146 tests, green on macOS, Linux and Windows; both CI workflows green.**
+
+### Where to pick up
+
+This document is long. A new session wanting the short path in should read **§11**, which is kept
+current, and then the one "as ported" section under §7 Phase 4 for whatever it is about to touch —
+those sections carry the findings that cost real time, and they are written to be read before the
+code rather than after it.
+
+The single most useful habit this port has: **render the thing and look at it.** Five separate
+defects this codebase has shipped were invisible to a green suite and obvious in one frame — an
+item list drawn over a corridor wall, a character sheet on top of the party roster, a treasure
+message showing through `ARMOR CLASS`, `ARMOR CLASS7` with no gap, and a crossbow collecting a
+strength bonus it should never get. `UAFcore --dump <design> <out>` writes one frame and exits.
 
 > **See also: [SERIALIZATION.md](SERIALIZATION.md)** — the file-format reference. Everything
 > established about containers, archive tiers, strings, ASL, special abilities and the type traps
@@ -485,7 +499,7 @@ dotnet/
     uaf-fileprobe/               dumps any .dsn to JSON                       ✅
   spike/Sdl3Spike/               SDL3 binding spike (§6.2)                    ✅
 tools/art-oracle.py              regenerates the PNG/legacy-art digests       ✅
-  tests/                         Serialization, Media, Rules, Scripting,      ✅ 940 tests
+  tests/                         Serialization, Media, Rules, Scripting,      ✅ 1,146 tests
                                  UAFcore
 reference/                       (gitignored) design and FRUA data
 .github/workflows/
@@ -1568,14 +1582,15 @@ skipped — is tested, which is the behaviour §6.1 actually requires.
 #### What runs today
 
 `UAFcore` opens a design, loads a level, walks a party around it on the torus, renders the viewport
-and the party roster, and runs events with chaining. `--dump <path>` renders one frame and exits, so
-the whole engine is smoke-testable with no display. 106 tests.
+and the party roster, runs events with chaining, and presents the treasure and character screens.
+`--dump <path>` renders one frame and exits, so the whole engine is smoke-testable with no display.
+115 tests.
 
 **Nine of the 44 event types execute.** Five through `EventRunner`, which presents and takes an
 answer — `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays` — and four
 through `Game.ExecuteWithoutInput`, which needs neither: `PassTime`, `Teleporter` (same level),
 `GainExperience`, and `GiveTreasure` **in its silent form only**, since the other form opens a
-screen that does not exist yet.
+screen that used to not exist. The treasure screen now runs, so its non-silent form does too.
 
 Every other type draws `[<name> here -- not implemented]` in the text box rather than being silently
 skipped, so a walk through a real design reads as an honest map of what is left.
@@ -1590,13 +1605,13 @@ remains, in dependency order:
    ready-to-train and applies a training session. `ability.dat`, `races.dat`, `spellgroups.dat`
    and `traits.dat` remain unread; only the race one is currently missed, and only for a design
    that caps a level by race.
-2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
-   `UAF.Media`, with `ItemsForm`, `RestTimeForm` and `CharStatsForm` on top of it (42 tests
-   between the four). `SpellForm` is ported too, so **all five forms are done**. `CharStatsForm`'s layout is complete
-   but half its values wait on `GameRules.cpp` — see below. The sheet is wired to the treasure
-   screen's VIEW entry, so the character screen is reachable in play.
-3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
-   math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
+2. ~~**The forms.**~~ **Done** — all five, on the shared `TextForm` engine, and the character
+   sheet is complete and reachable from the treasure screen's VIEW entry.
+3. **Combat — this is the next piece of work; see §11.** `UAF.Rules` can resolve an attack
+   (`ToHit`) and order a round (`Initiative`), but nothing *runs* a round. Start with the combat
+   map and combatant placement: everything else in `Combatants.cpp` (8,952 lines) depends on it and
+   none of it is testable until combatants have positions. Then targeting, the round state machine,
+   movement and pathing (`path.cpp`), and the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -2428,11 +2443,12 @@ honest snapshot of the file, which a test pins directly.
   clamps the total, so a negative award really does subtract.
 - **`GAIN_EXP_DATA`'s random mode rolls 1..count and indexes count−1** (`RunEvent.cpp:10178`) —
   a 0-based roll never picks the last member.
-- **One deviation, recorded rather than hidden.** The reference takes the split's `n` from the
-  *class definition* (`classes.dat`, no reader yet) and writes into the *character*'s own stats,
+- **One deviation, still open now that `classes.dat` reads.** The reference takes the split's `n`
+  from the *class definition* and writes into the *character*'s own stats,
   dropping any share whose baseclass the character lacks. This port counts the character's own
   baseclasses. The two agree wherever a character's stats match its class, which the Phase 1 walk
-  found to hold; they differ only for a record that disagrees with its own class.
+  found to hold; they differ only for a record that disagrees with its own class. `ClassRecordReader`
+  now supplies the true baseclass list, so closing this is a small change nobody has made yet.
 - ~~**Ready-to-train is left as the record has it.**~~ **Now derived** from `baseclass.dat`'s
   thresholds via `LoadedDesign.IsReadyToTrain`; the roster's blue name is this engine's answer.
 - Items land in a party-level list rather than a character's inventory, and `HasItem` searches
@@ -2645,25 +2661,59 @@ after Phase 1, calendar time drops to roughly 12–15 months.
 
 ## 11. Immediate next steps
 
-The four steps that stood here — retarget the `vcxproj` files, write the dumper, delete
-`ProjectVersion.h`, scaffold the solution — are all done. What is next, in the order the
-dependencies actually run:
+Everything that once stood here is done: the `vcxproj` retarget, the dumper, `ProjectVersion.h`, the
+solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
+follows is current as of the status block at the top.
 
-1. **Finish the tagged database record bodies**, starting with `baseclass.dat`'s items 7–11 (the
-   `Specab` tail is identified, §Phase 4) and then `classes.dat`, which has no reader at all.
-   Levelling is blocked on both, and levelling blocks the training hall, the temple and combat.
-2. **Close the two verification gaps that need only the Windows oracle**, since both are cheap and
-   both currently make a green suite mean less than it looks:
-   - commit GPDL reference bytecode for `oracle/golden/gpdl/*.txt`, which is Phase 2's exit
-     criterion and is the only thing `GpdlOracleDiffTests` is waiting for;
-   - dump `baseclass.dat` from the C++ side so the reader above has an oracle at all.
-3. **Start `ArchiveWriter`.** Nothing writes today, so Phase 1's round-trip criterion is unmet and
-   Phase 5 cannot begin — an editor that cannot save is not an editor. This is also the last part
-   of the format still wholly unexplored: the LZW *encoder* and the write side of string interning.
-4. **The forms layer**, which is what actually unblocks the ten event types that parse and cannot
-   run.
+### The next piece of work: the combat map
 
-Phases 5, 6 and 7 have not started and nothing in them is blocked by anything but Phase 1's writer.
+`UAF.Rules` can now resolve an attack (`ToHit`) and order a round (`Initiative`), and the character
+sheet shows every derived number. What it cannot do is *run* a round. `Combatants.cpp` (8,952 lines)
+holds the state machine — whose turn it is, targeting and validity, the round clock — and
+`Combatant.cpp` (11,694) the combatants themselves, with `path.cpp` for movement.
+
+**Start with the combat map and combatant placement.** Everything else in `Combatants.cpp` depends
+on it, and nothing in that file can be tested until combatants have positions. It is also the piece
+most like work already done: the viewport renderer established how to read a grid and draw it, and
+the same "render it and look" loop applies.
+
+Then, in dependency order: targeting and validity (`IsValidTarget`, `CanAttack`), the round state
+machine (`HandleCurrState`), movement and pathing, and finally the monster AI.
+
+**The round clock is what finishes the spell-effect layer.** `SpellEffects` ports the arithmetic —
+how an effect changes a number — but not durations, sources or stacking, which is the part that
+decides which effects exist at all. That half is genuinely better built alongside the round that
+expires them than ahead of it.
+
+### Standing gaps, none of them blocking the above
+
+| Gap | Why it matters | Size |
+|---|---|---|
+| **`ArchiveWriter`** | Nothing writes. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
+| **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
+| **13 event types have no reader** | `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` — 31 of 44 are done | Medium |
+| **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
+| **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
+| **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |
+| **`UAFcore.App` split** | `UAFcore` is currently the executable. Must happen before Phase 4b; `Game` is already written to survive it | Small |
+
+### Rules that have earned their place
+
+- **Read the loading branch from its start, not from where a search lands.** Every serialization
+  bug in this port came from transcribing a fragment. The `races.dat` reader failed three times in
+  one sitting for exactly this.
+- **Check whether the code is live before porting it.** `ProjectVersion.h`, `MultiBoxTextAction`
+  and one of the two `getCharTHAC0` definitions are all dead. The `#ifdef` that decides is often
+  nowhere near the function.
+- **When a test fails, check the assertion before the code.** Five times this session the port was
+  right and the test encoded an assumption — `$$Help`, the zero-width row marker, the golden frame,
+  the shared spell rows, and a level-9 magic user's THAC0.
+- **Generate tables, do not type them.** `DesignVersion`, the GPDL opcodes and the strength table
+  are all extracted from the C++ mechanically, and the strength table has a test that re-derives it
+  from `GameRules.cpp` at run time so the two cannot drift.
+- **Refuse a shape rather than guess at it.** `Bcd1`, `CL1` and `RaceV1` are all refused with a
+  message naming the version, because each is a container the only available fixture cannot
+  distinguish the editor's reading of from the engine's.
 
 ### Decisions taken
 
