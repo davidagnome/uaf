@@ -2337,6 +2337,19 @@ above it. It consumes `Thac0`, `ArmorClass` and `Strength` and produces the numb
 What is supplied rather than computed: the environmental bonus (range, cover, lighting) and the
 weapon's to-hit bonus, both of which have their own sub-computations, and the dice roll itself.
 
+Ninth: **initiative**, as `Initiative` — turn order within a round.
+
+- **Lower acts earlier.** The order is an ascending sort, so the number is a position in the round
+  rather than a score to beat. The range is 9–18, from `RollDice(10, 1, 8)`.
+- **Surprise replaces the roll rather than modifying it.** A surprised side takes the last slot
+  outright and the other the first; the die is never consulted. Treating it as a bonus would leave
+  uncertain what the reference makes certain.
+- **The sort must be stable, and .NET's `List.Sort` is not.** The reference bubble sorts with a
+  strict `>` (`Combatants.cpp:1514`), so equal initiatives never swap — and ties are common with a
+  whole party rolling on a ten-sided range. An unstable sort reorders them, changing who strikes
+  first, and nothing would show it until a save game diverged. `OrderBy` is documented stable;
+  `Array.Sort` and `List.Sort` are explicitly not.
+
 > **What is deliberately not here: durations, sources and stacking.** The reference tracks each
 > effect's parent spell, expiry time and once-only bookkeeping, and that is the part that decides
 > which effects are in the list at all. This is only the arithmetic — enough for the character sheet
