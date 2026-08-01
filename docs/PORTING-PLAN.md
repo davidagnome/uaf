@@ -2260,9 +2260,31 @@ sheet shows it, so three of its five derived fields are now filled.
   once some current one has climbed **strictly** past the level it was abandoned at, and only an
   undrained baseclass can release it — two abandoned halves cannot release each other.
 
-Still ahead in `GameRules.cpp`: armour class and damage. Both need a character's readied equipment
-resolved against the item database plus the spell-effect layer, which is the part that does not
-decompose into standalone tables — and it is the same machinery combat needs.
+Fifth: **armour class**, as `ArmorClass`, with the readied-equipment resolution it needs. Four of
+the sheet's five derived fields are now filled; only DAMAGE is left.
+
+- **The base is dexterity alone**, and equipment is applied at every read rather than folded in.
+  The header says why: `m_AC` was renamed in 2010 because "we used to change AC as a PC readied
+  armor and such, but it was not changed for enemies who wore armor. This made things very
+  confusing." The old line survives commented out in `SetCharAC`. Reading the stored field and
+  calling it the character's armour class reproduces exactly the bug the rename ended.
+- **There is no penalty for low dexterity** — one point per point above 14, and a flat 10 below it.
+- **Two different "adjusted" values exist and neither has both adjustments.** `GetEffectiveAC` is
+  base plus readied items; `GetAdjAC` is base plus spell effects. Nothing combines them. This is
+  the former, since the spell-effect layer does not exist.
+- **No slot rules at all.** `GetProtectModForRdyItems` sums every readied item, so a design that
+  lets a character ready two suits of armour gets both.
+- **"Readied" is a base-38 location that is not `NOTRDY`**, not a boolean.
+
+> **Two layering bugs the screenshot caught and the tests did not.** The values rendered as
+> `ARMOR CLASS7` — the layout places these fields at x offset zero from their label, so the
+> `%5i` padding *is* the gap. And the zone's treasure picture was showing through the character
+> sheet, because `OwnsScreen` was still true underneath it; the sheet covers the screen art as
+> well as the roster.
+
+Still ahead in `GameRules.cpp`: DAMAGE, which needs weapon resolution and the strength tables, and
+then the spell-effect layer — the part that does not decompose into standalone tables, and the same
+machinery combat needs.
 
 - **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
   `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;

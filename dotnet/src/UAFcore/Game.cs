@@ -56,7 +56,7 @@ public sealed class Game
 
         // VIEW shows whoever is active. Built here rather than in the runner, which has no party.
         Runner.ActiveCharacterSheet = () => Party?.Active is { } active
-            ? CharacterSheetBuilder.Build(active, design.Baseclasses)
+            ? CharacterSheetBuilder.Build(active, design.Baseclasses, design.Item)
             : null;
 
         // The full level gives the wall sets, which sit after the event list; the map-only read is
@@ -672,7 +672,11 @@ public sealed class Game
     /// </remarks>
     private Surface? ScreenArt()
     {
-        if (!Runner.OwnsScreen || zones is null || Map is null)
+        // CoversRoster means a sheet is over the whole screen, and the zone's picture belongs to
+        // the screen underneath it. UpdateViewCharacterScreen blits a picture of its own -- the
+        // character's portrait -- which this port does not model, so it draws nothing rather than
+        // leaving the treasure showing through the stats.
+        if (!Runner.OwnsScreen || Runner.CoversRoster || zones is null || Map is null)
         {
             return null;
         }

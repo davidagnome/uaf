@@ -1,5 +1,6 @@
 using UAF.Media;
 using UAF.Rules;
+using UAF.Serialization;
 
 namespace UAFcore;
 
@@ -41,6 +42,16 @@ public static class CharacterSheetBuilder
         index >= 0 && index < table.Length ? table[index] : string.Empty;
 
     /// <summary>
+    /// A combat-block number as the sheet writes it — <c>%5i</c>, right-aligned in five characters.
+    /// </summary>
+    /// <remarks>
+    /// The padding <b>is</b> the gap between label and value: the layout places these fields at an
+    /// x offset of zero from their label's right edge, so an unpadded number renders as
+    /// <c>ARMOR CLASS7</c>.
+    /// </remarks>
+    private static string Field(int value) => value.ToString().PadLeft(5);
+
+    /// <summary>
     /// Builds the sheet.
     /// </summary>
     /// <param name="baseclasses">
@@ -49,7 +60,8 @@ public static class CharacterSheetBuilder
     /// </param>
     public static CharacterSheet Build(
         Character character,
-        IReadOnlyDictionary<string, UAF.Serialization.BaseclassRecord>? baseclasses = null)
+        IReadOnlyDictionary<string, BaseclassRecord>? baseclasses = null,
+        Func<string, ItemRecord?>? items = null)
     {
         ArgumentNullException.ThrowIfNull(character);
 
@@ -76,9 +88,10 @@ public static class CharacterSheetBuilder
             ExperienceLines: experience,
             Abilities: Abilities(record.Abilities),
             Coins: Coins(character),
+            ArmorClass: ArmorClassOf(character, items),
             Thac0: Thac0Of(character, baseclasses),
-            Encumbrance: $"{record.Encumbrance}",
-            Movement: $"{Movement(record)}");
+            Encumbrance: Field(record.Encumbrance),
+            Movement: Field(Movement(record)));
     }
 
     /// <summary>
@@ -92,7 +105,7 @@ public static class CharacterSheetBuilder
     /// </remarks>
     private static int HighestLevel(
         Character character,
-        IReadOnlyDictionary<string, UAF.Serialization.BaseclassRecord>? baseclasses)
+        IReadOnlyDictionary<string, BaseclassRecord>? baseclasses)
     {
         int highest = 0;
         foreach (var progress in character.Baseclasses)
@@ -121,7 +134,7 @@ public static class CharacterSheetBuilder
     /// <c>18/00</c> at 100 — the top of the exceptional-strength table, written as two zeroes
     /// rather than as a hundred. Every other score is a plain number.
     /// </remarks>
-    private static string[] Abilities(UAF.Serialization.AbilityScores scores)
+    private static string[] Abilities(AbilityScores scores)
     {
         string strength = scores.StrengthMod > 0
             ? $"{scores.Strength}/{(scores.StrengthMod >= 100 ? "00" : $"{scores.StrengthMod:00}")}"
@@ -139,6 +152,44 @@ public static class CharacterSheetBuilder
     }
 
     /// <summary>
+    /// <c>NotReady</c> (<c>Items.h:122</c>) — the readied-location sentinel for an item in the pack.
+    /// </summary>
+    private static readonly uint NotReady = ReadiedLocation.Base38("NOTRDY");
+
+    /// <summary>
+    /// The character's armour class: dexterity plus everything it has readied.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only readied items count</b>, and "readied" is a base-38 location that is not
+    /// <c>NOTRDY</c> — not a boolean. Blank when the item database cannot be read, since a
+    /// character's armour would silently vanish and 10 would look like a real answer.
+    /// </remarks>
+    private static string ArmorClassOf(Character character,
+                                       Func<string, ItemRecord?>? items)
+    {
+        if (items is null)
+        {
+            return string.Empty;
+        }
+
+        var readied = new List<(int Base, int Bonus)>();
+        foreach (var carried in character.Items)
+        {
+            if (carried.ReadyLocation == NotReady)
+            {
+                continue;
+            }
+
+            if (items(carried.ItemId) is { } record)
+            {
+                readied.Add((record.Combat.ProtectionBase, record.Combat.ProtectionBonus));
+            }
+        }
+
+        return Field(ArmorClass.Effective(character.Record.Abilities.Dexterity, readied));
+    }
+
+    /// <summary>
     /// The character's attack number, from its baseclasses' own tables.
     /// </summary>
     /// <remarks>
@@ -148,7 +199,7 @@ public static class CharacterSheetBuilder
     /// </remarks>
     private static string Thac0Of(
         Character character,
-        IReadOnlyDictionary<string, UAF.Serialization.BaseclassRecord>? baseclasses)
+        IReadOnlyDictionary<string, BaseclassRecord>? baseclasses)
     {
         if (baseclasses is null)
         {
@@ -165,7 +216,7 @@ public static class CharacterSheetBuilder
             }
         }
 
-        return standings.Count > 0 ? Thac0.ForCharacter(standings).ToString() : string.Empty;
+        return standings.Count > 0 ? Field(Thac0.ForCharacter(standings)) : string.Empty;
     }
 
     /// <summary>
@@ -178,7 +229,7 @@ public static class CharacterSheetBuilder
     /// reports a character as slower than they are otherwise — the safe direction, and recorded
     /// rather than hidden.
     /// </remarks>
-    private static int Movement(UAF.Serialization.CharacterRecord record) =>
+    private static int Movement(CharacterRecord record) =>
         Encumbrance.MaxMovementFor(record.Encumbrance,
                                    record.Abilities.Strength, record.Abilities.StrengthMod);
 
