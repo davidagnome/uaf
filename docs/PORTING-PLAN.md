@@ -1590,9 +1590,11 @@ remains, in dependency order:
    ready-to-train and applies a training session. `ability.dat`, `races.dat`, `spellgroups.dat`
    and `traits.dat` remain unread; only the race one is currently missed, and only for a design
    that caps a level by race.
-2. **The forms.** `CharStatsForm`, `SpellForm`, `ItemsForm`, `TextForm`, `RestTimeForm` — none
-   exist. The treasure, shop, temple and training-hall screens are forms rather than events, which
-   is why those event types cannot run yet even though they parse.
+2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
+   `UAF.Media` (13 tests), so the four remaining forms are layout tables plus their own logic
+   rather than drawing code. `CharStatsForm` (2,064 lines), `SpellForm` (895), `ItemsForm` (513)
+   and `RestTimeForm` (374) are still to write, and they are what the treasure, shop, temple and
+   training-hall screens need — which is why those event types cannot run even though they parse.
 3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
    math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
 4. **The remaining viewport squares**, 3 and 4.
@@ -1776,6 +1778,32 @@ database has no per-record length, so record *n* is reachable only by having con
 > plausible-looking records, and `baseclass.dat` has **no oracle** — the dumper does not emit it,
 > and `DefaultDesign`'s `Bcd1` is a version the engine refuses outright. Shipping it unverified
 > would have been the one mistake this port has consistently avoided.
+
+##### The form engine, as ported
+
+`TEXT_FORM` (`UAFWin/TextForm.cpp:49`) becomes `TextForm` in `UAF.Media`: relative layout, column
+alignment, tab order and mouse hit-testing over a table of `FormField`s. It is the reason the other
+four forms are small — each is an array of field descriptors and code that fills in values, not
+drawing code.
+
+- **A field id is not a number.** Its high bits carry `tab`, `white` and `green`, while the
+  `x_relative` / `y_relative` values carry `sel`, `end`, `right`, `rightJust` and `autorepeat` —
+  two different flag sets in two different places. Comparisons go through `fieldNumMask`
+  (`0x30ffffff`), which **keeps the colour bits**: two fields differing only in colour are
+  different fields.
+- **`autorepeat` is tested with `==`, not `&`** (`TextForm.cpp:58`), which is how it can share bits
+  with `end` and `sel` unambiguously. Its row is not a field: `y` is the row count and `x` is how
+  many following fields make up a row. Generated rows add `repeatIncr` to their ids once per row
+  and stack below the row above.
+- **Placement is resolved in table order** — a field positioned against another reads that field's
+  already-computed box. The reference asserts; this port throws, because an unplaced anchor puts
+  the field at 0,0 and reads as a layout bug rather than a table-ordering one.
+- **A click returns the largest field by area, not the first.** Selection boxes overlap the text
+  inside them, so first-match returns the label instead of the row.
+- **Columns are pushed right until each clears every column before it**, using the widest width and
+  space seen. That is what lines a variable-width table up with nobody measuring it in advance.
+- **Markup is not interpreted**, exactly as in menus — the original disables font colour tags for
+  the duration of a draw.
 
 ##### The text layer, as ported
 
