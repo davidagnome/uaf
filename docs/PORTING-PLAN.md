@@ -1591,10 +1591,10 @@ remains, in dependency order:
    and `traits.dat` remain unread; only the race one is currently missed, and only for a design
    that caps a level by race.
 2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
-   `UAF.Media`, with `ItemsForm` and `RestTimeForm` on top of it (33 tests between the three).
-   `CharStatsForm` (2,064 lines) and `SpellForm` (895) remain, and `CharStatsForm` is what the
-   treasure screen's VIEW entry needs. Between them they are what the shop, temple and
-   training-hall screens want — which is why those event types cannot run even though they parse.
+   `UAF.Media`, with `ItemsForm`, `RestTimeForm` and `CharStatsForm` on top of it (42 tests
+   between the four). `SpellForm` (895 lines) is the last one. `CharStatsForm`'s layout is complete
+   but half its values wait on `GameRules.cpp` — see below. Wiring the sheet to the treasure
+   screen's VIEW entry is what makes it visible.
 3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
    math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
 4. **The remaining viewport squares**, 3 and 4.
@@ -1859,6 +1859,29 @@ drawing code.
   space seen. That is what lines a variable-width table up with nobody measuring it in advance.
 - **Markup is not interpreted**, exactly as in menus — the original disables font colour tags for
   the duration of a draw.
+
+##### `CharStatsForm`, as ported
+
+The character sheet, and the biggest of the forms at 2,064 lines. **The layout is ported in full;
+the population is not** — `showCharStats` is 1,083 of those lines because it *derives* most of the
+lower half. Armour class, THAC0, damage, encumbrance and movement all come from `GameRules.cpp`,
+which this port has not reached, so those fields are laid out and left blank rather than filled with
+plausible numbers. A wrong armour class looks exactly like a right one.
+
+- **Three colour groups in one enum.** `STF_white = TEXT_FORM::white`, then
+  `STF_green = TEXT_FORM::green`, then `STF_Str = green + tab` — each re-assignment restarts the
+  count, so a field's colour and its tab-stop-ness ride in its id. `ItemsForm` uses the trick once;
+  this uses it three times. Note which fields land where: coin *labels* are white while coin
+  *amounts* are green, and both the ability labels and their values are green.
+- **Up to three experience lines**, one per baseclass a multiclass character advances in, and the
+  unused ones still get a placement because the level line hangs off the first.
+- **The six ability selection fields are never drawn**, the same as `RestTimeForm` — they name the
+  tab stops and the highlight goes on the value beside each. Unlike `ItemsForm`'s row marker,
+  nothing has flattened their flags; `showCharStats` simply never gives them text. Three forms, and
+  in all three the "selection rectangle" is not one.
+
+`CharacterSheet` takes every field as a string, including the derived ones, so the combat block can
+be filled in later without touching the form.
 
 ##### `RestTimeForm`, as ported
 
