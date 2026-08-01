@@ -1,3 +1,5 @@
+using UAF.Common;
+
 namespace UAF.Serialization.Tests;
 
 /// <summary>
@@ -286,6 +288,97 @@ public class TaggedDatabaseCorpusTests
 
             // And nothing follows the last one.
             Assert.Throws<EndOfStreamException>(() => body.ReadBytes(1));
+        }
+    }
+
+    // ---- classes.dat ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// The design version, which <c>classes.dat</c> needs and <c>baseclass.dat</c> does not.
+    /// </summary>
+    private static DesignVersion DesignVersionOf(string design)
+    {
+        using var stream = File.OpenRead(Path.Combine(design, "Data", "game.dat"));
+        return new DesignVersion(
+            DesignFileHeader.Read(stream, DesignFileKind.GameData).Version.Value);
+    }
+
+    [Theory]
+    [InlineData("SomethingWild.dsn", 20, "Assassin", "assassin")]
+    [InlineData("Case.dsn", 20, "Assassin", "assassin")]
+    [InlineData("Ambassador's_Letter", 19, "Ninja", "ninja")]
+    public void Every_class_record_reads_to_the_files_exact_end(
+        string designName, int expectedCount, string firstName, string firstBaseclass)
+    {
+        string? design = Design("reference", designName);
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Class));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Class, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            Assert.Equal(expectedCount, (int)header.Count);
+
+            var records = ClassRecordReader.ReadAll(body, header.Count, DesignVersionOf(design));
+            Assert.Equal(expectedCount, records.Count);
+            Assert.Equal(firstName, records[0].Name);
+            Assert.Equal([firstBaseclass], records[0].Baseclasses);
+
+            Assert.All(records, r => Assert.False(string.IsNullOrWhiteSpace(r.Name)));
+
+            // Every real class advances in at least one baseclass -- except "$$Help", which every
+            // design carries as its last record and which has none. It is genuine data, not a
+            // mis-parse: the record decodes as a normal CL5 with everything empty, and the file
+            // still lands on its exact last byte. baseclass.dat carries the same sentinel.
+            Assert.Equal("$$Help", records[^1].Name);
+            Assert.Empty(records[^1].Baseclasses);
+            Assert.All(records[..^1], r => Assert.NotEmpty(r.Baseclasses));
+
+            Assert.Throws<EndOfStreamException>(() => body.ReadBytes(1));
+        }
+    }
+
+    [Fact]
+    public void A_multiclass_carries_every_baseclass_it_advances_in()
+    {
+        // What levelling actually needs from this file: the experience split divides an award by
+        // the number of baseclasses (Char.cpp:5798), so a single-baseclass reading of a multiclass
+        // would hand it the whole award instead of a share. A drifted reader does not produce a
+        // coherent two-entry list whose names both appear in baseclass.dat.
+        string? design = Design("reference", "ci-tier3");
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Class));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Class, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            var records = ClassRecordReader.ReadAll(body, header.Count, DesignVersionOf(design));
+            var multi = records.Single(r => r.Name == "Cleric/Fighter");
+            Assert.Equal(["cleric", "fighter"], multi.Baseclasses);
+        }
+    }
+
+    [Fact]
+    public void A_class_record_below_CL5_is_refused_rather_than_guessed_at()
+    {
+        // DefaultDesign is CL1, the same way its baseclass.dat is Bcd1 -- minimal turns out to mean
+        // old in places. The older shapes reach editor-only conversion branches and no available
+        // design carries them, so there is nothing to test a reader for them against.
+        string? design = DefaultDesign();
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Class));
+        TaggedDatabaseReader.Read(path, TaggedDatabase.Class, out var body, out var stream);
+        using (stream)
+        {
+            var error = Assert.Throws<InvalidDataException>(
+                () => ClassRecordReader.Read(body, DesignVersionOf(design)));
+            Assert.Contains("CL1", error.Message, StringComparison.Ordinal);
         }
     }
 

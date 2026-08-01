@@ -1285,7 +1285,7 @@ order. A third overload at `GlobalData.cpp:4960` has an identical signature and 
 | `CHARACTER` | Done. The format's largest record; 6 and 23 characters decode on the 2.53 and 3.55 designs, multiclass baseclass counts self-consistent |
 | `PARTY` / savegames, `.CHAR`, cell contents | Done — `SaveGameReader`, `CharacterFileReader`, `CellContentsReaders`. (An earlier revision listed all three as remaining; they landed and the row was not updated.) |
 | **Writers — none** | **Nothing in `UAF.Serialization` writes.** The exit criterion below is not met and cannot be met until this exists |
-| Tagged databases | Framing done for all six. `baseclass.dat` (`Bcd5`) reads completely — 57 records across five designs, all to exact EOF. `ability.dat`, `classes.dat`, `races.dat`, `spellgroups.dat`, `traits.dat` unread |
+| Tagged databases | Framing done for all six. `baseclass.dat` (`Bcd5`) and `classes.dat` (`CL5`) read completely — 57 and 98 records across five designs, all to exact EOF. `ability.dat`, `races.dat`, `spellgroups.dat`, `traits.dat` unread |
 | Event readers | 13 types have none: `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` |
 
 The pattern is established and mechanical: extend the dumper for a type → write the C# reader
@@ -1585,11 +1585,11 @@ skipped, so a walk through a real design reads as an honest map of what is left.
 The text and menu layers are done, and they were the piece blocking half the content layer. What
 remains, in dependency order:
 
-1. **The remaining tagged database record bodies.** Framing is done for all six and
-   `baseclass.dat` now reads completely (below), which is the experience thresholds levelling
-   needs. **`classes.dat` still has no reader**, and levelling needs it too — for the experience
-   split's true baseclass count. `ability.dat`, `races.dat`, `spellgroups.dat` and `traits.dat`
-   are also unread. This is the smallest piece of work that unblocks the most.
+1. **Levelling.** Both databases it was blocked on now read completely — `baseclass.dat` for the
+   experience thresholds and `classes.dat` for the multiclass baseclass list the experience split
+   divides by. Nothing in the data layer stands in the way of implementing it.
+   `ability.dat`, `races.dat`, `spellgroups.dat` and `traits.dat` remain unread, but nothing
+   currently needs them.
 2. **The forms.** `CharStatsForm`, `SpellForm`, `ItemsForm`, `TextForm`, `RestTimeForm` — none
    exist. The treasure, shop, temple and training-hall screens are forms rather than events, which
    is why those event types cannot run yet even though they parse.
@@ -1607,6 +1607,54 @@ remains, in dependency order:
 7. **Screenshots from a Windows C++ build.** `GoldenFrameTests` guards regressions but is *not* an
    oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
    and have no equivalent of the serialization dump to diff against.
+
+##### `CLASS_DATA`, as ported
+
+`ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
+name, a `ReadCount`-framed **baseclass list**, a `Specab` block, a bare-`int`-counted
+`HIT_DICE_LEVEL_BONUS` list, a `DICEPLUS`, an `ITEM_LIST` of starting equipment, and
+`hitDiceBaseclassID`. Every leaf it needs already existed — `SpecabReader`, `DicePlusReader` and
+`MonsterLeafReaders.ReadItemList`.
+
+**The baseclass list is what levelling wanted from this file.** `ci-tier3` yields
+`Cleric/Fighter → [cleric, fighter]`, so the experience split can divide by a real count instead of
+assuming one.
+
+Three things differ from `BASE_CLASS_DATA` and matter:
+
+- **This record needs the design version passed in.** `BASE_CLASS_DATA` hard-codes 0.930 for its
+  `Specab`; `CLASS_DATA` uses `globalData.version` for both its `Specab` and its starting equipment
+  (`class.cpp:8043`, `:8134`). So `game.dat` must be read first, and the same file read against the
+  wrong version takes the wrong `Specab` branch. The two sibling databases genuinely disagree here.
+- **`HIT_DICE_LEVEL_BONUS` serializes `baseclassID` before `ability`** (`class.cpp:7507`) while the
+  struct declares `ability` first. Both are strings, so transposing them swaps two plausible
+  identifiers and nothing detects it — the same trap as the hit-dice field order in
+  `BASE_CLASS_DATA`.
+- **The reference discards starting-equipment entries whose item the design does not define**
+  (`Items.cpp:1700`). This reader keeps them: dropping records during parsing would make output
+  depend on load order.
+
+Verified the same way, by whole-file walks:
+
+| Design | Version | Records | Result |
+|---|---|---:|---|
+| `SomethingWild` | 3.55 | 20 | exact EOF |
+| `Case` | 2.53 | 20 | exact EOF |
+| `Ambassador's_Letter` | 2.53 | 19 | exact EOF — custom `Ninja`, `Trooper`, `Hoplit → fighter` |
+| `dc-default` | 5.28 | 20 | exact EOF |
+| CI-saved 5.29 | 5.29 | 19 | exact EOF — includes the `Cleric/Fighter` multiclass |
+
+98 records, all landing on the last byte, and all read on the first attempt.
+
+> **Two honest gaps.** `DefaultDesign` carries **`CL1`**, which this reader refuses — the same way
+> its `baseclass.dat` is `Bcd1`. So the only sub-0.920 design available is exactly the one that
+> cannot be read, and **no fixture exercises the legacy `Specab` branch for this file**; that the
+> version is load-bearing is established from the source, not demonstrated by data.
+>
+> Also: every design's last class is **`$$Help`**, a pseudo-class with an empty baseclass list.
+> That is genuine data — the record decodes as a normal `CL5` and the file still ends exactly after
+> it — and `baseclass.dat` carries the same sentinel. A test asserting "every class has a
+> baseclass" fails on it, which is how it was found.
 
 ##### `BASE_CLASS_DATA`, as ported
 
