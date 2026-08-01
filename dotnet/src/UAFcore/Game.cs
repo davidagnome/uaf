@@ -30,10 +30,10 @@ public enum Facing
 /// a live DirectX device, which is why it has no automated tests at all.
 /// </para>
 /// <para>
-/// <b>Scope.</b> This walks a party around a level and draws the screen. It does not run events,
-/// combat, or the 3D wall projection — the viewport shows the level's backdrop rather than a
-/// rendered corridor. Those are Phase 4 proper; this is the beachhead that makes the rest
-/// testable.
+/// <b>Scope.</b> This walks a party around a level, runs the events that need only text and a
+/// menu — text statements, the three question forms, NPC dialogue — plus the two that need no
+/// input at all, and follows their chains. It does not run combat, shops, or anything needing
+/// party state: those are named rather than executed, which is deliberate and visible on screen.
 /// </para>
 /// </remarks>
 public sealed class Game
@@ -47,6 +47,7 @@ public sealed class Game
 
         this.design = design;
         screen = new Surface(width, height);
+        LevelIndex = levelIndex;
 
         // The full level gives the wall sets, which sit after the event list; the map-only read is
         // the fallback for a level whose events cannot all be decoded, since movement needs the
@@ -119,10 +120,50 @@ public sealed class Game
     private string wrappedMessage = string.Empty;
     private int wrappedWidth = -1;
 
+    /// <summary>Which level is loaded. A transfer to any other one is not carried out yet.</summary>
+    public int LevelIndex { get; }
+
+    /// <summary>The event currently on screen, and its text and menu.</summary>
+    public EventRunner Runner { get; } = new();
+
+    /// <summary>The menu anchor points this design configures.</summary>
+    public MenuAnchors Anchors { get; private set; } = MenuAnchors.Default;
+
+    /// <summary>
+    /// Resolves the text box and menu anchors from the design's config, once.
+    /// </summary>
+    /// <remarks>
+    /// Both are needed before the first frame — an event can fire on the step that triggers it —
+    /// so this cannot wait for <see cref="Render"/>, which is where the box was resolved when
+    /// nothing but the message line used it.
+    /// </remarks>
+    private void EnsurePresentation(BitmapFont font)
+    {
+        var config = design.Config;
+
+        TextBox ??= ResolveTextBox(config, font);
+
+        if (ReferenceEquals(Anchors, MenuAnchors.Default))
+        {
+            Anchors = MenuAnchors.FromConfig(key =>
+                config.TryGetPoint(key, out int x, out int y, consume: false) ? (x, y) : null);
+        }
+    }
+
     /// <summary>Handles one input event.</summary>
     /// <returns>True when the state changed and a redraw is warranted.</returns>
+    /// <remarks>
+    /// <b>An active event takes every key.</b> The original's task scheduler gives the event at the
+    /// top of the queue the input and the movement handler never sees it, so a party standing in a
+    /// conversation cannot walk away mid-sentence. Routing movement first would let them.
+    /// </remarks>
     public bool Update(InputEvent input)
     {
+        if (Runner.IsActive)
+        {
+            return UpdateEvent(input);
+        }
+
         if (input.Kind != InputEventKind.KeyDown)
         {
             return false;
@@ -230,20 +271,19 @@ public sealed class Game
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The first execution of anything in this port. Only <c>TextStatement</c> does anything yet:
-    /// it puts its text in the message line, which is what the original does with it too — text
-    /// events are how a design narrates.
+    /// <b>Every type is recognised and named rather than ignored.</b> Silently doing nothing for an
+    /// unimplemented event would be indistinguishable from a design with no event there, and the
+    /// difference matters constantly while the executor is being built out.
     /// </para>
     /// <para>
-    /// <b>Every other type is recognised and named rather than ignored.</b> Silently doing nothing
-    /// for an unimplemented event would be indistinguishable from a design with no event there,
-    /// and the difference matters constantly while the executor is being built out.
+    /// A suppressed event still gets its not-happened chain — that is what
+    /// <see cref="EventChain"/> is for, and it is the mechanism a design uses for "if the party
+    /// does not have the key, say so".
     /// </para>
     /// <para>
-    /// Not ported yet, and each is a decision rather than a transcription: the chain that lets
-    /// several events share a cell, <c>EVENT_CONTROL</c>'s trigger conditions — which decide
-    /// whether an event fires at all, how often, and for which party — and the
-    /// happened/not-happened flags that <c>PARTY</c> carries and a savegame persists.
+    /// Not ported yet: the chain that lets several events share a <i>cell</i> (distinct from the
+    /// id-chaining here), and the happened/not-happened flags that <c>PARTY</c> carries and a
+    /// savegame persists — the latter is what makes <c>OnceOnly</c> work.
     /// </para>
     /// </remarks>
     private void TriggerEvent()
@@ -266,6 +306,7 @@ public sealed class Game
         {
             CurrentEvent = null;
             Message = $"[{candidate.GetType().Name} suppressed by {type}]";
+            FollowChain(EventChain.Next(candidate.Base, happened: false));
             return;
         }
 
@@ -277,16 +318,166 @@ public sealed class Game
             return;
         }
 
-        if (CurrentEvent is TextEvent text)
+        StartEvent(candidate);
+    }
+
+    /// <summary>
+    /// Runs an event: executes it outright if it needs no player input, otherwise puts it on
+    /// screen.
+    /// </summary>
+    /// <remarks>
+    /// The split is the original's own — an event that never calls <c>Invalidate</c> and chains
+    /// from <c>OnInitialEvent</c> is over before a frame is drawn — but here it also marks the
+    /// boundary between what this port can run and what it still only names.
+    /// </remarks>
+    private void StartEvent(IGameEvent gameEvent)
+    {
+        CurrentEvent = gameEvent;
+
+        if (ExecuteWithoutInput(gameEvent) is bool ran)
         {
-            string body = text.Base.Text;
-            Message = string.IsNullOrWhiteSpace(body)
-                ? "(a text event with no text)"
-                : ArchiveStringConventions.Decode(body);
+            CurrentEvent = null;
+            FollowChain(EventChain.Next(gameEvent.Base, ran));
             return;
         }
 
-        Message = $"[{CurrentEvent.GetType().Name} here -- not implemented]";
+        var font = design.Font(design.RequestedFontHeight);
+        if (font is null)
+        {
+            // Nothing can be presented without a font -- a design opened with no rasteriser can
+            // still be walked around, so this is a real state rather than a failure.
+            Message = $"[{gameEvent.GetType().Name} here -- no font to present it with]";
+            return;
+        }
+
+        EnsurePresentation(font);
+        var step = Runner.Begin(gameEvent, font, TextBox!, Anchors);
+        Message = Runner.Unimplemented ?? string.Empty;
+
+        if (step.Kind != EventStepKind.Running)
+        {
+            Apply(step);
+        }
+    }
+
+    /// <summary>
+    /// Runs the event types that need no player input.
+    /// </summary>
+    /// <returns>
+    /// Whether the event happened, or null when it is not one of these — in which case it has to be
+    /// presented. The distinction matters to <see cref="EventChain"/>, which branches on it.
+    /// </returns>
+    /// <remarks>
+    /// <b>Only the ones whose state this engine actually has.</b> <c>PassTime</c> moves a clock
+    /// that exists and <c>Teleporter</c> moves a party that exists. <c>GainExperience</c>,
+    /// <c>Sounds</c> and <c>FlowControl</c> are left to be named rather than run: there is no party
+    /// to award experience to, no audio device wired to the engine, and no task queue for flow
+    /// control to steer. Pretending otherwise would make a design look like it worked.
+    /// </remarks>
+    private bool? ExecuteWithoutInput(IGameEvent gameEvent)
+    {
+        switch (gameEvent)
+        {
+            case PassTimeEvent pass:
+                int minutes = (pass.Days * 24 * 60) + (pass.Hours * 60) + pass.Minutes;
+                if (pass.SetTime != 0)
+                {
+                    // SetTime means "make it this time", not "add this much".
+                    Minutes = minutes;
+                }
+                else
+                {
+                    Minutes += minutes;
+                }
+
+                Message = pass.PassSilent != 0
+                    ? string.Empty
+                    : $"Time passes: {pass.Days}d {pass.Hours}h {pass.Minutes}m.";
+                return true;
+
+            case TransferEvent transfer:
+                return Teleport(transfer);
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Moves the party to a transfer's destination (<c>TRANSFER_EVENT_DATA</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Only same-level transfers are carried out.</b> A destination level other than the one
+    /// loaded needs the level swapped underneath the game, which this engine does not do yet — so
+    /// it is reported rather than silently landing the party at the right coordinates on the wrong
+    /// map, which would look like it worked.
+    /// </remarks>
+    private bool Teleport(TransferEvent transfer)
+    {
+        var destination = transfer.Destination;
+
+        if (destination.DestLevel != LevelIndex)
+        {
+            Message = $"[Teleporter to level {destination.DestLevel} "
+                      + "-- changing level is not implemented]";
+            return false;
+        }
+
+        X = destination.DestX;
+        Y = destination.DestY;
+        Facing = (Facing)(destination.Facing & 3);
+        Message = $"You are somewhere else: ({X}, {Y}) facing {Facing}.";
+        return true;
+    }
+
+    /// <summary>Feeds input to the event on screen.</summary>
+    private bool UpdateEvent(InputEvent input)
+    {
+        var step = Runner.Handle(input);
+        if (step.Kind == EventStepKind.Running)
+        {
+            return true;
+        }
+
+        Apply(step);
+        return true;
+    }
+
+    /// <summary>Acts on a finished event's outcome.</summary>
+    private void Apply(EventStep step)
+    {
+        CurrentEvent = null;
+        Runner.Cancel();
+
+        if (step.Kind == EventStepKind.Chain)
+        {
+            FollowChain(step.ChainTo);
+        }
+    }
+
+    /// <summary>
+    /// Starts the chained event, if there is one and it exists.
+    /// </summary>
+    /// <remarks>
+    /// A chain naming an event the level does not contain is not an error — the original pushes a
+    /// do-nothing event and carries on. Reported, though, because in a port it is far more likely
+    /// to mean the reader dropped an event than that the design is wrong.
+    /// </remarks>
+    private void FollowChain(uint? id)
+    {
+        if (id is not uint target || events is null)
+        {
+            return;
+        }
+
+        var next = events.ById(target);
+        if (next is null)
+        {
+            Message = $"[chain to event {target}, which this level does not contain]";
+            return;
+        }
+
+        StartEvent(next);
     }
 
     /// <summary>Draws the current state and returns the framebuffer.</summary>
@@ -509,8 +700,21 @@ public sealed class Game
     /// </remarks>
     private void DrawMessageBox(DesignConfig config, BitmapFont font)
     {
-        var box = ResolveTextBox(config, font);
-        TextBox = box;
+        EnsurePresentation(font);
+        var box = TextBox!;
+
+        // An event on screen owns the text box and the menu -- the message line is what the engine
+        // says when nothing else is speaking.
+        if (Runner.IsActive)
+        {
+            Runner.Render(screen);
+
+            // An event this port only names has no text of its own, so the line still says so.
+            if (Runner.Unimplemented is null)
+            {
+                return;
+            }
+        }
 
         if (Message.Length == 0)
         {

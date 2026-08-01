@@ -1,3 +1,4 @@
+using UAF.Data;
 using UAF.Media;
 using UAF.Media.Sdl;
 using UAFcore;
@@ -58,7 +59,7 @@ public class GameTests
 
         // The layout config has to be found, or nothing lands in the right place.
         Assert.True(design.Config.Count > 100,
-            $"only {design.Config.Count} config entries; config640.txt was probably not found");
+            $"only {design.Config.Count} config entries; config.txt was probably not found");
 
         // Art resolves by the names the design's own records use.
         Assert.NotNull(design.Art("border_Horizontal.png"));
@@ -1018,6 +1019,35 @@ public class GameTests
         Assert.Equal(24, (int)EventTriggerType.FacingDirectionAnyTime);
         Assert.Equal(29, (int)EventTriggerType.PartyAtXy);
         Assert.Equal(37, (int)EventTriggerType.QuestStageNotEqual);
+    }
+
+    [Fact]
+    public void The_engine_reads_config_txt_and_not_the_resolution_specific_variants()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        // config640.txt and friends are EDITOR templates -- GameResChange.cpp copies the chosen one
+        // over config.txt -- and "config640" appears nowhere in the engine. Preferring it here read
+        // whichever resolution the design was last authored at instead of the one it was saved
+        // with. SomethingWild is the case that shows it: the two files disagree on
+        // DEFAULT_MENU_TEXTBOX, and the wrong one put every question list 180px off to the right.
+        using var design = Open(root);
+
+        string data = Path.Combine(root, "Data");
+        Assert.True(File.Exists(Path.Combine(data, "config640.txt")),
+                    "this fixture only proves anything while it ships both files");
+
+        var expected = DesignConfig.Load(Path.Combine(data, "config.txt"));
+        Assert.True(expected.TryGetPoint("DEFAULT_MENU_TEXTBOX", out int wantX, out int wantY,
+                                         consume: false));
+        Assert.True(design.Config.TryGetPoint("DEFAULT_MENU_TEXTBOX", out int gotX, out int gotY,
+                                              consume: false));
+
+        Assert.Equal((wantX, wantY), (gotX, gotY));
     }
 
     [Fact]

@@ -1,0 +1,362 @@
+using UAF.Media;
+using UAF.Serialization;
+
+namespace UAFcore;
+
+/// <summary>What an event did with the last input.</summary>
+public enum EventStepKind
+{
+    /// <summary>Still on screen, waiting for the player.</summary>
+    Running,
+
+    /// <summary>Finished, and another event follows.</summary>
+    Chain,
+
+    /// <summary>Finished, with nothing after it.</summary>
+    Finished,
+}
+
+/// <summary>The result of feeding an event one input.</summary>
+public readonly record struct EventStep(EventStepKind Kind, uint ChainTo = 0)
+{
+    public static readonly EventStep Running = new(EventStepKind.Running);
+
+    public static readonly EventStep Finished = new(EventStepKind.Finished);
+
+    public static EventStep To(uint id) =>
+        id > 0 ? new EventStep(EventStepKind.Chain, id) : Finished;
+}
+
+/// <summary>
+/// Presents one event and takes the player's answer.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Each event type in the original is a class with <c>OnInitialEvent</c>, <c>OnKeypress</c> and
+/// <c>OnDraw</c>, sharing the one global <c>menu</c> and the one global <c>textData</c>. This is
+/// the same shape with the state made explicit: <see cref="Begin"/> is <c>OnInitialEvent</c>,
+/// <see cref="Handle"/> is <c>OnKeypress</c>, <see cref="Render"/> is <c>OnDraw</c>.
+/// </para>
+/// <para>
+/// <b>Scope: the five types that needed only text and a menu.</b> Everything else is recognised and
+/// named rather than run — the same rule the engine's event dispatch already follows, because
+/// silently doing nothing is indistinguishable from an empty cell and that difference is the whole
+/// signal while the executor is being built out.
+/// </para>
+/// <para>
+/// <b>Return is the only key that commits.</b> Every one of these types tests
+/// <c>key != KC_RETURN</c> first and routes everything else to the menu, so arrows move the
+/// selection and letters pick an entry outright — the shortcut path synthesises a Return of its
+/// own, which is why <see cref="MenuInputResult.Accepted"/> and a real Return are handled together.
+/// </para>
+/// </remarks>
+public sealed class EventRunner
+{
+    /// <summary><c>MAX_BUTTONS</c> (<c>Shared/GameEvent.h:50</c>) — for both list and button forms.</summary>
+    public const int MaxButtons = 5;
+
+    private BitmapFont? font;
+
+    /// <summary>The event being presented, or null.</summary>
+    public IGameEvent? Current { get; private set; }
+
+    /// <summary>The event's text, wrapped to the box.</summary>
+    public TextDisplayData Text { get; } = new();
+
+    /// <summary>The event's menu.</summary>
+    public Menu Menu { get; } = new();
+
+    /// <summary>Where the menu sits, resolved from the event type's anchor.</summary>
+    public TextBoxMetrics Box { get; private set; } = TextBoxMetrics.Default;
+
+    /// <summary>A line describing an event this port presents but does not run.</summary>
+    public string? Unimplemented { get; private set; }
+
+    /// <summary>Whether an event is on screen.</summary>
+    public bool IsActive => Current is not null;
+
+    /// <summary>
+    /// Starts presenting <paramref name="gameEvent"/> (<c>OnInitialEvent</c>).
+    /// </summary>
+    /// <returns>
+    /// <see cref="EventStepKind.Running"/> when the event is waiting for input. A type with nothing
+    /// to ask — or a question whose options are all empty — finishes here without ever drawing,
+    /// which is what the original's <c>if (count == 0) ChainHappened();</c> does.
+    /// </returns>
+    public EventStep Begin(IGameEvent gameEvent, BitmapFont font, TextBoxMetrics box,
+                           MenuAnchors anchors)
+    {
+        ArgumentNullException.ThrowIfNull(gameEvent);
+        ArgumentNullException.ThrowIfNull(font);
+        ArgumentNullException.ThrowIfNull(box);
+        ArgumentNullException.ThrowIfNull(anchors);
+
+        Current = gameEvent;
+        this.font = font;
+        Box = box;
+        Unimplemented = null;
+
+        Menu.Reset();
+        Text.Clear();
+
+        return gameEvent switch
+        {
+            TextEvent text => BeginTextStatement(text, anchors),
+            YesNoEvent yesNo => BeginYesNo(yesNo, anchors),
+            NpcSaysEvent npc => BeginNpcSays(npc, anchors),
+            QuestionEvent question => BeginQuestion(question, anchors),
+            _ => BeginUnsupported(gameEvent),
+        };
+    }
+
+    /// <summary>Wraps an event's text into the box, as <c>FormatDisplayText</c> does.</summary>
+    private void ShowText(string body)
+    {
+        string decoded = ArchiveStringConventions.Decode(body ?? string.Empty);
+        if (decoded.Length == 0)
+        {
+            return;
+        }
+
+        TextFormatter.Format(decoded, Box.Width, font!, Text);
+        Text.LinesPerBox = Box.Lines;
+        Text.FirstBox();
+    }
+
+    /// <summary>
+    /// <c>TEXT_EVENT_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:6057</c>) — text and a two-entry bar.
+    /// </summary>
+    /// <remarks>
+    /// The <c>**SHAZAM</c> prefix that hands the text to the GPDL interpreter
+    /// (<c>RunEvent.cpp:6063</c>) is not handled: the scripting VM exists but is not wired to the
+    /// engine, so such an event is presented as ordinary text rather than executed.
+    /// </remarks>
+    private EventStep BeginTextStatement(TextEvent text, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                       ("EXIT", 1), ("PRESS ENTER TO CONTINUE", 7));
+        ShowText(text.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>QUESTION_YES_NO::OnInitialEvent</c> (<c>RunEvent.cpp:6210</c>).
+    /// </summary>
+    /// <remarks>
+    /// The follow-up text the original shows on Yes or No before chaining
+    /// (<c>GetEventText2</c>, <c>:6232</c>) is skipped: it is a second presentation state, and the
+    /// branch that has it and the branch that does not chain to the same place. What is lost is a
+    /// page of prose, not a destination.
+    /// </remarks>
+    private EventStep BeginYesNo(YesNoEvent yesNo, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, "CHOOSE: ", MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+        ShowText(yesNo.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary><c>NPC_SAYS_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:10893</c>).</summary>
+    private EventStep BeginNpcSays(NpcSaysEvent npc, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                       ("PRESS ENTER TO CONTINUE", 7));
+        ShowText(npc.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// The two question forms (<c>RunEvent.cpp:13152</c> and <c>:13293</c>), which differ only in
+    /// where they sit and how far apart their entries are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every one of the five slots becomes a menu entry, empty or not.</b> An empty label is
+    /// added as <c>" "</c> and disabled, so entry <i>n</i> is always option <i>n</i> — which is
+    /// what lets the original index straight into <c>buttons[UserResult-1]</c>. Adding only the
+    /// non-empty ones would silently pick the wrong option whenever a design leaves a gap.
+    /// </para>
+    /// <para>
+    /// An option that is present in the record but flagged not-<c>Present</c> is disabled too
+    /// (<c>OnUpdateUI</c>, <c>:13240</c>), so it keeps its slot without being selectable.
+    /// </para>
+    /// </remarks>
+    private EventStep BeginQuestion(QuestionEvent question, MenuAnchors anchors)
+    {
+        bool list = question.Base.EventType == (int)EventType.QuestionList;
+
+        Menu.Orientation = list ? MenuOrientation.Vertical : MenuOrientation.Horizontal;
+        Menu.ItemSeparation = list ? 2 : 7;
+        Menu.SetStartCoord(list ? MenuAnchor.DefaultTextBox : MenuAnchor.DefaultHorizontal,
+                           anchors);
+
+        if (list && question.Title.Length > 0)
+        {
+            Menu.SetTitle(ArchiveStringConventions.Decode(question.Title));
+        }
+
+        int offered = 0;
+        for (int i = 0; i < MaxButtons; i++)
+        {
+            var option = i < question.Options.Count ? question.Options[i] : null;
+            string label = ArchiveStringConventions.Decode(option?.Label ?? string.Empty);
+
+            if (label.Length == 0)
+            {
+                Menu.AddItem(" ");
+                Menu.SetItemEnabled(i, false);
+                continue;
+            }
+
+            Menu.AddItem(label);
+            if (option!.Present == 0)
+            {
+                Menu.SetItemEnabled(i, false);
+            }
+            else
+            {
+                offered++;
+            }
+        }
+
+        Menu.SetFirstLetterShortcuts();
+        ShowText(question.Base.Text);
+
+        // A question with no options at all is not a question -- it chains straight through.
+        return offered == 0 ? Complete(happened: true) : EventStep.Running;
+    }
+
+    /// <summary>Names an event this port parses but does not run.</summary>
+    private EventStep BeginUnsupported(IGameEvent gameEvent)
+    {
+        Unimplemented = $"[{(EventType)gameEvent.Base.EventType} here -- not implemented]";
+        return EventStep.Running;
+    }
+
+    /// <summary>Builds one of the fixed menus from <c>GameMenu.cpp</c>'s tables.</summary>
+    /// <remarks>
+    /// The shortcut indices are the tables' own and are not first letters: <c>EXIT</c> uses index
+    /// 1 for the <c>X</c>, and <c>PRESS ENTER TO CONTINUE</c> uses index 7 for the <c>N</c> of
+    /// "ENTER". They are picked to be mnemonic and non-colliding, so first-lettering them instead
+    /// would give <c>E</c> twice and suppress both.
+    /// </remarks>
+    private void SetupFixedMenu(MenuAnchors anchors, string? title, MenuOrientation orientation,
+                                params (string Label, int Shortcut)[] entries)
+    {
+        Menu.Orientation = orientation;
+        Menu.SetStartCoord(MenuAnchor.DefaultHorizontal, anchors);
+        Menu.SetTitle(title);
+
+        foreach (var (label, shortcut) in entries)
+        {
+            Menu.AddItem(label, shortcut);
+        }
+    }
+
+    /// <summary>
+    /// Feeds one input to the current event (<c>OnKeypress</c>).
+    /// </summary>
+    public EventStep Handle(InputEvent input)
+    {
+        if (Current is null)
+        {
+            return EventStep.Finished;
+        }
+
+        // Anything that is not a commit goes to the menu, exactly as every OnKeypress does.
+        var result = MenuInput.Handle(Menu, input);
+        bool committed = result == MenuInputResult.Accepted
+                         || (input.Kind == InputEventKind.KeyDown
+                             && input.Key == VirtualKey.Return);
+
+        if (!committed)
+        {
+            return EventStep.Running;
+        }
+
+        // Long text pages before the event finishes -- Return advances the box first.
+        if (!Text.IsLastBox())
+        {
+            Text.NextBox();
+            return EventStep.Running;
+        }
+
+        return Current switch
+        {
+            QuestionEvent question => ChooseOption(question),
+            YesNoEvent yesNo => ChooseYesNo(yesNo),
+            _ => Complete(happened: true),
+        };
+    }
+
+    /// <summary>
+    /// Takes the selected option's chain target (<c>buttons[UserResult-1].chain</c>).
+    /// </summary>
+    /// <remarks>
+    /// The menu index <i>is</i> the option index because every slot got an entry. An option whose
+    /// chain is 0 or names no event falls back to the event's own chain rather than erroring —
+    /// the original pushes a do-nothing event in that case (<c>RunEvent.cpp:13223</c>).
+    /// </remarks>
+    private EventStep ChooseOption(QuestionEvent question)
+    {
+        int index = Menu.ActiveItem;
+        if (index >= 0 && index < question.Options.Count && question.Options[index].Chain > 0)
+        {
+            uint chain = question.Options[index].Chain;
+            Current = null;
+            return EventStep.To(chain);
+        }
+
+        return Complete(happened: true);
+    }
+
+    /// <summary>Yes is entry 0 and No is entry 1, in the table's order.</summary>
+    private EventStep ChooseYesNo(YesNoEvent yesNo)
+    {
+        uint chain = Menu.ActiveItem == 0 ? yesNo.YesChain : yesNo.NoChain;
+        if (chain > 0)
+        {
+            Current = null;
+            return EventStep.To(chain);
+        }
+
+        return Complete(happened: true);
+    }
+
+    /// <summary>Ends the event and applies its own chaining rule.</summary>
+    public EventStep Complete(bool happened)
+    {
+        var finished = Current;
+        Current = null;
+
+        if (finished is null)
+        {
+            return EventStep.Finished;
+        }
+
+        uint? next = EventChain.Next(finished.Base, happened);
+        return next is uint id ? EventStep.To(id) : EventStep.Finished;
+    }
+
+    /// <summary>Clears the presentation without running the chain.</summary>
+    public void Cancel()
+    {
+        Current = null;
+        Unimplemented = null;
+        Text.Clear();
+        Menu.Reset();
+    }
+
+    /// <summary>Draws the event's text and menu (<c>OnDraw</c>).</summary>
+    public void Render(Surface destination)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+
+        if (Current is null || font is null)
+        {
+            return;
+        }
+
+        FormattedTextRenderer.DrawBox(destination, font, Text, Box.X, Box.Y);
+        MenuRenderer.Draw(destination, Menu, font);
+    }
+}

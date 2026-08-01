@@ -48,6 +48,28 @@ public sealed class EventLookup(IReadOnlyList<IGameEvent> events)
     public IEnumerable<IGameEvent> AllAt(int x, int y) =>
         events.Where(e => e.Base.X == x && e.Base.Y == y);
 
+    /// <summary>
+    /// The event with a given id, or null (<c>GameEventList::GetEvent</c>).
+    /// </summary>
+    /// <remarks>
+    /// This is what a chain target resolves through, and unlike <see cref="FirstAt"/> it can land
+    /// on an event that sits at no cell at all — a chained event is reached by id, so designs use
+    /// off-map events as subroutines. A missing target is not an error: the original pushes a
+    /// do-nothing event and carries on (<c>RunEvent.cpp:13224</c>).
+    /// </remarks>
+    public IGameEvent? ById(uint id)
+    {
+        foreach (var candidate in events)
+        {
+            if (candidate.Base.Id == id)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Whether any event sits at a cell.</summary>
     public bool Any(int x, int y) => FirstAt(x, y) is not null;
 }

@@ -180,8 +180,15 @@ public sealed class Menu
 
     public int StartY { get; private set; }
 
-    /// <summary>Gap between entries. Grows once on a horizontal menu — see <see cref="MenuRenderer"/>.</summary>
-    public int ItemSeparation { get; internal set; } = DefaultItemSeparation;
+    /// <summary>
+    /// Gap between entries. Grows once on a horizontal menu — see <see cref="MenuRenderer"/>.
+    /// </summary>
+    /// <remarks>
+    /// Settable because events override it before display: a question list uses 2 and a question
+    /// button row uses 7 (<c>RunEvent.cpp:13158</c>, <c>:13299</c>). The horizontal adjustment then
+    /// applies on top of whatever was set, as it does to the default.
+    /// </remarks>
+    public int ItemSeparation { get; set; } = DefaultItemSeparation;
 
     /// <summary>Set once the separation has had its one-shot adjustment (<c>initCharSize</c>).</summary>
     internal bool CharSizeInitialized { get; set; }

@@ -1544,9 +1544,11 @@ So, in order:
 1. ~~**Word-wrapped text into the config's `TEXTBOX` rectangle, then the menu system**~~ —
    **done**, both halves; see the two sections below. This was the piece blocking half the content
    layer, and it no longer is.
-2. **The events needing no UI**, which make designs partly playable — and now, with text and menus
-   in place, **the events that were blocked on UI**: `QuestionButton`, `QuestionYesNo`,
-   `QuestionList`, `NPCSays` need nothing further from the media layer, only their own logic.
+2. ~~**The events needing no UI**, and the ones that were blocked on it~~ — **done** for
+   `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays`, `PassTime` and
+   `Teleporter`, with chaining. See the event section below. What remains needs *party* state
+   rather than UI: `GiveTreasure`, `GainExperience`, `Shop`, `Tavern`, `Temple`, `TrainingHall`,
+   `Camp`, `Combat`.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
@@ -1641,6 +1643,54 @@ letters.
 - The selection is drawn reverse video. The original gets this from a `HighlightFont` rasterised
   black-on-*white* and drawn opaquely (`GlobalData.cpp:5918`); a tinted atlas has no background
   pixels to carry it, so the port fills the bar and draws the glyphs over it.
+
+##### Events, as executed
+
+`EventRunner` presents an event and takes the answer — `Begin` is `OnInitialEvent`, `Handle` is
+`OnKeypress`, `Render` is `OnDraw` — and `EventChain` decides what follows. `Game` drives both.
+Running: `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays` (text and a
+menu) plus `PassTime` and same-level `Teleporter` (no input at all). 18 tests.
+
+Verified against `SomethingWild`: a real `TextStatement` wraps, pages at its `/N`, and shows the
+`EXIT` / `PRESS ENTER TO CONTINUE` bar with both shortcut letters picked out; the `QuestionList` it
+chains to renders its five real options at the textbox anchor.
+
+- **`chainTriggerType` is asymmetric under `AlwaysChain`.** The not-happened path chains to
+  `chainEventHappen`, not `chainEventNotHappen` (`RunEvent.cpp:910`), so an `Always` event has one
+  destination either way and its not-happened id is dead. Reads like a typo; load-bearing.
+- **Event id 0 can never be chained to** — both paths guard `> 0`.
+- **Chain targets resolve by id, and the target usually sits at no cell.** Both events in the
+  worked example above are at `(-1,-1)`: designs use off-map events as subroutines, which is why
+  `EventLookup` needed `ById` alongside `FirstAt`.
+- **Every one of the five button slots becomes a menu entry, empty or not.** An empty label is
+  added as `" "` and disabled, which is what lets the original index straight into
+  `buttons[UserResult-1]`. Adding only the non-empty ones picks the wrong option the moment a design
+  leaves a gap.
+- **A question with no options chains straight through without drawing** — `if (count == 0)
+  ChainHappened()`.
+- **The fixed menus' shortcut letters are not first letters.** `EXIT` uses index 1 for the `X` and
+  `PRESS ENTER TO CONTINUE` index 7 for the `N` of "ENTER" — mnemonic and non-colliding, where
+  first-lettering both would give `E` twice and suppress them.
+- **The two question forms differ only in placement and flow**: the list is vertical at
+  `DEFAULT_MENU_TEXTBOX` with separation 2 and a title; the button row is horizontal at
+  `DEFAULT_MENU_HORZ` with separation 7 and none.
+- Not run, and each names itself on screen rather than doing nothing: everything needing party
+  state, an audio device, or the task queue. `Teleporter` to another level is reported rather than
+  moving the party to the right coordinates on the wrong map.
+
+> **A real bug this found: the port was reading the wrong config file.** `LoadedDesign.Open`
+> preferred `config640.txt` over `config.txt`, on the reasoning that a design ships one config per
+> resolution. It does — but they are **editor templates**: `GameResChange.cpp` copies the chosen one
+> *over* `config.txt` (`:99`, `:119`), and the string "config640" appears nowhere in the engine,
+> which reads `rte.ConfigDir() + "config.txt"` at both call sites (`Dungeon.cpp:191`,
+> `RunEvent.cpp:27063`). So the port was picking up whichever resolution the design was last
+> authored at rather than the one it was saved with. For `SomethingWild` the two files disagree on
+> `DEFAULT_MENU_TEXTBOX` — 20,328 against 200,328 — which put every question list's options 180px
+> to the right and ran the longest one off a 640-wide screen.
+>
+> This is the fourth instance in this port of a conclusion drawn from a plausible first reading
+> rather than from the source, and the third caught by rendering output rather than by a test. The
+> full suite was green before and after; only the picture was wrong.
 
 ##### A caution that is worth more than any of the above
 

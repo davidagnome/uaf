@@ -67,13 +67,18 @@ public sealed class LoadedDesign : IDisposable
         var cursor = GameDataReader.Open(stream);
         var globals = GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version);
 
-        // config640.txt is the 640x480 layout. A design ships one per resolution and falls back to
-        // config.txt, which carries the shared settings.
-        string config = Path.Combine(data, "config640.txt");
-        if (!File.Exists(config))
-        {
-            config = Path.Combine(data, "config.txt");
-        }
+        // The engine reads config.txt and nothing else -- rte.ConfigDir() + "config.txt" at both
+        // call sites (Dungeon.cpp:191, RunEvent.cpp:27063), and "config640" appears nowhere in the
+        // engine at all.
+        //
+        // An earlier revision here preferred config640.txt on the reasoning that a design ships one
+        // config per resolution. It does, but they are EDITOR templates: GameResChange.cpp copies
+        // the chosen one OVER config.txt (:99, :119), so by the time the engine runs there is one
+        // file and its name is config.txt. Reading config640.txt directly picks up whichever
+        // resolution the design was last authored at rather than the one it was saved with -- and
+        // for SomethingWild the two disagree on DEFAULT_MENU_TEXTBOX (20,328 against 200,328),
+        // which put every question list's options 180px right of where they belong.
+        string config = Path.Combine(data, "config.txt");
 
         return new LoadedDesign(root, globals,
                                 File.Exists(config) ? DesignConfig.Load(config)
