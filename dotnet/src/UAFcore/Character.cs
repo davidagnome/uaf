@@ -1,0 +1,179 @@
+using UAF.Rules;
+using UAF.Serialization;
+
+namespace UAFcore;
+
+/// <summary>
+/// One baseclass a character has levels in (<c>BASECLASS_STATS</c>, <c>Shared/Char.h:238</c>).
+/// </summary>
+/// <remarks>
+/// A multiclass character has several, and each advances on its own experience. The
+/// <see cref="PreviousLevel"/> field is not history — see <see cref="Character.GiveExperience"/>.
+/// </remarks>
+public sealed class BaseclassProgress(string baseclassId, int currentLevel, int previousLevel,
+                                      int experience)
+{
+    public string BaseclassId { get; } = baseclassId;
+
+    public int CurrentLevel { get; set; } = currentLevel;
+
+    /// <summary>The level before a drain, or 0 when the character has not been drained.</summary>
+    public int PreviousLevel { get; set; } = previousLevel;
+
+    public int Experience { get; set; } = experience;
+
+    /// <summary>
+    /// Adds experience (<c>IncCurExperience</c>, <c>Shared/class.cpp:4828</c>).
+    /// </summary>
+    /// <returns>The new total, or 0 when the gain was refused.</returns>
+    /// <remarks>
+    /// <b>A drained baseclass gains nothing.</b> The guard is <c>previousLevel &gt; 0</c>, which
+    /// marks a character whose level was drained and not yet restored — so it is frozen until it
+    /// is. Nothing clamps the total, so a negative award really does subtract.
+    /// </remarks>
+    public int Add(int experience)
+    {
+        if (PreviousLevel > 0)
+        {
+            return 0;
+        }
+
+        return Experience += experience;
+    }
+}
+
+/// <summary>
+/// A party member, with the state that changes during play.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Wraps the <see cref="CharacterRecord"/> read off disk rather than replacing it: identity and
+/// the scores that do not change are read straight through, while hit points, experience, money
+/// and inventory become mutable here. That keeps the record honest as a snapshot of the file and
+/// gives the rules somewhere to write.
+/// </para>
+/// <para>
+/// <b>Not all of a character is mutable yet.</b> Ability scores, saving throws, spell books and
+/// special abilities are still read from the record, because nothing modifies them until combat
+/// and spellcasting exist.
+/// </para>
+/// </remarks>
+public sealed class Character
+{
+    private readonly List<BaseclassProgress> baseclasses;
+
+    public Character(CharacterRecord record, MoneyRules money)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(money);
+
+        Record = record;
+        HitPoints = record.HitPoints;
+        Purse = Purse.FromRecord(record.Money, money);
+        Items = [.. record.Items.Items];
+
+        baseclasses =
+        [
+            .. record.BaseclassStats.Select(
+                b => new BaseclassProgress(b.BaseclassId, b.CurrentLevel, b.PreviousLevel,
+                                           b.Experience)),
+        ];
+    }
+
+    /// <summary>The record this was built from. Identity and unported fields come from here.</summary>
+    public CharacterRecord Record { get; }
+
+    public string Name => Record.Name;
+
+    public string CharacterId => Record.CharacterId;
+
+    public string ClassId => Record.ClassId;
+
+    public string Race => Record.Race;
+
+    public Gender Gender => (Gender)Record.Gender;
+
+    public int MaxHitPoints => Record.MaxHitPoints;
+
+    public int ArmorClass => Record.ArmorClass;
+
+    public bool ReadyToTrain => Record.ReadyToTrain != 0;
+
+    /// <summary>Current hit points, which combat and healing move.</summary>
+    public int HitPoints { get; set; }
+
+    /// <summary>This character's own money, as distinct from the party's pooled purse.</summary>
+    public Purse Purse { get; }
+
+    /// <summary>What the character carries.</summary>
+    public List<ItemInstance> Items { get; }
+
+    public IReadOnlyList<BaseclassProgress> Baseclasses => baseclasses;
+
+    /// <summary>Total experience across every baseclass.</summary>
+    public int TotalExperience => baseclasses.Sum(b => b.Experience);
+
+    public BaseclassProgress? Baseclass(string baseclassId) =>
+        baseclasses.FirstOrDefault(
+            b => string.Equals(b.BaseclassId, baseclassId, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Awards experience, split across the character's baseclasses
+    /// (<c>giveCharacterExperience</c>, <c>Shared/Char.cpp:5787</c>).
+    /// </summary>
+    /// <returns>How much was actually added, which is not the award — see the remarks.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The split rounds up, so a multiclass character gains more than the award.</b>
+    /// <c>curExp = (exppts + n - 1) / n</c> is ceiling division and each baseclass then receives
+    /// that full share: 100 experience across 3 baseclasses is 34 each, 102 in total. Dividing
+    /// evenly instead would quietly slow every multiclass character in every design.
+    /// </para>
+    /// <para>
+    /// An award of 0 returns immediately, so it is not the same as awarding nothing to each
+    /// baseclass — with the drain guard below, the two can differ.
+    /// </para>
+    /// <para>
+    /// <b>One deviation, and it is in where the count comes from.</b> The reference takes
+    /// <c>n</c> from the <i>class definition</i>'s baseclass list (<c>classes.dat</c>) and writes
+    /// into the <i>character</i>'s own stats, dropping any share whose baseclass the character
+    /// lacks. This port has no reader for <c>classes.dat</c> yet, so it counts the character's own
+    /// baseclasses. The two agree whenever a character's stats match its class — which the Phase 1
+    /// walk found to hold across the reference designs — and differ only for a character whose
+    /// record disagrees with its own class definition.
+    /// </para>
+    /// </remarks>
+    public int GiveExperience(int points)
+    {
+        if (points == 0 || baseclasses.Count == 0)
+        {
+            return 0;
+        }
+
+        int n = baseclasses.Count;
+        int share = (points + n - 1) / n;
+
+        int awarded = 0;
+        foreach (var baseclass in baseclasses)
+        {
+            int before = baseclass.Experience;
+            baseclass.Add(share);
+            awarded += baseclass.Experience - before;
+        }
+
+        return awarded;
+    }
+}
+
+/// <summary>
+/// Who an event's effect reaches (<c>eventPartyAffectType</c>, <c>Shared/GameEvent.h:87</c>).
+/// </summary>
+/// <remarks>Ordinal values; the field is serialized as an int on the events that carry it.</remarks>
+public enum PartyAffect
+{
+    None = 0,
+    EntireParty = 1,
+    ActiveCharacter = 2,
+    OneAtRandom = 3,
+    ChanceOnEach = 4,
+}

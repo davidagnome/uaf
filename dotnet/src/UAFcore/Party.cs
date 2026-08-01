@@ -42,9 +42,9 @@ public sealed class Party
     /// </remarks>
     public const int MaxMembers = SaveGameReader.MaxPartyMembers;
 
-    private readonly List<CharacterRecord> members = [];
+    private readonly List<Character> members = [];
 
-    public IReadOnlyList<CharacterRecord> Members => members;
+    public IReadOnlyList<Character> Members => members;
 
     public int Count => members.Count;
 
@@ -70,8 +70,8 @@ public sealed class Party
     /// <b>A party-level list, where the original gives items to a character.</b>
     /// <c>GIVE_TREASURE_DATA</c> calls <c>dude.myItems.AddItem</c> on the active character, but a
     /// character's inventory here is still the record read off disk rather than live state. Held
-    /// separately so nothing pretends the records were modified, and so
-    /// <see cref="HasItem"/> can be widened to include it once characters become mutable.
+    /// separately from a character's own inventory, and <see cref="HasItem"/> searches both --
+    /// so a trigger asking whether the party holds something finds a treasure pickup too.
     /// </remarks>
     public List<ItemInstance> Carried { get; } = [];
 
@@ -93,7 +93,7 @@ public sealed class Party
 
     public bool DetectingInvisible { get; set; }
 
-    public void Add(CharacterRecord member)
+    public void Add(Character member)
     {
         ArgumentNullException.ThrowIfNull(member);
 
@@ -110,7 +110,7 @@ public sealed class Party
     }
 
     /// <summary>The character whose turn it is, or null when the party is empty.</summary>
-    public CharacterRecord? Active =>
+    public Character? Active =>
         (uint)ActiveCharacter < (uint)members.Count ? members[ActiveCharacter] : null;
 
     /// <summary>Whether any member carries an item with this id (<c>PartyHasItem</c>).</summary>
@@ -121,8 +121,10 @@ public sealed class Party
     /// </remarks>
     public bool HasItem(string itemId) =>
         !string.IsNullOrEmpty(itemId)
-        && members.Any(m => m.Items.Items.Any(
-            i => string.Equals(i.ItemId, itemId, StringComparison.OrdinalIgnoreCase)));
+        && (members.Any(m => m.Items.Any(
+                i => string.Equals(i.ItemId, itemId, StringComparison.OrdinalIgnoreCase)))
+            || Carried.Any(
+                i => string.Equals(i.ItemId, itemId, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>Whether any member has this class (<c>PartyHasClass</c>).</summary>
     public bool HasClass(string classId) => Any(m => m.ClassId, classId);
@@ -141,13 +143,12 @@ public sealed class Party
     /// </remarks>
     public bool HasBaseclass(string baseclassId) =>
         !string.IsNullOrEmpty(baseclassId)
-        && members.Any(m => m.BaseclassStats.Any(
-            b => string.Equals(b.BaseclassId, baseclassId, StringComparison.OrdinalIgnoreCase)));
+        && members.Any(m => m.Baseclass(baseclassId) is not null);
 
     /// <summary>Whether any member is of this sex (<c>PartyHasGender</c>).</summary>
-    public bool HasGender(Gender gender) => members.Any(m => (Gender)m.Gender == gender);
+    public bool HasGender(Gender gender) => members.Any(m => m.Gender == gender);
 
-    private bool Any(Func<CharacterRecord, string> field, string value) =>
+    private bool Any(Func<Character, string> field, string value) =>
         !string.IsNullOrEmpty(value)
         && members.Any(m => string.Equals(field(m), value, StringComparison.OrdinalIgnoreCase));
 

@@ -45,7 +45,7 @@ public class PartyTests
         var party = new Party();
         foreach (var member in members)
         {
-            party.Add(member);
+            party.Add(new Character(member, UAF.Rules.MoneyRules.Default));
         }
 
         return party;
@@ -78,7 +78,7 @@ public class PartyTests
         var party = new Party();
         for (int i = 0; i < 20; i++)
         {
-            party.Add(Member($"M{i}"));
+            party.Add(new Character(Member($"M{i}"), UAF.Rules.MoneyRules.Default));
         }
 
         Assert.Equal(Party.MaxMembers, party.Count);
@@ -317,5 +317,77 @@ public class PartyTests
         Assert.Equal(TriggerResult.Fire,
                      EventTrigger.Evaluate(Control(EventTriggerType.Nighttime), 0, 0,
                                            party: party, world: world, hours: 23));
+    }
+
+    // ---- experience ----------------------------------------------------------------------------
+
+    private static Character Adventurer(params string[] baseclasses) =>
+        new(Member("A", baseclasses: baseclasses), UAF.Rules.MoneyRules.Default);
+
+    [Fact]
+    public void Experience_splits_across_baseclasses_and_rounds_the_share_up()
+    {
+        // curExp = (points + n - 1) / n, and EACH baseclass gets that full share -- so a multiclass
+        // character gains more in total than was awarded. 100 across 3 is 34 each, 102 in all.
+        var single = Adventurer("fighter");
+        Assert.Equal(100, single.GiveExperience(100));
+        Assert.Equal(100, single.TotalExperience);
+
+        var triple = Adventurer("fighter", "cleric", "mage");
+        Assert.Equal(102, triple.GiveExperience(100));
+        Assert.All(triple.Baseclasses, b => Assert.Equal(34, b.Experience));
+    }
+
+    [Fact]
+    public void A_drained_baseclass_gains_nothing_while_the_others_still_do()
+    {
+        // IncCurExperience refuses when previousLevel > 0 -- the level-drain marker.
+        var character = Adventurer("fighter", "cleric");
+        character.Baseclasses[0].PreviousLevel = 3;
+
+        Assert.Equal(50, character.GiveExperience(100));
+        Assert.Equal(0, character.Baseclasses[0].Experience);
+        Assert.Equal(50, character.Baseclasses[1].Experience);
+    }
+
+    [Fact]
+    public void An_award_of_zero_does_nothing_at_all()
+    {
+        var character = Adventurer("fighter");
+        Assert.Equal(0, character.GiveExperience(0));
+        Assert.Equal(0, character.TotalExperience);
+    }
+
+    [Fact]
+    public void A_characters_mutable_state_starts_from_its_record_without_changing_it()
+    {
+        var record = Member("Alia", hitPoints: 12,
+                            items: [new ItemInstance(0, "Rope", 0, 0, 1, 1, 0, 0, 0)]);
+        var character = new Character(record, UAF.Rules.MoneyRules.Default);
+
+        Assert.Equal(12, character.HitPoints);
+        Assert.Single(character.Items);
+
+        character.HitPoints = 3;
+        character.Items.Clear();
+        character.GiveExperience(75);
+
+        // The record stays the snapshot of the file it was read from.
+        Assert.Equal(12, record.HitPoints);
+        Assert.Single(record.Items.Items);
+        Assert.Equal(0, record.BaseclassStats[0].Experience);
+        Assert.Equal(75, character.TotalExperience);
+    }
+
+    [Fact]
+    public void A_treasure_pickup_answers_the_party_have_item_condition()
+    {
+        // Items land in the party list rather than a character's inventory today, and HasItem
+        // searches both -- otherwise a design gating on "do you have the key" never fires.
+        var party = Roster(Member("A"));
+        Assert.False(party.HasItem("Brass Key"));
+
+        party.Carried.Add(new ItemInstance(0, "Brass Key", 0, 0, 1, 1, 0, 0, 0));
+        Assert.True(party.HasItem("Brass Key"));
     }
 }

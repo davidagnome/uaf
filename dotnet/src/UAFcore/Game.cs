@@ -82,7 +82,7 @@ public sealed class Game
         // A stand-in party -- see the remarks on the property.
         foreach (var member in design.Globals.Characters.Take(6))
         {
-            Party.Add(member);
+            Party.Add(new Character(member, Money));
         }
     }
 
@@ -456,6 +456,9 @@ public sealed class Game
             case TreasureEvent { SilentGiveToActiveChar: not 0 } treasure:
                 return GiveTreasure(treasure);
 
+            case GainExperienceEvent gain:
+                return GainExperience(gain);
+
             default:
                 return null;
         }
@@ -479,11 +482,9 @@ public sealed class Game
     /// difference in <i>where</i> it lands, not in how much.
     /// </para>
     /// <para>
-    /// <b>The experience is summed before anything is handed over</b>, from the item database
-    /// rather than from the carried instances (<c>:6553</c>) — an instance records what it is, not
-    /// what it is worth. It is computed and reported but not awarded: levelling is rules work that
-    /// does not exist yet, and silently adding to a character's total would be worse than saying
-    /// so.
+    /// <b>The experience comes from the item database, not the carried instances</b>
+    /// (<c>:6553</c>) — an instance records what it is, not what it is worth — and it goes to the
+    /// <i>active character</i> rather than being shared, which is what the original does.
     /// </para>
     /// </remarks>
     private bool GiveTreasure(TreasureEvent treasure)
@@ -508,7 +509,75 @@ public sealed class Game
             experience += record.Scalars.Experience;
         }
 
-        Message = Describe(gained, treasure.Items.Items.Count - unknown, unknown, experience);
+        int awarded = Party.Active?.GiveExperience(experience) ?? 0;
+        Message = Describe(gained, treasure.Items.Items.Count - unknown, unknown, awarded);
+        return true;
+    }
+
+    /// <summary>
+    /// Awards experience to some or all of the party (<c>GAIN_EXP_DATA</c>,
+    /// <c>RunEvent.cpp:10151</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>who</c> selects between nobody, everybody, the active character, one at random, and a
+    /// per-character chance roll. <b>The random case rolls 1..count and indexes count−1</b>, so the
+    /// roll is 1-based and the index is not — transcribing it as a plain 0-based roll never picks
+    /// the last member.
+    /// </para>
+    /// <para>
+    /// The original re-derives each character's ready-to-train flag afterwards. That needs the
+    /// baseclass experience thresholds from <c>baseclass.dat</c>, which has no reader yet, so the
+    /// flag stays as the record left it and the roster's blue name is the design's own.
+    /// </para>
+    /// <para>
+    /// This runs without input, where the original waits for Return on a screen. The award is the
+    /// same; what is missing is the pause.
+    /// </para>
+    /// </remarks>
+    private bool GainExperience(GainExperienceEvent gain)
+    {
+        int awarded = 0;
+
+        switch ((PartyAffect)gain.Who)
+        {
+            case PartyAffect.None:
+                break;
+
+            case PartyAffect.EntireParty:
+                foreach (var member in Party.Members)
+                {
+                    awarded += member.GiveExperience(gain.Experience);
+                }
+
+                break;
+
+            case PartyAffect.ActiveCharacter:
+                awarded += Party.Active?.GiveExperience(gain.Experience) ?? 0;
+                break;
+
+            case PartyAffect.OneAtRandom when Party.Count > 0:
+                // RollDice(count, 1) is 1..count, indexed at [roll - 1].
+                int roll = Random.Shared.Next(1, Party.Count + 1);
+                awarded += Party.Members[roll - 1].GiveExperience(gain.Experience);
+                break;
+
+            case PartyAffect.ChanceOnEach:
+                foreach (var member in Party.Members)
+                {
+                    if (Random.Shared.Next(1, 101) <= gain.Chance)
+                    {
+                        awarded += member.GiveExperience(gain.Experience);
+                    }
+                }
+
+                break;
+        }
+
+        Message = awarded > 0
+            ? $"The party gains {awarded} experience."
+            : "No one gains experience.";
+
         return true;
     }
 
@@ -854,7 +923,7 @@ public sealed class Game
             y += lineHeight;
 
             uint nameTint = FontPalette.Resolve(
-                member.ReadyToTrain != 0 ? FontColor.Blue : FontColor.Green);
+                member.ReadyToTrain ? FontColor.Blue : FontColor.Green);
 
             var hitPoints = member.HitPoints <= 0 ? FontColor.Red
                           : member.HitPoints < member.MaxHitPoints ? FontColor.Yellow

@@ -1549,11 +1549,12 @@ So, in order:
    `Teleporter`, with chaining. See the event section below.
 3. ~~**Party state**~~ — **done** as a roster, world flags and the trigger conditions they answer;
    see the party section.
-4. **Rules.** `UAF.Rules` now exists and holds the currency (see the money section);
-   `GiveTreasure`'s silent path pays money into the party purse and hands over items, resolved
-   through the design's item database (see the items section). What remains: **experience and
-   levelling**, mutable **character inventories** (items land in a party-level list today), the
-   **treasure/shop/temple screens** (forms, not events), and **combat**.
+4. **Rules.** `UAF.Rules` holds the currency; `GiveTreasure` pays money, hands over items resolved
+   through the item database, and awards their experience; `GainExperience` runs all five
+   distribution modes; party members are now mutable `Character`s. What remains: **levelling**
+   (needs `baseclass.dat`'s experience thresholds, which has no reader), **`classes.dat`** (needed
+   for the experience split's true baseclass count), the **treasure/shop/temple screens** (forms,
+   not events), and **combat**.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
@@ -1806,6 +1807,35 @@ Verified across the whole corpus rather than a sample: **124 of 124** item refer
 reference designs resolve — 19 from treasure events, 105 carried by pre-generated characters. A
 sample would have proved little, since most records set both names identically and only the ones
 that differ can fail.
+
+##### Mutable characters and experience
+
+`Character` wraps a `CharacterRecord`: identity and the unchanging scores read straight through,
+while hit points, per-baseclass experience, money and inventory become mutable. The record stays an
+honest snapshot of the file, which a test pins directly.
+
+- **The experience split rounds up, so a multiclass character gains more than the award.**
+  `curExp = (exppts + n - 1) / n` and each baseclass receives that *full* share
+  (`Char.cpp:5798`) — 100 across three baseclasses is 34 each, 102 in total. An even division
+  would quietly slow every multiclass character in every design.
+- **A drained baseclass gains nothing.** `IncCurExperience` refuses when `previousLevel > 0`
+  (`class.cpp:4828`), the level-drain marker; the character's other baseclasses still gain. Nothing
+  clamps the total, so a negative award really does subtract.
+- **`GAIN_EXP_DATA`'s random mode rolls 1..count and indexes count−1** (`RunEvent.cpp:10178`) —
+  a 0-based roll never picks the last member.
+- **One deviation, recorded rather than hidden.** The reference takes the split's `n` from the
+  *class definition* (`classes.dat`, no reader yet) and writes into the *character*'s own stats,
+  dropping any share whose baseclass the character lacks. This port counts the character's own
+  baseclasses. The two agree wherever a character's stats match its class, which the Phase 1 walk
+  found to hold; they differ only for a record that disagrees with its own class.
+- **Ready-to-train is left as the record has it.** Re-deriving it needs `baseclass.dat`'s
+  experience thresholds, so the roster's blue name is the design's own rather than this engine's.
+- Items land in a party-level list rather than a character's inventory, and `HasItem` searches
+  both — otherwise a design gating on "do you have the key" would never fire after a pickup.
+
+Corroborated against `SomethingWild`'s six pre-generated fighters: 2001 XP at level 2, 8001 at 4,
+35001 at 6 — each sitting just past the classic AD&D fighter thresholds (2000 / 8000 / 32000),
+which is independent evidence that both the reader and this model are right.
 
 > **The money path is not verified against real design data, and no fixture can verify it.** Every
 > treasure carrying coins in the three reference designs takes the pick-up screen; the only two
