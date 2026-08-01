@@ -1591,10 +1591,10 @@ remains, in dependency order:
    and `traits.dat` remain unread; only the race one is currently missed, and only for a design
    that caps a level by race.
 2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
-   `UAF.Media`, and `ItemsForm` with it (23 tests between them), which confirms the engine carries
-   a real form. `CharStatsForm` (2,064 lines), `SpellForm` (895) and `RestTimeForm` (374) remain.
-   They are what the treasure, shop, temple and training-hall screens need — which is why those
-   event types cannot run even though they parse.
+   `UAF.Media`, with `ItemsForm` and `RestTimeForm` on top of it (33 tests between the three).
+   `CharStatsForm` (2,064 lines) and `SpellForm` (895) remain, and `CharStatsForm` is what the
+   treasure screen's VIEW entry needs. Between them they are what the shop, temple and
+   training-hall screens want — which is why those event types cannot run even though they parse.
 3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
    math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
 4. **The remaining viewport squares**, 3 and 4.
@@ -1859,6 +1859,24 @@ drawing code.
   space seen. That is what lines a variable-width table up with nobody measuring it in advance.
 - **Markup is not interpreted**, exactly as in menus — the original disables font colour tags for
   the duration of a draw.
+
+##### `RestTimeForm`, as ported
+
+The rest-time picker — `REST TIME  DD:HH:MM`, three tab stops, `+`/`-` on the selected field. The
+smallest of the forms, and a useful contrast with `ItemsForm`: its three `SEL` fields are **not**
+inside an auto-repeat block, so they keep their flags rather than being flattened.
+
+**They are still never drawn.** `showRestTime` gives text to the header, the three numbers and the
+two colons, and nothing to `RTF_Days`/`RTF_Hours`/`RTF_Minutes`, so those are never placed and have
+no box. The enum calls them a "selection rectangle"; in practice they name the tab stops, and the
+highlight goes on the number beside each (`RTF_highlight`). Two forms now, two different reasons the
+selection field is not a rectangle.
+
+**Incrementing carries and decrementing does not, and that asymmetry is deliberate.** A minute added
+at 23:59 advances the day — the minutes case re-checks the hour rollover itself rather than falling
+through. Taking a minute off 1 day 00:00 does nothing at all: each field simply refuses at zero
+(`RTF_DecrStat`). Making the two symmetric would let a player walk the clock back past the rest they
+asked for. Days have no upper bound in either direction.
 
 ##### `ItemsForm`, as ported
 
