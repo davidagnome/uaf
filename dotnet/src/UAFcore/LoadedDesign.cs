@@ -287,6 +287,90 @@ public sealed class LoadedDesign : IDisposable
         }
     }
 
+    private Dictionary<string, RaceRecord>? races;
+    private bool racesLoaded;
+
+    /// <summary>
+    /// The design's races by name, or null when <c>races.dat</c> is missing or is a shape this port
+    /// does not read.
+    /// </summary>
+    /// <remarks>
+    /// Null is a real state: <c>DefaultDesign</c> ships <c>RaceV1</c>, the one container shape where
+    /// the editor and the engine read different streams, which this port refuses rather than guess
+    /// at. A design whose races cannot be read still levels — it simply has no race-imposed cap.
+    /// </remarks>
+    public IReadOnlyDictionary<string, RaceRecord>? Races
+    {
+        get
+        {
+            if (racesLoaded)
+            {
+                return races;
+            }
+
+            racesLoaded = true;
+            races = LoadRaces();
+            return races;
+        }
+    }
+
+    private Dictionary<string, RaceRecord>? LoadRaces()
+    {
+        string path = Path.Combine(Root, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Race));
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Race, out var body,
+                                                   out var stream);
+            using (stream)
+            {
+                var map = new Dictionary<string, RaceRecord>(StringComparer.OrdinalIgnoreCase);
+                foreach (var record in RaceRecordReader.ReadAll(body, header.Count, header.Tag,
+                                                                Globals.Version))
+                {
+                    map[record.Name] = record;
+                }
+                return map;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The level ceiling a character faces in one baseclass, from its baseclass and its race.
+    /// </summary>
+    /// <remarks>
+    /// The reference resolves <c>MaxLevel$SYS$</c> through a <c>SKILL_COMPUTATION</c> built with
+    /// <c>minimize = true</c>, so the <b>smaller</b> of the two wins
+    /// (<c>Char.cpp:GetLevelCap</c>, <c>class.cpp:5215</c>). A missing database simply contributes
+    /// no cap.
+    /// </remarks>
+    public int LevelCap(Character character, BaseclassRecord baseclass)
+    {
+        ArgumentNullException.ThrowIfNull(character);
+        ArgumentNullException.ThrowIfNull(baseclass);
+
+        int fromBaseclass = Levelling.GetLevelCapFromSkills(
+            baseclass.Skills.Select(s => (s.SkillId, s.Value)));
+
+        int fromRace = Levelling.NoLevelCap;
+        if (Races is { } known && known.TryGetValue(character.Race, out var race))
+        {
+            fromRace = Levelling.GetLevelCapFromSkills(race.Skills.Select(s => (s.SkillId, s.Value)));
+        }
+
+        return Levelling.CombineLevelCaps(fromBaseclass, fromRace);
+    }
+
     /// <summary>
     /// Whether a character has earned a level it has not taken, in any of its baseclasses.
     /// </summary>
@@ -319,8 +403,7 @@ public sealed class LoadedDesign : IDisposable
 
             if (Levelling.IsReadyToTrain(baseclass.ExperienceLevels, (uint)progress.Experience,
                                          progress.CurrentLevel, progress.PreviousLevel,
-                                         Levelling.GetBaseclassLevelCap(
-                                             baseclass.Skills.Select(s => (s.SkillId, s.Value)))))
+                                         LevelCap(character, baseclass)))
             {
                 return true;
             }

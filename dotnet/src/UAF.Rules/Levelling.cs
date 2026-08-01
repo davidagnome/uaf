@@ -152,17 +152,10 @@ public static class Levelling
     }
 
     /// <summary>
-    /// The level cap a baseclass's own skills impose, or <see cref="NoLevelCap"/> for none.
+    /// The level cap a skill list imposes, or <see cref="NoLevelCap"/> for none.
     /// </summary>
-    /// <param name="skills">The baseclass record's skill list.</param>
-    /// <remarks>
-    /// <b>Partial: this reads the baseclass side only.</b> The reference resolves
-    /// <c>MaxLevel$SYS$</c> through a <c>SKILL_COMPUTATION</c> that also consults the character's
-    /// <b>race</b> (<c>Char.cpp:GetLevelCap</c>), and <c>races.dat</c> has no reader yet. A design
-    /// capping a level by race therefore goes unenforced here — no fixture in the corpus does, but
-    /// that is not the same as it being safe.
-    /// </remarks>
-    public static int GetBaseclassLevelCap(IEnumerable<(string SkillId, int Value)> skills)
+    /// <param name="skills">A baseclass's or a race's skill list — both carry the same skill.</param>
+    public static int GetLevelCapFromSkills(IEnumerable<(string SkillId, int Value)> skills)
     {
         ArgumentNullException.ThrowIfNull(skills);
 
@@ -174,5 +167,30 @@ public static class Levelling
             }
         }
         return NoLevelCap;
+    }
+
+    /// <summary>
+    /// Combines the caps a character's baseclass and race impose.
+    /// </summary>
+    /// <remarks>
+    /// <b>The smaller wins.</b> <c>GetLevelCap</c> builds its <c>SKILL_COMPUTATION</c> with
+    /// <c>minimize = true</c> (<c>Char.cpp</c>), and <c>GetSkillValue</c> then takes the lower of
+    /// the baseclass and race values (<c>class.cpp:5215</c>) — an elf-only class capped at 12 by
+    /// its baseclass and 8 by its race stops at 8. A cap of <see cref="NoLevelCap"/> is absent
+    /// rather than zero, so the other side wins outright, and two absent caps stay absent.
+    /// </remarks>
+    public static int CombineLevelCaps(int baseclassCap, int raceCap)
+    {
+        if (baseclassCap == NoLevelCap)
+        {
+            return raceCap;
+        }
+
+        if (raceCap == NoLevelCap)
+        {
+            return baseclassCap;
+        }
+
+        return Math.Min(baseclassCap, raceCap);
     }
 }

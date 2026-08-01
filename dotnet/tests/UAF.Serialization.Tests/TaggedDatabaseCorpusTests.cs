@@ -393,4 +393,80 @@ public class TaggedDatabaseCorpusTests
         Assert.Equal(2, BaseclassRecordReader.RaceAdjustmentTableSize);
         Assert.Equal(100, BaseclassRecordReader.BonusExperienceTableSize);
     }
+
+    // ---- races.dat -----------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("SomethingWild.dsn", 12, "Dwarf")]
+    [InlineData("Case.dsn", 12, "Dwarf")]
+    [InlineData("Ambassador's_Letter", 12, "Helmetpanther")]
+    public void Every_race_record_reads_to_the_files_exact_end(
+        string designName, int expectedCount, string firstName)
+    {
+        string? design = Design("reference", designName);
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Race));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Race, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            var records = RaceRecordReader.ReadAll(body, header.Count, header.Tag,
+                                                   DesignVersionOf(design));
+
+            Assert.Equal(expectedCount, records.Count);
+            Assert.Equal(firstName, records[0].Name);
+            Assert.All(records, r => Assert.False(string.IsNullOrWhiteSpace(r.Name)));
+
+            // "$$Help" closes races.dat exactly as it closes baseclass.dat and classes.dat.
+            Assert.Equal("$$Help", records[^1].Name);
+
+            Assert.Throws<EndOfStreamException>(() => body.ReadBytes(1));
+        }
+    }
+
+    [Fact]
+    public void A_designs_invented_races_are_read_as_authored_strings()
+    {
+        // Ambassador's_Letter restricts its custom "ninja" baseclass to "Helmettiger", and that
+        // race is here -- the two databases corroborate each other.
+        string? design = Design("reference", "Ambassador's_Letter");
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Race));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Race, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            var records = RaceRecordReader.ReadAll(body, header.Count, header.Tag,
+                                                   DesignVersionOf(design));
+            Assert.Contains(records, r => r.Name == "Helmettiger");
+        }
+    }
+
+    [Fact]
+    public void A_race_container_below_RaceV2_is_refused_rather_than_guessed_at()
+    {
+        // RaceV1 is the one shape where the editor and the engine read different streams: the
+        // editor takes preSpellNameKey and derives the five resistance fields from the race's
+        // name, the engine does neither. DefaultDesign is the only fixture, and it cannot
+        // distinguish the two halves, so neither is transcribed.
+        string? design = DefaultDesign();
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Race));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Race, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            Assert.Equal("RaceV1", header.Tag);
+
+            var error = Assert.Throws<InvalidDataException>(
+                () => RaceRecordReader.Read(body, header.Tag, DesignVersionOf(design)));
+            Assert.Contains("RaceV1", error.Message, StringComparison.Ordinal);
+        }
+    }
 }

@@ -239,11 +239,11 @@ public static class BaseclassRecordReader
         }
 
         // Six lists, every one counted with a bare int rather than ReadCount.
-        var skills = ReadList(ar, ReadSkill);
-        var abilityAdj = ReadList(ar, c => ReadSkillAdjustment(c, AbilityAdjustmentTableSize));
-        var baseclassAdj = ReadList(ar, c => ReadSkillAdjustment(c, BaseclassAdjustmentTableSize));
-        var raceAdj = ReadList(ar, c => ReadSkillAdjustment(c, RaceAdjustmentTableSize));
-        var scriptAdj = ReadList(ar, ReadScriptAdjustment);
+        var skills = ReadSkillList(ar);
+        var abilityAdj = ReadAbilityAdjustments(ar);
+        var baseclassAdj = ReadBaseclassAdjustments(ar);
+        var raceAdj = ReadRaceAdjustments(ar);
+        var scriptAdj = ReadScriptAdjustments(ar);
         var bonusXp = ReadList(ar, ReadBonusExperience);
 
         return new BaseclassRecord(tag, preSpellNameKey, name, requirements, races, levels,
@@ -264,6 +264,26 @@ public static class BaseclassRecordReader
         }
         return records;
     }
+
+    /// <summary>The <c>m_skills</c> list, shared with <c>races.dat</c>.</summary>
+    public static List<Skill> ReadSkillList(IArchiveCursor ar) =>
+        ReadList(ar, ReadSkill);
+
+    /// <inheritdoc cref="ReadSkillList"/>
+    public static List<BaseclassSkillAdjustment> ReadAbilityAdjustments(IArchiveCursor ar) =>
+        ReadList(ar, c => ReadSkillAdjustment(c, AbilityAdjustmentTableSize));
+
+    /// <inheritdoc cref="ReadSkillList"/>
+    public static List<BaseclassSkillAdjustment> ReadBaseclassAdjustments(IArchiveCursor ar) =>
+        ReadList(ar, c => ReadSkillAdjustment(c, BaseclassAdjustmentTableSize));
+
+    /// <inheritdoc cref="ReadSkillList"/>
+    public static List<BaseclassSkillAdjustment> ReadRaceAdjustments(IArchiveCursor ar) =>
+        ReadList(ar, c => ReadSkillAdjustment(c, RaceAdjustmentTableSize));
+
+    /// <inheritdoc cref="ReadSkillList"/>
+    public static List<BaseclassSkillAdjustment> ReadScriptAdjustments(IArchiveCursor ar) =>
+        ReadList(ar, ReadScriptAdjustment);
 
     /// <summary>A bare-<c>int</c>-counted list, the framing all six tail lists use.</summary>
     private static List<T> ReadList<T>(IArchiveCursor ar, Func<IArchiveCursor, T> readOne)
@@ -334,14 +354,22 @@ public static class BaseclassRecordReader
     /// Its own version string comes first, and anything but <c>"ABL1"</c> is rejected — the
     /// reference logs "Unknown ABILITY_LIMITS version" and returns an error.
     /// </remarks>
-    public static AbilityRequirement ReadAbilityRequirement(IArchiveCursor ar)
+    public static AbilityRequirement ReadAbilityRequirement(
+        IArchiveCursor ar, ArchiveRole role = ArchiveRole.Editor)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
         string version = ar.ReadString();
         string abilityId = ArchiveStringConventions.Decode(ar.ReadString());
 
-        if (version != "ABL1")
+        if (version == "ABL0" && role == ArchiveRole.Editor)
+        {
+            // The older shape carries a binary key the editor reads and discards. The engine has
+            // no branch for it and rejects the record, so this genuinely forks by build -- and
+            // DefaultDesign's races.dat is ABL0, which is how it was found.
+            ar.ReadUInt32();
+        }
+        else if (version != "ABL1")
         {
             throw new InvalidDataException($"Unknown ABILITY_LIMITS version = {version}");
         }

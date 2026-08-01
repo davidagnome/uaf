@@ -182,7 +182,26 @@ public static class AslReader
     /// <summary>
     /// Reads an ASL block, applying the key fixup only when the cursor is a compressed one.
     /// </summary>
-    public static List<AslEntry> Read(IArchiveCursor ar, DesignVersion version, string expectedMapName)
+    public static List<AslEntry> Read(IArchiveCursor ar, DesignVersion version,
+                                      string expectedMapName) =>
+        Read(ar, version, expectedMapName, wideCount: false);
+
+    /// <summary>
+    /// Reads the block as <c>CAR::DeSerialize</c> does (<c>class.cpp:12117</c>) — <b>a third path,
+    /// and its count is an <c>int</c> rather than a <c>WORD</c></b>.
+    /// </summary>
+    /// <remarks>
+    /// The two <c>Serialize</c> twins agree on a 16-bit count, which made "the count is 16-bit on
+    /// both paths" look like a property of the format. <c>DeSerialize</c> is a separate entry point
+    /// that reads <c>int count</c>, and it is what <c>races.dat</c> uses
+    /// (<c>class.cpp:3119</c>). The entries themselves are identical, key fixup included.
+    /// </remarks>
+    public static List<AslEntry> ReadDeSerialized(IArchiveCursor ar, DesignVersion version,
+                                                  string expectedMapName) =>
+        Read(ar, version, expectedMapName, wideCount: true);
+
+    private static List<AslEntry> Read(IArchiveCursor ar, DesignVersion version,
+                                       string expectedMapName, bool wideCount)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -194,7 +213,7 @@ public static class AslReader
 
         VerifyMapName(ar.ReadString(), expectedMapName);
 
-        ushort count = ar.ReadUInt16();          // WORD, not int
+        int count = wideCount ? ar.ReadInt32() : ar.ReadUInt16();
         for (int i = 0; i < count; i++)
         {
             // ASL.cpp:1236 applies the fixup; the CArchive twin at :1247 reads verbatim.

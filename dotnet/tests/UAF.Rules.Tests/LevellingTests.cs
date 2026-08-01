@@ -108,10 +108,41 @@ public class LevellingTests
     [Fact]
     public void The_baseclass_level_cap_comes_from_a_named_skill()
     {
-        Assert.Equal(12, Levelling.GetBaseclassLevelCap(
+        Assert.Equal(12, Levelling.GetLevelCapFromSkills(
             [("Turn$SYS$", 3), (Levelling.MaxLevelSkill, 12)]));
 
-        Assert.Equal(Levelling.NoLevelCap, Levelling.GetBaseclassLevelCap([("Turn$SYS$", 3)]));
+        Assert.Equal(Levelling.NoLevelCap, Levelling.GetLevelCapFromSkills([("Turn$SYS$", 3)]));
+    }
+
+    [Fact]
+    public void The_smaller_of_the_baseclass_and_race_caps_wins()
+    {
+        // GetLevelCap builds its SKILL_COMPUTATION with minimize = true, and GetSkillValue then
+        // takes the lower of the two (class.cpp:5215). An elf-only class capped at 12 by its
+        // baseclass and 8 by its race stops at 8.
+        Assert.Equal(8, Levelling.CombineLevelCaps(12, 8));
+        Assert.Equal(8, Levelling.CombineLevelCaps(8, 12));
+
+        // An absent cap is not a cap of zero -- the other side wins outright.
+        Assert.Equal(12, Levelling.CombineLevelCaps(12, Levelling.NoLevelCap));
+        Assert.Equal(9, Levelling.CombineLevelCaps(Levelling.NoLevelCap, 9));
+
+        // ...and two absences stay absent rather than collapsing to a number.
+        Assert.Equal(Levelling.NoLevelCap,
+                     Levelling.CombineLevelCaps(Levelling.NoLevelCap, Levelling.NoLevelCap));
+    }
+
+    [Fact]
+    public void A_race_cap_holds_a_character_below_what_its_experience_buys()
+    {
+        // The end-to-end shape: entitled to 6 by experience, held to 4 by a race.
+        int cap = Levelling.CombineLevelCaps(Levelling.NoLevelCap,
+                                             Levelling.GetLevelCapFromSkills(
+                                                 [(Levelling.MaxLevelSkill, 4)]));
+
+        Assert.Equal(4, Levelling.GetAllowedLevel(Assassin, 35001, previousLevel: 0, levelCap: cap));
+        Assert.False(Levelling.IsReadyToTrain(Assassin, 35001, currentLevel: 4, previousLevel: 0,
+                                              levelCap: cap));
     }
 
     // ---- against a real design --------------------------------------------------------------
@@ -155,6 +186,40 @@ public class LevellingTests
             // And the assassin's table is the one this file's unit tests are built on.
             var assassin = records.Single(r => r.Name == "assassin");
             Assert.Equal(Assassin, assassin.ExperienceLevels.Take(Assassin.Length));
+        }
+    }
+
+    [Fact]
+    public void Real_races_read_from_a_design_can_be_asked_for_a_cap()
+    {
+        string? design = SomethingWild();
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Race));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Race, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            using var game = File.OpenRead(Path.Combine(design, "Data", "game.dat"));
+            var version = new UAF.Common.DesignVersion(
+                DesignFileHeader.Read(game, DesignFileKind.GameData).Version.Value);
+
+            var races = RaceRecordReader.ReadAll(body, header.Count, header.Tag, version);
+            var elf = races.Single(r => r.Name == "Elf");
+
+            // SomethingWild's Elf really does define MaxLevel$SYS$, and its value is 40 --
+            // HIGHEST_CHARACTER_LEVEL, so "no practical cap" written out explicitly rather than
+            // left absent. This was expected to come back NoLevelCap; the corpus says otherwise,
+            // which means the race side of the cap is exercised by real data rather than only by
+            // the unit tests above.
+            int raceCap = Levelling.GetLevelCapFromSkills(
+                elf.Skills.Select(s => (s.SkillId, s.Value)));
+
+            Assert.Equal(40, raceCap);
+
+            // Combined with a baseclass that caps lower, the baseclass still wins.
+            Assert.Equal(12, Levelling.CombineLevelCaps(12, raceCap));
         }
     }
 }

@@ -1658,6 +1658,38 @@ Verified the same way, by whole-file walks:
 > it — and `baseclass.dat` carries the same sentinel. A test asserting "every class has a
 > baseclass" fails on it, which is how it was found.
 
+##### `RACE_DATA`, as ported
+
+`races.dat` reads at `RaceV2` and above. Structurally a sibling of `BASE_CLASS_DATA` — ability
+requirements, five skill lists, a `Specab` tail — with `DICEPLUS` ranges for weight, height, age and
+movement in place of experience thresholds. Verified by whole-file walks: `SomethingWild`, `Case`
+and `Ambassador's_Letter` at 12 races each and the CI-saved 5.29 design at 6, every one to exact
+EOF, closing on the same `$$Help` sentinel the other two databases use.
+
+`Ambassador's_Letter` yields its invented races — `Helmetpanther`, `Earthswork`, `Mutant`,
+`Helmettiger`, `Cyborg`, `Android`, `Insectoid` — and **`Helmettiger` is exactly the race its custom
+`ninja` baseclass is restricted to**, so the two databases corroborate each other.
+
+Four things this file taught, three of them by failing first:
+
+- **`ABL0` is a legitimate `ABILITY_REQ` version.** The editor reads an extra `DWORD` key for it;
+  the engine rejects the record. `BaseclassRecordReader` shared the same leaf and rejected both —
+  no `baseclass.dat` in the corpus had reached it.
+- **Below `RaceV2` the five resistance fields are *derived*, not read** (`class.cpp:3100`): the
+  editor computes them from the race's name — Human can change class, Elf finds secret doors — and
+  consumes nothing. Reading them anyway eats twenty bytes that were never written.
+- **The five skill lists are gated on the *design* version**, not the container tag, so a 0.915
+  design skips them even with a modern `races.dat`.
+- **`CAR::DeSerialize` is a third ASL path and its count is an `int`, not a `WORD`**
+  (`class.cpp:12117`). Both `Serialize` twins agree on 16 bits, which made that look like a property
+  of the format; `races.dat` goes through `DeSerialize`. The entries are identical, key fixup
+  included — only the count width differs. `AslReader.ReadDeSerialized` covers it.
+
+> **`RaceV1` is refused rather than read.** It is the one container shape where the editor and the
+> engine genuinely consume different streams — the editor takes `preSpellNameKey` and derives the
+> resistances, the engine does neither — and `DefaultDesign` is the only fixture, which cannot
+> distinguish the two halves. Same call as `Bcd1` and `CL1`.
+
 ##### `BASE_CLASS_DATA`, as ported
 
 `BaseclassRecordReader` reads a `Bcd5` record **completely**, so a whole file walks and the
@@ -2175,10 +2207,14 @@ Second: **levelling**, as `Levelling` — `GetLevel`, `GetAllowedLevel`, `IsRead
 - **A capped character forfeits experience on purpose.** `Char.cpp:5503` steals the surplus so that
   a character held at a level cannot bank an arbitrary total and jump several levels when the cap
   lifts. Omitting it looks harmless and is not.
-- **The level cap is only half-implemented.** `GetLevelCap` resolves `MaxLevel$SYS$` through a
-  computation that also consults the character's **race**, and `races.dat` has no reader. The
-  baseclass side is read from the record's skill list; a design capping a level by race goes
-  unenforced. No corpus design does, which is not the same as it being safe.
+- ~~**The level cap is only half-implemented.**~~ **Closed.** `races.dat` now reads, and
+  `LoadedDesign.LevelCap` combines the baseclass's `MaxLevel$SYS$` with the race's. **The smaller
+  wins** — `GetLevelCap` builds its `SKILL_COMPUTATION` with `minimize = true` and `GetSkillValue`
+  takes the lower of the two (`class.cpp:5215`) — and an absent cap is absent rather than zero, so
+  the other side wins outright.
+  <br>The corpus does exercise this: `SomethingWild`'s Elf defines `MaxLevel$SYS$ = 40`, which is
+  `HIGHEST_CHARACTER_LEVEL`, i.e. "no practical cap" written out explicitly rather than left
+  absent. A test asserting the race had no cap failed on it.
 
 `LoadedDesign.IsReadyToTrain` now derives the roster's blue name from the thresholds rather than
 reading the design author's stored flag, falling back to the flag when `baseclass.dat` cannot be
