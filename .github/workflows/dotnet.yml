@@ -195,3 +195,5 @@ jobs:
         run: python3 dotnet/tools/gen-design-versions.py --check
       - name: Check CombatTiles.Generated.cs is up to date
         run: python3 dotnet/tools/gen-combat-tiles.py --check
+      - name: Check PartyArrangements.Generated.cs is up to date
+        run: python3 dotnet/tools/gen-party-arrangements.py --check
