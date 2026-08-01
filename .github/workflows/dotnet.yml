@@ -148,8 +148,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          first=$(grep -v '^#' dotnet/tests/UAF.Media.Tests/Assets/png-oracle.txt \
-                  | head -1 | cut -d'|' -f1)
+          # One awk, no pipe. `grep ... | head -1` looks equivalent and is not: head closes the
+          # pipe on the first line of a 161 KB manifest, grep dies of SIGPIPE, and this shell runs
+          # with `-eo pipefail`, so an informational step failed the whole job.
+          first=$(awk -F'|' '!/^#/ && NF { print $1; exit }' \
+                  dotnet/tests/UAF.Media.Tests/Assets/png-oracle.txt)
           if [ -f "reference/$first" ]; then
             echo "art corpus present - the PNG and legacy-art oracle tests are comparing pixels"
           else
