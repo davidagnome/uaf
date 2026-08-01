@@ -16,7 +16,13 @@ namespace UAF.Media.Tests;
 /// The art is gitignored, so the corpus tests return early when it is absent. The availability and
 /// round-trip tests do not — they author their own bytes and run anywhere.
 /// </para>
+/// <para>
+/// In the <c>sdl</c> collection for the same reason as <see cref="FontRasterizerTests"/>: SDL3_image
+/// needs no <c>SDL_Init</c> of its own, but it must not be running when another collection's
+/// <c>SDL_Quit</c> lands.
+/// </para>
 /// </remarks>
+[Collection("sdl")]
 public class SdlImageDecoderTests
 {
     private sealed record LegacyEntry(string RelativePath, ImageFormat Format, int Width,

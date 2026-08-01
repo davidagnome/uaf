@@ -24,7 +24,13 @@ namespace UAF.Media.Tests;
 /// eyeballed — several defects in this port were found by looking at output rather than by
 /// asserting on it.
 /// </para>
+/// <para>
+/// In the <c>sdl</c> collection because it rasterises text through <c>SdlFontRasterizer</c>; see
+/// <see cref="FontRasterizerTests"/> for why that has to be serialised against
+/// <see cref="SdlHeadlessTests"/>.
+/// </para>
 /// </remarks>
+[Collection("sdl")]
 public class FrameCompositionTests
 {
     private const int ScreenWidth = 640;

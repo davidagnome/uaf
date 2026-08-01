@@ -6,9 +6,18 @@ namespace UAF.Media.Tests;
 /// Covers <see cref="SdlFontRasterizer"/> and the bundled fallback face.
 /// </summary>
 /// <remarks>
+/// <para>
 /// These run headless — SDL3_ttf needs no video device — so unlike the art-corpus tests they are
 /// meaningful on a bare CI runner.
+/// </para>
+/// <para>
+/// In the <c>sdl</c> collection because <c>SdlFontRasterizer</c> calls <c>TTF_Init</c>/<c>TTF_Quit</c>,
+/// and <c>SDL_Quit</c> — which <see cref="SdlFixture"/> calls when its collection finishes — tears
+/// down every subsystem process-wide. Outside the collection these ran in parallel with
+/// <see cref="SdlHeadlessTests"/> and the test host crashed on Linux.
+/// </para>
 /// </remarks>
+[Collection("sdl")]
 public class FontRasterizerTests
 {
     private static FontAtlas Rasterize(int px, bool antialias = false)

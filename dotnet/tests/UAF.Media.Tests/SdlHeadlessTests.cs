@@ -21,6 +21,18 @@ public sealed class SdlFixture : IDisposable
     public void Dispose() => Platform.Dispose();
 }
 
+/// <summary>
+/// <b>Every test class that touches SDL, SDL_ttf or SDL_image belongs in this collection</b> —
+/// not only the ones that take <see cref="SdlFixture"/> as a parameter.
+/// </summary>
+/// <remarks>
+/// The fixture's <c>Dispose</c> calls <c>SDL_Quit</c>, which tears down every subsystem for the whole
+/// process. A class left outside the collection runs in parallel with that teardown, and SDL3_ttf work
+/// in flight when it lands takes the test host down with no failing assertion — it aborts the run
+/// instead. That is exactly what happened on the Linux runner once an unrelated change altered the
+/// interleaving: `FontRasterizerTests`, `SdlImageDecoderTests` and `FrameCompositionTests` all
+/// constructed SDL objects from outside this collection.
+/// </remarks>
 [CollectionDefinition("sdl")]
 public sealed class SdlCollection : ICollectionFixture<SdlFixture>;
 
