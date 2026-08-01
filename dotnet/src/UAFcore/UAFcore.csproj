@@ -22,6 +22,7 @@
     <ProjectReference Include="..\UAF.Data\UAF.Data.csproj" />
     <ProjectReference Include="..\UAF.Media\UAF.Media.csproj" />
     <ProjectReference Include="..\UAF.Media.Sdl\UAF.Media.Sdl.csproj" />
+    <ProjectReference Include="..\UAF.Rules\UAF.Rules.csproj" />
     <ProjectReference Include="..\UAF.Serialization\UAF.Serialization.csproj" />
   </ItemGroup>
 

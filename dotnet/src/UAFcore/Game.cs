@@ -1,5 +1,6 @@
 using UAF.Data;
 using UAF.Media;
+using UAF.Rules;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -73,6 +74,11 @@ public sealed class Game
         World = WorldState.FromDesign(design.Globals.Quests, design.Globals.SpecialItems,
                                       design.Globals.Keys);
 
+        Money = design.Globals.Money is { } currency
+            ? MoneyRules.FromDesign(currency)
+            : MoneyRules.Default;
+        Party = new Party { Pooled = new Purse(Money) };
+
         // A stand-in party -- see the remarks on the property.
         foreach (var member in design.Globals.Characters.Take(6))
         {
@@ -140,7 +146,10 @@ public sealed class Game
     /// conditions and the roster have something real to read. It is real data — the same records a
     /// savegame carries — placed by a rule the original does not have.
     /// </remarks>
-    public Party Party { get; } = new();
+    public Party Party { get; }
+
+    /// <summary>The design's currency.</summary>
+    public MoneyRules Money { get; }
 
     /// <summary>Quest, special-item and key state.</summary>
     public WorldState World { get; }
@@ -442,9 +451,54 @@ public sealed class Game
             case TransferEvent transfer:
                 return Teleport(transfer);
 
+            // Only the silent form runs without input; the other opens a screen, so it falls
+            // through to the presenter and names itself there rather than being consumed here.
+            case TreasureEvent { SilentGiveToActiveChar: not 0 } treasure:
+                return GiveTreasure(treasure);
+
             default:
                 return null;
         }
+    }
+
+    /// <summary>
+    /// Hands a treasure's money to the party (<c>GIVE_TREASURE_DATA::OnInitialEvent</c>,
+    /// <c>RunEvent.cpp:6541</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Only the silent path runs.</b> With <c>SilentGiveToActiveChar</c> set, the original hands
+    /// everything to the active character and chains without drawing anything; otherwise it opens
+    /// a pick-up-or-leave screen, which is a form this port does not have. The loud path is
+    /// reported rather than silently taking the treasure, since a design's pacing depends on the
+    /// player seeing it.
+    /// </para>
+    /// <para>
+    /// <b>Money only.</b> The items go with it in the original, and each carries experience the
+    /// character is awarded (<c>Experience</c> summed from the item database, <c>:6553</c>) — both
+    /// need the item database loaded and the levelling rules, neither of which exists yet.
+    /// </para>
+    /// <para>
+    /// The money goes to the party's common purse rather than to the active character's, because
+    /// characters' purses are still records read off disk rather than live state. That is a
+    /// difference in <i>where</i> it lands, not in how much.
+    /// </para>
+    /// </remarks>
+    private bool GiveTreasure(TreasureEvent treasure)
+    {
+        var pile = Purse.FromRecord(treasure.Money, Money);
+        double before = Party.Pooled.Total();
+        Party.Pooled.Transfer(pile);
+
+        double gained = Party.Pooled.Total() - before;
+        int items = treasure.Items.Items.Count;
+
+        Message = items > 0
+            ? $"You gain {gained:0} {Money[Money.BaseType].Name.ToLowerInvariant()} "
+              + $"(and {items} item(s), which are not yet handled)."
+            : $"You gain {gained:0} {Money[Money.BaseType].Name.ToLowerInvariant()}.";
+
+        return true;
     }
 
     /// <summary>

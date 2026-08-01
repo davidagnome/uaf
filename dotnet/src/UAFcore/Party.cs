@@ -1,3 +1,4 @@
+using UAF.Rules;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -51,7 +52,18 @@ public sealed class Party
     public int ActiveCharacter { get; set; }
 
     /// <summary>Coins the party holds in common, rather than in a character's own purse.</summary>
+    /// <remarks>
+    /// The original's <c>PARTY::moneyPooled</c> is a flag saying whether money is pooled, not an
+    /// amount — the coins themselves live in <see cref="Pooled"/>. Kept as the flag it is.
+    /// </remarks>
     public int MoneyPooled { get; set; }
+
+    /// <summary>The party's common purse.</summary>
+    /// <remarks>
+    /// Where treasure lands when it is not given to one character. Built against the design's own
+    /// currency, so a design with its own denominations is respected.
+    /// </remarks>
+    public Purse Pooled { get; init; } = new(MoneyRules.Default);
 
     /// <summary>Whether the party is searching as it moves (<c>PartyIsSearching</c>).</summary>
     public bool Searching { get; set; }

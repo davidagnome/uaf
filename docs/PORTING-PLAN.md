@@ -1548,9 +1548,11 @@ So, in order:
    `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays`, `PassTime` and
    `Teleporter`, with chaining. See the event section below.
 3. ~~**Party state**~~ — **done** as a roster, world flags and the trigger conditions they answer;
-   see the party section. What remains of the content layer needs *rules*: giving and taking items
-   and money (`GiveTreasure`, shops, temples), awarding experience and levelling
-   (`GainExperience`, `TrainingHall`), and combat.
+   see the party section.
+4. **Rules.** `UAF.Rules` now exists and holds the currency (see the money section), with
+   `GiveTreasure`'s silent path paying into the party purse. What remains: the **item database**
+   loaded into the engine so items can change hands, **experience and levelling**, the
+   **treasure/shop/temple screens** (forms, not events), and **combat**.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
@@ -1738,6 +1740,56 @@ roster drawn from `displayPartyNames`.
 > savegame. Taking the first six of `GLOBAL_STATS::Characters` is a stand-in so the conditions and
 > the roster have real data to read; it is real data placed by a rule the original does not have,
 > and it should be replaced when party creation or savegame loading lands.
+
+### Phase 2b — Rules
+
+`UAF.Rules` is created here rather than at scaffolding time, per §5.1's rule that empty projects are
+restore risk. First occupant: the currency (`Money.cpp`), as `MoneyRules` (denominations and
+conversion) and `Purse` (`MONEY_SACK`, renamed to avoid colliding with the record read off disk).
+24 tests. `GiveTreasure`'s silent path pays into the party purse.
+
+- **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
+  `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;
+  `GetBaseType()` returns `HRType`, the coin with the **highest rate**, which is **copper**
+  (`ComputeHighestRate`, `Money.cpp:574`). Every total, price and affordability check goes through
+  the latter. Reading the flag instead values a purse a thousand times low — and
+  `Ambassador's_Letter` sets the flag on *no* coin at all, so a reader depending on it finds
+  nothing.
+- **A higher rate is a *less* valuable coin** — rate is "how many of these per base coin", so
+  platinum is 1 and copper 1000.
+- **The slot mapping is two ranges, not one offset**: platinum–copper subtract 1 (enum 1–5 → 0–4),
+  `Coin6`–`Coin10` subtract 7 (enum 12–16 → 5–9), because `BogusItemType` at 11 sits between them.
+- **`Convert` truncates to whole coins and hands the remainder back through an out-parameter, in
+  the *source* denomination.** 105 copper to silver is 10 silver with 5 *copper* of overflow. A
+  caller that ignores it destroys money — and the reference has exactly one place where that
+  matters, below.
+- **`Subtract`'s change-making has three stages and the third was easy to miss.** Drain the named
+  coin, make up the shortfall from the others in reverse slot order (small change before breaking a
+  platinum piece), then — critically — an `else if (leftover > 0.0)` branch redistributes the
+  change from converting the unspent part back. Omitting that branch loses the change outright:
+  paying 3 gold from 1 platinum + 1 gold left the purse empty instead of holding 600 copper of
+  value. The author's own commented-out `/*Coins[i]*/` sits on the line that captures it.
+  `GiveChange` **assigns** rather than adds to each denomination, which is safe only because the
+  change-making already zeroed those slots.
+- **Nothing is taken unless the purse covers the whole amount** — the `HaveEnough` guard is first,
+  so there is no partial payment.
+- **`AutoUpConvert` stops at the first unconfigured slot rather than skipping it.** The loop
+  `break`s on a zero rate despite its own comment saying "only include the non-zero coin rates"
+  (`Money.cpp:1425`), so a design leaving an early slot empty gets no roll-up at all.
+  `Ambassador's_Letter` is exactly that shape — gold, silver and copper configured, platinum and
+  electrum absent. Each step also leaves its remainder in the denomination it reached, so
+  1050 copper rolls to 1 platinum and **5 silver**, not 1 platinum and 50 copper.
+- **`Total()` counts coins only.** Gems and jewellery have to be appraised and sold, so a party
+  holding nothing but gems has a total of zero and cannot buy anything.
+- **Adding to a denomination a design has not configured silently drops the amount** rather than
+  converting or rejecting it.
+
+> **The money path is not verified against real design data, and no fixture can verify it.** Every
+> treasure carrying coins in the three reference designs takes the pick-up screen; the only two
+> silent ones (`Ambassador's_Letter`, level 2) carry items and no money. What *was* checked against
+> real designs is the currency configuration — all three parse, and the two `base` notions and the
+> empty-slot case above are findings from that data, not from the source alone. The arithmetic
+> itself rests on unit tests derived from `Money.cpp`.
 
 ##### A caution that is worth more than any of the above
 
