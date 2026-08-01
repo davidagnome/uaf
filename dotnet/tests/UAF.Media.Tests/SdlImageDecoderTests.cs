@@ -13,8 +13,8 @@ namespace UAF.Media.Tests;
 /// "it returned something".
 /// </para>
 /// <para>
-/// The art is gitignored, so the corpus tests return early when <c>reference/</c> is absent. The
-/// availability and round-trip tests do not — they author their own bytes and run anywhere.
+/// The art is gitignored, so the corpus tests return early when it is absent. The availability and
+/// round-trip tests do not — they author their own bytes and run anywhere.
 /// </para>
 /// </remarks>
 public class SdlImageDecoderTests
@@ -23,7 +23,15 @@ public class SdlImageDecoderTests
                                       int Height, string Sha256, double[] Mean,
                                       double[] QuadrantMean);
 
-    private static string? ReferenceRoot()
+    /// <summary>
+    /// The reference art corpus, or null when this checkout does not carry it.
+    /// </summary>
+    /// <remarks>
+    /// The probe is a file the manifest names rather than the <c>reference/</c> directory, which
+    /// the .NET workflow creates itself for the tier-3 data fixture. See the same guard in
+    /// <see cref="PngOracleTests"/>.
+    /// </remarks>
+    private static string? CorpusRoot(IReadOnlyList<LegacyEntry> oracle)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "Shared")))
@@ -36,9 +44,12 @@ public class SdlImageDecoderTests
             return null;
         }
 
-        string reference = Path.Combine(dir.FullName, "reference");
-        return Directory.Exists(reference) ? reference : null;
+        string root = Path.Combine(dir.FullName, "reference");
+        return File.Exists(Resolve(root, oracle[0])) ? root : null;
     }
+
+    private static string Resolve(string root, LegacyEntry entry) =>
+        Path.Combine(root, entry.RelativePath.Replace('/', Path.DirectorySeparatorChar));
 
     private static List<LegacyEntry> LoadOracle()
     {
@@ -168,8 +179,10 @@ public class SdlImageDecoderTests
     [Fact]
     public void Lossless_legacy_art_decodes_identically_to_the_oracle()
     {
-        string? root = ReferenceRoot();
-        if (root is null)
+        var oracle = LoadOracle();
+        Assert.NotEmpty(oracle);
+
+        if (CorpusRoot(oracle) is not { } root)
         {
             return;
         }
@@ -180,10 +193,9 @@ public class SdlImageDecoderTests
 
         // BMP and PCX only. Both are lossless and simple enough that any two decoders agree
         // exactly, so anything less than a byte-for-byte match is a real defect.
-        foreach (var entry in LoadOracle().Where(e => e.Format is ImageFormat.Bmp or ImageFormat.Pcx))
+        foreach (var entry in oracle.Where(e => e.Format is ImageFormat.Bmp or ImageFormat.Pcx))
         {
-            string path = Path.Combine(root,
-                entry.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            string path = Resolve(root, entry);
             if (!File.Exists(path))
             {
                 continue;
@@ -218,8 +230,10 @@ public class SdlImageDecoderTests
     [Fact]
     public void Jpeg_art_decodes_within_tolerance_of_the_oracle()
     {
-        string? root = ReferenceRoot();
-        if (root is null)
+        var oracle = LoadOracle();
+        Assert.NotEmpty(oracle);
+
+        if (CorpusRoot(oracle) is not { } root)
         {
             return;
         }
@@ -234,10 +248,9 @@ public class SdlImageDecoderTests
         // flipped image -- the quadrant mean is what covers those last two.
         const double Tolerance = 1.5;
 
-        foreach (var entry in LoadOracle().Where(e => e.Format == ImageFormat.Jpg))
+        foreach (var entry in oracle.Where(e => e.Format == ImageFormat.Jpg))
         {
-            string path = Path.Combine(root,
-                entry.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            string path = Resolve(root, entry);
             if (!File.Exists(path))
             {
                 continue;
@@ -287,8 +300,10 @@ public class SdlImageDecoderTests
     [Fact]
     public void Legacy_art_is_always_opaque()
     {
-        string? root = ReferenceRoot();
-        if (root is null)
+        var oracle = LoadOracle();
+        Assert.NotEmpty(oracle);
+
+        if (CorpusRoot(oracle) is not { } root)
         {
             return;
         }
@@ -296,10 +311,9 @@ public class SdlImageDecoderTests
         var loader = new ImageLoader(new SdlImageDecoder());
         int checkedFiles = 0;
 
-        foreach (var entry in LoadOracle())
+        foreach (var entry in oracle)
         {
-            string path = Path.Combine(root,
-                entry.RelativePath.Replace('/', Path.DirectorySeparatorChar));
+            string path = Resolve(root, entry);
             if (!File.Exists(path))
             {
                 continue;

@@ -2,8 +2,13 @@
 
 **Targets:** `UAFWin` → **UAFcore** (game engine + player), `UAFWinEd` → **UAFedit** (design editor)
 **Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
-**Status:** Phase 0 complete — reference build green, oracle diffing armed both ways. Phase 1 in progress
-**Date:** 2026-07-27
+**Date:** 2026-08-01
+
+**Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
+corpus parses, diffed against the oracle — but **no writer exists**, so its round-trip exit
+criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
+running engine: it opens a design, walks a level, renders the viewport and executes nine of the 44
+event types. Phases 5–7 have not started. 940 tests, green on macOS, Linux and Windows.
 
 > **See also: [SERIALIZATION.md](SERIALIZATION.md)** — the file-format reference. Everything
 > established about containers, archive tiers, strings, ASL, special abilities and the type traps
@@ -451,49 +456,50 @@ ships and one that doesn't.
 The legacy C++ tree stays where it is at `src/`; the port lives under `dotnet/` so the two never
 collide and the oracle build keeps working unchanged.
 
+`✅` exists today; `—` is created when its phase begins, since empty projects are just restore risk.
+
 ```
 src/                             (unchanged legacy C++ — the reference implementation)
-oracle/                          C++ JSON dumper + golden fixtures
+oracle/                          C++ JSON dumper + golden fixtures            ✅
 dotnet/
-  UAF.sln                        (.NET 10)
-  Directory.Build.props          net10.0, nullable, warnings-as-errors
+  UAF.slnx                       (.NET 10)                                    ✅
+  Directory.Build.props          net10.0, nullable, warnings-as-errors        ✅
   src/
-    UAF.Common/                  strings, containers, RNG, logging, path/RTE model, DesignVersion
-    UAF.Serialization/           CArchive + CAR readers/writers, LZW, string table, containers
-    UAF.Data/                    GLOBAL_STATS, LEVEL, PARTY, CHARACTER, ITEM, MONSTER, SPELL,
-                                 CLASS, RACE, TRAIT, ASL, taglist, Property, PicSlot
-    UAF.Rules/                   GameRules, Money, Specab, combat math, character progression
-    UAF.Scripting/               GPDL compiler + VM, Forth VM, script host interface
-    UAF.Media/                   software blitter, surface store, sprites, bitmap fonts,
-                                 IAudioBackend, movie player, asset loaders (PNG/BMP/WAV/MID)
-    UAF.Media.Avalonia/          Avalonia presentation of the framebuffer (editor)
-    UAF.Media.Sdl/               SDL3 presentation + input + audio (game)
-    UAF.Import.Frua/             DOS FRUA importer: GEO/MONST/STRG/GAME .DAT, GLB, PCX/LBM
-    UAFcore/                     engine: GameEvent tree, task scheduler, combat, viewport,
-                                 tile rendering, forms                        [was UAFWin]
-    UAFcore.App/                 SDL3 host for the player
-    UAFedit/                     Avalonia design editor                       [was UAFWinEd]
+    UAF.Common/                  DesignVersion, MFC string encoding           ✅
+    UAF.Serialization/           CAR/CArchive readers, LZW, string table.     ✅ readers only
+                                 Also holds the record model — see below
+    UAF.Data/                    config.txt (DesignConfig)                    ✅ see below
+    UAF.Rules/                   Money. GameRules, combat math, progression   ✅ money only
+    UAF.Scripting/               GPDL compiler + VM. Forth VM                 ✅ GPDL only
+    UAF.Media/                   blitter, surfaces, sprites, fonts, audio,    ✅
+                                 movie player, PNG loader
+    UAF.Media.Sdl/               SDL3 presentation + input + audio + image    ✅
+    UAF.Media.Avalonia/          Avalonia presentation (editor)               —
+    UAF.Import.Frua/             DOS FRUA importer                            —
+    UAFcore/                     engine: events, viewport, party, map         ✅ partial
+    UAFcore.App/                 SDL3 host for the player                     —
+    UAFedit/                     Avalonia design editor                       —
   tools/
-    gen-design-versions.py       generates DesignVersion from the C++ headers
-    gpdlc/                       GPDL compiler CLI                            [was src/GPDL]
-    uaf-fileprobe/               dumps any .dsn to JSON (C# side of the oracle diff)
-  tests/
-    UAF.Serialization.Tests/     golden-file round-trip
-    UAF.Data.Tests/              oracle diff vs. C++ dumper
-    UAF.Media.Tests/             blitter, sprites, audio, SDL3 on the dummy drivers
-    UAF.Rules.Tests/
-    UAF.Scripting.Tests/         GPDL/Forth conformance
-    UAFcore.Tests/               headless engine, recorded input traces
-reference/                       (gitignored) proprietary FRUA game data
+    gen-design-versions.py       generates DesignVersion from the C++ headers ✅
+    gpdlc/                       GPDL compiler CLI                            ✅
+    uaf-fileprobe/               dumps any .dsn to JSON                       ✅
+  spike/Sdl3Spike/               SDL3 binding spike (§6.2)                    ✅
+tools/art-oracle.py              regenerates the PNG/legacy-art digests       ✅
+  tests/                         Serialization, Media, Rules, Scripting,      ✅ 940 tests
+                                 UAFcore
+reference/                       (gitignored) design and FRUA data
 .github/workflows/
-  oracle-cpp.yml                 MSVC v143 reference build (windows-latest)
-  dotnet.yml                     build + test on Linux/Windows/macOS, generator staleness check
+  oracle-cpp.yml                 MSVC v143 reference build (windows-2022)     ✅
+  dotnet.yml                     build + test on Linux/Windows/macOS          ✅
 ```
 
-Scaffolded so far: `UAF.Common`, `UAF.Serialization`, `UAF.Data`, `UAF.Scripting`, `UAF.Media`,
-`UAF.Media.Sdl`, their three test projects, `tools/gpdlc`, `tools/uaf-fileprobe`, both workflows,
-and the version generator. The rest are created as their phase begins — empty projects are just
-restore risk.
+**Two deviations from the plan above, both deliberate and both worth knowing before you go
+looking.** `UAFcore` is currently the executable rather than a library plus `UAFcore.App`; the
+split still has to happen before Phase 4b, and the engine is already written to survive it — `Game`
+renders into a `Surface` and knows nothing about SDL. And **the record model lives in
+`UAF.Serialization`, not `UAF.Data`**: the readers return records directly, and a separate
+mirror-image model earned nothing. `UAF.Data` holds `DesignConfig` (`config.txt`) alone. If that
+stays true, fold it into `UAF.Common` and drop the project.
 
 Dependency direction is strictly downward; `UAF.Data` must not reference `UAF.Media`, and nothing
 below `UAFcore` may reference Avalonia. `UAF.Media.Avalonia` is the only Avalonia-aware library —
@@ -572,24 +578,15 @@ actually ships SDL on all three desktop platforms. It bundles native binaries fo
 same package, so binding and native cannot skew apart. That last point is not hypothetical:
 `SDL3-CS` is at 3.4.12.4 while its separate `SDL3-CS.Native` is still at 3.4.2.
 
-**Correction — what "a 2026 build" actually means.** This section originally cited recency as a
-virtue without checking what was being built. `ppy.SDL3-CS` 2026.722.0 bundles SDL stamped
-`SDL-3.5.0-a8591d9`, and **there is no SDL 3.5.0 release**. 3.5.0 is the in-development version
-`main` carries between releases; the newest tagged release is 3.4.12 (2026-07-01). Commit
-`a8591d9` is genuine upstream (2026-07-20, "Fix #15985") and is an ancestor of `main`, but it is
-1182 commits diverged from `release-3.4.x`. So this project ships a **development-branch snapshot
-of SDL**, not a stable release — which is what osu! itself runs on, and the package version pins
-it exactly, but it is a materially different claim from "SDL 3.4.12" and should not be discovered
-later. `SDL3-CS` tracks tagged releases instead, and that is its one real advantage.
+**What `ppy` actually ships is a development snapshot, not a release.** `ppy.SDL3-CS` 2026.722.0
+bundles SDL stamped `SDL-3.5.0-a8591d9`, and **there is no SDL 3.5.0 release** — 3.5.0 is the
+in-development version `main` carries between releases, and the newest tag is 3.4.12 (2026-07-01).
+Commit `a8591d9` is genuine upstream and an ancestor of `main`, but 1,182 commits diverged from
+`release-3.4.x`. The package pins it exactly and osu! runs on it, but "SDL 3.4.12" would be a
+materially different claim. `SDL3-CS` tracks tagged releases instead, and that is its one real
+advantage.
 
-**Correction to the correction: `SDL3-CS` does ship the companion libraries.** An earlier revision
-of this section claimed it had no SDL_image binding. That was wrong, and wrong in an instructive
-way — the conclusion came from probing four *guessed* package names (`SDL3-Image-CS`,
-`SDL3_image-CS`, `SDL3-CS.Image`, `SDL3-Image-CS.Native`), getting four 404s, and treating that as
-evidence of absence. The real scheme is `SDL3-CS.{Platform}.Image`. This is the same failure shape
-that produced five serialization bugs: a first guess taken as fact instead of read from the source.
-
-What it actually publishes, all tracking **tagged upstream releases**:
+`SDL3-CS` also ships the companion libraries, all tracking **tagged upstream releases**:
 
 | Component | Package | Native version |
 |---|---|---|
@@ -603,6 +600,11 @@ What it actually publishes, all tracking **tagged upstream releases**:
 per-platform, per-component references that have to be **guarded by condition in the csproj** —
 nine of them for three desktop platforms with image and TTF. That is the real cost, against ppy's
 single all-RID package per component.
+
+> An earlier revision claimed `SDL3-CS` had no SDL_image binding at all. That came from probing
+> four *guessed* package names, getting four 404s, and reading absence of evidence as evidence of
+> absence; the real scheme is `SDL3-CS.{Platform}.Image`. Same failure shape as the serialization
+> bugs — a first guess taken as fact instead of read from the source.
 
 So the trade is now: **tagged stable natives plus csproj guards** (`SDL3-CS`) against
 **development-branch natives with zero packaging friction and roughly a hundred times the field
@@ -978,31 +980,6 @@ Two consequences, and the first is a real simplification:
 > implied `UAFcore` and `UAFedit` could disagree about a file both accept, which would have been a
 > serious constraint. They cannot.
 
-### Original note: `#ifdef UAFEDITOR` vs `UAFEngine` (superseded by the audit above)
-
-`ITEM_DATA::Serialize(CAR&)` contains:
-
-```cpp
-#ifdef UAFEDITOR
-    if (ver > VersionSpellIDs)     // 0.998100
-#endif
-    {
-      HitArt.Serialize(ar, ver, "");
-      MissileArt.Serialize(ar, ver, "");
-    };
-```
-
-The **editor** skips this art for designs at or below 0.998100; the **engine** has no gate and
-always reads it. At 0.915 the two builds therefore consume different numbers of bytes from the
-same file.
-
-This is load-bearing for the port, because `UAFcore` and `UAFedit` share one serialization
-library. `UAF.Serialization` must model the build flavour explicitly — an `ArchiveRole`
-(`Engine` / `Editor`) threaded through the readers — rather than picking one and hoping. Whether
-the divergence is intentional or a latent bug in the reference implementation is a separate
-question; the port has to reproduce it either way, and the oracle only ever shows the *editor*
-side, since the dumper is built into `UAFWinEd`.
-
 > Not every `#ifdef` forks the format: the `UAFEngine` block immediately after `m_uniqueName`
 > only derives `m_commonName` in memory and reads nothing. Check each one for archive access
 > before concluding the streams diverge.
@@ -1295,24 +1272,31 @@ order. A third overload at `GlobalData.cpp:4960` has an identical signature and 
 
 | Layer | State |
 |---|---|
-| Tier 1 — plain `CArchive` | `game.dat` verified through the picture-import block (offset 1651 of 4343) |
-| Tier 2 — `CAR` uncompressed | Three databases verified; counts 285 / 44 / 117 agree with the oracle |
-| Tier 3 — `CAR` + LZW | Verified against real encoder output at 2.53, 3.55, 5.28 and 5.29 |
-| `GLOBAL_STATS` | Scalars, art strings and both picture-import blocks diffed against the oracle |
-| `ITEM_DATA` | **Complete.** 285 uncompressed records match the oracle field by field; 562 / 551 / 479 compressed records at 5.28 / 3.55 / 2.53 walk to exact EOF with no code changes |
-| `ASL`, `Specab`, `PIC_DATA` | Ported; exercised at every record of all four designs, on both sides of the 0.920 Specab fork. **Both** ASL encodings now driven through the reader, including a non-empty compressed block with resolved back-references |
-| `GLOBAL_STATS` | `CAR` path walked through the ASL on all three compressed designs; `CArchive` path verified to offset 1651 of 4343 |
-| `SPELL_DATA` | **Complete.** 117 uncompressed records match the oracle by name; 423 / 377 / 318 compressed at 5.28 / 3.55 / 2.53 exhaust exactly |
-| `MONSTER_DATA` | **Complete.** 44 uncompressed match the oracle; 171 / 195 / 160 compressed exhaust exactly |
-| Events | **Complete for every fixture.** 27 event subclasses across 29 ordinals; all 22 levels of 4 designs walk end to end — 6,234 events spanning 2.53 → 5.28 |
-| `LEVEL` / `ZONE` | **Complete.** All 22 levels of 4 designs read to exactly their last byte — grid, events, zones, step events, wall/background sets, blockage keys |
-| `GLOBAL_STATS` tail | Art slots, global sounds, key/special-item lists and the quest list all read; 171 quests decode on the 2.53 design |
-| `CHARACTER` | **Complete.** The format's largest record; 6 and 23 characters decode on the 2.53 and 3.55 designs, multiclass baseclass counts self-consistent |
-| `game.dat` | **Reads to exact exhaustion** on the 2.53 and 3.55 designs — the whole of `GLOBAL_STATS` including the level table, currency, difficulty levels, global event list and journal |
-| Remaining | `PARTY` / savegames; the 5.x `LEVEL_STATS` cell-content tables; `.CHAR` files |
+| Tier 1 — plain `CArchive` | Done. `game.dat` reads to exact exhaustion on the 2.53 and 3.55 designs |
+| Tier 2 — `CAR` uncompressed | Done. Three databases; counts 285 / 44 / 117 agree with the oracle |
+| Tier 3 — `CAR` + LZW | Done. Verified against real encoder output at 2.53, 3.55, 5.28 and 5.29 |
+| `ASL`, `Specab`, `PIC_DATA` | Done. Every record of all four designs, both sides of the 0.920 Specab fork, both ASL encodings including compressed back-references |
+| `GLOBAL_STATS` | Done, both overloads. Scalars, art, both picture-import blocks and the ASL diffed against the oracle; tail covers art slots, sounds, key/special-item lists and 171 quests |
+| `ITEM_DATA` | Done. 285 uncompressed records match the oracle field by field; 562 / 551 / 479 compressed at 5.28 / 3.55 / 2.53 walk to exact EOF with no code changes |
+| `SPELL_DATA` | Done. 117 uncompressed match the oracle by name; 423 / 377 / 318 compressed exhaust exactly |
+| `MONSTER_DATA` | Done. 44 uncompressed match the oracle; 171 / 195 / 160 compressed exhaust exactly |
+| Events | Done for every fixture. 31 of the 44 design event types have readers; all 22 levels of 4 designs walk end to end — 6,234 events spanning 2.53 → 5.28 |
+| `LEVEL` / `ZONE` | Done. All 22 levels of 4 designs read to their last byte — grid, events, zones, step events, wall/background sets, blockage keys |
+| `CHARACTER` | Done. The format's largest record; 6 and 23 characters decode on the 2.53 and 3.55 designs, multiclass baseclass counts self-consistent |
+| `PARTY` / savegames, `.CHAR`, cell contents | Done — `SaveGameReader`, `CharacterFileReader`, `CellContentsReaders`. (An earlier revision listed all three as remaining; they landed and the row was not updated.) |
+| **Writers — none** | **Nothing in `UAF.Serialization` writes.** The exit criterion below is not met and cannot be met until this exists |
+| Tagged databases | Framing done for all six; record bodies done for `baseclass.dat` (`Bcd5`) only. `ability.dat`, `classes.dat`, `races.dat`, `spellgroups.dat`, `traits.dat` unread |
+| Event readers | 13 types have none: `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` |
 
-The pattern is now established and mechanical: extend the dumper for a type → write the C# reader
+The pattern is established and mechanical: extend the dumper for a type → write the C# reader
 → diff. `ITEM_DATA` is the worked template.
+
+**Reading is done; writing has not started.** That distinction matters more than the table above
+suggests. Every claim here is about parsing bytes the reference produced. The exit criterion is
+round-trip byte-identity, which needs `ArchiveWriter` — the LZW *encoder*, the string-interning
+table on the write side, and the storing branch of every `Serialize` — none of which exists. That
+is the single largest unstarted piece of Phase 1, and Phase 5's exit (the editor saves a design the
+C++ editor can load) depends entirely on it.
 
 **Fixture coverage** spans 0.915025, 2.53, 3.55, 5.28 and 5.29 — a Dungeon Craft design at each,
 with the 5.29 one generated by CI itself (`-savedesign`) and dumped in the same run, so C# and C++
@@ -1340,7 +1324,7 @@ fixture corpus; the VM produces identical execution traces.
 
 #### Phase 2 status — GPDL
 
-Delivered: `dotnet/src/UAF.Scripting/` and `dotnet/tools/gpdlc/`, with 199 tests in
+Delivered: `dotnet/src/UAF.Scripting/` and `dotnet/tools/gpdlc/`, with 201 tests in
 `dotnet/tests/UAF.Scripting.Tests/`. Format details and language traps are in
 [SERIALIZATION.md §11](SERIALIZATION.md).
 
@@ -1377,7 +1361,7 @@ copy — four documented substitutions of same-arity, same-typing functions — 
 words, 153 pool entries and 14 public functions. The goldens the oracle produces should therefore be
 small purpose-written scripts committed *alongside* their expected output, not `talk.txt`.
 
-Exit criterion 3 is met: `dotnet test dotnet/UAF.slnx` passes on macOS.
+Exit criterion 3 is met: `dotnet test dotnet/UAF.slnx` passes on macOS, Linux and Windows.
 
 ### Phase 3 — Media layer (1.5–2 months, parallelizable with Phase 2)
 
@@ -1411,7 +1395,7 @@ Phase 5, since its only consumer is the editor.
 | Bitmap fonts | **Done.** `FontAtlas` + `BitmapFont` (portable) and `SdlFontRasterizer` over SDL3_ttf, with PT Serif bundled in all four styles as the substitute for Windows' `SYSTEM` raster face |
 | Image loaders | **PNG done**, hand-written and verified against libpng on all 1312 reference PNGs. `ImageLoader` sniffs signatures as the C++ did; BMP/PCX/JPG/TGA are recognised but not decoded — see below |
 
-208 tests, green on a machine with no display and no sound card. The SDL tests drive the real
+341 tests, green on a machine with no display and no sound card. The SDL tests drive the real
 backend on the dummy drivers rather than mocking it.
 
 ##### Fonts: what ported cleanly, and what is still open
@@ -1581,41 +1565,47 @@ skipped — is tested, which is the behaviour §6.1 actually requires.
 
 ### Phase 4 — UAFcore engine (4–6 months)
 
-#### Progress: the engine has a beachhead
+#### What runs today
+
+`UAFcore` opens a design, loads a level, walks a party around it on the torus, renders the viewport
+and the party roster, and runs events with chaining. `--dump <path>` renders one frame and exits, so
+the whole engine is smoke-testable with no display. 106 tests.
+
+**Nine of the 44 event types execute.** Five through `EventRunner`, which presents and takes an
+answer — `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays` — and four
+through `Game.ExecuteWithoutInput`, which needs neither: `PassTime`, `Teleporter` (same level),
+`GainExperience`, and `GiveTreasure` **in its silent form only**, since the other form opens a
+screen that does not exist yet.
+
+Every other type draws `[<name> here -- not implemented]` in the text box rather than being silently
+skipped, so a walk through a real design reads as an honest map of what is left.
 
 #### Where to resume, and in what order
 
-As of the engine's first working corridor, the bottleneck is **not** more event readers — every
-event type in every reference design already parses, and `EventBodyReader` dispatches all of them.
-It is the **text and menu layer**.
+The text and menu layers are done, and they were the piece blocking half the content layer. What
+remains, in dependency order:
 
-Count the event types by what they need. Roughly half — `QuestionButton`, `QuestionYesNo`,
-`QuestionList`, `Shop`, `Tavern`, `Temple`, `TrainingHall`, `Camp`, `NPCSays`, `GuidedTour` —
-cannot be implemented *at all* without a way to present text and take a choice. They are blocked on
-UI, not on their own logic. The other half — `Teleporter`, `GiveTreasure`, `GainExperience`,
-`PassTime`, `Sounds`, `FlowControl` — need nothing new and can proceed in parallel.
-
-So, in order:
-
-1. ~~**Word-wrapped text into the config's `TEXTBOX` rectangle, then the menu system**~~ —
-   **done**, both halves; see the two sections below. This was the piece blocking half the content
-   layer, and it no longer is.
-2. ~~**The events needing no UI**, and the ones that were blocked on it~~ — **done** for
-   `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays`, `PassTime` and
-   `Teleporter`, with chaining. See the event section below.
-3. ~~**Party state**~~ — **done** as a roster, world flags and the trigger conditions they answer;
-   see the party section.
-4. **Rules.** `UAF.Rules` holds the currency; `GiveTreasure` pays money, hands over items resolved
-   through the item database, and awards their experience; `GainExperience` runs all five
-   distribution modes; party members are now mutable `Character`s. What remains: **levelling**
-   (needs `baseclass.dat`'s experience thresholds, which has no reader), **`classes.dat`** (needed
-   for the experience split's true baseclass count), the **treasure/shop/temple screens** (forms,
-   not events), and **combat**.
-
-   `TaggedDatabaseReader` now reads the **framing** all six tagged databases share — tag,
-   compression, record count — verified across two designs. The **record bodies** are the next
-   step: `BASE_CLASS_DATA::Serialize`'s loading branch (`class.cpp:5721`) spans five tag versions
-   (`Bcd1`…`Bcd5`) and carries the experience thresholds levelling needs.
+1. **The tagged database record bodies.** Framing is done for all six; only `baseclass.dat` has a
+   record reader and it stops at the experience levels (below). **`classes.dat` has none at all**,
+   and levelling needs both — `baseclass.dat` for the thresholds, `classes.dat` for the experience
+   split's true baseclass count. This is the smallest piece of work that unblocks the most.
+2. **The forms.** `CharStatsForm`, `SpellForm`, `ItemsForm`, `TextForm`, `RestTimeForm` — none
+   exist. The treasure, shop, temple and training-hall screens are forms rather than events, which
+   is why those event types cannot run yet even though they parse.
+3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
+   math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
+4. **The remaining viewport squares**, 3 and 4.
+5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
+   loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
+   games and must be preserved when it lands.
+6. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
+   happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
+   connects to the savegame, which already reads those flags. The trigger conditions themselves are
+   ported (`EventTrigger`); the two needing a spellbook or a running GPDL VM report `Unknown`
+   rather than guessing.
+7. **Screenshots from a Windows C++ build.** `GoldenFrameTests` guards regressions but is *not* an
+   oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
+   and have no equivalent of the serialization dump to diff against.
 
 ##### `BASE_CLASS_DATA`, as partially ported
 
@@ -1661,89 +1651,43 @@ an `int` count followed by a single bulk `decompress`** of `size * 4` bytes (`cl
 `size` separate reads — and that count is a plain `int` where items 4 and 5 use `ReadCount()`, so
 this one record genuinely uses both framings.
 
-**Items 7–11 remain, and a first attempt at them failed — read this before trying again.** All the
-widths were confirmed from the header: `m_allowedAlignments` is a **`WORD`** (`class.h:1830`),
-`THAC0` is `char[40]` (`HIGHEST_CHARACTER_LEVEL`, `Externs.h:199`), `m_spellBonusAbility` is a
-`CString`, bonus spells are a bare `int` count then N × `BYTE`, and `CASTING_INFO`
-(`class.cpp:12372`) is two strings plus three blitted tables of 40 × 9, 25 and 25 bytes
-(`MAX_SPELL_LEVEL` = 9, `HIGHEST_CHARACTER_PRIME` = 25). `CAR::Serialize(char*, n)` is a plain
-n-byte `decompress` (`class.cpp:12064`), so the blobs are straightforward reads.
+**Items 7–11 are transcribed but not shipped, and the missing piece is now known.** The widths, all
+confirmed from the header: `m_allowedAlignments` is a **`WORD`** (`class.h:1830`), `THAC0` is
+`char[40]` (`HIGHEST_CHARACTER_LEVEL`, `Externs.h:199`), `m_spellBonusAbility` is a `CString`, bonus
+spells are a bare `int` count then N × `BYTE`, and `CASTING_INFO` (`class.cpp:12372`) is two strings
+plus three blitted tables of 40 × 9, 25 and 25 bytes (`MAX_SPELL_LEVEL` = 9,
+`HIGHEST_CHARACTER_PRIME` = 25). `CAR::Serialize(char*, n)` is a plain n-byte `decompress`
+(`class.cpp:12064`).
 
-Transcribing all of that still desynchronised the stream — it failed with a CAR string-table index
-past the end of the table, the signature of drift. **Something between the experience levels and the
-end of the record is unaccounted for**, and it is not any of the widths above. The attempt was
-reverted rather than shipped, because a drifted reader produces plausible-looking records and this
-file has no oracle to catch that.
-
-**The bisect was then done, and it very nearly closes this.** Dumping the 96 bytes after record 0's
-experience levels in `SomethingWild` decodes cleanly against the transcription:
-
-```
-+0    c0 01                       m_allowedAlignments = 0x01c0   (three alignment bits -- an
-                                                                  evil-only assassin)
-+2..+41  14 14 14 14 13 13 ... 0a THAC0[40] = 20,20,20,20,19,19,19,19,16,16,16,16,14,... ,10
-+42..+49 00 00 00 00 00 00 00 00  m_spellBonusAbility: index 0 (new string), length 0 -> ""
-+50..+53 00 00 00 00              bonus spell count = 0
-+54..+57 00 00 00 00              casting-info count = 0
-+58..+61 01 00 00 00              <- record 1's tag: string-table index 1, i.e. an interned "Bcd5"
-+62..+65 00 00 00 00              index 0 -- a NEW string follows
-+66..+69 16 00 00 00              length 22
-+70..     "baseclass_NameSuppress"  <- exactly 22 characters
-```
-
-Every field width above is confirmed by the data, so **the transcription of items 7–11 is right**.
-The discrepancy is at record 1: reading it as tag → `m_preSpellNameKey` → name puts the string index
-at +66, which is 22 — the very index the failure reported as "beyond the table (15 entries)", and 15
-is about what record 0 legitimately interns. Reading it as tag → name, with **no**
-`m_preSpellNameKey`, fits the bytes exactly.
-
-**And re-reading `class.cpp:5757` settles which of those it is.** For `intVer >= 5` the
-`car >> m_preSpellNameKey` is unconditional — there is no gate that record 1 could fall outside —
-so record 1 *does* carry it, and the reading of the byte map above is what is wrong.
-
-Which means **+58 is not record 1's tag, and the record does not end at +57**. Re-read that way, the
-bytes say there is at least one more list after the casting info:
-
-```
-+58..+61 01 00 00 00              a count of 1
-+62..+65 00 00 00 00              index 0 -- a new string follows
-+66..+69 16 00 00 00              length 22
-+70..     "baseclass_NameSuppress"  <- reads as a skill or attribute NAME, not a baseclass name
-```
-
-**Found: it is a `Specab` block** (`class.cpp:6136`), which `ITEM_DATA` already taught this port to
-read. Immediately after the casting info:
+A first attempt with exactly those widths still desynchronised, and a byte-level bisect of the 96
+bytes after record 0's experience levels showed why: **the record does not end after the casting
+info.** A `Specab` block follows (`class.cpp:6136`), gated `ver > "Bcd2"` — the bytes that looked
+like record 1's tag are its count, and the string `baseclass_NameSuppress` sitting there is a
+special-ability key, not a name.
 
 ```cpp
 if (ver > "Bcd2")
 {
   double version = globalData.version;
-  if (intVer >= 5) version = 0.930;   // see below
+  if (intVer >= 5) version = 0.930;   // NOT the tag, and NOT the design version
   m_specAbs.Serialize(car, version, m_name, "baseclasses");
 }
 ```
 
-`baseclass_NameSuppress` is a special-ability key, which is why it reads as an identifier rather
-than a name — and `SpecabReader` is already ported and exercised on both sides of the 0.920 fork.
+**Two things about that call are load-bearing.** The version is hard-coded to **0.930** at
+`intVer >= 5`, with the source's own explanation: people package old designs with a new
+`baseclass.dat`, so the real design version would send `Specab` down the wrong branch. Since 0.930
+is above the 0.920 legacy gate, a `Bcd5` record always takes the **modern `A_CStringPAIR_L`** path.
+And the map name is `"baseclasses"`, which `SpecabReader` checks as a sync marker.
 
-**Two things about that call are load-bearing.** The version passed in is **not** the record's tag
-and **not** the design version — at `intVer >= 5` it is hard-coded to **0.930**, with the source's
-own explanation: people package old designs with a new `baseclass.dat`, so the real design version
-would send `Specab` down the wrong branch. Since 0.930 is above the 0.920 legacy gate, a `Bcd5`
-record always takes the **modern `A_CStringPAIR_L`** path. And the map name is `"baseclasses"`,
-which `SpecabReader` checks as a sync marker.
+So the tail is: … casting info → `Specab` → end of record. `SpecabReader` is already ported and
+exercised on both sides of the 0.920 fork, so finishing this is transcription plus one call. The
+verification to aim at is unchanged: nine baseclass names a rulebook would recognise.
 
-So the tail is: … casting info → `Specab` (gated `ver > "Bcd2"`) → end of record. That is the last
-piece; with it the file should walk, and the verification remains what it was — nine baseclass names
-a rulebook would recognise.
-3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
-   happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
-   connects to the savegame, which already reads those flags. The trigger conditions themselves are
-   now ported (`EventTrigger`), with the ones needing party state reporting `Unknown` rather than
-   guessing.
-4. **Screenshots from a Windows C++ build.** `GoldenFrameTests` guards regressions but is *not* an
-   oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
-   and have no equivalent of the serialization dump to diff against.
+> The reverted attempt is the point of this section. A drifted reader on this file produces
+> plausible-looking records, and `baseclass.dat` has **no oracle** — the dumper does not emit it,
+> and `DefaultDesign`'s `Bcd1` is a version the engine refuses outright. Shipping it unverified
+> would have been the one mistake this port has consistently avoided.
 
 ##### The text layer, as ported
 
@@ -1924,12 +1868,15 @@ roster drawn from `displayPartyNames`.
 > the roster have real data to read; it is real data placed by a rule the original does not have,
 > and it should be replaced when party creation or savegame loading lands.
 
-### Phase 2b — Rules
+##### Rules, as far as the engine has needed them
 
 `UAF.Rules` is created here rather than at scaffolding time, per §5.1's rule that empty projects are
-restore risk. First occupant: the currency (`Money.cpp`), as `MoneyRules` (denominations and
-conversion) and `Purse` (`MONEY_SACK`, renamed to avoid colliding with the record read off disk).
-24 tests. `GiveTreasure`'s silent path pays into the party purse.
+restore risk. First and so far **only** occupant: the currency (`Money.cpp`), as `MoneyRules`
+(denominations and conversion) and `Purse` (`MONEY_SACK`, renamed to avoid colliding with the record
+read off disk). 24 tests. `GiveTreasure`'s silent path pays into the party purse.
+
+Nothing of `GameRules.cpp` (4,167 lines) — combat math, saving throws, THAC0, character progression
+— is ported. That is Phase 2's other half and it is still entirely ahead.
 
 - **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
   `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;
@@ -2077,8 +2024,9 @@ what cost real time to establish; none of it is inferable from the structures.
   per-distance sizes. The alternates are all 211 tall with the foreshortening painted in. A
   renderer must read both dimensions rather than assume either convention.
 
-**Squares ported: 0 and 5–14. Remaining: 1, 2, 3, 4**, which carry 24–35 conditionals apiece and
-are the genuinely intricate ones.
+**Squares ported: 0, 1, 2 and 5–14. Remaining: 3 and 4**, which carry 24–35 conditionals apiece.
+Square 3 is likely square 2's mirror, but square 0/1 already disproved that assumption once — they
+are *not* mirrors of each other — so it has to be read rather than assumed.
 
 **Do not classify these routines by length.** Square 12 looks hard at 107 lines and is three plain
 passes — it draws the 112-wide front wall, so skipping it means dead ends never render. Squares 13
@@ -2220,11 +2168,25 @@ after Phase 1, calendar time drops to roughly 12–15 months.
 
 ## 11. Immediate next steps
 
-1. Retarget the four `vcxproj` files to `v143` and get a Windows CI build green.
-2. Write `oracle/uaf-dump` and commit golden JSON for `DefaultDesign.dsn`.
-3. Delete the dead `ProjectVersion.h` (§3).
-4. Scaffold the solution (§5.1) and begin `UAF.Serialization` against the golden files, starting
-   with the three container families in §3.2.
+The four steps that stood here — retarget the `vcxproj` files, write the dumper, delete
+`ProjectVersion.h`, scaffold the solution — are all done. What is next, in the order the
+dependencies actually run:
+
+1. **Finish the tagged database record bodies**, starting with `baseclass.dat`'s items 7–11 (the
+   `Specab` tail is identified, §Phase 4) and then `classes.dat`, which has no reader at all.
+   Levelling is blocked on both, and levelling blocks the training hall, the temple and combat.
+2. **Close the two verification gaps that need only the Windows oracle**, since both are cheap and
+   both currently make a green suite mean less than it looks:
+   - commit GPDL reference bytecode for `oracle/golden/gpdl/*.txt`, which is Phase 2's exit
+     criterion and is the only thing `GpdlOracleDiffTests` is waiting for;
+   - dump `baseclass.dat` from the C++ side so the reader above has an oracle at all.
+3. **Start `ArchiveWriter`.** Nothing writes today, so Phase 1's round-trip criterion is unmet and
+   Phase 5 cannot begin — an editor that cannot save is not an editor. This is also the last part
+   of the format still wholly unexplored: the LZW *encoder* and the write side of string interning.
+4. **The forms layer**, which is what actually unblocks the ten event types that parse and cannot
+   run.
+
+Phases 5, 6 and 7 have not started and nothing in them is blocked by anything but Phase 1's writer.
 
 ### Decisions taken
 

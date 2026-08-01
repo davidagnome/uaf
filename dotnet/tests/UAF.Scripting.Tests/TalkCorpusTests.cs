@@ -81,8 +81,15 @@ public class TalkCorpusTests
     public void The_corpus_file_is_present_and_is_the_expected_size()
     {
         // A guard on the fixture itself: the assertions below cite line numbers.
+        //
+        // Measured on normalised text, not on FileInfo.Length. There is no .gitattributes in this
+        // tree, so a Windows checkout rewrites this file's 466 LF endings as CRLF and the byte
+        // count rises to 20,595 — which failed here on windows-latest only. What the guard is
+        // actually for is the content changing, not how git chose to write it out.
         Assert.True(File.Exists(TalkPath));
-        Assert.Equal(20129, new FileInfo(TalkPath).Length);
+        string text = TalkSource().ReplaceLineEndings("\n");
+        Assert.Equal(20129, text.Length);
+        Assert.Equal(466, text.Count(c => c == '\n'));
     }
 
     [Fact]

@@ -139,6 +139,23 @@ jobs:
             echo "::warning::oracle/golden/DefaultDesign.json is missing; OracleDiffTests did NOT compare against the C++ reference. Produce it with the Oracle workflow and commit it."
           fi
 
+      # Same shape again, for the art. PngOracleTests and SdlImageDecoderTests probe for a file
+      # their manifest names -- not for reference/ itself, which the fixture step above creates --
+      # and return early when the corpus is absent, which it always is here: the designs are
+      # gitignored. Say so out loud rather than letting six green tests imply 1312 files were
+      # decoded.
+      - name: Warn if the reference art corpus is missing
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          first=$(grep -v '^#' dotnet/tests/UAF.Media.Tests/Assets/png-oracle.txt \
+                  | head -1 | cut -d'|' -f1)
+          if [ -f "reference/$first" ]; then
+            echo "art corpus present - the PNG and legacy-art oracle tests are comparing pixels"
+          else
+            echo "::warning::reference/ carries no design art; PngOracleTests and SdlImageDecoderTests returned early, so neither decoder was checked against its oracle in this job."
+          fi
+
       # Same shape as the check above, for the same reason: GpdlOracleDiffTests return early when
       # the reference bytecode is absent, so a green suite over an empty corpus looks identical to a
       # green suite over a matching one. Byte-identity with GPDLcomp.exe is Phase 2's exit criterion
