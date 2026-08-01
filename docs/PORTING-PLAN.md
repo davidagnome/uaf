@@ -8,9 +8,9 @@
 corpus parses, diffed against the oracle — but **no writer exists**, so its round-trip exit
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
-event types, presents the treasure and character screens, and builds a combat map with the party
-placed on it. Phases 5–7 have not started.
-**1,194 tests, green on macOS, Linux and Windows; both CI workflows green.**
+event types, presents the treasure and character screens, and sets up a combat encounter with the
+party and monsters placed. Phases 5–7 have not started.
+**1,228 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1614,13 +1614,12 @@ remains, in dependency order:
    that caps a level by race.
 2. ~~**The forms.**~~ **Done** — all five, on the shared `TextForm` engine, and the character
    sheet is complete and reachable from the treasure screen's VIEW entry.
-3. **Combat — in progress; see §11.** The **combat map and party placement are done** —
-   `CombatMap` holds the terrain grid and its primitives, `CombatMapGenerator` builds one from a
-   level, and `CombatPlacement` puts a party on it in formation. **Monster placement is the next
-   piece, and it is blocked on GPDL**: it runs a turtle-graphics interpreter whose program comes
-   from the design's own `CombatPlacement` script. `findEmptyCell`'s direction clamping and
-   reachability check stay stubbed until it lands. Then targeting, the round state machine,
-   movement and pathing (`path.cpp`), and the monster AI.
+3. **Combat — in progress; see §11.** **Encounter setup is done**: `CombatMap`,
+   `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
+   `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
+   **`path.cpp` is the next piece** — it blocks unreachable-monster removal, `findEmptyCell`'s
+   reachability check and movement in the round. Then the round state machine, targeting, and the
+   monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -1764,6 +1763,70 @@ coincidence.
 > `m_iPartyOriginX/Y` likewise comes from a `PartyOrigin<direction>` hook offset that defaults to
 > zero. Both need the GPDL VM running global scripts. `PartyArrangements.For` takes the table as an
 > argument and `PlaceParty` takes the origin, so wiring them up later is a call-site change.
+
+##### Monster placement, as ported
+
+Monsters are **not** placed by the code that places the party. Under `newMonsterArrangement`
+(defined, `Combatants.h:67`) that branch of `determineInitCombatPos` is commented out entirely
+(`Combatants.cpp:2197`); monsters go through `MonsterPlacementCallback` — a **turtle-graphics
+interpreter** whose program is a string of single-character commands. `TurtlePlacement` is that
+interpreter, `MonsterArrangement` its state, `MonsterApproach` the direction cursor, and
+`CombatSetup` the orchestration.
+
+**The program is design data.** It arrives from the design's own `CombatPlacement` special ability
+via GPDL — `$MonsterPlacement("16FbPV500E")` — and the six shipped variants differ only in how far
+forward the turtle steps first: 0 for up close, 9/10 nearby, 16/17 far away, the larger of each
+pair when the party faces south or west. `CombatSetup` takes the program as a parameter and
+defaults to the built-ins, which is faithful rather than a shortcut: the C++ carries the same
+strings in a `defaultGlobalScripts` table (`Specab.cpp:2081`) for designs that define none.
+
+**The turtle does not work in map squares.** Its position is party-relative *and sheared*:
+`MoveTurtleY` shifts the column by the same delta so `x − y` is held constant
+(`Combatants.cpp:2743`), and the east/west placement limits compare against `x − y` rather than
+`x` (`:2698`). That is because the combat map is the dungeon rotated 45°, so the axis across a
+corridor is the diagonal. Treating any of it as ordinary coordinates puts monsters on the diagonal
+— and the four direction tables agree: "forward" for a northern approach is `(−1,−1)`, not `(0,−1)`.
+
+Verified by running real encounters and printing them. With the party at the map centre (25,25),
+the four `Any` directions each step their own forward vector and plant:
+
+| Distance | Program | North | East | South | West |
+|---|---|---|---|---|---|
+| Up close | `bPV500E` | adjacent | adjacent | adjacent | adjacent |
+| Nearby | `9FbPV500E` | (16,16) | (34,25) | (34,34) | (16,25) |
+| Far away | `16FbPV500E` | (9,9) | (41,25) | (41,41) | (9,25) |
+
+Exactly 9 and 16 steps out along each direction's own forward vector, which is the decisive check
+that the shear and the direction tables are both right.
+
+Three further things:
+
+- **`V` (line of sight) needs `IsLineOfSight`, which is not a Bresenham line.** It is an
+  octant-decomposed DDA that tests the cells on **both** sides of the line
+  (`Drawtile.cpp:3417`), so a sight line slipping diagonally between two walls is blocked. Ported
+  as `LineOfSight`. Note its wall test bounds the tile index with `cell < CurrentTileCount` where
+  `HaveVisibility` rejects on `cell > CurrentTileCount` — the last tile of each table is
+  transparent to one and opaque to the other. Unreachable, because both tables' last tiles are
+  disabled, but they are not interchangeable.
+- **`E`'s hand-rolled visited-set index is correct**, which is worth recording because it does not
+  look it: a flat `(2R+1)²` array advanced across three nested loops, per-column stride `2R+1` and
+  per-ring rewind `(2r+2)(2R+1)+1`. Working it through, the rewind lands exactly on the next ring's
+  top-left and the walk stays in bounds. Ported with a relative index instead, which is provably
+  the same and does not need the derivation.
+- **The approach cycles are transcribed, not derived.** `N_S_E` runs N→E→S→N while `N_W_E` runs
+  W→N→E→W. No naming rule gives you both.
+
+**Two original bugs are reproduced, and both are in commands no shipped program uses.** `d` computes
+its `dy` from `partyPositions[j].x` — the same field as `dx` — so it measures to a reflected point
+(`Combatants.cpp:2934`). And the four bounding-box jumps `w n p s` are not the symmetric set their
+names suggest: `n` for a northern approach calls `MoveTurtleX(partyMaxY)`, setting a column from a
+row. There is no observed behaviour to check a correction against, so inventing one would be
+guessing. `WithinSight`'s `placeX > 0` guard (rather than `>= 0`) is reproduced for the same reason.
+
+> **What is still missing removes monsters, never adds them.** After placement the reference
+> deletes any monster with no path to the party (`Combatants.cpp:255`) and retries the whole
+> placement at a shorter distance when nothing could be placed (`the for(;;)` at `:214`). Both need
+> `path.cpp`. Until then an encounter can leave a monster walled off in a pocket.
 
 ##### `CLASS_DATA`, as ported
 
@@ -2805,50 +2868,39 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: monster placement, and it is blocked on GPDL
+### The next piece of work: pathing, then the round
 
-**The combat map and party placement are both done.** `CombatMap` holds the terrain grid and the
-primitives everything else in `Combatants.cpp` calls — `Obstacle`, `Place`, `OccupantAt`,
-`Distance`, `FindEmptyCell`; `CombatMapGenerator` builds a map from a level; `CombatPlacement`
-puts a party on it in formation. All three were printed and looked at. Read the two "as ported"
-sections under §7 Phase 4 before touching any of it.
+**Combat setup is complete.** `CombatSetup.Begin` generates the map, places the party in formation
+and runs one turtle program per approach direction, and everybody lands on passable, distinct
+squares over every cell of a real level. Read the three "as ported" sections under §7 Phase 4
+before touching any of it — the 45° shear runs through all of them.
 
-**Monster placement is next, and it is not a transcription job.** Under `newMonsterArrangement` —
-defined at `Combatants.h:67` — the monster branch of `determineInitCombatPos` is **commented out
-entirely** (`Combatants.cpp:2197`). Monsters are placed by `MonsterPlacementCallback`
-(`Combatants.cpp:2749`), a ~350-line **turtle-graphics interpreter** whose program comes from the
-design's own GPDL script:
+**`path.cpp` is now the blocker, and it is blocking three separate things:**
 
-```
-[PlaceMonsterNear] = $IF($GET_PARTY_FACING() >=#2){$MonsterPlacement("10FbPV500E");}
--$ELSE{$MonsterPlacement("9FbPV500E");};
-```
+1. **Unreachable-monster removal.** `InitCombatData` deletes any monster with no path to the party
+   after placement (`Combatants.cpp:255`), and retries the whole encounter at a shorter distance
+   when nothing could be placed (`the for(;;)` at `:214`). Without it a monster can sit walled off
+   in a pocket. This is the one gap in otherwise-finished work.
+2. **`findEmptyCell`'s reachability check**, which rejects a square the party cannot walk to.
+3. **Movement in the round itself** — a combatant walking to its target is the whole of
+   `Combatant.cpp`'s movement half.
 
-That is `CombatPlacement.txt`, shipped as a special ability in every reference design. So the
-dependency chain is: the GPDL VM running a global script, plus the `GET_PARTY_FACING` and
-`MonsterPlacement` builtins, plus the turtle interpreter, plus `ComputeDistanceFromParty`
-(a BFS flood fill over the grid, `Combatants.cpp:2240`) which the turtle's reachability tests read.
+So pathing is worth doing next on its own merits, and it is self-contained: a BFS over the combat
+grid's passability, plus `ComputeDistanceFromParty` (`Combatants.cpp:2240`), which is the same
+flood fill and which the turtle's own reachability rule would use.
 
-**Two options, and the choice is worth making deliberately.** Either do the GPDL work first and
-port the turtle faithfully, or stand up a hard-coded default arrangement so combat can run, and
-come back. The second is tempting and is what the `$ELSE` branches above amount to — but the
-turtle program is *design data*, so a design that ships its own placement script would silently
-get the built-in one. Prefer the first unless something else is blocking on a runnable round.
+After that, the round state machine (`HandleCurrState`), then targeting, then the monster AI.
 
-Two pieces of `findEmptyCell` remain stubbed, and both belong to monster placement rather than to
-the map:
+#### The GPDL wiring that monster placement did *not* need
 
-- **The `PATH_DIR` clamping.** The real one restricts its search to one side of the start
-  depending on which way the encounter came from, so monsters appear ahead of the party rather
-  than behind it. Four of its eight directions call `die()` immediately (`Drawtile.cpp:3884`
-  onward — `PathNE`, `PathSE`, `PathSW`, `PathNW`), so only the four cardinals are reachable.
-- **The reachability check.** It rejects a square the party cannot walk to, via
-  `pathMgr.GetPath`. That needs `path.cpp`, which is not ported. `InitCombatData` separately
-  **deletes** any monster with no path to the party after placement (`Combatants.cpp:255`), so
-  this is not cosmetic — without it, unreachable monsters stay in the encounter.
-
-Then, in dependency order: targeting and validity (`IsValidTarget`, `CanAttack`), the round state
-machine (`HandleCurrState`), movement and pathing, and finally the monster AI.
+It turned out to be smaller than expected and is still worth doing, but nothing is blocked on it.
+The design's `CombatPlacement` script only selects between six fixed program strings, all of which
+are built in — so the engine runs without GPDL, and a design that authors its own placement script
+is the only thing currently missed. To close it: a `specialAbilities.txt` parser, the
+`SUBOP_GET_PARTY_FACING` and `SUBOP_MonsterPlacement` sub-opcodes (both trivial — the first is
+`GET_LITERAL_INT(party.facing)`, the second hands its string to `TurtlePlacement.Run`), and two new
+`IGpdlHost` members. `CombatSetup.Begin` already takes the program as a parameter, so it is a
+call-site change.
 
 `GenerateOutdoorCombatMap` (`Drawtile.cpp:2892`) is also unported. It shares the three-pass shape
 but randomises terrain from `WildernessTileDensity` instead of reading the level, and the
@@ -2868,8 +2920,9 @@ expires them than ahead of it.
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **13 event types have no reader** | `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` — 31 of 44 are done | Medium |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
-| **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started. **Monster placement now blocks on this** — it needs global scripts plus `GET_PARTY_FACING` and `MonsterPlacement` | Large |
-| **Global script hooks** | `PartyArrangement` and `PartyOrigin<direction>` can override the party formation and origin, and neither is wired up. Both are call-site changes once GPDL runs global scripts; the defaults are what shipped designs use | Small |
+| **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
+| **`path.cpp`** | Blocks unreachable-monster removal, `findEmptyCell`'s reachability check, and all movement in a round. **The next piece of work** | Medium |
+| **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. None is wired up; all three have faithful built-in defaults and are call-site changes once GPDL runs global scripts. Needs a `specialAbilities.txt` parser plus two sub-opcodes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |
