@@ -2306,9 +2306,25 @@ Not ported from this screen: the magical-item term, `max(Attack_Bonus, Dmg_Bonus
 identified magical item, because "is this item magical" is a specab question the port does not
 answer yet.
 
-The remaining boundary in `GameRules.cpp` is the **spell-effect layer**:
-`ApplySpellEffectAdjustments` is what every `GetAdj*` call routes through, nothing in the port
-models it, and it is the last thing between these rules and combat.
+Seventh: the **spell-effect arithmetic**, as `SpellEffects` — the layer every `GetAdj*` accessor
+routes through, and the last piece of shared machinery between the ported rules and combat.
+
+- **Two of the three modes replace rather than adjust, so order decides the answer.** A percentage
+  effect sets the value to a percentage *of* the original — 50% of 10 is 5, not 15 — and an absolute
+  effect discards it outright. So an absolute effect anywhere in the list wipes out every effect
+  above it, and the list's order is part of the result.
+- **`ApplyChange` returns the new value, not a delta**, despite the caller's comment saying
+  "return accumulated delta" (`Char.cpp:13073`). Reading the comment rather than the function would
+  make every effect compound.
+- **`EFFECT_NONE` is checked first**, so a saving throw that negates a percentage effect leaves the
+  value alone rather than multiplying it by zero.
+- The clamp belongs to the accessor, not the effect: `GetAdjAC` holds the result inside `MIN_AC`
+  and `MAX_AC` *after* applying effects.
+
+> **What is deliberately not here: durations, sources and stacking.** The reference tracks each
+> effect's parent spell, expiry time and once-only bookkeeping, and that is the part that decides
+> which effects are in the list at all. This is only the arithmetic — enough for the character sheet
+> and the combat numbers, and honestly short of an effect system.
 
 - **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
   `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;
