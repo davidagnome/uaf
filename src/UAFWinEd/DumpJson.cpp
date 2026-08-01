@@ -49,6 +49,9 @@
 #include "Monster.h"
 #include "Spell.h"
 #include "Level.h"
+// baseclassData's type. Externs.h declares the global but not the class, so the members this
+// file reads (m_name, THAC0, the mCArray accessors) need the full definition.
+#include "class.h"
 
 using json = nlohmann::json;
 
@@ -140,10 +143,101 @@ static json DumpGlobalData(void)
 static json DumpDatabaseCounts(void)
 {
   json j;
-  j["items"]    = itemData.GetCount();
-  j["monsters"] = monsterData.GetCount();
-  j["spells"]   = spellData.GetCount();
+  j["items"]      = itemData.GetCount();
+  j["monsters"]   = monsterData.GetCount();
+  j["spells"]     = spellData.GetCount();
+  j["baseclasses"] = baseclassData.GetCount();
   return j;
+}
+
+// Name digest for baseclass.dat.
+//
+// This is the highest-value list in the whole dump, for one reason: baseclass.dat is a TAGGED
+// database, so it carries no per-record length or offset. A record is located only by having read
+// the previous one to exactly its last byte. If all N names come back as rulebook baseclasses, the
+// C# reader consumed every record's full length -- including the hit-dice table and the six skill
+// lists that follow the special abilities, which is precisely where the port's reader currently
+// stops (class.cpp:6176 onward).
+//
+// A partial reader produces a first name that looks perfect and a second that is an ability score,
+// which is exactly the failure this list catches on record 2 instead of after a manual byte walk.
+static json DumpBaseclassNames(void)
+{
+  json arr = json::array();
+  int n = baseclassData.GetCount();
+  for (int i = 0; i < n; i++)
+  {
+    const BASE_CLASS_DATA *p = baseclassData.PeekBaseclass(i);
+    arr.push_back(p == NULL ? json(nullptr) : json(S(p->m_name)));
+  }
+  return arr;
+}
+
+// Full field dump for the first few baseclass records.
+//
+// NOTE the hit dice are serialized as (sides, nbr, bonus) -- class.cpp:6180 -- which is NOT the
+// declaration order of DICEDATA (nbr, sides, bonus; Externs.h:1834). They are dumped by name here
+// so a reader transcribing the struct rather than the loading branch disagrees visibly.
+static json DumpBaseclassDetails(int maxRecords)
+{
+  json arr = json::array();
+  int n = baseclassData.GetCount();
+  if (n > maxRecords) n = maxRecords;
+
+  for (int i = 0; i < n; i++)
+  {
+    const BASE_CLASS_DATA *p = baseclassData.PeekBaseclass(i);
+    if (p == NULL) { arr.push_back(nullptr); continue; }
+
+    json j;
+    j["name"]              = S(p->m_name);
+    j["preSpellNameKey"]   = p->m_preSpellNameKey;
+    j["allowedAlignments"] = (unsigned int)p->m_allowedAlignments;
+
+    json thac0 = json::array();
+    for (int k = 0; k < HIGHEST_CHARACTER_LEVEL; k++) thac0.push_back((int)(unsigned char)p->THAC0[k]);
+    j["thac0"] = thac0;
+
+    json levels = json::array();
+    for (int k = 0; k < p->GetExpLevelsCount(); k++) levels.push_back((unsigned int)*p->PeekExpLevels(k));
+    j["expLevels"] = levels;
+
+    json races = json::array();
+    for (int k = 0; k < p->GetRaceIDCount(); k++) races.push_back(S(*p->PeekRaceID(k)));
+    j["allowedRaces"] = races;
+
+    json reqs = json::array();
+    for (int k = 0; k < p->GetAbilityReqCount(); k++)
+    {
+      const ABILITY_REQ *r = p->PeekAbilityReq(k);
+      json q;
+      q["abilityId"] = S(r->m_abilityID);
+      q["min"]       = (int)r->m_min;
+      q["minMod"]    = (int)r->m_minMod;
+      q["max"]       = (int)r->m_max;
+      q["maxMod"]    = (int)r->m_maxMod;
+      reqs.push_back(q);
+    }
+    j["abilityRequirements"] = reqs;
+
+    j["castingInfoCount"] = p->GetCastingInfoCount();
+
+    // The first three hit-dice entries. Enough to catch a reader that stopped before them or
+    // transposed sides and nbr, without adding 40 rows per record to the golden file.
+    json dice = json::array();
+    for (int k = 0; k < 3 && k < HIGHEST_CHARACTER_LEVEL; k++)
+    {
+      json d;
+      d["sides"] = p->hitDice[k].sides;
+      d["nbr"]   = p->hitDice[k].nbr;
+      d["bonus"] = p->hitDice[k].bonus;
+      dice.push_back(d);
+    }
+    j["hitDice"] = dice;
+
+    arr.push_back(j);
+  }
+  return arr;
 }
 
 // Per-record name digest for the item DB.
@@ -359,6 +453,17 @@ static bool LoadDesignDataHeadless(void)
   else
     Diag("spells   -> %d (via loadDesign)", spellData.GetCount());
 
+  // baseclass.dat is a tagged database on its own version axis, loaded by loadDesign at
+  // Level.cpp:2984. Note it can legitimately be EMPTY here rather than merely unloaded:
+  // BASE_CLASS_DATA::Serialize refuses any record below Bcd2 and calls SignalShutdown
+  // (class.cpp:5731), which is the case for DefaultDesign's Bcd1. A zero count on that fixture is
+  // the reference's own behaviour, not a dump failure.
+  if (baseclassData.GetCount() == 0)
+    Diag("baseclasses -> %d (loaded separately; 0 may mean the file is pre-Bcd2)",
+         loadData(baseclassData, (LPCSTR)(dataDir + "baseclass.dat")));
+  else
+    Diag("baseclasses -> %d (via loadDesign)", baseclassData.GetCount());
+
   return true;
 }
 
@@ -448,6 +553,8 @@ bool DumpDesignJson(const CString& outPath, bool configLoaded)
   root["itemDetails"]    = DumpItemDetails(8);   // full fields for the first 8 records
   root["monsterNames"]   = DumpMonsterNames();
   root["spellNames"]     = DumpSpellNames();
+  root["baseclassNames"] = DumpBaseclassNames();
+  root["baseclassDetails"] = DumpBaseclassDetails(3);
 
   std::ofstream out((LPCSTR)outPath, std::ios::binary);
   if (!out.is_open())

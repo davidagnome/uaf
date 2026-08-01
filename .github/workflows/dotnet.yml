@@ -167,8 +167,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          scripts=$(ls oracle/golden/gpdl/*.txt 2>/dev/null | wc -l | tr -d ' ')
-          goldens=$(ls oracle/golden/gpdl/*.bin 2>/dev/null | wc -l | tr -d ' ')
+          # find, not `ls glob | wc -l`: with no .bin files yet, ls exits non-zero, pipefail
+          # propagates it and -e kills this step before it prints anything -- so the warning it
+          # exists to emit never appeared, and the step read as a build failure instead.
+          scripts=$(find oracle/golden/gpdl -maxdepth 1 -name '*.txt' | wc -l | tr -d ' ')
+          goldens=$(find oracle/golden/gpdl -maxdepth 1 -name '*.bin' | wc -l | tr -d ' ')
           echo "GPDL corpus: $scripts script(s), $goldens golden(s)"
           if [ "$scripts" = "0" ]; then
             echo "::error::oracle/golden/gpdl holds no scripts; the GPDL corpus has gone missing"

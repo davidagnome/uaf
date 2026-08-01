@@ -1680,9 +1680,30 @@ if (ver > "Bcd2")
 is above the 0.920 legacy gate, a `Bcd5` record always takes the **modern `A_CStringPAIR_L`** path.
 And the map name is `"baseclasses"`, which `SpecabReader` checks as a sync marker.
 
-So the tail is: … casting info → `Specab` → end of record. `SpecabReader` is already ported and
-exercised on both sides of the 0.920 fork, so finishing this is transcription plus one call. The
-verification to aim at is unchanged: nine baseclass names a rulebook would recognise.
+**Correction: `Specab` is not the end of the record, and "transcription plus one call" was wrong.**
+That claim came from reading the bytes at the point where drift appeared rather than reading
+`BASE_CLASS_DATA::Serialize` to its end. Items 7–11 plus the `Specab` block are now implemented and
+verified — record 0 of `SomethingWild` decodes exactly as the byte map above predicts, down to
+`baseclass_NameSuppress = "Y"` — and record 1's tag still comes out as `Dexterity`, one string of
+drift.
+
+Reading on from `class.cpp:6176` says why. After the `Specab` block come:
+
+| | Structure | Framing |
+|---|---|---|
+| 12 | hit dice | 40 × (`sides`, `nbr`, `bonus`) — `HIGHEST_CHARACTER_LEVEL`, no count |
+| 13 | `m_skills` | bare `int` count, then N × `SKILL::Serialize` (`class.cpp:4879`) |
+| 14–17 | `m_skillAdjustments{Ability,Baseclass,Race,Script}` | four lists, same framing, `SKILL_ADJ::Serialize` — which takes a **version string** |
+| 18 | `m_bonusXP` | bare `int` count, then N × `BONUS_XP::Serialize` (`class.cpp:5354`) |
+
+So four more leaf serializers, not zero. The verification to aim at is unchanged — nine baseclass
+names a rulebook would recognise, and a file that walks to exact EOF.
+
+> **The lesson is the one this document keeps re-learning, and this time it was the document
+> itself that misled.** The byte map was correct and the transcription drawn from it was correct;
+> what was wrong was concluding "that is the last piece" from where the drift *appeared* instead of
+> from reading the loading branch to its end. A byte map can only show you the structure you
+> already suspect.
 
 > The reverted attempt is the point of this section. A drifted reader on this file produces
 > plausible-looking records, and `baseclass.dat` has **no oracle** — the dumper does not emit it,
