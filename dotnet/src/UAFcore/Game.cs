@@ -67,6 +67,8 @@ public sealed class Game
             ? new Map(level.Width, level.Height, level.Cells)
             : design.Map(levelIndex);
 
+        zones = level?.Zones;
+
         if (level is not null && Map is not null)
         {
             events = new EventLookup(level.Events);
@@ -651,6 +653,40 @@ public sealed class Game
         return true;
     }
 
+    private readonly ZoneData? zones;
+
+    /// <summary>
+    /// The art a full-screen event shows where the dungeon view was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The treasure screen blits the <b>zone's</b> treasure picture, not the event's
+    /// (<c>RunEvent.cpp:6588</c>): <c>currPic = levelData.zoneData.zones[zone].treasurePicture</c>,
+    /// with the zone taken from the party's own cell. So two treasures on one level can look
+    /// different, and the event carries nothing that says which.
+    /// </para>
+    /// <para>
+    /// Null when the design ships no art for it, which is the ordinary case rather than an error —
+    /// the area simply stays empty, as it does when <c>currPic.key</c> is 0.
+    /// </para>
+    /// </remarks>
+    private Surface? ScreenArt()
+    {
+        if (!Runner.OwnsScreen || zones is null || Map is null)
+        {
+            return null;
+        }
+
+        int zone = Map.At(X, Y)?.Zone ?? 0;
+        if (zone < 0 || zone >= zones.Zones.Count)
+        {
+            return null;
+        }
+
+        string file = zones.Zones[zone].TreasurePicture.FileName;
+        return file.Length > 0 ? design.Art(file) : null;
+    }
+
     /// <summary>Feeds input to the event on screen.</summary>
     private bool UpdateEvent(InputEvent input)
     {
@@ -751,15 +787,26 @@ public sealed class Game
         // is never called. Drawing the corridor underneath is what put the item list on top of a
         // wall.
         var backdrop = design.Art("backdrop_IndoorGreyStone.png", SurfaceKind.Background);
-        if (config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out int vr, out int vb)
-            && !Runner.OwnsScreen)
+        if (config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out int vr, out int vb))
         {
-            if (backdrop is not null)
+            if (Runner.OwnsScreen)
             {
-                Blitter.BlitOpaque(screen, vx, vy, backdrop);
+                // The zone's picture takes the viewport's place, drawn through the colour key
+                // like every other sprite -- blitView asks for SmallPicDib | SpriteDib.
+                if (ScreenArt() is { } art)
+                {
+                    Blitter.BlitTransparent(screen, vx, vy, art);
+                }
             }
+            else
+            {
+                if (backdrop is not null)
+                {
+                    Blitter.BlitOpaque(screen, vx, vy, backdrop);
+                }
 
-            DrawWalls(vx, vy, new SurfaceRect(vx, vy, vr, vb));
+                DrawWalls(vx, vy, new SurfaceRect(vx, vy, vr, vb));
+            }
         }
 
         DrawText(config);

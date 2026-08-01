@@ -1863,8 +1863,12 @@ and broken, since neither spell memorisation nor zone magic flags are modelled y
 > measuring, because it exists to guard the dungeon view and event presentation is covered
 > elsewhere.
 >
-> **The treasure picture is still not drawn**, so the viewport area is empty rather than showing the
-> zone's art. It is zone data rather than event data, and no zone art is loaded yet.
+**The treasure picture is drawn, and it comes from the zone rather than the event**
+(`RunEvent.cpp:6588`): `currPic = levelData.zoneData.zones[zone].treasurePicture`, with the zone
+taken from the party's own cell. So two treasures on one level can look different and the event
+carries nothing that says which. Every zone in the reference designs names `smallpic_Treasure.png`
+and it resolves, so the screen now shows coins and a dagger where the corridor was. It blits through
+the colour key like every other sprite — `blitView` asks for `SmallPicDib | SpriteDib`.
 
 ##### The form engine, as ported
 

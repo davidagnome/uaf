@@ -1256,4 +1256,32 @@ public class GameTests
             Assert.Equal(expected, design.IsReadyToTrain(member));
         }
     }
+
+    [Fact]
+    public void Every_zone_names_treasure_art_the_design_actually_ships()
+    {
+        // The treasure screen blits the ZONE's picture, not the event's (RunEvent.cpp:6588), so
+        // two treasures on one level can look different and the event says nothing about which.
+        // Every zone in the reference designs names smallpic_Treasure.png and it resolves.
+        string? root = DesignRoot();
+        if (root is null) return;
+
+        using var design = Open(root);
+
+        var level = design.Level(0);
+        Assert.NotNull(level);
+        Assert.NotEmpty(level!.Zones.Zones);
+
+        int named = 0;
+        foreach (var zone in level.Zones.Zones)
+        {
+            string file = zone.TreasurePicture.FileName;
+            if (file.Length == 0) { continue; }
+
+            named++;
+            Assert.NotNull(design.Art(file));
+        }
+
+        Assert.True(named > 0, "no zone named any treasure art");
+    }
 }
