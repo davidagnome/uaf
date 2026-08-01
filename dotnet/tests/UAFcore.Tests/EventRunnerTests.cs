@@ -374,13 +374,10 @@ public class EventRunnerTests
         var runner = new EventRunner();
         runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
 
-        // EXIT is the last of the six.
-        for (int i = 0; i < 5; i++)
-        {
-            runner.Handle(InputEvent.KeyDown(VirtualKey.Right));
-        }
-
-        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+        // EXIT is the last of the six, and arrows skip the disabled entries -- POOL, SHARE and
+        // DETECT are all greyed out here -- so stepping right lands on it in two moves, not five.
+        // Its shortcut is the surer route and is what a player would use.
+        var step = runner.Handle(InputEvent.Text('X'));
 
         Assert.NotEqual(EventStepKind.Running, step.Kind);
         Assert.False(runner.TakeRequested);

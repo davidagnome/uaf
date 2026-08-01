@@ -1808,12 +1808,31 @@ bar with VIEW selected.
 - **No READY or COST column.** A pile on the floor is neither an inventory nor a shop, and the
   headers are blanked rather than removed so the name column does not move.
 
-> **Two things the screenshot showed that the tests did not.** The list draws at the form table's
-> own coordinates, which currently **overlaps the viewport** — the original's treasure screen draws
-> over a different background that is not ported, so the form is placing correctly but nothing has
-> cleared the area beneath it. And a non-silent treasure event is rarer than expected: of the four
-> reference designs only `Case.dsn` has one, which is why the silent path was the only one exercised
-> for so long.
+**A full-screen event replaces the dungeon view rather than drawing over it**, and getting this
+wrong is what first put the item list on top of a corridor wall. The distinction is in the screen
+routines: text and question events run under `UpdateAdventureScreen`, which calls `updateViewport`;
+the treasure screen runs under `UpdateSmallSprite` (`Screen.cpp:340`), which clears the adventure
+background and blits the zone's treasure picture where the viewport was, never touching the viewport
+itself. `EventRunner.OwnsScreen` models that, and every form-bearing screen still to come —
+character stats, spells, camp — belongs in the second group.
+
+`OnUpdateUI` (`RunEvent.cpp:6694`) greys entries rather than hiding them: TAKE goes when there is
+nothing to take, POOL and SHARE are mutually exclusive on whether the money is pooled, and DETECT
+needs a caster and a zone allowing magic. Note its `setItemInactive` indices are **one-based**, so
+its 2/3/4/5 are TAKE/POOL/SHARE/DETECT. DETECT is disabled unconditionally here rather than offered
+and broken, since neither spell memorisation nor zone magic flags are modelled yet.
+
+> **Three things the screenshots showed that the tests did not.** The overlap above, which four
+> passing tests said nothing about. That a non-silent treasure event is rarer than expected — of the
+> four reference designs only `Case.dsn` has one with items, which is why the silent path was the
+> only one exercised for so long. And that `SomethingWild` has a non-silent treasure with **no**
+> items, which is what `GoldenFrameTests`' south scene walks onto: once the viewport stopped being
+> drawn under an event, that golden was hashing a blank rectangle. It now dismisses the event before
+> measuring, because it exists to guard the dungeon view and event presentation is covered
+> elsewhere.
+>
+> **The treasure picture is still not drawn**, so the viewport area is empty rather than showing the
+> zone's art. It is zone data rather than event data, and no zone art is loaded yet.
 
 ##### The form engine, as ported
 

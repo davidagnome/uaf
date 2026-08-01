@@ -740,8 +740,14 @@ public sealed class Game
             Blitter.BlitOpaque(screen, fx, fy, frame);
         }
 
+        // A full-screen event replaces the dungeon view rather than drawing over it. The treasure
+        // screen is UpdateSmallSprite (Screen.cpp:340): ClearAdventureBackground, then the zone's
+        // treasure picture where the viewport was, then the roster, menu and text -- updateViewport
+        // is never called. Drawing the corridor underneath is what put the item list on top of a
+        // wall.
         var backdrop = design.Art("backdrop_IndoorGreyStone.png", SurfaceKind.Background);
-        if (config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out int vr, out int vb))
+        if (config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out int vr, out int vb)
+            && !Runner.OwnsScreen)
         {
             if (backdrop is not null)
             {

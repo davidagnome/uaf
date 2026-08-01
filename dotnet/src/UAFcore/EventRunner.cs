@@ -76,6 +76,19 @@ public sealed class EventRunner
     public bool IsActive => Current is not null;
 
     /// <summary>
+    /// Whether the event on screen replaces the dungeon view rather than drawing over it.
+    /// </summary>
+    /// <remarks>
+    /// The distinction is in the reference's screen routines. A text or question event runs under
+    /// <c>UpdateAdventureScreen</c>, which calls <c>updateViewport</c>; the treasure screen runs
+    /// under <c>UpdateSmallSprite</c> (<c>Screen.cpp:340</c>), which clears the adventure
+    /// background and blits the zone's treasure picture where the viewport was, never touching the
+    /// viewport itself. Every form-bearing screen to come — character stats, spells, camp — is in
+    /// the second group.
+    /// </remarks>
+    public bool OwnsScreen => Current is TreasureEvent;
+
+    /// <summary>
     /// Starts presenting <paramref name="gameEvent"/> (<c>OnInitialEvent</c>).
     /// </summary>
     /// <returns>
@@ -155,8 +168,15 @@ public sealed class EventRunner
     /// <summary>How many rows the treasure list shows at once (<c>Items_Per_Page</c>).</summary>
     public const int TreasurePageSize = 8;
 
-    /// <summary>The menu index of TAKE, and of EXIT.</summary>
+    /// <summary>
+    /// The six entries, zero-based. The reference's <c>setItemInactive</c> takes these one-based,
+    /// so its 2/3/4/5 are TAKE/POOL/SHARE/DETECT.
+    /// </summary>
+    private const int TreasureView = 0;
     private const int TreasureTake = 1;
+    private const int TreasurePool = 2;
+    private const int TreasureShare = 3;
+    private const int TreasureDetect = 4;
     private const int TreasureExit = 5;
 
     /// <summary>
@@ -197,6 +217,16 @@ public sealed class EventRunner
             // No READY or COST column: this is a pile on the floor, not an inventory or a shop.
             Items.Populate(font, rows, useReady: false, useCost: false);
         }
+
+        // GIVE_TREASURE_DATA::OnUpdateUI (RunEvent.cpp:6694) greys entries out rather than hiding
+        // them. TAKE goes when there is nothing to take; POOL and SHARE are mutually exclusive on
+        // whether the money is pooled; DETECT needs a caster and a zone that allows magic, neither
+        // of which this port models yet, so it is always off rather than offered and broken.
+        bool pooled = false;
+        Menu.SetItemEnabled(TreasureTake, rows.Count > 0);
+        Menu.SetItemEnabled(TreasurePool, !pooled);
+        Menu.SetItemEnabled(TreasureShare, pooled);
+        Menu.SetItemEnabled(TreasureDetect, false);
 
         return EventStep.Running;
     }

@@ -82,6 +82,13 @@ public class GoldenFrameTests
             game.Update(InputEvent.KeyDown(VirtualKey.Up));
         }
 
+        // This test measures the dungeon view, and a full-screen event replaces it rather than
+        // drawing over it -- the treasure screen never calls updateViewport (Screen.cpp:340). The
+        // south scene walks onto a treasure event with no items in it, so without this the frame
+        // is a blank viewport and the hash guards nothing. Event presentation is covered by
+        // EventRunnerTests; dismissing it here restores the scene this golden was written for.
+        game.Runner.Cancel();
+
         var frame = game.Render();
         design.Config.Rewind();
         if (!design.Config.TryGetRect("VIEWPORT_RECT", out int l, out int t, out int r, out int b))
