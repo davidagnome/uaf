@@ -1675,9 +1675,67 @@ end of the record is unaccounted for**, and it is not any of the widths above. T
 reverted rather than shipped, because a drifted reader produces plausible-looking records and this
 file has no oracle to catch that.
 
-Next time, bisect rather than transcribing the block whole: read one field, then dump the cursor's
-next few bytes and check them against a hex dump of the decompressed stream. The failure is
-reproducible in three lines against `reference/SomethingWild.dsn`.
+**The bisect was then done, and it very nearly closes this.** Dumping the 96 bytes after record 0's
+experience levels in `SomethingWild` decodes cleanly against the transcription:
+
+```
++0    c0 01                       m_allowedAlignments = 0x01c0   (three alignment bits -- an
+                                                                  evil-only assassin)
++2..+41  14 14 14 14 13 13 ... 0a THAC0[40] = 20,20,20,20,19,19,19,19,16,16,16,16,14,... ,10
++42..+49 00 00 00 00 00 00 00 00  m_spellBonusAbility: index 0 (new string), length 0 -> ""
++50..+53 00 00 00 00              bonus spell count = 0
++54..+57 00 00 00 00              casting-info count = 0
++58..+61 01 00 00 00              <- record 1's tag: string-table index 1, i.e. an interned "Bcd5"
++62..+65 00 00 00 00              index 0 -- a NEW string follows
++66..+69 16 00 00 00              length 22
++70..     "baseclass_NameSuppress"  <- exactly 22 characters
+```
+
+Every field width above is confirmed by the data, so **the transcription of items 7–11 is right**.
+The discrepancy is at record 1: reading it as tag → `m_preSpellNameKey` → name puts the string index
+at +66, which is 22 — the very index the failure reported as "beyond the table (15 entries)", and 15
+is about what record 0 legitimately interns. Reading it as tag → name, with **no**
+`m_preSpellNameKey`, fits the bytes exactly.
+
+**And re-reading `class.cpp:5757` settles which of those it is.** For `intVer >= 5` the
+`car >> m_preSpellNameKey` is unconditional — there is no gate that record 1 could fall outside —
+so record 1 *does* carry it, and the reading of the byte map above is what is wrong.
+
+Which means **+58 is not record 1's tag, and the record does not end at +57**. Re-read that way, the
+bytes say there is at least one more list after the casting info:
+
+```
++58..+61 01 00 00 00              a count of 1
++62..+65 00 00 00 00              index 0 -- a new string follows
++66..+69 16 00 00 00              length 22
++70..     "baseclass_NameSuppress"  <- reads as a skill or attribute NAME, not a baseclass name
+```
+
+**Found: it is a `Specab` block** (`class.cpp:6136`), which `ITEM_DATA` already taught this port to
+read. Immediately after the casting info:
+
+```cpp
+if (ver > "Bcd2")
+{
+  double version = globalData.version;
+  if (intVer >= 5) version = 0.930;   // see below
+  m_specAbs.Serialize(car, version, m_name, "baseclasses");
+}
+```
+
+`baseclass_NameSuppress` is a special-ability key, which is why it reads as an identifier rather
+than a name — and `SpecabReader` is already ported and exercised on both sides of the 0.920 fork.
+
+**Two things about that call are load-bearing.** The version passed in is **not** the record's tag
+and **not** the design version — at `intVer >= 5` it is hard-coded to **0.930**, with the source's
+own explanation: people package old designs with a new `baseclass.dat`, so the real design version
+would send `Specab` down the wrong branch. Since 0.930 is above the 0.920 legacy gate, a `Bcd5`
+record always takes the **modern `A_CStringPAIR_L`** path. And the map name is `"baseclasses"`,
+which `SpecabReader` checks as a sync marker.
+
+So the tail is: … casting info → `Specab` (gated `ver > "Bcd2"`) → end of record. That is the last
+piece; with it the file should walk, and the verification remains what it was — nine baseclass names
+a rulebook would recognise.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
