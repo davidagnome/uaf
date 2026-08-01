@@ -54,6 +54,11 @@ public sealed class Game
         // so the treasure list cannot be built without the item database.
         Runner.ItemNames = id => design.Item(id)?.Names.IdName;
 
+        // VIEW shows whoever is active. Built here rather than in the runner, which has no party.
+        Runner.ActiveCharacterSheet = () => Party?.Active is { } active
+            ? CharacterSheetBuilder.Build(active, design.Baseclasses)
+            : null;
+
         // The full level gives the wall sets, which sit after the event list; the map-only read is
         // the fallback for a level whose events cannot all be decoded, since movement needs the
         // grid and nothing else.
@@ -895,7 +900,10 @@ public sealed class Game
             return;
         }
 
-        if (config.TryGetInts("PARTYNAMES", out int[] roster, 4))
+        // The treasure screen keeps the roster (UpdateSmallSprite calls displayPartyNames); the
+        // character sheet does not (UpdateViewCharacterScreen does not). So screen ownership is not
+        // one flag but a question per element, and this is the element the two screens disagree on.
+        if (!Runner.CoversRoster && config.TryGetInts("PARTYNAMES", out int[] roster, 4))
         {
             DrawRoster(font, roster[2], roster[3]);
         }

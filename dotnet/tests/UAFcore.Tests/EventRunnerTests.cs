@@ -410,4 +410,63 @@ public class EventRunnerTests
         Assert.False(runner.TakeRequested);
         Assert.Contains("VIEW", runner.Unimplemented ?? "", StringComparison.Ordinal);
     }
+
+    private static CharacterSheet TestSheet() => new(
+        Name: "Sherlas of Hemlock", Gender: "MALE", Age: "17 YEARS", Status: "OKAY",
+        Alignment: "TRUE NEUTRAL", Race: "HUMAN", Class: "RANGER", Level: "LEVEL 3",
+        Hits: "18", MaxHits: "/22",
+        ExperienceLines: ["RANGER 8000"],
+        Abilities: ["18/75", "12", "9", "14", "16", "11"],
+        Coins: []);
+
+    [Fact]
+    public void View_opens_the_active_characters_sheet_over_the_treasure_list()
+    {
+        var runner = new EventRunner { ActiveCharacterSheet = TestSheet };
+        runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
+
+        Assert.Null(runner.Stats);
+        Assert.NotNull(runner.Items);
+
+        // VIEW is first, so a bare Return opens it.
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(EventStepKind.Running, step.Kind);
+        Assert.NotNull(runner.Stats);
+        Assert.Null(runner.Unimplemented);
+        Assert.Equal("Sherlas of Hemlock",
+                     runner.Stats!.Form.Field(CharStatsFields.Name)!.Text);
+        Assert.Equal("18/75", runner.Stats.Form.Field(CharStatsFields.AbilityValues[0])!.Text);
+    }
+
+    [Fact]
+    public void The_next_commit_puts_the_sheet_away_rather_than_choosing_anything()
+    {
+        var runner = new EventRunner { ActiveCharacterSheet = TestSheet };
+        runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Return));   // VIEW
+        Assert.NotNull(runner.Stats);
+
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        // Back on the menu, with the event still running and nothing taken.
+        Assert.Equal(EventStepKind.Running, step.Kind);
+        Assert.Null(runner.Stats);
+        Assert.False(runner.TakeRequested);
+    }
+
+    [Fact]
+    public void View_reports_itself_when_there_is_nobody_to_show()
+    {
+        // No host resolver -- the runner has no party of its own, so it says so rather than
+        // opening an empty sheet.
+        var runner = new EventRunner();
+        runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Null(runner.Stats);
+        Assert.Contains("VIEW", runner.Unimplemented ?? "", StringComparison.Ordinal);
+    }
 }

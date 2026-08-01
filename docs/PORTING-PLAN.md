@@ -1593,8 +1593,8 @@ remains, in dependency order:
 2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
    `UAF.Media`, with `ItemsForm`, `RestTimeForm` and `CharStatsForm` on top of it (42 tests
    between the four). `SpellForm` (895 lines) is the last one. `CharStatsForm`'s layout is complete
-   but half its values wait on `GameRules.cpp` — see below. Wiring the sheet to the treasure
-   screen's VIEW entry is what makes it visible.
+   but half its values wait on `GameRules.cpp` — see below. The sheet is wired to the treasure
+   screen's VIEW entry, so the character screen is reachable in play.
 3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
    math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
 4. **The remaining viewport squares**, 3 and 4.
@@ -1882,6 +1882,33 @@ plausible numbers. A wrong armour class looks exactly like a right one.
 
 `CharacterSheet` takes every field as a string, including the derived ones, so the combat block can
 be filled in later without touching the form.
+
+##### The character sheet in play
+
+VIEW on the treasure screen now opens the active character's sheet, built by
+`CharacterSheetBuilder` from a `Character` plus the design's baseclasses. Verified by rendering it
+out of `Case.dsn`: name, `MALE 28 YEARS`, `TRUE NEUTRAL`, `FIGHTER`, `FIGHTER 4001`, `LEVEL 3`,
+`STATUS OKAY`, `HIT POINTS 27/27`, `HALF-ELF`, the five configured coins and the six scores.
+
+**Screen ownership turned out not to be one flag.** The treasure screen keeps the party roster —
+`UpdateSmallSprite` calls `displayPartyNames` — and the character screen drops it, since
+`UpdateViewCharacterScreen` (`Screen.cpp:620`) draws only the frame, the picture, the menu and the
+stats. So `EventRunner` answers two questions, `OwnsScreen` and `CoversRoster`, and every screen to
+come has to be asked both. Both answers came from rendering the thing and looking at it: the first
+render put the sheet on top of the roster, the second still had the treasure's message showing
+through `ARMOR CLASS`.
+
+The reference reaches this screen by pushing `VIEW_CHARACTER_DATA` as its own event, which brings
+its own empty text with it. This port draws the sheet in place and dismisses it on the next commit
+— the same flow from the player's side, without an event stack to build first — which is why the
+text box has to be suppressed explicitly rather than being empty by construction.
+
+**The level shown is derived, not stored.** `HighestLevel` takes the best across the character's
+baseclasses using the thresholds read from `baseclass.dat`, falling back to the stored level when
+the design's baseclasses cannot be read — the same fallback `IsReadyToTrain` uses.
+
+**Strength carries a percentile**: an 18 with a modifier reads `18/75`, and `18/00` at 100, which is
+the top of the exceptional-strength table written as two zeroes rather than as a hundred.
 
 ##### `RestTimeForm`, as ported
 

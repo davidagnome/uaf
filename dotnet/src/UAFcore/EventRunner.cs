@@ -89,6 +89,18 @@ public sealed class EventRunner
     public bool OwnsScreen => Current is TreasureEvent;
 
     /// <summary>
+    /// Whether what is on screen replaces the party roster as well as the dungeon view.
+    /// </summary>
+    /// <remarks>
+    /// <b>Screen ownership is not one flag.</b> The treasure screen keeps the roster —
+    /// <c>UpdateSmallSprite</c> calls <c>displayPartyNames</c> — while the character sheet drops it,
+    /// since <c>UpdateViewCharacterScreen</c> (<c>Screen.cpp:620</c>) draws only the frame, the
+    /// picture, the menu and the stats. The sheet is also the thing that occupies that corner of
+    /// the screen, so leaving the roster under it produces two columns of text on top of each other.
+    /// </remarks>
+    public bool CoversRoster => Stats is not null;
+
+    /// <summary>
     /// Starts presenting <paramref name="gameEvent"/> (<c>OnInitialEvent</c>).
     /// </summary>
     /// <returns>
@@ -112,6 +124,7 @@ public sealed class EventRunner
         Menu.Reset();
         Text.Clear();
         Items = null;
+        Stats = null;
         TakeRequested = false;
 
         return gameEvent switch
@@ -164,6 +177,16 @@ public sealed class EventRunner
 
     /// <summary>The treasure list, while a treasure event is on screen.</summary>
     public ItemsForm? Items { get; private set; }
+
+    /// <summary>Builds the active character's sheet; set by the host.</summary>
+    /// <remarks>
+    /// The runner has no party, so it cannot know whose sheet VIEW should show any more than it
+    /// can hand over a treasure.
+    /// </remarks>
+    public Func<CharacterSheet?>? ActiveCharacterSheet { get; set; }
+
+    /// <summary>The character sheet, while VIEW is showing it.</summary>
+    public CharStatsForm? Stats { get; private set; }
 
     /// <summary>How many rows the treasure list shows at once (<c>Items_Per_Page</c>).</summary>
     public const int TreasurePageSize = 8;
@@ -247,8 +270,16 @@ public sealed class EventRunner
             case TreasureExit:
                 return Complete(happened: true);
 
+            case TreasureView when ActiveCharacterSheet?.Invoke() is { } sheet && font is not null:
+                // VIEW_CHARACTER_DATA is pushed as its own event in the reference; here the sheet
+                // is drawn over the treasure screen and the next commit dismisses it, which is the
+                // same flow from the player's side without an event stack to build first.
+                Stats = new CharStatsForm();
+                Stats.Populate(font, sheet);
+                return EventStep.Running;
+
             default:
-                // VIEW, POOL, SHARE and DETECT each push a screen this port has not built.
+                // POOL, SHARE and DETECT each push a screen this port has not built.
                 string label = chosen >= 0 && chosen < Menu.Count
                     ? BitmapFont.Decode(Menu.Items[chosen].Text)
                     : "treasure option";
@@ -403,6 +434,14 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The sheet is a page over the treasure screen: the next commit puts it away rather than
+        // choosing anything, so a player pressing Return twice lands back on the menu.
+        if (Stats is not null)
+        {
+            Stats = null;
+            return EventStep.Running;
+        }
+
         return Current switch
         {
             QuestionEvent question => ChooseOption(question),
@@ -480,8 +519,19 @@ public sealed class EventRunner
             return;
         }
 
-        FormattedTextRenderer.DrawBox(destination, font, Text, Box.X, Box.Y);
-        Items?.Display(destination, font);
+        // The sheet covers the list and the text box both. The reference gets this by pushing
+        // VIEW_CHARACTER_DATA as its own event, which brings its own empty text with it; drawing
+        // the sheet in place is the same thing from the player's side, so the text underneath has
+        // to go with it.
+        if (Stats is not null)
+        {
+            Stats.Display(destination, font);
+        }
+        else
+        {
+            FormattedTextRenderer.DrawBox(destination, font, Text, Box.X, Box.Y);
+            Items?.Display(destination, font);
+        }
         MenuRenderer.Draw(destination, Menu, font);
     }
 }
