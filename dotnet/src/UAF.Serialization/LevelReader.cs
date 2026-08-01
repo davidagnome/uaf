@@ -11,7 +11,63 @@ namespace UAF.Serialization;
 public sealed record AreaMapCell(
     byte Background, bool ShowDistantBackground, bool DistantBackgroundInBands,
     byte NorthBg, byte EastBg, byte SouthBg, byte WestBg,
-    byte Zone, bool EventExists, byte[] Walls, byte[] Blockage);
+    byte Zone, bool EventExists, byte[] Walls, byte[] Blockage)
+{
+    /// <summary>
+    /// Direction (north, east, south, west) to index into <see cref="Walls"/> and
+    /// <see cref="Blockage"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The two arrays are stored north, SOUTH, EAST, west — not in compass-traversal order.</b>
+    /// <c>Level.h:87</c> declares <c>BYTE wall[4]; // North, south, east, west</c>, the commented-out
+    /// members it replaced (<c>northWall</c>, <c>southWall</c>, <c>eastWall</c>, <c>westWall</c>)
+    /// say the same, and <c>AREA_MAP_DATA::Serialize</c> writes <c>wall[0]</c>…<c>wall[3]</c> in
+    /// that declaration order, so it is the wire order too.
+    /// </para>
+    /// <para>
+    /// Every consumer in the original therefore permutes: <c>AREA_MAP_DATA::walls(int dir)</c> and
+    /// <c>blockages(int dir)</c> (<c>Level.cpp:932</c>, <c>:945</c>) build the identical
+    /// <c>{0,2,1,3}</c> table, and <c>IsWallAt</c> (<c>Drawtile.cpp:1819</c>) and the four explicit
+    /// switches in <c>RunEvent.cpp</c> (<c>:5171</c>, <c>:5420</c>, <c>:14678</c>) spell it out the
+    /// same way. Backgrounds are the exception — <c>northBG</c>…<c>westBG</c> really are stored in
+    /// compass order, which is why <c>backgrounds(dir)</c> has a different table.
+    /// </para>
+    /// <para>
+    /// Indexing these arrays with <see cref="Facing"/> directly swaps east and south. Confirmed
+    /// against real data: taking a shared edge's two faces (a cell's east wall against its east
+    /// neighbour's west wall, and its south against the next row's north), this permutation agrees
+    /// on <b>9,708 of 9,708</b> edges across <c>SomethingWild</c>'s eight levels, where indexing by
+    /// facing agrees on 78.88%.
+    /// </para>
+    /// </remarks>
+    /// <para>
+    /// The direction argument is a bare int rather than the engine's <c>Facing</c> because that
+    /// enum lives in <c>UAFcore</c>, above this assembly. It matches the original's own
+    /// <c>walls(int dir)</c> signature, and <c>dir &amp; 3</c> reproduces its masking.
+    /// </para>
+    private static ReadOnlySpan<int> DirectionToSlot => [0, 2, 1, 3];
+
+    /// <summary>
+    /// The wall index on one face. <paramref name="direction"/> is 0=north, 1=east, 2=south,
+    /// 3=west. See the remarks for why this is not a plain index.
+    /// </summary>
+    public byte WallAt(int direction)
+    {
+        int slot = DirectionToSlot[direction & 3];
+        return slot < Walls.Length ? Walls[slot] : (byte)0;
+    }
+
+    /// <summary>
+    /// The raw blockage byte on one face, or null when the cell does not carry it.
+    /// <paramref name="direction"/> is 0=north, 1=east, 2=south, 3=west.
+    /// </summary>
+    public byte? BlockageAt(int direction)
+    {
+        int slot = DirectionToSlot[direction & 3];
+        return slot < Blockage.Length ? Blockage[slot] : null;
+    }
+}
 
 /// <summary>
 /// Reads <c>LEVEL</c> data from a <c>.lvl</c> file (<c>Level.cpp:1224</c>).

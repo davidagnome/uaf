@@ -72,7 +72,9 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
             return NoWall;
         }
 
-        int index = (int)facing < cell.Walls.Length ? cell.Walls[(int)facing] : NoWall;
+        // Not cell.Walls[(int)facing]: the array is stored north, south, east, west, so it has to
+        // be permuted. See AreaMapCell.WallAt.
+        int index = cell.WallAt((int)facing);
 
         // The 5.x per-cell override tables (WALL_OVERRIDE_INDEX 6, DOOR_OVERRIDE_INDEX 7 --
         // GlobalData.h:479) are consulted here in the original and *win* over the cell's own

@@ -8,8 +8,9 @@
 corpus parses, diffed against the oracle — but **no writer exists**, so its round-trip exit
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
-event types, and presents the treasure and character screens. Phases 5–7 have not started.
-**1,146 tests, green on macOS, Linux and Windows; both CI workflows green.**
+event types, presents the treasure and character screens, and builds the combat map. Phases 5–7
+have not started.
+**1,171 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -18,11 +19,17 @@ current, and then the one "as ported" section under §7 Phase 4 for whatever it 
 those sections carry the findings that cost real time, and they are written to be read before the
 code rather than after it.
 
-The single most useful habit this port has: **render the thing and look at it.** Five separate
+The single most useful habit this port has: **render the thing and look at it.** Six separate
 defects this codebase has shipped were invisible to a green suite and obvious in one frame — an
 item list drawn over a corridor wall, a character sheet on top of the party roster, a treasure
-message showing through `ARMOR CLASS`, `ARMOR CLASS7` with no gap, and a crossbow collecting a
-strength bonus it should never get. `UAFcore --dump <design> <out>` writes one frame and exits.
+message showing through `ARMOR CLASS`, `ARMOR CLASS7` with no gap, a crossbow collecting a
+strength bonus it should never get, and **an endless corridor east that should have been a wall
+two squares ahead**. `UAFcore --dump <design> <out>` writes one frame and exits.
+
+The habit's corollary, learned the expensive way on that last one: **a synthetic fixture can only
+pin a convention, never discover it.** Three tests asserted the wall order was right, against a
+fixture written from the same misreading as the code. Where a fact is recoverable from real data,
+assert it there.
 
 > **See also: [SERIALIZATION.md](SERIALIZATION.md)** — the file-format reference. Everything
 > established about containers, archive tiers, strings, ASL, special abilities and the type traps
@@ -1607,11 +1614,11 @@ remains, in dependency order:
    that caps a level by race.
 2. ~~**The forms.**~~ **Done** — all five, on the shared `TextForm` engine, and the character
    sheet is complete and reachable from the treasure screen's VIEW entry.
-3. **Combat — this is the next piece of work; see §11.** `UAF.Rules` can resolve an attack
-   (`ToHit`) and order a round (`Initiative`), but nothing *runs* a round. Start with the combat
-   map and combatant placement: everything else in `Combatants.cpp` (8,952 lines) depends on it and
-   none of it is testable until combatants have positions. Then targeting, the round state machine,
-   movement and pathing (`path.cpp`), and the monster AI.
+3. **Combat — in progress; see §11.** The **combat map is done** — `CombatMap` holds the terrain
+   grid and its primitives, and `CombatMapGenerator` builds one from a level. **Combatant
+   placement is the next piece**: nothing yet puts a party or a monster on the grid, and
+   `findEmptyCell`'s direction clamping and reachability check are stubbed pending it. Then
+   targeting, the round state machine, movement and pathing (`path.cpp`), and the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -1624,6 +1631,97 @@ remains, in dependency order:
 7. **Screenshots from a Windows C++ build.** `GoldenFrameTests` guards regressions but is *not* an
    oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
    and have no equivalent of the serialization dump to diff against.
+
+##### The wall array is stored N,S,E,W — a bug this port shipped for months
+
+**Found while porting the combat map, which reads all four faces of every cell.** `AREA_MAP_DATA`
+declares `BYTE wall[4]; // North, south, east, west` (`Level.h:87`) — and `blockage[4]` the same
+way — so **east and south are transposed relative to compass order**. Every consumer in the
+original permutes with `{0,2,1,3}`: `walls(int dir)` and `blockages(int dir)` (`Level.cpp:932`,
+`:945`), `IsWallAt` (`Drawtile.cpp:1819`), and three explicit switches in `RunEvent.cpp`
+(`:5171`, `:5420`, `:14678`). Backgrounds are the exception — `northBG`…`westBG` really are in
+compass order, which is why `backgrounds(dir)` has a *different* table. That near-miss is what
+makes the trap convincing: one struct, two orders, three accessors.
+
+`WallResolver.IndexAt` and `Map.Blockage` were indexing with `Facing` directly, so **every east
+and south wall in the engine was the other one**. Now `AreaMapCell.WallAt(dir)` /
+`BlockageAt(dir)` hold the permutation, and both callers go through it.
+
+Three independent confirmations, because the source alone had already been misread once:
+
+| Evidence | Result |
+|---|---|
+| Shared-edge agreement on `SomethingWild` — a cell's east face against its east neighbour's west | **9,708 / 9,708** permuted vs 78.88% by facing |
+| Same on `Case` / `Ambassador's_Letter` | 74.98% vs 27.68%, 92.03% vs 65.73% |
+| `GoldenFrameTests` | exactly the four **East and South** scenes moved; North and West untouched |
+
+Rendering it settled which was right. Facing east from `SomethingWild`'s start at (1,2), the old
+build drew an endless corridor with a door in the right-hand wall; the fixed one draws a wall two
+squares ahead with a door in it. The data says (1,2) has no east wall and (2,2) has east wall slot
+3 — and the level is 10×10, so the corridor could not have run to the horizon.
+
+> **The lesson is about the test, not the code.** `WallResolverTests` had a synthetic 4×4 map
+> whose fixture comment read "North=1, East=2, South=0, West=3" over the array `[1,2,0,3]` — the
+> same wrong order the resolver used. Three tests asserted against it and all three passed. **A
+> synthetic fixture can only pin a convention, never discover it**, and when the author of the
+> fixture and the author of the code share a misreading it locks the bug in. The real-data test
+> that would have caught it now lives in `LevelReaderTests`, and it is two lines: read a shared
+> edge from both sides and check they agree.
+
+##### The combat map, as ported
+
+`CombatMap` is the terrain grid (`terrain[][]`) plus the `Drawtile.cpp` free functions that read
+and write it; `CombatMapGenerator` is `GenerateIndoorCombatMap`; `CombatTerrainExpander` is
+`ConvertTempMapToCombatTerrain`. The tile tables are **generated** by
+`dotnet/tools/gen-combat-tiles.py`, checked in CI — 340 integers whose only structure is their
+position, and two of the five columns (`invisible`, `passable`) drive line-of-sight and movement
+rather than drawing, so a transposed column is a gameplay bug rather than a cosmetic one.
+
+**The combat map is the dungeon rotated 45°.** Each level cell becomes an 8×7 block in a temp
+grid, each row starting one column left of the row above; the shear is what turns rectilinear
+corridors into the diagonal ones combat is fought on. Three passes: stamp the four faces, reduce
+each wall square to a junction type from its neighbours, then sample a 50×50 window and expand
+each junction into one to five terrain tiles.
+
+Five things that are not guessable from the shape of the code:
+
+- **`getTerrainWallType`'s four "compass" neighbours are diagonal.** North is `(x−1, y−1)` and
+  south is `(x+1, y+1)`; only east and west are orthogonal. The grid is already rotated, so
+  reading north as `(x, y−1)` yields a map that looks plausible and has every junction wrong.
+- **The `#ifndef diagonalMap` block — about 60 lines clamping the source window to the level
+  bounds — is dead, and provably so.** `diagonalMap` is defined at `Drawtile.cpp:27`, and the
+  block reads `areaMapEndY`, whose only declaration is *commented out* at `:2402`. It would not
+  compile. The combat map is a torus with no clamping, which matches the rest of the engine.
+- **Of the two `findEmptyCell` definitions, the first is live.** `newMonsterArrangement` is
+  defined at `Combatants.h:67`, which `Drawtile.cpp` includes at line 38 — before both
+  definitions at `:3841` and `:4016`.
+- **`partyCountX/Y` is computed before the diagonal shift**, not after. Reordering those two
+  statements moves the party half a map east.
+- **An empty terrain square is impassable, not open.** `HaveMovability` rejects `cell < 1`, so a
+  map is unwalkable until the hole-filling pass puts floor tiles down. `FillHoles` is not optional.
+
+**Two bugs in the original are reproduced deliberately, and one is not.**
+
+- *Reproduced.* An open **south** door punches its gap at row `ty` — the cell's *north* edge —
+  using a loop variable that has escaped with the value 8, so the two cleared squares land 19 and
+  20 columns right of the cell (`Drawtile.cpp:2853`). The block computes the correct `y` on the
+  line above and never uses it. So an open south door holes a *neighbour's* north wall and leaves
+  its own shut. It is deterministic and in bounds, and designs have been played against these maps
+  for 25 years, so it stays — commented where it happens.
+- *Not reproduced.* `GetDoorAt` builds its permutation as **`{0,2,1,4}`** (`Drawtile.cpp:1887`) —
+  a 4 where every other site has 3. Both arrays are `[4]`, so asking for a **west door** reads one
+  past the end of each: the slot comes from the first byte of `blockage[0]` and the blockage from
+  beyond the struct entirely, into the next cell. That is undefined behaviour with no defined
+  result to port, so the C# uses 3. West doors in the original are arbitrary — drawn or not
+  depending on neighbouring bytes.
+
+**No oracle exists for any of this** — the C++ editor cannot run headless (§7 Phase 0), so there
+is nothing to diff against. The tests assert structural properties a drifted generator cannot
+satisfy by accident (a level with no walls yields an entirely open map; an all-*open* level with
+wall art on every face yields the same, since `IsWallAt` is `slot > 0 && blockage != Open`; the
+party always lands somewhere it can stand, over every cell of a real level). And the map was
+printed as ASCII and looked at — it comes out as diamond rooms joined by diagonal corridors, with
+the party in the corner formed by cell (1,2)'s north and west walls, which is what the level says.
 
 ##### `CLASS_DATA`, as ported
 
@@ -2665,20 +2763,33 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the combat map
+### The next piece of work: combatant placement
 
-`UAF.Rules` can now resolve an attack (`ToHit`) and order a round (`Initiative`), and the character
-sheet shows every derived number. What it cannot do is *run* a round. `Combatants.cpp` (8,952 lines)
-holds the state machine — whose turn it is, targeting and validity, the round clock — and
-`Combatant.cpp` (11,694) the combatants themselves, with `path.cpp` for movement.
+**The combat map is done.** `CombatMap` holds the terrain grid and the primitives everything else
+in `Combatants.cpp` calls — `Obstacle`, `Place`, `OccupantAt`, `Distance`, `FindEmptyCell` — and
+`CombatMapGenerator` builds one from a level, verified by printing it and looking. See the "combat
+map, as ported" section under §7 Phase 4 before touching any of it; the diagonal-neighbour rule and
+the two dead code paths there are the findings that cost the time.
 
-**Start with the combat map and combatant placement.** Everything else in `Combatants.cpp` depends
-on it, and nothing in that file can be tested until combatants have positions. It is also the piece
-most like work already done: the viewport renderer established how to read a grid and draw it, and
-the same "render it and look" loop applies.
+**Combatant placement is next, and it is what unblocks the rest.** Nothing yet puts a party or a
+monster on the grid. Two pieces of `findEmptyCell` are deliberately stubbed until it lands, and
+both belong to it rather than to the map:
+
+- **The `PATH_DIR` clamping.** The real one restricts its search to one side of the start
+  depending on which way the encounter came from, so monsters appear ahead of the party rather
+  than behind it. Four of its eight directions call `die()` immediately (`Drawtile.cpp:3884`
+  onward — `PathNE`, `PathSE`, `PathSW`, `PathNW`), so only the four cardinals are reachable.
+- **The reachability check.** It rejects a square the party cannot walk to, via
+  `pathMgr.GetPath`. That needs `path.cpp`, which is not ported. Until it is, a placement could
+  land a monster in a sealed-off pocket.
 
 Then, in dependency order: targeting and validity (`IsValidTarget`, `CanAttack`), the round state
 machine (`HandleCurrState`), movement and pathing, and finally the monster AI.
+
+`GenerateOutdoorCombatMap` (`Drawtile.cpp:2892`) is also unported. It shares the three-pass shape
+but randomises terrain from `WildernessTileDensity` instead of reading the level, and the
+wilderness half of the expansion table is already transcribed and unreachable — the 35
+`DBL_HIGH_*` / `SGL_HIGH_*` junction types. Nothing needs it until outdoor encounters run.
 
 **The round clock is what finishes the spell-effect layer.** `SpellEffects` ports the arithmetic —
 how an effect changes a number — but not durations, sources or stacking, which is the part that
@@ -2694,6 +2805,8 @@ expires them than ahead of it.
 | **13 event types have no reader** | `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` — 31 of 44 are done | Medium |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
+| **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
+| **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |
 | **`UAFcore.App` split** | `UAFcore` is currently the executable. Must happen before Phase 4b; `Game` is already written to survive it | Small |
 
@@ -2705,9 +2818,15 @@ expires them than ahead of it.
 - **Check whether the code is live before porting it.** `ProjectVersion.h`, `MultiBoxTextAction`
   and one of the two `getCharTHAC0` definitions are all dead. The `#ifdef` that decides is often
   nowhere near the function.
-- **When a test fails, check the assertion before the code.** Five times this session the port was
+- **When a test fails, check the assertion before the code.** Six times now the port was
   right and the test encoded an assumption — `$$Help`, the zero-width row marker, the golden frame,
-  the shared spell rows, and a level-9 magic user's THAC0.
+  the shared spell rows, a level-9 magic user's THAC0, and a guessed ratio between two combat maps.
+- **A passing test proves nothing when its fixture and the code share an author's misreading.**
+  The N,S,E,W wall order survived three green tests for exactly that reason. Prefer an assertion
+  over real data — a shared edge read from both sides settled it in two lines.
+- **The same struct can use two field orders.** `AREA_MAP_DATA` stores backgrounds in compass
+  order and walls in N,S,E,W, with a different accessor for each. Check the declaration, not the
+  neighbouring field.
 - **Generate tables, do not type them.** `DesignVersion`, the GPDL opcodes and the strength table
   are all extracted from the C++ mechanically, and the strength table has a test that re-derives it
   from `GameRules.cpp` at run time so the two cannot drift.

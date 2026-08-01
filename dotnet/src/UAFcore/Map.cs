@@ -75,10 +75,12 @@ public sealed class Map(byte width, byte height, IReadOnlyList<AreaMapCell> cell
     /// <summary>The blockage on one face of a cell.</summary>
     public BlockageType Blockage(int x, int y, Facing facing)
     {
+        // Not cell.Blockage[(int)facing]: the array is stored north, south, east, west, so it has
+        // to be permuted. See AreaMapCell.BlockageAt.
         var cell = At(x, y);
-        return cell is null || (int)facing >= cell.Blockage.Length
-            ? BlockageType.Blocked
-            : (BlockageType)cell.Blockage[(int)facing];
+        return cell?.BlockageAt((int)facing) is { } raw
+            ? (BlockageType)raw
+            : BlockageType.Blocked;
     }
 
     /// <summary>

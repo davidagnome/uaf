@@ -14,8 +14,18 @@ namespace UAFcore.Tests;
 /// </remarks>
 public class WallResolverTests
 {
-    private static AreaMapCell Cell(params byte[] walls) =>
-        new(0, false, false, 0, 0, 0, 0, 0, false, walls, [0, 0, 0, 0]);
+    /// <summary>A cell with a wall index on each compass face.</summary>
+    /// <remarks>
+    /// Takes the faces by name and stores them in the file's own order, which is north, <b>south,
+    /// east</b>, west (<c>Level.h:87</c>). An earlier fixture passed a bare four-byte array and
+    /// labelled it "North, East, South, West" in a comment; that matched the resolver's own
+    /// mistake, so all three tests below passed while east and south were swapped in both. A
+    /// synthetic fixture can only pin a convention, never discover it — the order came from the
+    /// C++ and was confirmed on real levels. See <see cref="AreaMapCell.WallAt"/>.
+    /// </remarks>
+    private static AreaMapCell Cell(byte north, byte east, byte south, byte west) =>
+        new(0, false, false, 0, 0, 0, 0, 0, false,
+            [north, south, east, west], [0, 0, 0, 0]);
 
     private static WallSetSlot Set(string name) =>
         new($"{name}_wall.png", $"{name}_door.png", $"{name}_overlay.png", string.Empty,
@@ -30,8 +40,7 @@ public class WallResolverTests
             cells[i] = Cell(0, 0, 0, 0);
         }
 
-        // North=1, East=2, South=0 (none), West=3.
-        cells[(1 * 4) + 1] = Cell(1, 2, 0, 3);
+        cells[(1 * 4) + 1] = Cell(north: 1, east: 2, south: 0, west: 3);
         return new Map(4, 4, cells);
     }
 
