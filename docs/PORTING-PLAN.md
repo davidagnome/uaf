@@ -1541,16 +1541,63 @@ UI, not on their own logic. The other half — `Teleporter`, `GiveTreasure`, `Ga
 
 So, in order:
 
-1. **Word-wrapped text into the config's `TEXTBOX` rectangle, then the menu system** at
-   `DEFAULT_MENU_HORZ` / `DEFAULT_MENU_VERT`. `BitmapFont` already measures and draws; what is
-   missing is layout and input focus. This one piece unblocks half the content layer.
-2. **The events needing no UI**, which make designs partly playable without waiting for (1).
+1. ~~**Word-wrapped text into the config's `TEXTBOX` rectangle**~~ — **done**, see the section
+   below. The **menu system** at `DEFAULT_MENU_HORZ` / `DEFAULT_MENU_VERT` is the remaining half:
+   layout and input focus over the same font layer.
+2. **The events needing no UI**, which make designs partly playable without waiting for the menu.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
-   connects to the savegame, which already reads those flags.
+   connects to the savegame, which already reads those flags. The trigger conditions themselves are
+   now ported (`EventTrigger`), with the ones needing party state reporting `Unknown` rather than
+   guessing.
 4. **Screenshots from a Windows C++ build.** `GoldenFrameTests` guards regressions but is *not* an
    oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
    and have no equivalent of the serialization dump to diff against.
+
+##### The text layer, as ported
+
+`FormattedText.cpp` splits into four pieces, all of them in `UAF.Media` and none needing SDL:
+`FormattedTextScanner` (the `/` markup state machine), `TextFormatter` (wrap and post-process),
+`TextDisplayData` (box paging) and `FormattedTextRenderer` (draw a wrapped line, tinting per tag).
+`TextBoxMetrics` derives the box from `TEXTBOX` / `TEXTBOX_RECT` / `TextBox_Lines` exactly as
+`LoadConfigFile` does. 47 tests, and `Game` now draws its message through the whole path.
+
+What the transcription turned up, none of it inferable from the structures:
+
+- **Only `\r` ends a line — `\n` does nothing.** The wrap loop acts on `FTCR` and explicitly ignores
+  `FTNL` ("We only process FTCR", `FormattedText.cpp:1071`). Text with Unix line endings does not
+  break at all; it wraps on width alone, and `PostProcessText` is what removes the stray byte.
+- **`\n\r` — the reversed pair — kills the engine.** `TestNextChar` produces `FTNLCR` and
+  `NextChar`'s dispatch has no case for it, so it reaches `die(0x551b0a)`: `MessageBox` + `abort()`
+  (`RunEvent.cpp:148`), in every build, not a debug assert. CRLF is fine. Reproduced as a throw.
+- **Declining to rewind means "cut here", not "do not cut".** `Backup`'s `<= 0` guard reads like it
+  protects an unbreakable word; it does not. The caller breaks the line either way, so a run with no
+  whitespace is hard-cut mid-word at the overflowing character. The guard only stops a line starting
+  with a space from rewinding to 0 and wrapping forever.
+- **Wrapping is decided one character past the edge**, and a word ending exactly on the boundary
+  still wraps.
+- **The line count is settled twice from different numbers.** Config computes it against a hardcoded
+  16-pixel line; `GetTextBoxCharHeight` then overwrites it from the font's tallest glyph. Only the
+  second governs layout. With PT Serif at the requested 16, `SomethingWild`'s six configured lines
+  become four.
+- **`MultiBoxTextAction`** (`FormattedText.cpp:84`), the `"EWWWCWCW"` decision table the file
+  documents at length, is **declared and never referenced anywhere in the tree**. Dead code, like
+  `ProjectVersion.h`. Not ported.
+- **`StripInvalidChars` reaches exactly one byte.** It tests `*pChar < -127 || *pChar > 255` on a
+  *signed* `char`, so the second test never fires and the first matches only 0x80. Every other high
+  byte passes through — which is essential, since designs' prose is full of them.
+- **`orangeColor` and `brightOrangeColor` are the same RGB** in the shipped default table
+  (`GlobalData.cpp:6088`). `/O` and `/T` are distinct tags that resolve identically until a design
+  calls `SetFontColor`.
+- **`PrevBox` drifts across a `/N`.** It decrements twice before it starts checking for a wait, so a
+  box boundary one line above is stepped straight past. On plain text it is the exact inverse of
+  `NextBox`.
+- Lines keep their markup after wrapping, and each carries a **preamble** re-stating its colour and
+  font, so a line renders correctly without replaying the ones above it.
+
+Verified by rendering: wrap at the box width, `/R` and `/G` tinting mid-line, and `/N` ending the
+box after its own line with `NextBox` revealing the second page. Colour is a draw-time tint over one
+atlas rather than the original's eleven rasterised faces, for the reasons in the Phase 3 notes.
 
 ##### A caution that is worth more than any of the above
 

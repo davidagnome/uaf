@@ -50,6 +50,15 @@ public sealed class BitmapFont(FontAtlas atlas)
     /// <summary>Encodes a string to the single-byte codepage the atlas is indexed by.</summary>
     public static byte[] Encode(string text) => Ansi.GetBytes(text ?? string.Empty);
 
+    /// <summary>
+    /// Decodes bytes in that codepage back to a string.
+    /// </summary>
+    /// <remarks>
+    /// For inspecting and logging what the text layer produced — <see cref="TextFormatter"/>'s
+    /// lines are bytes, and so is everything drawn. Nothing on the drawing path decodes.
+    /// </remarks>
+    public static string Decode(ReadOnlySpan<byte> text) => Ansi.GetString(text);
+
     /// <summary><c>GetCharacterWidth</c> (<c>CDXBitmapFont.cpp:735</c>).</summary>
     public int GetCharacterWidth(byte character) => Atlas[character].Advance;
 

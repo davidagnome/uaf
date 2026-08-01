@@ -102,6 +102,23 @@ public sealed class Game
     /// <summary>The last message drawn in the text box.</summary>
     public string Message { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// <see cref="Message"/> wrapped to the text box, with paging state.
+    /// </summary>
+    /// <remarks>
+    /// Built lazily on the first draw after <see cref="Message"/> changes rather than at every
+    /// assignment site, since wrapping needs the font and the font needs the design loaded. Public
+    /// so a test — or, later, the input handler that pages long event text — can drive it without
+    /// going through the renderer.
+    /// </remarks>
+    public TextDisplayData MessageBox { get; } = new();
+
+    /// <summary>The text box, once a font has been resolved to narrow it against.</summary>
+    public TextBoxMetrics? TextBox { get; private set; }
+
+    private string wrappedMessage = string.Empty;
+    private int wrappedWidth = -1;
+
     /// <summary>Handles one input event.</summary>
     /// <returns>True when the state changed and a redraw is warranted.</returns>
     public bool Update(InputEvent input)
@@ -471,9 +488,78 @@ public sealed class Game
             font.Draw(screen, roster[2], y, $"{Steps} steps", tint: 0xFF9A9AB0);
         }
 
-        if (config.TryGetPoint("TEXTBOX", out int tx, out int ty) && Message.Length > 0)
+        DrawMessageBox(config, font);
+    }
+
+    /// <summary>
+    /// Wraps <see cref="Message"/> into the design's text box and draws the current page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The box comes from the design's own config — <c>TEXTBOX</c> or <c>TEXTBOX_RECT</c>, plus
+    /// <c>TextBox_Lines</c> — and is then narrowed against the loaded font, exactly as
+    /// <c>GetTextBoxCharWidth</c> does. Wrapping at the raw config width instead overruns by half a
+    /// character, which shows only on the occasional line and is the sort of thing that gets
+    /// blamed on the font.
+    /// </para>
+    /// <para>
+    /// Re-wrapping is skipped when neither the text nor the width has changed, so a stationary
+    /// party does not re-run the scanner every frame.
+    /// </para>
+    /// </remarks>
+    private void DrawMessageBox(DesignConfig config, BitmapFont font)
+    {
+        var box = ResolveTextBox(config, font);
+        TextBox = box;
+
+        if (Message.Length == 0)
         {
-            font.Draw(screen, tx, ty, Message, tint: 0xFF60C060);
+            return;
         }
+
+        if (!string.Equals(wrappedMessage, Message, StringComparison.Ordinal)
+            || wrappedWidth != box.Width)
+        {
+            TextFormatter.Format(Message, box.Width, font, MessageBox);
+            MessageBox.FirstBox();
+            wrappedMessage = Message;
+            wrappedWidth = box.Width;
+        }
+
+        MessageBox.LinesPerBox = box.Lines;
+        FormattedTextRenderer.DrawBox(screen, font, MessageBox, box.X, box.Y);
+    }
+
+    /// <summary>
+    /// Reads the text box out of the design's config, falling back to the engine's own defaults.
+    /// </summary>
+    /// <remarks>
+    /// <c>Screen_Width</c> only matters to the <c>TEXTBOX</c> form, which takes its width as the
+    /// screen less the left inset doubled — so a design that sets one and not the other still gets
+    /// a box the right shape.
+    /// </remarks>
+    private TextBoxMetrics ResolveTextBox(DesignConfig config, BitmapFont font)
+    {
+        (int, int)? textbox = config.TryGetPoint("TEXTBOX", out int tx, out int ty, consume: false)
+            ? (tx, ty)
+            : null;
+
+        (int, int, int, int)? rect =
+            config.TryGetRect("TEXTBOX_RECT", out int l, out int t, out int r, out int b,
+                              consume: false)
+                ? (l, t, r, b)
+                : null;
+
+        int screenWidth = int.TryParse(config.GetString("Screen_Width", consume: false),
+                                       out int width) && width > 0
+            ? width
+            : screen.Width;
+
+        int? lines = config.TryGetValue("TextBox_Lines", out string lineText, consume: false)
+                     && int.TryParse(lineText, out int lineCount) && lineCount > 0
+            ? lineCount
+            : null;
+
+        return TextBoxMetrics.FromConfig(screenWidth, textbox, lines, rect).ForFont(font);
     }
 }

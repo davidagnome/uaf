@@ -1019,4 +1019,84 @@ public class GameTests
         Assert.Equal(29, (int)EventTriggerType.PartyAtXy);
         Assert.Equal(37, (int)EventTriggerType.QuestStageNotEqual);
     }
+
+    [Fact]
+    public void The_text_box_comes_from_the_designs_own_config_narrowed_by_its_font()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+        game.Render();
+
+        var box = game.TextBox;
+        Assert.NotNull(box);
+
+        // SomethingWild's config: TEXTBOX = 18,328 with Screen_Width 640 and TEXTBOX_LINES = 6.
+        Assert.Equal(18, box.X);
+        Assert.Equal(328, box.Y);
+
+        // The usable width is the box less half the widest glyph, so it is narrower than the raw
+        // 640 - 36 the config implies -- but not by much, and never wider.
+        Assert.InRange(box.Width, 1, 604);
+        Assert.True(box.Width < 604, "the font's right margin must actually be applied");
+        Assert.True(box.Lines > 0);
+    }
+
+    [Fact]
+    public void A_long_message_wraps_to_several_lines_inside_the_box()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        // Walking produces a short message; a long one has to come from somewhere, and the box is
+        // the observable rather than the framebuffer -- a hash would only say "different".
+        var box = new TextDisplayData { LinesPerBox = 6 };
+        var font = design.Font(design.RequestedFontHeight);
+        Assert.NotNull(font);
+
+        string prose = string.Join(' ', Enumerable.Repeat("the quick brown fox", 12));
+        TextFormatter.Format(prose, 300, font, box);
+
+        Assert.True(box.NumLines > 1, "300px of room cannot hold twelve repetitions on one line");
+        Assert.All(box.Lines, l => Assert.True(font.GetTextWidth(l.Text) <= 300 + 20,
+                                               "no line may overrun the box by more than the "
+                                               + "one character the wrap tests past"));
+    }
+
+    [Fact]
+    public void The_wrapped_message_tracks_the_message_and_is_not_rebuilt_needlessly()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        game.Update(InputEvent.KeyDown(VirtualKey.Right));
+        game.Render();
+
+        Assert.Equal(game.Message.Length > 0, game.MessageBox.NumLines > 0);
+        string first = string.Concat(game.MessageBox.Lines.Select(l => BitmapFont.Decode(l.Text)));
+        Assert.Contains("Turned to face", first, StringComparison.Ordinal);
+
+        // A second render with the same message must not re-wrap -- the box is the same instance
+        // and its paging state has to survive, or long event text could never be paged.
+        var before = game.MessageBox.Lines;
+        game.Render();
+        Assert.Same(before, game.MessageBox.Lines);
+    }
 }
