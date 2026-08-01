@@ -2321,6 +2321,22 @@ routes through, and the last piece of shared machinery between the ported rules 
 - The clamp belongs to the accessor, not the effect: `GetAdjAC` holds the result inside `MIN_AC`
   and `MAX_AC` *after* applying effects.
 
+Eighth: **the attack roll**, as `ToHit` — the first piece of combat, and the payoff for everything
+above it. It consumes `Thac0`, `ArmorClass` and `Strength` and produces the number a d20 must beat.
+
+- **Everything folds into one target number rather than into the roll.** Bonuses are *subtracted*
+  from the attacker's THAC0 along with the target's armour class, which is why a better armour
+  class — a lower number — raises the target while a bonus lowers it.
+- **A target below `MIN_THAC0` becomes 0, not the floor.** The reference tests `< MIN_THAC0` and
+  assigns `0` (`Combatant.cpp:5211`), so an absurdly favourable attack lands on "any roll hits"
+  rather than on -500. Clamping to the constant would look tidier and be wrong.
+- **Equalling the target hits**, and **there is no natural-20 rule** — a 20 is simply a high roll,
+  and the special treatment a 20 gets elsewhere is a vorpal special ability, not an automatic hit.
+- **Damage floors at 1** (`Combatant.cpp:5491`): an attack that lands always does something.
+
+What is supplied rather than computed: the environmental bonus (range, cover, lighting) and the
+weapon's to-hit bonus, both of which have their own sub-computations, and the dice roll itself.
+
 > **What is deliberately not here: durations, sources and stacking.** The reference tracks each
 > effect's parent spell, expiry time and once-only bookkeeping, and that is the part that decides
 > which effects are in the list at all. This is only the arithmetic — enough for the character sheet
