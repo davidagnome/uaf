@@ -128,4 +128,115 @@ public class TaggedDatabaseCorpusTests
             s.Dispose();
         });
     }
+
+    [Fact]
+    public void The_container_tag_and_the_record_tag_are_independent_version_axes()
+    {
+        // Every design ships container tag "BaseclassV1", yet DefaultDesign's records are Bcd1 and
+        // the reference designs' are Bcd5. Neither axis predicts the other, and a reader that
+        // derives one from the other picks the wrong record layout.
+        string? classic = DefaultDesign();
+        string? modern = SomethingWild();
+        if (classic is null || modern is null) return;
+
+        Assert.Equal("BaseclassV1", Read(classic, TaggedDatabase.Baseclass)?.Tag);
+        Assert.Equal("BaseclassV1", Read(modern, TaggedDatabase.Baseclass)?.Tag);
+
+        Assert.Equal("Bcd1", FirstRecordTag(classic));
+        Assert.Equal("Bcd5", FirstRecordTag(modern));
+    }
+
+    [Fact]
+    public void The_engine_would_refuse_DefaultDesigns_baseclass_database()
+    {
+        // Bcd1 is below the intVer < 2 floor, where the engine shows "you must install a new one"
+        // and shuts down (class.cpp:5734). The primary golden fixture is editor-only for this
+        // database, so nothing validating the engine's levelling path can use it.
+        string? design = DefaultDesign();
+        if (design is null) return;
+
+        Assert.Equal("Bcd1", FirstRecordTag(design));
+        Assert.True(string.CompareOrdinal(FirstRecordTag(design), "Bcd2") < 0);
+    }
+
+    /// <summary>The tag opening the first record, which each record carries for itself.</summary>
+    private static string FirstRecordTag(string design)
+    {
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Baseclass));
+        TaggedDatabaseReader.Read(path, TaggedDatabase.Baseclass, out var body, out var stream);
+        using (stream)
+        {
+            return body.ReadString();
+        }
+    }
+
+    // ---- record bodies -------------------------------------------------------------------------
+
+    private static BaseclassRecord? FirstRecord(string design)
+    {
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Baseclass));
+        TaggedDatabaseReader.Read(path, TaggedDatabase.Baseclass, out var body, out var stream);
+        using (stream)
+        {
+            return BaseclassRecordReader.Read(body);
+        }
+    }
+
+    [Fact]
+    public void A_baseclass_record_decodes_to_its_published_ability_and_experience_tables()
+    {
+        // The strongest check available without an oracle: SomethingWild's first baseclass is the
+        // AD&D assassin, and both its ability ranges (Str 12-19, Int 11-18, Dex 12-19) and its
+        // experience table (1501, 3001, 6001, 12001, 25001, 50001, ...) are published values. A
+        // stream that had drifted by even two bytes would not reproduce them.
+        string? design = SomethingWild();
+        if (design is null) return;
+
+        var record = FirstRecord(design);
+        Assert.NotNull(record);
+
+        Assert.Equal("assassin", record.Name);
+        Assert.Equal("Bcd5", record.Tag);
+
+        var strength = record.AbilityRequirements[0];
+        Assert.Equal("Strength", strength.AbilityId);
+        Assert.Equal((short)12, strength.Min);
+        Assert.Equal((short)19, strength.Max);
+
+        Assert.Equal(["Dwarf", "Elf", "Gnome", "Half-Elf", "Half-Orc", "Human"],
+                     record.AllowedRaces);
+
+        Assert.Equal<uint[]>([0, 1501, 3001, 6001, 12001, 25001, 50001, 100001, 200001, 300001],
+                             [.. record.ExperienceLevels.Take(10)]);
+    }
+
+    [Fact]
+    public void A_design_may_restrict_a_baseclass_to_its_own_invented_race()
+    {
+        // Ambassador's_Letter's first baseclass is a custom "ninja" allowed only to "Helmettiger" --
+        // proof the race list is read as authored strings rather than matched against a fixed set.
+        string? design = Design("reference", "Ambassador's_Letter");
+        if (design is null) return;
+
+        var record = FirstRecord(design);
+        Assert.NotNull(record);
+
+        Assert.Equal("ninja", record.Name);
+        Assert.Equal(["Helmettiger"], record.AllowedRaces);
+    }
+
+    [Fact]
+    public void A_record_below_the_engines_floor_is_refused_with_that_reason()
+    {
+        // DefaultDesign's Bcd1 records. The message has to distinguish "too old for the engine"
+        // from "a shape this port has not done", because they need different responses.
+        string? design = DefaultDesign();
+        if (design is null) return;
+
+        var error = Assert.Throws<InvalidDataException>(() => FirstRecord(design));
+        Assert.Contains("Bcd1", error.Message, StringComparison.Ordinal);
+        Assert.Contains("refuses", error.Message, StringComparison.Ordinal);
+    }
 }

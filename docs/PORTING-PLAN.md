@@ -891,6 +891,53 @@ record. Verified: with `preSpellNameKey` read, item 0 of `DefaultDesign` decodes
 
 ### The build fork is a division of labour, not a format divergence
 
+> **Open question: the tagged databases may be an exception, and it is not yet resolved.**
+> `BASE_CLASS_DATA::Serialize`'s loading branch (`class.cpp:5808`) has:
+>
+> ```cpp
+> #ifdef UAFEDITOR
+>       if (intVer >= 4)
+> #endif
+>       { car.Serialize(THAC0, sizeof(THAC0)); car >> m_spellBonusAbility; /* … */ }
+> #ifdef UAFEDITOR
+>       else { /* defaults, no archive access */ }
+> #endif
+> ```
+>
+> In the **engine** the gate is compiled away, so the block always reads; in the **editor** it reads
+> only at `Bcd4` and above. For a record tagged `Bcd2` or `Bcd3` the two builds therefore consume
+> **different numbers of bytes from the same file** — which is exactly what the audit below
+> concludes cannot happen.
+>
+> The audit's argument does not cover this. It rests on the engine refusing designs below
+> `VersionSpellNames` (0.998101), and **a tagged database has no `DesignVersion` at all** — its
+> version is the per-record string tag, on an unrelated axis. The engine's own floor here is a
+> different one: it refuses `intVer < 2` outright with "you must install a new one".
+>
+> **Resolved by reading the per-record tag out of all four designs**, which the container reader
+> makes a two-line job:
+>
+> | Design | container | records | per-record tag |
+> |---|---|---:|---|
+> | `DefaultDesign` | `BaseclassV1` | 7 | **`Bcd1`** |
+> | `SomethingWild` | `BaseclassV1` | 9 | `Bcd5` |
+> | `Case` | `BaseclassV1` | 9 | `Bcd5` |
+> | `Ambassador's_Letter` | `BaseclassV1` | 17 | `Bcd5` |
+>
+> **Nothing carries `Bcd2` or `Bcd3`, so the divergence is unreachable and the audit stands** —
+> `ArchiveRole` does not need threading through this reader for the reason above. Note the
+> container tag is `V1` for all four while the record tags differ: **the two version axes are
+> independent**, and neither predicts the other.
+>
+> **A second, sharper finding: the engine cannot load `DefaultDesign`'s `baseclass.dat` at all.**
+> `Bcd1` is below the `intVer < 2` floor, so the engine shows "This module contains an old
+> 'baseclass.dat' file. You must install a new one before we can proceed" and calls
+> `SignalShutdown()` (`class.cpp:5734`). The primary golden fixture is therefore **editor-only** for
+> this database, and anything validating the engine's baseclass or levelling path has to use the
+> `reference/` designs instead. This is a second blind spot in `DefaultDesign` of the same kind as
+> the item-name one recorded in the items section — it is a minimal design, and minimal turns out
+> to mean *old* in places.
+
 **Audit result (task #10):** 59 inline `#ifdef` blocks perform archive access inside a shared
 `Serialize` body. **Every one is `#ifdef UAFEDITOR`** — there is not a single engine-only inline
 read. A further 6 blocks sit outside `Serialize` bodies and are whole-function guards (e.g.
@@ -1569,6 +1616,54 @@ So, in order:
    compression, record count — verified across two designs. The **record bodies** are the next
    step: `BASE_CLASS_DATA::Serialize`'s loading branch (`class.cpp:5721`) spans five tag versions
    (`Bcd1`…`Bcd5`) and carries the experience thresholds levelling needs.
+
+##### `BASE_CLASS_DATA`, as partially ported
+
+`BaseclassRecordReader` reads a `Bcd5` record **through the experience levels and no further**, so
+only the first record of a file decodes — the cursor is not positioned at the second. That is what
+levelling needs; the remaining fields are listed below for whoever finishes it.
+
+Verified without an oracle, by decoding to published values: `SomethingWild`'s first baseclass comes
+out as `assassin` with Strength 12–19, Intelligence 11–18, Dexterity 12–19, the six standard races,
+and thresholds 1501 / 3001 / 6001 / 12001 / 25001 / 50001 / 100001 / 200001 / 300001 — the AD&D
+assassin's own tables. `Ambassador's_Letter` yields a custom `ninja` restricted to its invented
+`Helmettiger` race, which shows the race list is read as authored strings rather than matched
+against a fixed set. A stream drifted by two bytes reproduces none of that.
+
+**Only `Bcd5` needs porting to begin with.** All three `reference/` designs carry it, and
+`DefaultDesign`'s `Bcd1` is one the engine refuses outright (above), so there is no fixture for the
+older shapes and no engine path that would use them.
+
+The `Bcd5` field order, from `class.cpp:5745` onward, with the editor-only blocks (`intVer < 4`)
+skipped as unreachable at 5:
+
+| # | Field | Notes |
+|---:|---|---|
+| 1 | record tag | `car >> ver` — a **second** tag, per record, distinct from the container's |
+| 2 | `m_preSpellNameKey` | `intVer >= 5` only |
+| 3 | `m_name` | `"*"` → `""`, the usual sentinel |
+| 4 | ability requirements | `ReadCount()` then N × `ABILITY_REQ` |
+| 5 | allowed races | `ReadCount()` then N × `RACE_ID` — **strings**, like every other `*_ID` |
+| 6 | `m_expLevels` | `mCArray<DWORD, DWORD>` — the experience thresholds levelling needs |
+| 7 | `m_allowedAlignments` | `ver >= "Bcd1"`, else defaults to `0x1ff` |
+| 8 | `THAC0` | raw blob, `car.Serialize(THAC0, sizeof(THAC0))` |
+| 9 | `m_spellBonusAbility` | |
+| 10 | bonus spells | `car >> n` — a plain int, **not** `ReadCount()` — then N × `BYTE` |
+| 11 | casting info | `car >> n` then N × `CASTING_INFO::Serialize` |
+
+`ABILITY_REQ::Serialize`'s loading branch (`class.cpp:2778`) is: version string (`"ABL1"`;
+anything else is rejected with "Unknown ABILITY_LIMITS version"), `m_abilityID` (a **string**),
+then `m_min`, `m_minMod`, `m_max`, `m_maxMod`.
+
+Both leaf types are now settled. **`ABILITY_REQ`'s four limits are `short`** (`class.h:988`), not
+`int` — reading them wide drifts eight bytes per requirement. And **`car >> CArray<DWORD,DWORD>` is
+an `int` count followed by a single bulk `decompress`** of `size * 4` bytes (`class.cpp:12046`), not
+`size` separate reads — and that count is a plain `int` where items 4 and 5 use `ReadCount()`, so
+this one record genuinely uses both framings.
+
+**Items 7–11 remain**, and finishing them is what allows a whole file to be walked: the width of
+`m_allowedAlignments`, the size of the raw `THAC0` blob, and `CASTING_INFO::Serialize`. Verify the
+same way — by whether the names and tables that come back are ones a rulebook would recognise.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are

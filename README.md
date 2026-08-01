@@ -10,7 +10,9 @@ Previously known as Unlimited Adventures Forever / UAForever (UAF).
 
 * UAFWin - Latest compiled game binary for Windows
 * UAFWinEd - Latest compiled dungeon editor binary for Windows
-* WebGLBuild - I see WebGL and the Unity game engine in this folder. A compiled website for playing the game in browser perhaps?
+* WebGLBuild - WebGL and the Unity game engine
+* UAFcore - C# Multiplatform Port of the game, using SDL3
+* UAFedit - C# Multiplatform Port of the editor, using SDL3
 * src - Source code
 
 ## Links
