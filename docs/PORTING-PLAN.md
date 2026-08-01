@@ -1285,7 +1285,7 @@ order. A third overload at `GlobalData.cpp:4960` has an identical signature and 
 | `CHARACTER` | Done. The format's largest record; 6 and 23 characters decode on the 2.53 and 3.55 designs, multiclass baseclass counts self-consistent |
 | `PARTY` / savegames, `.CHAR`, cell contents | Done — `SaveGameReader`, `CharacterFileReader`, `CellContentsReaders`. (An earlier revision listed all three as remaining; they landed and the row was not updated.) |
 | **Writers — none** | **Nothing in `UAF.Serialization` writes.** The exit criterion below is not met and cannot be met until this exists |
-| Tagged databases | Framing done for all six; record bodies done for `baseclass.dat` (`Bcd5`) only. `ability.dat`, `classes.dat`, `races.dat`, `spellgroups.dat`, `traits.dat` unread |
+| Tagged databases | Framing done for all six. `baseclass.dat` (`Bcd5`) reads completely — 57 records across five designs, all to exact EOF. `ability.dat`, `classes.dat`, `races.dat`, `spellgroups.dat`, `traits.dat` unread |
 | Event readers | 13 types have none: `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` |
 
 The pattern is established and mechanical: extend the dumper for a type → write the C# reader
@@ -1585,10 +1585,11 @@ skipped, so a walk through a real design reads as an honest map of what is left.
 The text and menu layers are done, and they were the piece blocking half the content layer. What
 remains, in dependency order:
 
-1. **The tagged database record bodies.** Framing is done for all six; only `baseclass.dat` has a
-   record reader and it stops at the experience levels (below). **`classes.dat` has none at all**,
-   and levelling needs both — `baseclass.dat` for the thresholds, `classes.dat` for the experience
-   split's true baseclass count. This is the smallest piece of work that unblocks the most.
+1. **The remaining tagged database record bodies.** Framing is done for all six and
+   `baseclass.dat` now reads completely (below), which is the experience thresholds levelling
+   needs. **`classes.dat` still has no reader**, and levelling needs it too — for the experience
+   split's true baseclass count. `ability.dat`, `races.dat`, `spellgroups.dat` and `traits.dat`
+   are also unread. This is the smallest piece of work that unblocks the most.
 2. **The forms.** `CharStatsForm`, `SpellForm`, `ItemsForm`, `TextForm`, `RestTimeForm` — none
    exist. The treasure, shop, temple and training-hall screens are forms rather than events, which
    is why those event types cannot run yet even though they parse.
@@ -1607,11 +1608,11 @@ remains, in dependency order:
    oracle — it can only say today matches yesterday. Phases 4 and 5 are most of the remaining work
    and have no equivalent of the serialization dump to diff against.
 
-##### `BASE_CLASS_DATA`, as partially ported
+##### `BASE_CLASS_DATA`, as ported
 
-`BaseclassRecordReader` reads a `Bcd5` record **through the experience levels and no further**, so
-only the first record of a file decodes — the cursor is not positioned at the second. That is what
-levelling needs; the remaining fields are listed below for whoever finishes it.
+`BaseclassRecordReader` reads a `Bcd5` record **completely**, so a whole file walks and the
+experience thresholds levelling needs are available. The field order is below, and the correction
+that took two attempts to find is after it.
 
 Verified without an oracle, by decoding to published values: `SomethingWild`'s first baseclass comes
 out as `assassin` with Strength 12–19, Intelligence 11–18, Dexterity 12–19, the six standard races,
@@ -1680,30 +1681,48 @@ if (ver > "Bcd2")
 is above the 0.920 legacy gate, a `Bcd5` record always takes the **modern `A_CStringPAIR_L`** path.
 And the map name is `"baseclasses"`, which `SpecabReader` checks as a sync marker.
 
-**Correction: `Specab` is not the end of the record, and "transcription plus one call" was wrong.**
-That claim came from reading the bytes at the point where drift appeared rather than reading
-`BASE_CLASS_DATA::Serialize` to its end. Items 7–11 plus the `Specab` block are now implemented and
-verified — record 0 of `SomethingWild` decodes exactly as the byte map above predicts, down to
-`baseclass_NameSuppress = "Y"` — and record 1's tag still comes out as `Dexterity`, one string of
-drift.
-
-Reading on from `class.cpp:6176` says why. After the `Specab` block come:
+**Correction: `Specab` was not the end of the record, and "transcription plus one call" was wrong.**
+That claim came from reading the bytes where drift appeared rather than reading
+`BASE_CLASS_DATA::Serialize` to its end. Items 7–11 plus `Specab` decoded record 0 exactly as the
+byte map above predicts, down to `baseclass_NameSuppress = "Y"` — and then record 1's tag came out
+as `Dexterity`. Reading on from `class.cpp:6176` shows what follows:
 
 | | Structure | Framing |
 |---|---|---|
-| 12 | hit dice | 40 × (`sides`, `nbr`, `bonus`) — `HIGHEST_CHARACTER_LEVEL`, no count |
-| 13 | `m_skills` | bare `int` count, then N × `SKILL::Serialize` (`class.cpp:4879`) |
-| 14–17 | `m_skillAdjustments{Ability,Baseclass,Race,Script}` | four lists, same framing, `SKILL_ADJ::Serialize` — which takes a **version string** |
-| 18 | `m_bonusXP` | bare `int` count, then N × `BONUS_XP::Serialize` (`class.cpp:5354`) |
+| 12 | hit dice | 40 × (`sides`, `nbr`, `bonus`), **no count** — and that is the *wire* order, not `DICEDATA`'s declaration order |
+| 13 | `m_skills` | bare `int` count, N × `SKILL` (`class.cpp:4879`) — a string and an int |
+| 14 | `m_skillAdjustmentsAbility` | `class.cpp:5336` — 2 strings, a `char`, then a blitted **50** bytes (25 × `short`) |
+| 15 | `m_skillAdjustmentsBaseclass` | `class.cpp:5371` — same shape, blitted **80** bytes (40 × `short`) |
+| 16 | `m_skillAdjustmentsRace` | `class.cpp:5388` — same shape, but a **single `short`**, not a table |
+| 17 | `m_skillAdjustmentsScript` | `class.cpp:5405` — **three strings**, no type byte and no table |
+| 18 | `m_bonusXP` | `class.cpp:5354` — a string, a `char`, then a blitted **100** bytes (25 × `int`) |
 
-So four more leaf serializers, not zero. The verification to aim at is unchanged — nine baseclass
-names a rulebook would recognise, and a file that walks to exact EOF.
+**All of it is now implemented, and `baseclass.dat` reads end to end.** The four adjustment families
+are the trap: they look interchangeable in the source and have four different widths, so
+transcribing one and reusing it drifts by up to 80 bytes per entry.
 
-> **The lesson is the one this document keeps re-learning, and this time it was the document
-> itself that misled.** The byte map was correct and the transcription drawn from it was correct;
-> what was wrong was concluding "that is the last piece" from where the drift *appeared* instead of
-> from reading the loading branch to its end. A byte map can only show you the structure you
-> already suspect.
+Verified by the whole-file assertion, which this format makes both cheap and decisive — a tagged
+database has no per-record length, so record *n* is reachable only by having consumed *n−1* exactly:
+
+| Design | Records | Result |
+|---|---:|---|
+| `SomethingWild` | 9 | exact EOF — `assassin, cleric, druid, fighter, magicUser, paladin, ranger, thief, $$Help` |
+| `Case` | 9 | exact EOF — same nine |
+| `Ambassador's_Letter` | 17 | exact EOF — including the design's own `ninja`, `randamdi`, `larcener`, `defender` |
+| `dc-default` | 9 | exact EOF |
+| CI-saved 5.29 | 13 | exact EOF — the seven `LoadUADefaults` names plus six lowercase |
+
+57 records across five designs, every one landing on the last byte.
+
+> **The lesson is the one this document keeps re-learning, and this time the document itself
+> misled.** The byte map was right and the transcription from it was right; what was wrong was
+> concluding "that is the last piece" from where the drift *appeared* rather than from reading the
+> loading branch to its end. A byte map only shows you the structure you already suspect.
+
+> **`baseclass.dat` now has an oracle too.** `DumpJson.cpp` emits `baseclassNames` for every record
+> plus full detail for the first three. Note `DefaultDesign` cannot exercise it — its `Bcd1` is
+> below the engine's floor, so the reference loads nothing — but the workflow's `-savedesign` dump
+> upgrades a copy to 5.29 and yields the 13-record `Bcd5` file above.
 
 > The reverted attempt is the point of this section. A drifted reader on this file produces
 > plausible-looking records, and `baseclass.dat` has **no oracle** — the dumper does not emit it,

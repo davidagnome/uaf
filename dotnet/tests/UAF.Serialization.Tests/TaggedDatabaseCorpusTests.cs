@@ -239,4 +239,65 @@ public class TaggedDatabaseCorpusTests
         Assert.Contains("Bcd1", error.Message, StringComparison.Ordinal);
         Assert.Contains("refuses", error.Message, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Reads every record of a whole <c>baseclass.dat</c> and asserts the stream ends exactly there.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the strongest assertion the format allows without an oracle, and it is cheap. A
+    /// tagged database carries no per-record length or offset, so record <c>n</c> is found only by
+    /// having consumed record <c>n-1</c> to its last byte. Landing on the final record <i>and</i>
+    /// finding nothing after it means every field width and every list framing in between was
+    /// right.
+    /// </para>
+    /// <para>
+    /// It is also what a partial reader cannot fake. The first version of this reader stopped after
+    /// the special abilities and produced a perfect record 0 — and then read record 1's tag as
+    /// <c>Dexterity</c>.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("SomethingWild.dsn", 9, "assassin", "$$Help")]
+    [InlineData("Case.dsn", 9, "assassin", "$$Help")]
+    [InlineData("Ambassador's_Letter", 17, "ninja", "$$Help")]
+    public void Every_record_of_a_design_reads_to_the_files_exact_end(
+        string designName, int expectedCount, string firstName, string lastName)
+    {
+        string? design = Design("reference", designName);
+        if (design is null) return;
+
+        string path = Path.Combine(design, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Baseclass));
+        var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Baseclass, out var body,
+                                               out var stream);
+        using (stream)
+        {
+            Assert.Equal(expectedCount, (int)header.Count);
+
+            var records = BaseclassRecordReader.ReadAll(body, header.Count);
+            Assert.Equal(expectedCount, records.Count);
+            Assert.Equal(firstName, records[0].Name);
+            Assert.Equal(lastName, records[^1].Name);
+
+            // Every record names something. A drifted reader reaches this point only by accident,
+            // and when it does the names are ability scores or fragments of other fields.
+            Assert.All(records, r => Assert.False(string.IsNullOrWhiteSpace(r.Name)));
+
+            // And nothing follows the last one.
+            Assert.Throws<EndOfStreamException>(() => body.ReadBytes(1));
+        }
+    }
+
+    [Fact]
+    public void The_four_skill_adjustment_families_have_four_different_wire_widths()
+    {
+        // Ability and baseclass blit short tables of different lengths, race stores a lone short,
+        // and script has no table at all. They read as interchangeable in the source and are not;
+        // reusing one for the others drifts by up to 80 bytes per entry.
+        Assert.Equal(50, BaseclassRecordReader.AbilityAdjustmentTableSize);
+        Assert.Equal(80, BaseclassRecordReader.BaseclassAdjustmentTableSize);
+        Assert.Equal(2, BaseclassRecordReader.RaceAdjustmentTableSize);
+        Assert.Equal(100, BaseclassRecordReader.BonusExperienceTableSize);
+    }
 }
