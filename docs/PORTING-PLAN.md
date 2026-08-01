@@ -1591,10 +1591,10 @@ remains, in dependency order:
    and `traits.dat` remain unread; only the race one is currently missed, and only for a design
    that caps a level by race.
 2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
-   `UAF.Media` (13 tests), so the four remaining forms are layout tables plus their own logic
-   rather than drawing code. `CharStatsForm` (2,064 lines), `SpellForm` (895), `ItemsForm` (513)
-   and `RestTimeForm` (374) are still to write, and they are what the treasure, shop, temple and
-   training-hall screens need — which is why those event types cannot run even though they parse.
+   `UAF.Media`, and `ItemsForm` with it (23 tests between them), which confirms the engine carries
+   a real form. `CharStatsForm` (2,064 lines), `SpellForm` (895) and `RestTimeForm` (374) remain.
+   They are what the treasure, shop, temple and training-hall screens need — which is why those
+   event types cannot run even though they parse.
 3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
    math in `UAF.Rules`, which today holds only the currency. Nothing of this is started.
 4. **The remaining viewport squares**, 3 and 4.
@@ -1804,6 +1804,36 @@ drawing code.
   space seen. That is what lines a variable-width table up with nobody measuring it in advance.
 - **Markup is not interpreted**, exactly as in menus — the original disables font colour tags for
   the duration of a draw.
+
+##### `ItemsForm`, as ported
+
+The inventory / shop / treasure list, and the first form on the new engine: a layout table of four
+column headers, a money block of ten label/amount pairs, and an auto-repeat block of five fields per
+row. Everything game-specific arrives as formatted strings, so it stays in `UAF.Media` and needs no
+item, money or party type.
+
+- **Every field id carries the white colour bit, by an enum trick.** `enum ST_ITEMSFORM` opens
+  `STIF_none, STIF_white = TEXT_FORM::white, STIF_READY, …`, so the assignment restarts the count at
+  `0x10000000` and *every id after it* inherits that bit. The form is white by default because the
+  ids say so, and since `fieldNumMask` keeps colour bits, stripping them would break every relative
+  placement in the table.
+- **Column headers are blanked, never omitted.** The name column is placed relative to the cost
+  column, so a list with no costs still lays that column out — removing the field would move every
+  item name.
+- **Only the denominations a design configures appear.** Labels come from `moneyData`, not a fixed
+  list, which is what lets `Ambassador's_Letter` show three coins and rename them.
+- **The row marker is a zero-width placeholder, not a selection box.** This one is worth reading
+  twice. The table writes it `ready+SEL / name+SEL`, which reads as "span the four columns" and is
+  exactly what `SetText` would do with it — but auto-repeat expansion **overwrites both relative
+  values with plain field ids** (`TextForm.cpp:91`), dropping the `SEL` bit before `SetText` ever
+  sees it. The marker ends up taking its left from Ready, its top from Name, and no width at all.
+  That is why `showItems` builds a separate `InventoryRects` list to hit-test rows with, and why
+  this port maps clicks through the row's text fields instead.
+
+> The row-marker finding came from a failing test that asserted the box spanned its row — the
+> behaviour the table plainly describes. The port was right and the test was wrong, which is the
+> second time in two sessions an assertion encoded intent rather than what the reference does; the
+> other was "every class has a baseclass" against `$$Help`.
 
 ##### The text layer, as ported
 
