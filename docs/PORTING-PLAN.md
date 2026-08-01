@@ -1592,7 +1592,7 @@ remains, in dependency order:
    that caps a level by race.
 2. **The forms.** The shared engine is **done** — `TEXT_FORM` is ported as `TextForm` in
    `UAF.Media`, with `ItemsForm`, `RestTimeForm` and `CharStatsForm` on top of it (42 tests
-   between the four). `SpellForm` (895 lines) is the last one. `CharStatsForm`'s layout is complete
+   between the four). `SpellForm` is ported too, so **all five forms are done**. `CharStatsForm`'s layout is complete
    but half its values wait on `GameRules.cpp` — see below. The sheet is wired to the treasure
    screen's VIEW entry, so the character screen is reachable in play.
 3. **Combat.** `Combatant.cpp` (11,694), `Combatants.cpp` (8,952) and `path.cpp`, with the combat
@@ -1909,6 +1909,24 @@ the design's baseclasses cannot be read — the same fallback `IsReadyToTrain` u
 
 **Strength carries a percentile**: an 18 with a modifier reads `18/75`, and `18/00` at 100, which is
 the top of the exceptional-strength table written as two zeroes rather than as a hundred.
+
+##### `SpellForm`, as ported
+
+The spell list — memorising, casting and shopping all use it. Structurally the closest relative of
+`ItemsForm`: column headers, an auto-repeat block of five fields per row, and a side block. What
+sits alongside is not money but **spells still available per class**, seven label/value pairs.
+
+- **Two pairs of classes deliberately share a row.** Ranger hangs off `FIGHTERAVAIL+END`, the same
+  anchor as paladin, and druid off `CLERICAVAIL+END`, the same as thief — the reference's own
+  comment says they were "moved up from bottom to avoid being displayed over border graphics". No
+  character is both a paladin and a ranger, or both a thief and a druid, so only one of each pair is
+  ever filled and the overlap never shows. Separating them would be tidier and would not match.
+- **`RIGHT` right-*aligns*; it does not place.** The seven labels are right-aligned against the
+  magic-user label, so the column ends flush however long the class names are — which means the
+  shared rows share a *right* edge and start a letter apart. A test asserting they shared a left
+  edge failed, which is how this got pinned down.
+- The `COST` column is off for memorising and on for shopping, blanked rather than removed for the
+  same reason as `ItemsForm`'s: the name column is placed relative to it.
 
 ##### `RestTimeForm`, as ported
 
