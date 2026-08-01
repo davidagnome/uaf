@@ -158,6 +158,101 @@ public sealed class LoadedDesign : IDisposable
     public int RequestedFontHeight => Math.Clamp(Globals.Font.PointSizeHint, 8, 48);
 
     /// <summary>The level files present, in name order.</summary>
+    private ItemDatabase? items;
+    private bool itemsLoaded;
+
+    /// <summary>
+    /// The design's item database, or null when <c>items.dat</c> is missing or unreadable.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Loaded on first use rather than at open, because a design can be walked around without it
+    /// and a failure here must not stop the level loading — the engine's own behaviour when a
+    /// database is absent is to carry on with an empty one.
+    /// </para>
+    /// <para>
+    /// <b>The unstamped fallback depends on <c>game.dat</c> having been read first</b>:
+    /// <c>ItemsFallback</c> is <c>min(globalData.version, 0.696)</c> (<c>Items.cpp:3418</c>), so
+    /// the load order is not arbitrary. It holds here because <see cref="Globals"/> is read in the
+    /// constructor.
+    /// </para>
+    /// </remarks>
+    public ItemDatabase? Items
+    {
+        get
+        {
+            if (itemsLoaded)
+            {
+                return items;
+            }
+
+            itemsLoaded = true;
+            items = LoadItems();
+            return items;
+        }
+    }
+
+    private ItemDatabase? LoadItems()
+    {
+        string path = Path.Combine(Root, "Data", "items.dat");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var header = DesignFileHeader.Read(stream, DesignFileKind.Database,
+                                               DesignFileKind.ItemsFallback(Globals.Version));
+
+            if (header.Tier == ArchiveTier.CompressedCar)
+            {
+                // The compression-type byte sits at 16 and CarArchiveReader.Open consumes it, so
+                // the seek is to the magic's end rather than to PayloadOffset.
+                stream.Seek(16, SeekOrigin.Begin);
+                return ItemRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
+                                                     header.Version, ArchiveRole.Engine);
+            }
+
+            stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
+            return ItemRecordReader.ReadDatabase(new MfcArchiveReader(stream),
+                                                 header.Version, ArchiveRole.Engine);
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            // A database this port cannot yet read is a real state -- the engine still runs, and
+            // items simply cannot change hands. Throwing here would take the whole design down.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Looks an item up by the id a record or a carried instance names.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An item's id is its <c>m_uniqueName</c>, not its <c>m_idName</c></b> —
+    /// <c>ITEM_ID ItemID(void) const { x = m_uniqueName; }</c> (<c>Items.h:701</c>). The names
+    /// invite the opposite reading and this port took it: <c>m_idName</c> is the fuller display
+    /// name, so <c>Ambassador's_Letter</c>'s glaive is <c>UniqueName "Glaive"</c> with
+    /// <c>IdName "Noble Glaive"</c>, and a carried instance names the former. Keying on
+    /// <c>IdName</c> resolves nothing and reports every treasure item as missing, with no error to
+    /// say why. <c>DefaultDesign</c> cannot show the difference — its records set both names the
+    /// same.
+    /// </para>
+    /// <para>
+    /// Several records can share a name; the reference's <c>GetItem</c> walks the list and takes
+    /// the first match, so this does too.
+    /// </para>
+    /// </remarks>
+    public ItemRecord? Item(string itemId) =>
+        string.IsNullOrEmpty(itemId)
+            ? null
+            : Items?.Items.FirstOrDefault(
+                i => string.Equals(i.Names.UniqueName, itemId, StringComparison.OrdinalIgnoreCase));
+
     public IReadOnlyList<string> LevelFiles =>
         Directory.Exists(Path.Combine(Root, "Data"))
             ? Directory.GetFiles(Path.Combine(Root, "Data"), "*.lvl")

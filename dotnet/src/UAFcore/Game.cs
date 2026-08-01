@@ -474,14 +474,16 @@ public sealed class Game
     /// player seeing it.
     /// </para>
     /// <para>
-    /// <b>Money only.</b> The items go with it in the original, and each carries experience the
-    /// character is awarded (<c>Experience</c> summed from the item database, <c>:6553</c>) — both
-    /// need the item database loaded and the levelling rules, neither of which exists yet.
-    /// </para>
-    /// <para>
     /// The money goes to the party's common purse rather than to the active character's, because
     /// characters' purses are still records read off disk rather than live state. That is a
     /// difference in <i>where</i> it lands, not in how much.
+    /// </para>
+    /// <para>
+    /// <b>The experience is summed before anything is handed over</b>, from the item database
+    /// rather than from the carried instances (<c>:6553</c>) — an instance records what it is, not
+    /// what it is worth. It is computed and reported but not awarded: levelling is rules work that
+    /// does not exist yet, and silently adding to a character's total would be worse than saying
+    /// so.
     /// </para>
     /// </remarks>
     private bool GiveTreasure(TreasureEvent treasure)
@@ -489,16 +491,59 @@ public sealed class Game
         var pile = Purse.FromRecord(treasure.Money, Money);
         double before = Party.Pooled.Total();
         Party.Pooled.Transfer(pile);
-
         double gained = Party.Pooled.Total() - before;
-        int items = treasure.Items.Items.Count;
 
-        Message = items > 0
-            ? $"You gain {gained:0} {Money[Money.BaseType].Name.ToLowerInvariant()} "
-              + $"(and {items} item(s), which are not yet handled)."
-            : $"You gain {gained:0} {Money[Money.BaseType].Name.ToLowerInvariant()}.";
+        int experience = 0;
+        int unknown = 0;
+        foreach (var carried in treasure.Items.Items)
+        {
+            var record = design.Item(carried.ItemId);
+            if (record is null)
+            {
+                unknown++;
+                continue;
+            }
 
+            Party.Carried.Add(carried);
+            experience += record.Scalars.Experience;
+        }
+
+        Message = Describe(gained, treasure.Items.Items.Count - unknown, unknown, experience);
         return true;
+    }
+
+    /// <summary>Puts a treasure's outcome into words for the message line.</summary>
+    private string Describe(double coins, int items, int unknown, int experience)
+    {
+        var parts = new List<string>();
+
+        if (coins > 0)
+        {
+            parts.Add($"{coins:0} {Money[Money.BaseType].Name.ToLowerInvariant()}");
+        }
+
+        if (items > 0)
+        {
+            parts.Add($"{items} item{(items == 1 ? string.Empty : "s")}");
+        }
+
+        string gained = parts.Count > 0
+            ? $"You gain {string.Join(" and ", parts)}."
+            : "You find nothing of value.";
+
+        if (experience > 0)
+        {
+            gained += $" ({experience} experience, not yet awarded.)";
+        }
+
+        if (unknown > 0)
+        {
+            // Naming this matters: it means the database lookup failed, which in a port is far
+            // likelier to be a reader fault than a design one.
+            gained += $" ({unknown} item(s) name no record in this design's database.)";
+        }
+
+        return gained;
     }
 
     /// <summary>

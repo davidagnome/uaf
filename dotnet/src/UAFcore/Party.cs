@@ -65,6 +65,16 @@ public sealed class Party
     /// </remarks>
     public Purse Pooled { get; init; } = new(MoneyRules.Default);
 
+    /// <summary>Items the party has picked up during play.</summary>
+    /// <remarks>
+    /// <b>A party-level list, where the original gives items to a character.</b>
+    /// <c>GIVE_TREASURE_DATA</c> calls <c>dude.myItems.AddItem</c> on the active character, but a
+    /// character's inventory here is still the record read off disk rather than live state. Held
+    /// separately so nothing pretends the records were modified, and so
+    /// <see cref="HasItem"/> can be widened to include it once characters become mutable.
+    /// </remarks>
+    public List<ItemInstance> Carried { get; } = [];
+
     /// <summary>Whether the party is searching as it moves (<c>PartyIsSearching</c>).</summary>
     public bool Searching { get; set; }
 

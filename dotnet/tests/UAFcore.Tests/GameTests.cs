@@ -1120,6 +1120,31 @@ public class GameTests
     }
 
     [Fact]
+    public void An_item_is_looked_up_by_its_unique_name_not_its_id_name()
+    {
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        // ITEM_ID is m_uniqueName (Items.h:701). The field names invite the opposite reading, and
+        // keying on IdName resolves nothing while reporting every treasure item as missing.
+        using var design = Open(root);
+        var db = design.Items;
+        Assert.NotNull(db);
+
+        // Every item every character in this design carries has to resolve. A sample would not do:
+        // the bug only shows on records whose two names differ, and most of them do not.
+        var carried = design.Globals.Characters.SelectMany(c => c.Items.Items).ToList();
+        Assert.NotEmpty(carried);
+        Assert.All(carried, i => Assert.NotNull(design.Item(i.ItemId)));
+
+        // And the two names really are different things, or the check above proves nothing.
+        Assert.Contains(db.Items, i => i.Names.UniqueName != i.Names.IdName);
+    }
+
+    [Fact]
     public void The_text_box_comes_from_the_designs_own_config_narrowed_by_its_font()
     {
         string? root = DesignRoot();

@@ -1549,9 +1549,10 @@ So, in order:
    `Teleporter`, with chaining. See the event section below.
 3. ~~**Party state**~~ — **done** as a roster, world flags and the trigger conditions they answer;
    see the party section.
-4. **Rules.** `UAF.Rules` now exists and holds the currency (see the money section), with
-   `GiveTreasure`'s silent path paying into the party purse. What remains: the **item database**
-   loaded into the engine so items can change hands, **experience and levelling**, the
+4. **Rules.** `UAF.Rules` now exists and holds the currency (see the money section);
+   `GiveTreasure`'s silent path pays money into the party purse and hands over items, resolved
+   through the design's item database (see the items section). What remains: **experience and
+   levelling**, mutable **character inventories** (items land in a party-level list today), the
    **treasure/shop/temple screens** (forms, not events), and **combat**.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
@@ -1783,6 +1784,28 @@ conversion) and `Purse` (`MONEY_SACK`, renamed to avoid colliding with the recor
   holding nothing but gems has a total of zero and cannot buy anything.
 - **Adding to a denomination a design has not configured silently drops the amount** rather than
   converting or rejecting it.
+
+##### The item database in the engine
+
+`LoadedDesign.Items` opens `items.dat` lazily and `LoadedDesign.Item(id)` resolves a carried
+instance to its record. `GiveTreasure` uses both.
+
+- **An item's id is its `m_uniqueName`, not its `m_idName`.** `ITEM_ID ItemID(void) const
+  { x = m_uniqueName; }` (`Items.h:701`). The field names invite the opposite reading and this port
+  took it. `m_idName` is the fuller display name: `Ambassador's_Letter`'s glaive is
+  `UniqueName "Glaive"` / `IdName "Noble Glaive"`, and a carried instance names the former. Keying
+  on `IdName` resolves **nothing** and reports every treasure item as missing, with no error saying
+  why. **`DefaultDesign` cannot show the difference** — its records set both names the same, which
+  is why the §Phase 1 walk of it never exposed this.
+- **The unstamped fallback needs `game.dat` read first** — `min(globalData.version, 0.696)`
+  (`Items.cpp:3418`), so load order is load-bearing rather than incidental.
+- The database is loaded lazily and a failure yields null rather than throwing: a design can be
+  walked around without it, and the engine's own behaviour when a database is absent is to carry on.
+
+Verified across the whole corpus rather than a sample: **124 of 124** item references in the three
+reference designs resolve — 19 from treasure events, 105 carried by pre-generated characters. A
+sample would have proved little, since most records set both names identically and only the ones
+that differ can fail.
 
 > **The money path is not verified against real design data, and no fixture can verify it.** Every
 > treasure carrying coins in the three reference designs takes the pick-up screen; the only two
