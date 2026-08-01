@@ -1585,11 +1585,11 @@ skipped, so a walk through a real design reads as an honest map of what is left.
 The text and menu layers are done, and they were the piece blocking half the content layer. What
 remains, in dependency order:
 
-1. **Levelling.** Both databases it was blocked on now read completely — `baseclass.dat` for the
-   experience thresholds and `classes.dat` for the multiclass baseclass list the experience split
-   divides by. Nothing in the data layer stands in the way of implementing it.
-   `ability.dat`, `races.dat`, `spellgroups.dat` and `traits.dat` remain unread, but nothing
-   currently needs them.
+1. ~~**Levelling.**~~ **Done** — see the rules section below. Both databases it was blocked on now
+   read completely, and `UAF.Rules.Levelling` turns experience into a level, answers
+   ready-to-train and applies a training session. `ability.dat`, `races.dat`, `spellgroups.dat`
+   and `traits.dat` remain unread; only the race one is currently missed, and only for a design
+   that caps a level by race.
 2. **The forms.** `CharStatsForm`, `SpellForm`, `ItemsForm`, `TextForm`, `RestTimeForm` — none
    exist. The treasure, shop, temple and training-hall screens are forms rather than events, which
    is why those event types cannot run yet even though they parse.
@@ -1959,12 +1959,34 @@ roster drawn from `displayPartyNames`.
 ##### Rules, as far as the engine has needed them
 
 `UAF.Rules` is created here rather than at scaffolding time, per §5.1's rule that empty projects are
-restore risk. First and so far **only** occupant: the currency (`Money.cpp`), as `MoneyRules`
-(denominations and conversion) and `Purse` (`MONEY_SACK`, renamed to avoid colliding with the record
-read off disk). 24 tests. `GiveTreasure`'s silent path pays into the party purse.
+restore risk. First occupant: the currency (`Money.cpp`), as `MoneyRules` (denominations and
+conversion) and `Purse` (`MONEY_SACK`, renamed to avoid colliding with the record read off disk).
+`GiveTreasure`'s silent path pays into the party purse.
 
-Nothing of `GameRules.cpp` (4,167 lines) — combat math, saving throws, THAC0, character progression
-— is ported. That is Phase 2's other half and it is still entirely ahead.
+Second: **levelling**, as `Levelling` — `GetLevel`, `GetAllowedLevel`, `IsReadyToTrain`, `Train` and
+`CapExperience`, transcribed from `BASE_CLASS_DATA::GetLevel` (`class.cpp:6449`) and
+`CHARACTER::GetAllowedLevel` / `IsReadyToTrain` / `getNewCharLevel` (`Char.cpp`). 40 tests.
+
+- **It is per-baseclass, not per-class.** A multiclass advances each baseclass off its own
+  experience against its own thresholds, which is why nothing in the API takes a class.
+- **The thresholds are the design's, not AD&D's** — there is no hard-coded fallback, which is why
+  this could not exist before `baseclass.dat` read.
+- **A drained baseclass is entitled to nothing**, not merely to what its experience would buy, and
+  the character's other baseclasses are unaffected.
+- **A capped character forfeits experience on purpose.** `Char.cpp:5503` steals the surplus so that
+  a character held at a level cannot bank an arbitrary total and jump several levels when the cap
+  lifts. Omitting it looks harmless and is not.
+- **The level cap is only half-implemented.** `GetLevelCap` resolves `MaxLevel$SYS$` through a
+  computation that also consults the character's **race**, and `races.dat` has no reader. The
+  baseclass side is read from the record's skill list; a design capping a level by race goes
+  unenforced. No corpus design does, which is not the same as it being safe.
+
+`LoadedDesign.IsReadyToTrain` now derives the roster's blue name from the thresholds rather than
+reading the design author's stored flag, falling back to the flag when `baseclass.dat` cannot be
+read — which is the real state for `DefaultDesign`, whose `Bcd1` the reference engine refuses too.
+
+Still nothing of `GameRules.cpp` (4,167 lines) — combat math, saving throws, THAC0. That is Phase
+2's other half and it is still ahead.
 
 - **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
   `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;
@@ -2044,8 +2066,8 @@ honest snapshot of the file, which a test pins directly.
   dropping any share whose baseclass the character lacks. This port counts the character's own
   baseclasses. The two agree wherever a character's stats match its class, which the Phase 1 walk
   found to hold; they differ only for a record that disagrees with its own class.
-- **Ready-to-train is left as the record has it.** Re-deriving it needs `baseclass.dat`'s
-  experience thresholds, so the roster's blue name is the design's own rather than this engine's.
+- ~~**Ready-to-train is left as the record has it.**~~ **Now derived** from `baseclass.dat`'s
+  thresholds via `LoadedDesign.IsReadyToTrain`; the roster's blue name is this engine's answer.
 - Items land in a party-level list rather than a character's inventory, and `HasItem` searches
   both — otherwise a design gating on "do you have the key" would never fire after a pickup.
 

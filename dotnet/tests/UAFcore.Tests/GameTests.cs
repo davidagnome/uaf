@@ -1,6 +1,7 @@
 using UAF.Data;
 using UAF.Media;
 using UAF.Media.Sdl;
+using UAF.Rules;
 using UAFcore;
 
 namespace UAFcore.Tests;
@@ -1222,5 +1223,37 @@ public class GameTests
         var before = game.MessageBox.Lines;
         game.Render();
         Assert.Same(before, game.MessageBox.Lines);
+    }
+
+    [Fact]
+    public void The_design_supplies_baseclasses_and_ready_to_train_is_derived_from_them()
+    {
+        // Ready-to-train used to be read off the character record, which is the design author's
+        // answer rather than this engine's; it is now computed from baseclass.dat's experience
+        // thresholds, which is what the reference does.
+        string? root = DesignRoot();
+        if (root is null) return;
+
+        using var design = Open(root);
+
+        var known = design.Baseclasses;
+        Assert.NotNull(known);
+        Assert.Contains("fighter", known!.Keys);
+        Assert.NotEmpty(known["fighter"].ExperienceLevels);
+
+        // SomethingWild's pre-generated party. Every member answers without throwing, and the
+        // answer agrees with what the thresholds say for at least one of its baseclasses.
+        var party = new Game(design).Party;
+        Assert.NotEmpty(party.Members);
+
+        foreach (var member in party.Members)
+        {
+            bool expected = member.Baseclasses.Any(
+                b => known.TryGetValue(b.BaseclassId, out var bc)
+                     && Levelling.IsReadyToTrain(bc.ExperienceLevels, (uint)b.Experience,
+                                                 b.CurrentLevel, b.PreviousLevel));
+
+            Assert.Equal(expected, design.IsReadyToTrain(member));
+        }
     }
 }

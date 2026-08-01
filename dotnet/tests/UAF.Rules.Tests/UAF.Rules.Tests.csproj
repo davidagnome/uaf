@@ -19,6 +19,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\UAF.Rules\UAF.Rules.csproj" />
+
+    <!-- LevellingTests reads real experience thresholds out of a design's baseclass.dat rather
+         than restating them. UAF.Rules itself must not depend on the serializer (Levelling takes a
+         plain list of thresholds precisely so it cannot), but proving the two halves fit is exactly
+         what this test project is for. -->
+    <ProjectReference Include="..\..\src\UAF.Serialization\UAF.Serialization.csproj" />
   </ItemGroup>
 
 </Project>

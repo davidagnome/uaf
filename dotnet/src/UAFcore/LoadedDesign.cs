@@ -1,5 +1,6 @@
 using UAF.Data;
 using UAF.Media;
+using UAF.Rules;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -226,6 +227,105 @@ public sealed class LoadedDesign : IDisposable
             // items simply cannot change hands. Throwing here would take the whole design down.
             return null;
         }
+    }
+
+    private Dictionary<string, BaseclassRecord>? baseclasses;
+    private bool baseclassesLoaded;
+
+    /// <summary>
+    /// The design's baseclasses by name, or null when <c>baseclass.dat</c> is missing or is a
+    /// shape this port does not read.
+    /// </summary>
+    /// <remarks>
+    /// Lazy and failure-tolerant for the same reason as <see cref="Items"/>. Null is a real state
+    /// worth expecting here: <c>DefaultDesign</c>'s records are <c>Bcd1</c>, which the reference
+    /// engine itself refuses outright (<c>class.cpp:5731</c>), so a design the port cannot level
+    /// is not necessarily a design the port has got wrong.
+    /// </remarks>
+    public IReadOnlyDictionary<string, BaseclassRecord>? Baseclasses
+    {
+        get
+        {
+            if (baseclassesLoaded)
+            {
+                return baseclasses;
+            }
+
+            baseclassesLoaded = true;
+            baseclasses = LoadBaseclasses();
+            return baseclasses;
+        }
+    }
+
+    private Dictionary<string, BaseclassRecord>? LoadBaseclasses()
+    {
+        string path = Path.Combine(Root, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Baseclass));
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Baseclass, out var body,
+                                                   out var stream);
+            using (stream)
+            {
+                var map = new Dictionary<string, BaseclassRecord>(StringComparer.OrdinalIgnoreCase);
+                foreach (var record in BaseclassRecordReader.ReadAll(body, header.Count))
+                {
+                    map[record.Name] = record;
+                }
+                return map;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Whether a character has earned a level it has not taken, in any of its baseclasses.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>CHARACTER::IsReadyToTrain</c> (<c>Char.cpp</c>) asks this per baseclass and stops at the
+    /// first that qualifies. Replaces reading the flag off the character record, which was the
+    /// design author's answer rather than this engine's.
+    /// </para>
+    /// <para>
+    /// <b>Falls back to the stored flag when the baseclasses cannot be read</b>, since a design
+    /// whose <c>baseclass.dat</c> this port refuses still has to draw its roster.
+    /// </para>
+    /// </remarks>
+    public bool IsReadyToTrain(Character character)
+    {
+        ArgumentNullException.ThrowIfNull(character);
+
+        if (Baseclasses is not { } known)
+        {
+            return character.ReadyToTrain;
+        }
+
+        foreach (var progress in character.Baseclasses)
+        {
+            if (!known.TryGetValue(progress.BaseclassId, out var baseclass))
+            {
+                continue;   // the reference logs "unknown baseclass" and moves on
+            }
+
+            if (Levelling.IsReadyToTrain(baseclass.ExperienceLevels, (uint)progress.Experience,
+                                         progress.CurrentLevel, progress.PreviousLevel,
+                                         Levelling.GetBaseclassLevelCap(
+                                             baseclass.Skills.Select(s => (s.SkillId, s.Value)))))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
