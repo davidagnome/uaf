@@ -61,20 +61,23 @@ public class TaggedDatabaseTests
 
     [Theory]
     [MemberData(nameof(Databases))]
-    public void Compression_type_is_1_not_2(string fileName, string expectedTag)
+    public void DefaultDesigns_databases_all_carry_compression_type_1(
+        string fileName, string expectedTag)
     {
         using var fs = File.OpenRead(Path.Combine(DataDir(), fileName));
         new MfcArchiveReader(fs).ReadString();          // consume the tag
 
         var car = CarArchiveReader.Open(fs);
 
-        // CAR::Compress(true) always WRITES 2 (class.cpp:11670), yet every tagged database on
-        // disk carries 1 -- an older variant still in circulation. It is not cosmetic: the C++
-        // string reader gates its embedded-NUL check on `m_compressType > 1`, so type-1 streams
-        // intern NUL-bearing strings that type-2 streams deliberately do not. Getting that wrong
-        // shifts every later string-table index.
+        // CAR::Compress(true) always WRITES 2 (class.cpp:11670), yet these six carry 1 -- an older
+        // variant. It is not cosmetic: the C++ string reader gates its embedded-NUL check on
+        // `m_compressType > 1`, so type-1 streams intern NUL-bearing strings that type-2 streams
+        // deliberately do not, and getting it wrong shifts every later string-table index.
+        //
+        // This is a fact about THIS design, not about the format. An earlier revision of this test
+        // was named "Compression_type_is_1_not_2" and the porting plan said "every tagged database
+        // on disk carries 1"; SomethingWild's all carry 2. See TaggedDatabaseCorpusTests.
         Assert.Equal(1, car.CompressType);
-        Assert.NotEqual(2, car.CompressType);
         _ = expectedTag;
     }
 

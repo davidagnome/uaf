@@ -204,11 +204,20 @@ Three things are unique to this framing: the version is a **string**, the compre
 **string comparison** rather than a numeric one, and the `DesignVersion` machinery does not apply
 at all — modelling these files with it is a category error.
 
-> **`compressType` is 1 here, not 2.** `CAR::Compress(true)` always *writes* 2
-> (`class.cpp:11670`), yet every tagged database on disk carries **1** — an older variant still in
-> circulation. It is not cosmetic: the string reader gates its embedded-NUL check on
-> `m_compressType > 1` (`class.cpp:11975`), so type-1 streams **intern** NUL-bearing strings that
-> type-2 streams skip. Get that wrong and every later string-table index shifts.
+> **Both compression types are in circulation — a reader must handle either.**
+> `CAR::Compress(true)` always *writes* 2 (`class.cpp:11670`), yet `DefaultDesign`'s six databases
+> all carry **1**, an older variant. It is not cosmetic: the string reader gates its embedded-NUL
+> check on `m_compressType > 1` (`class.cpp:11975`), so type-1 streams **intern** NUL-bearing
+> strings that type-2 streams skip. Get that wrong and every later string-table index shifts.
+>
+> **Correction.** An earlier revision of this note said "every tagged database on disk carries 1".
+> That was drawn from `DefaultDesign` alone and is false: `SomethingWild`'s four databases all carry
+> **2**. Pinning either value is wrong — the byte is on disk and must be read.
+>
+> **The version digit varies too, by design and by database.** `DefaultDesign` is `V1` throughout;
+> `SomethingWild` ships `AbilityV2` and `RaceV3` beside a `BaseclassV1`. Each loader accepts its own
+> range (`RaceV0`…`RaceV3`, `class.cpp:3493`), so a reader must not pin the digit — and **a design
+> need not ship all six**: `SomethingWild` has no `spellgroups.dat` or `traits.dat`.
 
 Verified by decompressing all six: **6 abilities, 7 baseclasses, 19 classes, 6 races, 15
 spellgroups, 43 traits**. The first three are decisive rather than merely plausible — six AD&D
@@ -1555,6 +1564,11 @@ So, in order:
    (needs `baseclass.dat`'s experience thresholds, which has no reader), **`classes.dat`** (needed
    for the experience split's true baseclass count), the **treasure/shop/temple screens** (forms,
    not events), and **combat**.
+
+   `TaggedDatabaseReader` now reads the **framing** all six tagged databases share — tag,
+   compression, record count — verified across two designs. The **record bodies** are the next
+   step: `BASE_CLASS_DATA::Serialize`'s loading branch (`class.cpp:5721`) spans five tag versions
+   (`Bcd1`…`Bcd5`) and carries the experience thresholds levelling needs.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
