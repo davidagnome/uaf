@@ -1661,9 +1661,23 @@ an `int` count followed by a single bulk `decompress`** of `size * 4` bytes (`cl
 `size` separate reads — and that count is a plain `int` where items 4 and 5 use `ReadCount()`, so
 this one record genuinely uses both framings.
 
-**Items 7–11 remain**, and finishing them is what allows a whole file to be walked: the width of
-`m_allowedAlignments`, the size of the raw `THAC0` blob, and `CASTING_INFO::Serialize`. Verify the
-same way — by whether the names and tables that come back are ones a rulebook would recognise.
+**Items 7–11 remain, and a first attempt at them failed — read this before trying again.** All the
+widths were confirmed from the header: `m_allowedAlignments` is a **`WORD`** (`class.h:1830`),
+`THAC0` is `char[40]` (`HIGHEST_CHARACTER_LEVEL`, `Externs.h:199`), `m_spellBonusAbility` is a
+`CString`, bonus spells are a bare `int` count then N × `BYTE`, and `CASTING_INFO`
+(`class.cpp:12372`) is two strings plus three blitted tables of 40 × 9, 25 and 25 bytes
+(`MAX_SPELL_LEVEL` = 9, `HIGHEST_CHARACTER_PRIME` = 25). `CAR::Serialize(char*, n)` is a plain
+n-byte `decompress` (`class.cpp:12064`), so the blobs are straightforward reads.
+
+Transcribing all of that still desynchronised the stream — it failed with a CAR string-table index
+past the end of the table, the signature of drift. **Something between the experience levels and the
+end of the record is unaccounted for**, and it is not any of the widths above. The attempt was
+reverted rather than shipped, because a drifted reader produces plausible-looking records and this
+file has no oracle to catch that.
+
+Next time, bisect rather than transcribing the block whole: read one field, then dump the cursor's
+next few bytes and check them against a hex dump of the decompressed stream. The failure is
+reproducible in three lines against `reference/SomethingWild.dsn`.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are

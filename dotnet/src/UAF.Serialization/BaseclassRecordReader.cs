@@ -19,18 +19,8 @@ public sealed record AbilityRequirement(string AbilityId, short Min, short MinMo
 public sealed record BaseclassRecord(string Tag, int PreSpellNameKey, string Name,
                                      IReadOnlyList<AbilityRequirement> AbilityRequirements,
                                      IReadOnlyList<string> AllowedRaces,
-                                     IReadOnlyList<uint> ExperienceLevels,
-                                     ushort AllowedAlignments, byte[] Thac0,
-                                     string SpellBonusAbility, IReadOnlyList<byte> BonusSpells,
-                                     IReadOnlyList<CastingInfo> Casting);
+                                     IReadOnlyList<uint> ExperienceLevels);
 
-/// <summary>How one baseclass casts from one school (<c>CASTING_INFO</c>, <c>class.h:1695</c>).</summary>
-/// <remarks>
-/// Two strings and three fixed tables, all blitted rather than serialized field by field:
-/// <c>m_spellLimits</c> is 40 × 9 bytes (level × spell level), and the two prime tables are 25 each.
-/// </remarks>
-public sealed record CastingInfo(string SchoolId, string PrimeAbility, byte[] SpellLimits,
-                                 byte[] MaxSpellLevelsByPrime, byte[] MaxSpellsByPrime);
 
 /// <summary>
 /// Reads <c>baseclass.dat</c>'s records (<c>BASE_CLASS_DATA::Serialize</c>,
@@ -38,15 +28,23 @@ public sealed record CastingInfo(string SchoolId, string PrimeAbility, byte[] Sp
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Complete for <c>Bcd5</c>, so a whole file walks.</b> The record ends with three fixed-size
-/// blobs — <c>THAC0</c> at 40 bytes and <c>CASTING_INFO</c>'s 360 + 25 + 25 — which are
-/// <c>car.Serialize(buf, n)</c> bulk reads rather than field sequences, and sizing any of them
-/// from the wrong constant desynchronises every record after the first.
+/// <b>Partial: the record is read up to and including the experience levels, and no further.</b>
+/// <b>Only the first record of a file decodes</b> — the cursor is not positioned at the second.
+/// That is enough for levelling, which needs the thresholds.
+/// </para>
+/// <para>
+/// An attempt to complete the record — <c>m_allowedAlignments</c> (a <c>WORD</c>), the 40-byte
+/// <c>THAC0</c> blob, the spell-bonus ability, bonus spells and <c>CASTING_INFO</c> — desynchronised
+/// the stream, failing with a string-table index past the end of the table. The field widths were
+/// all confirmed from the header and <c>CAR::Serialize(char*, n)</c> is a plain n-byte read, so
+/// something between the experience levels and the end of the record is still unaccounted for.
+/// Reverted rather than shipped: a reader that drifts produces plausible records, and this one has
+/// no oracle to catch that.
 /// </para>
 /// <para>
 /// <b>Three different count framings appear in one record.</b> The ability and race lists use
-/// <c>ReadCount()</c>; the experience levels, bonus spells and casting list each use a bare
-/// <c>int</c>. They are not interchangeable, and nothing in the field names distinguishes them.
+/// <c>ReadCount()</c>; the experience levels use a bare <c>int</c>. They are not interchangeable,
+/// and nothing in the field names distinguishes them.
 /// </para>
 /// <para>
 /// <b>Only <c>Bcd5</c> is accepted.</b> All three <c>reference/</c> designs carry it. The engine
@@ -107,76 +105,8 @@ public static class BaseclassRecordReader
             races.Add(ArchiveStringConventions.Decode(ar.ReadString()));
         }
 
-        var experienceLevels = ReadExperienceLevels(ar);
-
-        // WORD, not int -- 0x1ff is the default and fits in 16 bits. Bcd5 is above the gate, so
-        // this is always present here; below Bcd1 the reference defaults it instead of reading.
-        ushort allowedAlignments = ar.ReadUInt16();
-
-        // char THAC0[HIGHEST_CHARACTER_LEVEL], blitted whole.
-        var thac0 = ar.ReadBytes(HighestCharacterLevel);
-
-        string spellBonusAbility = ArchiveStringConventions.Decode(ar.ReadString());
-
-        // A bare int, unlike the two lists above.
-        int bonusCount = ar.ReadInt32();
-        var bonusSpells = new List<byte>(Math.Max(bonusCount, 0));
-        for (int i = 0; i < bonusCount; i++)
-        {
-            bonusSpells.Add(ar.ReadByte());
-        }
-
-        int castingCount = ar.ReadInt32();
-        var casting = new List<CastingInfo>(Math.Max(castingCount, 0));
-        for (int i = 0; i < castingCount; i++)
-        {
-            casting.Add(ReadCastingInfo(ar));
-        }
-
         return new BaseclassRecord(tag, preSpellNameKey, name, requirements, races,
-                                   experienceLevels, allowedAlignments, thac0,
-                                   spellBonusAbility, bonusSpells, casting);
-    }
-
-    /// <summary><c>HIGHEST_CHARACTER_LEVEL</c> (<c>Externs.h:199</c>).</summary>
-    public const int HighestCharacterLevel = 40;
-
-    /// <summary><c>HIGHEST_CHARACTER_PRIME</c> (<c>Externs.h:203</c>).</summary>
-    public const int HighestCharacterPrime = 25;
-
-    /// <summary><c>MAX_SPELL_LEVEL</c> (<c>Externs.h:207</c>).</summary>
-    public const int MaxSpellLevel = 9;
-
-    /// <summary>Reads a <c>CASTING_INFO</c> (<c>class.cpp:12372</c>).</summary>
-    /// <remarks>
-    /// The three tables are blitted, so their sizes come from the array declarations rather than
-    /// from anything on the wire: 40 × 9 for the spell limits and 25 for each prime table.
-    /// </remarks>
-    public static CastingInfo ReadCastingInfo(IArchiveCursor ar)
-    {
-        ArgumentNullException.ThrowIfNull(ar);
-
-        string schoolId = ArchiveStringConventions.Decode(ar.ReadString());
-        string primeAbility = ArchiveStringConventions.Decode(ar.ReadString());
-
-        return new CastingInfo(schoolId, primeAbility,
-                               ar.ReadBytes(HighestCharacterLevel * MaxSpellLevel),
-                               ar.ReadBytes(HighestCharacterPrime),
-                               ar.ReadBytes(HighestCharacterPrime));
-    }
-
-    /// <summary>Reads every record in an already-opened <c>baseclass.dat</c> body.</summary>
-    public static List<BaseclassRecord> ReadAll(IArchiveCursor ar, uint count)
-    {
-        ArgumentNullException.ThrowIfNull(ar);
-
-        var records = new List<BaseclassRecord>((int)count);
-        for (uint i = 0; i < count; i++)
-        {
-            records.Add(Read(ar));
-        }
-
-        return records;
+                                   ReadExperienceLevels(ar));
     }
 
     /// <summary>Reads an <c>ABILITY_REQ</c> (<c>class.cpp:2778</c>, loading branch).</summary>
