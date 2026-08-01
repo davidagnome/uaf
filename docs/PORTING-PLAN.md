@@ -1790,6 +1790,31 @@ database has no per-record length, so record *n* is reachable only by having con
 > and `DefaultDesign`'s `Bcd1` is a version the engine refuses outright. Shipping it unverified
 > would have been the one mistake this port has consistently avoided.
 
+##### The treasure screen, as ported
+
+`GIVE_TREASURE_DATA`'s non-silent path now runs: the "You Have Found Treasure!" message, the item
+list through `ItemsForm`, and the six-entry bar — VIEW, TAKE, POOL, SHARE, DETECT, EXIT. TAKE hands
+the pile over and EXIT chains; the other four name themselves rather than doing nothing. Verified by
+rendering a real treasure event out of `Case.dsn`: `QTY 1 / NAME Battle Axe`, the message, and the
+bar with VIEW selected.
+
+- **The runner owns no party, so TAKE is a request rather than an action.** `EventRunner` records
+  `TakeRequested` and `Game` acts on it — and it has to be read *before* the runner is reset, which
+  is why `UpdateEvent` captures the event first. The silent form never reaches the runner at all;
+  `ExecuteWithoutInput` consumes it.
+- **The item list needs the item database.** A carried instance names its `m_uniqueName` while
+  `m_idName` is what a player should see, so the runner takes a resolver from the host and falls
+  back to the raw id rather than showing a blank row.
+- **No READY or COST column.** A pile on the floor is neither an inventory nor a shop, and the
+  headers are blanked rather than removed so the name column does not move.
+
+> **Two things the screenshot showed that the tests did not.** The list draws at the form table's
+> own coordinates, which currently **overlaps the viewport** — the original's treasure screen draws
+> over a different background that is not ported, so the form is placing correctly but nothing has
+> cleared the area beneath it. And a non-silent treasure event is rarer than expected: of the four
+> reference designs only `Case.dsn` has one, which is why the silent path was the only one exercised
+> for so long.
+
 ##### The form engine, as ported
 
 `TEXT_FORM` (`UAFWin/TextForm.cpp:49`) becomes `TextForm` in `UAF.Media`: relative layout, column

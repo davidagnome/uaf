@@ -332,4 +332,85 @@ public class EventRunnerTests
         Assert.NotNull(runner.Unimplemented);
         Assert.Contains("Camp", runner.Unimplemented, StringComparison.Ordinal);
     }
+
+    // ---- treasure ------------------------------------------------------------------------------
+
+    private static TreasureEvent Treasure(params string[] itemIds)
+    {
+        var items = itemIds
+            .Select((id, i) => new ItemInstance(i, id, 0, 0, 1, 0, 0, 0, 0))
+            .ToArray();
+
+        return new TreasureEvent(
+            Base(EventType.GiveTreasure, text: "You Have Found Treasure!"),
+            new MoneySack([0, 0, 0, 0, 0], [], []),
+            new ItemList(items, new ReadyItems([])),
+            SilentGiveToActiveChar: 0);
+    }
+
+    [Fact]
+    public void A_treasure_event_shows_its_list_and_the_six_entry_bar()
+    {
+        var runner = new EventRunner { ItemNames = id => id == "Glaive" ? "Noble Glaive" : null };
+
+        var step = runner.Begin(Treasure("Glaive", "Arrow"), Font(), TextBoxMetrics.Default,
+                                Anchors);
+
+        Assert.Equal(EventStepKind.Running, step.Kind);
+        Assert.Equal(6, runner.Menu.Count);
+        Assert.NotNull(runner.Items);
+
+        // The resolver supplies the display name; an id it does not know falls back to the id
+        // itself rather than showing an empty row.
+        var rows = runner.Items!.Form;
+        Assert.Equal("Noble Glaive", rows.Field(ItemsFormFields.Name)!.Text);
+        Assert.Equal("Arrow",
+                     rows.Field(ItemsFormFields.Name + ItemsFormFields.RowOffset(1))!.Text);
+    }
+
+    [Fact]
+    public void Exit_finishes_a_treasure_event_without_taking_anything()
+    {
+        var runner = new EventRunner();
+        runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
+
+        // EXIT is the last of the six.
+        for (int i = 0; i < 5; i++)
+        {
+            runner.Handle(InputEvent.KeyDown(VirtualKey.Right));
+        }
+
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.NotEqual(EventStepKind.Running, step.Kind);
+        Assert.False(runner.TakeRequested);
+    }
+
+    [Fact]
+    public void Take_finishes_the_event_and_asks_the_host_to_hand_it_over()
+    {
+        // The runner owns no party, so it records the request and the host acts on it.
+        var runner = new EventRunner();
+        runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Right));   // VIEW -> TAKE
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.NotEqual(EventStepKind.Running, step.Kind);
+        Assert.True(runner.TakeRequested);
+    }
+
+    [Fact]
+    public void An_option_this_port_has_not_built_names_itself_and_leaves_the_event_open()
+    {
+        var runner = new EventRunner();
+        runner.Begin(Treasure("Glaive"), Font(), TextBoxMetrics.Default, Anchors);
+
+        // VIEW is first, and opens a character screen that does not exist yet.
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(EventStepKind.Running, step.Kind);
+        Assert.False(runner.TakeRequested);
+        Assert.Contains("VIEW", runner.Unimplemented ?? "", StringComparison.Ordinal);
+    }
 }

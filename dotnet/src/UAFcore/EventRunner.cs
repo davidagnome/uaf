@@ -98,6 +98,8 @@ public sealed class EventRunner
 
         Menu.Reset();
         Text.Clear();
+        Items = null;
+        TakeRequested = false;
 
         return gameEvent switch
         {
@@ -105,6 +107,7 @@ public sealed class EventRunner
             YesNoEvent yesNo => BeginYesNo(yesNo, anchors),
             NpcSaysEvent npc => BeginNpcSays(npc, anchors),
             QuestionEvent question => BeginQuestion(question, anchors),
+            TreasureEvent treasure => BeginTreasure(treasure, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
@@ -138,6 +141,96 @@ public sealed class EventRunner
         ShowText(text.Base.Text);
         return EventStep.Running;
     }
+
+    /// <summary>Resolves a carried item's id to its display name; set by the host.</summary>
+    /// <remarks>
+    /// An item's id is its <c>m_uniqueName</c> while the fuller <c>m_idName</c> is what a player
+    /// should see, so the list cannot be built from the event alone.
+    /// </remarks>
+    public Func<string, string?>? ItemNames { get; set; }
+
+    /// <summary>The treasure list, while a treasure event is on screen.</summary>
+    public ItemsForm? Items { get; private set; }
+
+    /// <summary>How many rows the treasure list shows at once (<c>Items_Per_Page</c>).</summary>
+    public const int TreasurePageSize = 8;
+
+    /// <summary>The menu index of TAKE, and of EXIT.</summary>
+    private const int TreasureTake = 1;
+    private const int TreasureExit = 5;
+
+    /// <summary>
+    /// <c>GIVE_TREASURE_DATA::OnInitialEvent</c>'s non-silent path (<c>RunEvent.cpp:6572</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The silent form never reaches here — it hands everything to the active character without
+    /// drawing anything, and <c>Game</c> consumes it before the runner is asked.
+    /// </para>
+    /// <para>
+    /// <b>Not ported from this screen:</b> the treasure picture, which comes from the zone rather
+    /// than the event, and the four menu entries that open screens of their own. Those name
+    /// themselves when chosen rather than doing nothing, so a design that relies on them says so.
+    /// </para>
+    /// </remarks>
+    private EventStep BeginTreasure(TreasureEvent treasure, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                       ("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0), ("DETECT", 0),
+                       ("EXIT", 1));
+
+        // The event's own text if it has any, and the engine's line if it does not.
+        string message = ArchiveStringConventions.Decode(treasure.Base.Text ?? string.Empty);
+        ShowText(message.Length > 0 ? message : "You Have Found Treasure!");
+
+        Items = new ItemsForm(TreasurePageSize);
+        var rows = new List<ItemsFormRow>();
+        foreach (var carried in treasure.Items.Items)
+        {
+            string name = ItemNames?.Invoke(carried.ItemId) ?? carried.ItemId;
+            rows.Add(new ItemsFormRow(string.Empty, carried.Quantity.ToString(), string.Empty,
+                                      name));
+        }
+
+        if (font is not null)
+        {
+            // No READY or COST column: this is a pile on the floor, not an inventory or a shop.
+            Items.Populate(font, rows, useReady: false, useCost: false);
+        }
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// The treasure menu (<c>GIVE_TREASURE_DATA::OnKeypress</c>, <c>RunEvent.cpp:6612</c>).
+    /// </summary>
+    private EventStep ChooseTreasure(TreasureEvent treasure)
+    {
+        int chosen = Menu.ActiveItem;
+
+        switch (chosen)
+        {
+            case TreasureTake:
+                TakeRequested = true;
+                return Complete(happened: true);
+
+            case TreasureExit:
+                return Complete(happened: true);
+
+            default:
+                // VIEW, POOL, SHARE and DETECT each push a screen this port has not built.
+                string label = chosen >= 0 && chosen < Menu.Count
+                    ? BitmapFont.Decode(Menu.Items[chosen].Text)
+                    : "treasure option";
+                Unimplemented = $"[{label} here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>
+    /// Set when the player chose TAKE, for the host to act on — the runner owns no party.
+    /// </summary>
+    public bool TakeRequested { get; private set; }
 
     /// <summary>
     /// <c>QUESTION_YES_NO::OnInitialEvent</c> (<c>RunEvent.cpp:6210</c>).
@@ -284,6 +377,7 @@ public sealed class EventRunner
         {
             QuestionEvent question => ChooseOption(question),
             YesNoEvent yesNo => ChooseYesNo(yesNo),
+            TreasureEvent treasure => ChooseTreasure(treasure),
             _ => Complete(happened: true),
         };
     }
@@ -357,6 +451,7 @@ public sealed class EventRunner
         }
 
         FormattedTextRenderer.DrawBox(destination, font, Text, Box.X, Box.Y);
+        Items?.Display(destination, font);
         MenuRenderer.Draw(destination, Menu, font);
     }
 }

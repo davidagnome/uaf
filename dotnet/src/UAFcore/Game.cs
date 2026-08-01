@@ -50,6 +50,10 @@ public sealed class Game
         screen = new Surface(width, height);
         LevelIndex = levelIndex;
 
+        // A carried item names its m_uniqueName; the fuller m_idName is what a player should see,
+        // so the treasure list cannot be built without the item database.
+        Runner.ItemNames = id => design.Item(id)?.Names.IdName;
+
         // The full level gives the wall sets, which sit after the event list; the map-only read is
         // the fallback for a level whose events cannot all be decoded, since movement needs the
         // grid and nothing else.
@@ -645,10 +649,22 @@ public sealed class Game
     /// <summary>Feeds input to the event on screen.</summary>
     private bool UpdateEvent(InputEvent input)
     {
+        var currentEvent = Runner.Current;
         var step = Runner.Handle(input);
+
         if (step.Kind == EventStepKind.Running)
         {
+            // A menu entry this port has not built reports itself rather than doing nothing.
+            Message = Runner.Unimplemented ?? Message;
             return true;
+        }
+
+        // TAKE has to be read before Apply resets the runner. The runner owns no party, so
+        // handing the treasure over is the host's job -- which is also why the silent form is
+        // consumed in ExecuteWithoutInput and never reaches the runner at all.
+        if (Runner.TakeRequested && currentEvent is TreasureEvent treasure)
+        {
+            GiveTreasure(treasure);
         }
 
         Apply(step);
