@@ -89,6 +89,8 @@ public static class CharacterSheetBuilder
             Abilities: Abilities(record.Abilities),
             Coins: Coins(character),
             ArmorClass: ArmorClassOf(character, items),
+            Weapon: WeaponOf(character, items)?.Names.IdName ?? string.Empty,
+            Damage: DamageOf(character, items),
             Thac0: Thac0Of(character, baseclasses),
             Encumbrance: Field(record.Encumbrance),
             Movement: Field(Movement(record)));
@@ -155,6 +157,97 @@ public static class CharacterSheetBuilder
     /// <c>NotReady</c> (<c>Items.h:122</c>) — the readied-location sentinel for an item in the pack.
     /// </summary>
     private static readonly uint NotReady = ReadiedLocation.Base38("NOTRDY");
+
+    /// <summary><c>Bow</c> and <c>Crossbow</c> (<c>Items.h:59</c>).</summary>
+    private const int BowType = 5;
+    private const int CrossbowType = 6;
+
+    /// <summary><c>AmmoQuiver</c> (<c>Items.h:113</c>) — the readied location for arrows.</summary>
+    private static readonly uint AmmoQuiver = ReadiedLocation.Base38("QUIVER");
+
+    /// <summary>Whether the shot leaves the wielder's hand, and so carries no strength behind it.</summary>
+    private static bool IsMissile(ItemRecord weapon, Character character)
+    {
+        if (weapon.Tail.WeaponType is not (BowType or CrossbowType))
+        {
+            return false;
+        }
+
+        foreach (var carried in character.Items)
+        {
+            if (carried.ReadyLocation == AmmoQuiver)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>The item readied in the weapon hand, or null.</summary>
+    /// <remarks>
+    /// <c>WeaponHand</c> is slot 0 of <c>ReadyItems</c>. The reference asks the slot rather than
+    /// scanning the pack, so a character carrying a better sword unreadied fights with neither.
+    /// </remarks>
+    private static ItemRecord? WeaponOf(Character character,
+                                        Func<string, ItemRecord?>? items)
+    {
+        if (items is null)
+        {
+            return null;
+        }
+
+        foreach (var carried in character.Items)
+        {
+            if (carried.ReadyLocation != NotReady
+                && items(carried.ItemId) is { } record
+                && record.Combat.DmgDiceSm > 0 && record.Combat.NbrDiceSm > 0)
+            {
+                return record;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The damage the readied weapon does (<c>getCharWeaponText</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>"{n}D{sides}"</c>, then <c>"+{bonus}"</c> when the bonus is positive. <b>A negative bonus
+    /// is not shown at all</b> — the reference tests <c>dmg_bonus &gt; 0</c> — so a weak character
+    /// with a penalty reads as though they had none.
+    /// </para>
+    /// <para>
+    /// The bonus is the weapon's own small-damage bonus plus the wielder's strength bonus. The
+    /// magical-item term (<c>max(Attack_Bonus, Dmg_Bonus_Sm)</c>, applied only to an identified
+    /// magical item) is <b>not</b> included, because "is this item magical" is a specab question
+    /// this port does not answer yet.
+    /// </para>
+    /// </remarks>
+    private static string DamageOf(Character character, Func<string, ItemRecord?>? items)
+    {
+        if (WeaponOf(character, items) is not { } weapon)
+        {
+            return string.Empty;
+        }
+
+        int bonus = weapon.Combat.DmgBonusSm;
+
+        // The strength bonus is added only to a weapon fired by hand. isMissile is set when the
+        // weapon is a bow or crossbow AND ammo is readied in the quiver -- so a bow with an empty
+        // quiver still gets the bonus, which reads like an oversight and is what the reference
+        // does (Char.cpp:6526).
+        if (!IsMissile(weapon, character))
+        {
+            bonus += Strength.DamageBonus(character.Record.Abilities.Strength,
+                                          character.Record.Abilities.StrengthMod);
+        }
+
+        string dice = $"{weapon.Combat.NbrDiceSm}D{weapon.Combat.DmgDiceSm}";
+        return (bonus > 0 ? $"{dice}+{bonus}" : dice).PadLeft(6);
+    }
 
     /// <summary>
     /// The character's armour class: dexterity plus everything it has readied.

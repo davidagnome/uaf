@@ -2282,9 +2282,33 @@ the sheet's five derived fields are now filled; only DAMAGE is left.
 > sheet, because `OwnsScreen` was still true underneath it; the sheet covers the screen art as
 > well as the roster.
 
-Still ahead in `GameRules.cpp`: DAMAGE, which needs weapon resolution and the strength tables, and
-then the spell-effect layer — the part that does not decompose into standalone tables, and the same
-machinery combat needs.
+Sixth: the **strength table** and **weapon damage**. **The character sheet is now complete** — all
+five derived fields carry real values.
+
+- **The strength table is generated from the C++ switch, not typed.** 24 rows of six numbers with
+  irregular bands in both directions is exactly where a hand-copied digit hides forever, so it was
+  extracted mechanically, the way `DesignVersion` and the GPDL opcode tables were. A test re-derives
+  it from `GameRules.cpp` at run time and compares, so the two cannot drift apart.
+- **`case 18` splits by percentile with an exact-zero case first**, then four bands, then everything
+  at 100 and up — the same shape as the encumbrance table and with different numbers.
+- **A negative damage bonus is never shown.** The reference tests `dmg_bonus > 0`, so a weak
+  character's penalty simply does not appear.
+- **`isMissile` is not "is this a bow".** It is set only when the weapon is a bow or crossbow **and**
+  ammo is readied in the quiver, so a bow with an empty quiver still collects the wielder's strength
+  bonus. That reads like an oversight; it is what the reference does.
+
+> **The missile rule was caught by rendering, after the tests passed.** The sheet showed
+> `DAMAGE 1D6+1` beside `Light Crossbow`, and a crossbow should carry no strength bonus at all —
+> the +1 was one this port had added. Fifth time this session that looking at the frame found
+> something a green suite did not.
+
+Not ported from this screen: the magical-item term, `max(Attack_Bonus, Dmg_Bonus_Sm)` applied to an
+identified magical item, because "is this item magical" is a specab question the port does not
+answer yet.
+
+The remaining boundary in `GameRules.cpp` is the **spell-effect layer**:
+`ApplySpellEffectAdjustments` is what every `GetAdj*` call routes through, nothing in the port
+models it, and it is the last thing between these rules and combat.
 
 - **"Base" means two different things in `MONEY_DATA_TYPE`, and they are different coins.**
   `COIN_TYPE::isBase` is a per-denomination flag the defaults set on **platinum**;
