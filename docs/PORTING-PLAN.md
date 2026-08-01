@@ -1541,10 +1541,12 @@ UI, not on their own logic. The other half — `Teleporter`, `GiveTreasure`, `Ga
 
 So, in order:
 
-1. ~~**Word-wrapped text into the config's `TEXTBOX` rectangle**~~ — **done**, see the section
-   below. The **menu system** at `DEFAULT_MENU_HORZ` / `DEFAULT_MENU_VERT` is the remaining half:
-   layout and input focus over the same font layer.
-2. **The events needing no UI**, which make designs partly playable without waiting for the menu.
+1. ~~**Word-wrapped text into the config's `TEXTBOX` rectangle, then the menu system**~~ —
+   **done**, both halves; see the two sections below. This was the piece blocking half the content
+   layer, and it no longer is.
+2. **The events needing no UI**, which make designs partly playable — and now, with text and menus
+   in place, **the events that were blocked on UI**: `QuestionButton`, `QuestionYesNo`,
+   `QuestionList`, `NPCSays` need nothing further from the media layer, only their own logic.
 3. **`EVENT_CONTROL`'s remaining pieces**: the chain that lets several events share a cell, and the
    happened/not-happened flags `PARTY` carries — the latter is what makes `OnceOnly` work, and it
    connects to the savegame, which already reads those flags. The trigger conditions themselves are
@@ -1598,6 +1600,47 @@ What the transcription turned up, none of it inferable from the structures:
 Verified by rendering: wrap at the box width, `/R` and `/G` tinting mid-line, and `/N` ending the
 box after its own line with `NextBox` revealing the second page. Colour is a draw-time tint over one
 atlas rather than the original's eleven rasterised faces, for the reasons in the Phase 3 notes.
+
+##### The menu layer, as ported
+
+`GameMenu.cpp`'s `CMyMenu` becomes `Menu` (items, selection, shortcuts), `MenuRenderer` (layout and
+draw), `MenuInput` (events → selection) and `MenuAnchors` (the config points). 44 tests. Verified by
+rendering both shapes a design actually uses: the horizontal bottom bar at `DEFAULT_MENU_HORZ` and a
+vertical question list at `DEFAULT_MENU_TEXTBOX`, with a title, a disabled entry and shortcut
+letters.
+
+- **Anchors are negative X values, not a field.** `MENU_DATA_TYPE::x` of −1, −2, −3 means
+  `DEFAULT_MENU_HORZ`, `_VERT`, `_TEXTBOX`; anything ≥ 0 is absolute (`GameMenu.cpp:1901`). Modelled
+  as an enum, because at the call site the sentinel reads as a bug.
+- **`DEFAULT_MENU_COMBAT_HORZ` has a real "absent" state.** It is pre-seeded to −1 and tested
+  `>= 0`, and when unset the combat menu falls back to the normal horizontal anchor rather than to
+  the origin. A plain zero-initialised point would put it in the corner.
+- **The item separation gains a space's width plus two — once, and only for a horizontal menu.**
+  `initCharSize` guards it, and is set *whether or not the adjustment applied*, so a menu laid out
+  vertically first and switched to horizontal never gets the wider gap (`GameMenu.cpp:1690`).
+- **An inline title shifts a vertical menu sideways, not down.** The title advances `x` by
+  `10 + separation + width` and never touches `y`, so on a column it sits to the *left* of the first
+  entry and pushes the whole list right. Confirmed by rendering: the question list's entries start
+  at x=147 against a menu anchored at x=20.
+- **Menu labels are the one place markup is not interpreted.** `DrawFont` disables font colour tags
+  for the duration and restores the setting afterwards (`GameMenu.cpp:1885`), so a label containing
+  `/R` draws those two characters.
+- **A shortcut letter or a mouse click chooses an entry outright.** Both select it and then push a
+  synthetic `VK_RETURN` (`RunEvent.cpp:619`, `:775`) — one keystroke moves *and* confirms.
+- **All four arrows drive every menu regardless of orientation.** Up/left step back, down/right
+  forward, with no orientation test (`RunEvent.cpp:657`). A bottom bar responds to up and down.
+- **`FirstLettersUnique` lets disabled entries collide.** Its outer loop skips them and its inner
+  loop does not, so a hidden "Barter" suppresses the shortcut on a visible "Buy" — for the whole
+  menu, not just that pair. Real menus hit this: the adventure bar has both "Cast" and "Camp", which
+  is what `AttemptToCreateUniqueShortcut` exists to resolve, letter by letter.
+- **`activeItem == -314159` means "nothing selected"** and is checked by identity in three places.
+  Kept as a sentinel rather than made nullable, since it is compared directly and event flow sets it.
+- **Indices are 1-based in `setCurrentItem`, `getMenuItem` and `isItemActive`, 0-based in
+  `activeItem`.** The 1-based entry points are named as such here rather than quietly unified; note
+  `setCurrentItem`'s guard is `item > 0`, so passing 0 does nothing at all.
+- The selection is drawn reverse video. The original gets this from a `HighlightFont` rasterised
+  black-on-*white* and drawn opaquely (`GlobalData.cpp:5918`); a tinted atlas has no background
+  pixels to carry it, so the port fills the bar and draws the glyphs over it.
 
 ##### A caution that is worth more than any of the above
 
