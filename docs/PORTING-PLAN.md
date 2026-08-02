@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,011 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,029 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2682,10 +2682,10 @@ across it.
 of the aftermath rather than in `Game` — the decision is aftermath logic, and putting it there makes
 it directly testable rather than reachable only by driving a whole fight.
 
-##### The archive writer's byte layer, as ported
+##### The archive writer's first two layers, as ported
 
-`MfcArchiveWriter` — the exact inverse of `MfcArchiveReader`, and **the first piece of the writer
-Phase 1 has been missing**. Everything above it has a reader and no counterpart, which is why the
+`MfcArchiveWriter` — the exact inverse of `MfcArchiveReader` — and `AslWriter` on top of it.
+**The first pieces of the writer Phase 1 has been missing.** Everything above it has a reader and no counterpart, which is why the
 round-trip exit criterion is unmet and why Phase 5 cannot start.
 
 The tests read back everything the writer writes. The reader is the specification: it was diffed
@@ -2704,6 +2704,27 @@ writers on top of this.
 - **A string's length is in bytes, not characters.** Windows-1252 makes those the same for
   everything it can encode, but a character it cannot becomes a single `?`, so the count has to come
   from the encoded bytes rather than from the string.
+
+**The first record-level writer on top of it is `AslWriter`**, chosen because ASL is the leaf every
+other record ends with — nothing above it can be written until this can. All three write paths are
+there: `Serialize` (everything, what a design file holds), `Save` (skipping read-only, what a
+savegame holds) and the 32-bit-count `DeSerialize` form that `races.dat` uses.
+
+> **The savegame count must be of the filtered set, not the whole one.** The reference walks the
+> list twice for exactly this reason and asserts the two agree afterwards. Counting everything and
+> writing some produces a file that reads back cleanly with silently missing attributes — which is
+> the failure that assert exists to catch.
+
+> **Only the uncompressed path can be written.** The compressed one applies a key fixup on read
+> that is **not invertible**: it maps every character below `0x20` up by `0x20`, so a key read as
+> `'%'` could have been written as `'%'` or as `0x05`. A compressed writer cannot be derived from
+> the reader; it needs the pre-fixup key, which only the producing code knows.
+
+> **Where the real blocks are is not where you would look.** Round-tripping against shipped designs
+> found that **every monster carries an ASL block** — 195 of 195 in `SomethingWild`, 44 of 44 in
+> `ci-tier3` — while **no item in any design does**, and only four spells in one. The first draft of
+> the corpus test used items and passed by finding nothing; the guard assertion beside it,
+> asserting the corpus is non-empty, is what caught that and is why it stays.
 
 ##### Spell effects on a character outside combat, as ported
 
@@ -4437,12 +4458,12 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The rest of the archive writer.** The byte layer is done (§the archive writer's byte layer);
-   what is missing is a writer per record type, mirroring each reader. It is the largest structural
-   gap in the port: it gates Phase 1's round-trip exit criterion, save games, and Phase 5 entirely.
-   The order that proves the most soonest is probably a small tagged database — items or spells —
-   because a round-trip against a real `.dat` is a far stronger check than anything the byte layer
-   alone can assert.
+1. **The rest of the archive writer.** The byte layer and the ASL leaf are done
+   (§the archive writer's first two layers); what is missing is a writer per record type, mirroring
+   each reader. It is the largest structural gap in the port: it gates Phase 1's round-trip exit
+   criterion, save games, and Phase 5 entirely. `SpecabBlock` is the next leaf — every record writes
+   it immediately before its ASL — and then a whole database, of which **monsters** is the best
+   first target: it is the one whose records the corpus proves carry real ASL content.
 2. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
