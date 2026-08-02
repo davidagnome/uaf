@@ -789,6 +789,19 @@ public sealed class Game
             case GainExperienceEvent gain:
                 return GainExperience(gain);
 
+            // UTILITIES_EVENT_DATA presents nothing: OnInitialEvent clears the menu and OnIdle
+            // does the arithmetic and chains. endPlay pushes EXIT_DATA, which is how a design
+            // ends the game -- there is no other route to it.
+            case UtilitiesEvent utilities:
+                var outcome = Utilities.Run(utilities, World);
+                if (outcome.EndsPlay)
+                {
+                    Running = false;
+                    Message = "[the design ends play here]";
+                }
+
+                return true;
+
             default:
                 return null;
         }
