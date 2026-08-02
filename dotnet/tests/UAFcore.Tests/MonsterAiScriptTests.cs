@@ -97,9 +97,41 @@ public class MonsterAiScriptTests
     [Fact]
     public void A_reach_of_one_is_melee_and_anything_longer_is_ranged()
     {
-        // 4r^2 > 9 holds from r >= 2. The split is made on the weapon, not on the target.
+        // Nine is (2*1+1)^2 -- exactly a reach of one -- and the test excludes it.
         Assert.False(MonsterAiScript.IsRangedWeapon(1));
         Assert.True(MonsterAiScript.IsRangedWeapon(2));
+    }
+
+    [Fact]
+    public void A_weapons_reach_uses_a_different_transform_from_a_distance()
+    {
+        // A distance is (2d)^2; a range is (2r+1)^2 -- half a square longer before squaring. They
+        // are compared directly anyway, and the half-square is what makes a reach of r cover a
+        // distance of exactly r.
+        Assert.Equal(9, MonsterAiScript.WeaponRange22(1));
+        Assert.Equal(25, MonsterAiScript.WeaponRange22(2));
+        Assert.Equal(4, D22(1));
+    }
+
+    [Fact]
+    public void A_reach_of_r_covers_a_distance_of_exactly_r()
+    {
+        for (int r = 1; r <= 6; r++)
+        {
+            Assert.True(MonsterAiScript.WeaponRange22(r) >= D22(r),
+                        $"reach {r} should cover distance {r}");
+            Assert.True(MonsterAiScript.WeaponRange22(r) < D22(r + 1),
+                        $"reach {r} should not cover distance {r + 1}");
+        }
+    }
+
+    [Fact]
+    public void A_reach_above_ninety_is_effectively_unlimited_rather_than_its_square()
+    {
+        // The clamp comes first, so the formula's 32761 is never produced.
+        Assert.Equal(MonsterAiScript.UnlimitedRange,
+                     MonsterAiScript.WeaponRange22(MonsterAiScript.UnlimitedRangeAbove + 1));
+        Assert.Equal(181 * 181, MonsterAiScript.WeaponRange22(90));
     }
 
     // ---- the filters ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,869 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,882 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,38 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### What the AI is told it can attack with, as ported
+
+`ListWeapons`, `ListAttacks` and `GetWeaponRange` (`Combatant.cpp:1142`, `:1308`, `:1089`).
+`UAFcore/AiWeapons.cs`. **The scripted AI now runs in a real fight** — `CombatSession` hands
+`MonsterAi` the acting combatant's weapons, and the ordering (§the monster AI's priority ordering)
+picks the action.
+
+Two lists, kept separate because they behave differently: carried **weapons**, which are items
+readied in the weapon hand, and natural **attacks**, which a monster's record supplies.
+
+> **A weapon's reach and a combatant's distance use different transforms, and are compared
+> directly.** A distance is `(2d)²` (§the monster AI's priority ordering); a reach is
+> **`(2r + 1)²`** (`Combatant.cpp:1135`) — half a square longer before squaring. `TooFar?` compares
+> them anyway, and the half-square is exactly what makes a reach of `r` cover a distance of `r`:
+> `(2r+1)² < (2d)²` reduces to `r < d − ½`, which for whole squares is `r < d`. Using one transform
+> for both happens to give the same answers for integer ranges, which is how it survives casual
+> checking. **A reach above 90 becomes 32767** rather than its square — the clamp comes first, so
+> the formula's 32761 is never produced.
+
+> **The natural-attack damage estimate has its dice operands transposed.** `ListAttacks` computes
+> `5 × ((1 + nbr) × sides + 2 × bonus)`; `ListWeapons` computes `5 × ((1 + sides) × nbr)`. The
+> `1 +` lands on the die *count* instead of the die *size*. The bonus term is right in both — the
+> outer 5 turns `2 × bonus` into `10 × bonus`. Only the dice are swapped, and the effect is
+> systematic: `1d8` and `3d2` both average 4.5, and the estimate calls them **80 and 40**. The AI
+> overrates few-but-large dice and underrates many-but-small ones — a dragon's bite against a
+> swarm's nibbles. Nothing else reads the number, so it only ever changes which natural attack the
+> AI prefers. Reproduced.
+
+Only items in the weapon-hand slot count. The reference additionally asks `CanReady` — class
+restrictions, curses, hands free — which this port does not model yet, so every weapon-hand item is
+taken.
+
 ##### Enumerating the AI's candidate actions, as ported
 
 `ListActions` and its three children (`Combatant.cpp:1770`, `:1522`, `:1619`, `:1649`) — building
@@ -4156,20 +4188,18 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **Giving the AI a weapon list.** The ordering and the candidate enumeration are both ported and
-   tested (§the monster AI's priority ordering, §enumerating the AI's candidate actions), and
-   `MonsterAi.Think` follows them when handed an `AiWeapon` list — but nothing builds that list
-   from a monster's readied items yet, so combat still takes the simple path. That needs
-   `ListWeapons`/`ListAmmo`/`ListAttacks` (`Combatant.cpp:1380`) and the monster record's attack
-   block.
-2. **The `"Combat Result"` ASL**, and the ASL layer generally. The aftermath computes the verdict
+1. **The `"Combat Result"` ASL**, and the ASL layer generally. The aftermath computes the verdict
    and the spoils (§the combat aftermath) but nothing stores them where a design's scripts look.
    That is the same gap as the GPDL hooks below, reached from the other end.
-3. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
+2. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
    reports them in the message line and drops them. The treasure screen itself exists (§Phase 4).
+3. **`ListAmmo`** — ammunition is enumerated separately in the reference (`Combatant.cpp:1214`),
+   which is how a bow's damage estimate picks up its arrows'. This port ranks a bow on its own
+   damage alone, so two bows with different ammunition rank equal.
 4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
-   (§the monster AI's priority ordering). What still needs it: a design that edits `AI_Script.BLK`,
+   (§the monster AI's priority ordering), and that script's decision function now runs in combat.
+   What still needs it: a design that edits `AI_Script.BLK`,
    the `TURN_ATTEMPT` hook that turning undead depends on
    (§turning, delaying and automatic), and a monster's own choice of spell targets
    (§choosing a spell's targets).

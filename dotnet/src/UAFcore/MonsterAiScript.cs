@@ -160,17 +160,51 @@ public static class MonsterAiScript
     public const int JudoMaximumDistance = 8;
 
     /// <summary>
+    /// A weapon's reach in the units the filters compare against
+    /// (<c>GetWeaponRange</c>, <c>Combatant.cpp:1130</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>This is <c>(2r + 1)²</c>, which is not the transform
+    /// <see cref="DistanceBetween"/> uses.</b> A distance is <c>(2d)²</c>; a range is
+    /// <c>(2r + 1)²</c> — half a square longer before squaring. The two are nonetheless compared
+    /// directly (<c>TooFar?</c> is <c>W:Range &lt; C:Distance</c>), and the half-square is what
+    /// makes a reach of <c>r</c> cover a distance of exactly <c>r</c>: <c>(2r+1)² &lt; (2d)²</c>
+    /// reduces to <c>r &lt; d − ½</c>, which for whole squares is <c>r &lt; d</c>.
+    /// <para>
+    /// <b>A reach above 90 becomes 32767 rather than its square</b>, which is effectively
+    /// unlimited and is not what the formula would have given (32761). The clamp comes first.
+    /// </para>
+    /// </remarks>
+    public static int WeaponRange22(int range)
+    {
+        if (range > UnlimitedRangeAbove)
+        {
+            return UnlimitedRange;
+        }
+
+        int scaled = (2 * range) + 1;
+        return scaled * scaled;
+    }
+
+    /// <inheritdoc cref="WeaponRange22"/>
+    public const int UnlimitedRangeAbove = 90;
+
+    /// <inheritdoc cref="WeaponRange22"/>
+    public const int UnlimitedRange = 32767;
+
+    /// <summary>
     /// The smallest <c>range22</c> that counts as a ranged weapon
     /// (<c>pWeapon-&gt;range22 &gt; 9</c>, <c>Combatant.cpp:1592</c>).
     /// </summary>
     /// <remarks>
-    /// <c>4r² &gt; 9</c> holds from <c>r ≥ 2</c>, so a reach-1 weapon is melee and everything
-    /// longer is ranged. The split is made on the <i>weapon</i>, not on how far the target is.
+    /// Nine is <c>(2·1 + 1)²</c> — exactly a reach of one — so the test excludes it and a reach-1
+    /// weapon is melee while anything longer is ranged. The split is made on the <i>weapon</i>,
+    /// not on how far the target happens to be.
     /// </remarks>
     public const int RangedWeaponThreshold = 9;
 
     /// <summary>Whether a weapon of this reach is treated as ranged rather than melee.</summary>
-    public static bool IsRangedWeapon(int range) => 4 * range * range > RangedWeaponThreshold;
+    public static bool IsRangedWeapon(int range) => WeaponRange22(range) > RangedWeaponThreshold;
 
     /// <summary>
     /// Whether an action survives its filter (the five <c>*Filter</c> words).

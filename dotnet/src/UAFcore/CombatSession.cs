@@ -154,6 +154,29 @@ public sealed class CombatSession
 
     private Func<Combatant, IReadOnlyDictionary<string, int>>? turnAttempt;
 
+    /// <summary>
+    /// Looks up a monster's record, for the AI's view of its natural attacks.
+    /// </summary>
+    public Func<string, MonsterRecord?>? MonsterInfo { get; set; }
+
+    /// <summary>
+    /// What the AI is told this combatant can attack with, or null to fall back to the simpler
+    /// rule.
+    /// </summary>
+    /// <remarks>
+    /// Null when neither database is available — a session built by a test without design data
+    /// still fights, on <see cref="MonsterAi"/>'s own rule rather than the script's ordering.
+    /// </remarks>
+    private IReadOnlyList<AiWeapon>? WeaponsFor(Combatant actor)
+    {
+        if (ItemInfo is null && MonsterInfo is null)
+        {
+            return null;
+        }
+
+        return AiWeapons.For(actor, MonsterInfo?.Invoke(actor.Name), ItemInfo);
+    }
+
     /// <summary>The design's turning record for a combatant. Null means it is not undead.</summary>
     public Func<Combatant, TurnData?>? TurnDataOf { get; set; }
 
@@ -893,7 +916,7 @@ public sealed class CombatSession
 
     private void RunAutoTurn(Combatant actor)
     {
-        var plan = MonsterAi.Think(actor, combatants, Map, CanAttack);
+        var plan = MonsterAi.Think(actor, combatants, Map, CanAttack, WeaponsFor(actor));
 
         switch (plan.Decision)
         {

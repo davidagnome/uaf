@@ -132,7 +132,7 @@ public static class AiActions
                                           int distance, bool friendly, bool judoMeleeOnly,
                                           bool attacksTheDying)
     {
-        int range22 = 4 * weapon.Range * weapon.Range;
+        int range22 = MonsterAiScript.WeaponRange22(weapon.Range);
 
         AiActionType type;
         switch (weapon.Class)
