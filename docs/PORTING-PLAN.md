@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,752 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,769 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,39 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Lingering spells, as ported
+
+`SPELL_LINGER_DATA` and `ProcessLingeringSpellEffects` (`Spell.h:1068`, `Char.cpp:18158`) — a spell
+left standing on the map. `UAFcore/LingeringSpells.cs`, wired into `CombatSession`. About a fifth of
+the spells in the shipped designs set the flag (78 / 9 / 61 of 377 / 117 / 318).
+
+- **The check runs per round, not per move** (`Combatants.cpp:4605`, inside `StartNewRound`): every
+  combatant on the map is tested against every lingering spell at the head of a round. A combatant
+  that walks into a cloud and out again within one round is **never caught by it**; one that ends
+  the round standing in it is caught at the start of the next.
+- **Any one square of a footprint is enough.** The test walks the spell's squares looking for one
+  inside the combatant's box, so a cloud touching only the corner of a large monster catches it.
+- **"Once only" means once per combatant, not once in total.** `EligibleTarget` returns
+  `!OnceOnly` for someone already caught and `TRUE` for someone new — so a once-only cloud keeps
+  catching fresh arrivals forever, and only stops repeating on the same victim.
+- **Catching is a side effect of asking.** `ActivateLingerSpellsOnTarget` adds the target to each
+  spell's list as it activates it, which is the only thing that makes once-only work.
+- **Only a combat cast lingers.** The reference stores
+  `IsCombatActive() ? pSdata->Lingers : FALSE` (`Char.cpp:16324`) — a spell cast in camp leaves
+  nothing behind however its record is authored, because there is no map to leave it on.
+
+> **A lingering spell blocks movement by default.** `BlocksCombatant` sets its answer to "blocks"
+> and only clears it when the `SPELL_LINGER_BLOCKAGE` script explicitly returns `'N'`
+> (`Spell.cpp:7787`). A design that writes no blockage script gets a wall of fire that really is a
+> wall. Getting this default backwards would let everybody walk through every cloud, and nothing in
+> a test of the spell's own effects would notice.
+
+`ProcessLingeringSpellEffects` re-rolls and re-applies every effect on a character that is *not*
+flagged `EFFECT_ONCEONLY` — the naming inverts again, since that flag means "affect the target once
+rather than once per round", so *not* once-only is the repeating case. That re-application is
+driven here by the round-head pass rather than by walking each character's effect list, which is
+the same work reached from the other end.
+
 ##### Choosing a spell's targets, as ported
 
 `SPELL_TARGETING_DATA` and `COMBAT_SPELL_AIM_MENU_DATA` (`Spell.h:340`, `RunEvent.cpp:20176`) — the
@@ -3911,22 +3944,20 @@ a map derived from the dungeon, `CombatRound` + `TurnQueue` order the turns, `Mo
 monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack` resolve the
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
-art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
-begin a spell, end. Read the twenty "as ported" sections under §7 Phase 4 before touching any of
-it.
+art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage, cast,
+end — and **casting is complete**: the clock, saving throws, all ten targeting modes, the area
+geometry, the effects and the clouds a spell leaves behind. Read the twenty-one "as ported"
+sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The lingering-spell area effects** that movement and the round both call and neither has
-   (`SPELL_LINGER_DATA`). The `Lingers` flag is read and stored and nothing acts on it; about a
-   fifth of the spells in the shipped designs set it.
-2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
+1. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
    ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
    invocation.
-3. **The Forth VM**, which unlocks the scripted AI — and with it a monster's own choice of spell
-   and targets, which this port currently approximates (§choosing a spell's targets) (§the monster AI section) and is the last large
-   unported subsystem in Phase 2.
-4. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
+2. **The Forth VM** (§the monster AI section) — the last large unported subsystem in Phase 2. It
+   unlocks the scripted AI, and with it a monster's own choice of spell and targets, which this
+   port currently approximates (§choosing a spell's targets).
+3. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
    read. `CombatSession` reports the verdict; nothing consumes it yet.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`

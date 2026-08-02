@@ -126,6 +126,9 @@ public sealed class CombatSession
     /// <summary>Spells begun but not yet resolved.</summary>
     public PendingSpellList Pending { get; } = new();
 
+    /// <summary>Spells left standing on the map.</summary>
+    public LingeringSpellList Lingering { get; } = new();
+
     /// <summary>
     /// Whether the encounter forbids magic (<c>CombatEvent.NoMagic</c>). Greys out CAST.
     /// </summary>
@@ -340,6 +343,9 @@ public sealed class CombatSession
         // fresh turns are handed out, so the caster's restored turn is the one it keeps.
         ServicePendingSpells(roundInc: 1, Round.CurrentInitiative);
 
+        // Anyone standing in a cloud is caught by it now, at the head of the round.
+        ApplyLingeringSpells();
+
         Acting = CombatMap.NoDude;
         CheckOutcome();
     }
@@ -420,10 +426,12 @@ public sealed class CombatSession
             }
         }
 
+        int key = nextActiveSpellKey++;
         var hits = SpellResolution.InvokeAll(actor, targets, record, dice,
                                              elapsedMinutes: Round.Round,
-                                             activeSpellKey: nextActiveSpellKey++,
-                                             casterLevel: 1);
+                                             activeSpellKey: key, casterLevel: 1);
+
+        LeaveLingering(actor, record, key);
 
         int landed = hits.Count(h => h.Outcome == SpellOutcome.Applied);
         Message = targets.Count == 0
@@ -435,6 +443,70 @@ public sealed class CombatSession
 
     /// <summary>One key per cast, so every target of it expires together.</summary>
     private int nextActiveSpellKey;
+
+    /// <summary>The squares the last area cast covered, so a lingering one can keep them.</summary>
+    private List<(int X, int Y)>? lastAreaSquares;
+
+    /// <summary>
+    /// Leaves an area cast standing on the map, when the spell says it should.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only a combat cast lingers.</b> The reference stores
+    /// <c>IsCombatActive() ? pSdata-&gt;Lingers : FALSE</c> (<c>Char.cpp:16324</c>) — a spell cast
+    /// in camp leaves nothing behind however its record is authored, because there is no map to
+    /// leave it on. Every cast here is a combat cast, so the flag alone decides it.
+    /// </remarks>
+    private void LeaveLingering(Combatant actor, SpellRecord record, int key)
+    {
+        if (record.Lingers == 0 || lastAreaSquares is not { Count: > 0 } squares)
+        {
+            lastAreaSquares = null;
+            return;
+        }
+
+        var spell = Lingering.Add(key, record.Name, actor.Index,
+                                  record.LingerOnceOnly != 0, squares);
+
+        // Whoever the cast just hit counts as already caught, so a once-only spell does not catch
+        // them again at the head of the next round.
+        foreach (int caught in SpellArea.CombatantsIn(Map, squares))
+        {
+            spell.Catch(caught);
+        }
+
+        lastAreaSquares = null;
+    }
+
+    /// <summary>
+    /// Catches whoever is standing in a lingering spell at the head of a round
+    /// (<c>Combatants.cpp:4605</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>This runs per round, not per move.</b> A combatant that walks into a cloud and out again
+    /// within one round is never caught by it; one that ends the round standing in it is caught at
+    /// the start of the next.
+    /// </remarks>
+    private void ApplyLingeringSpells()
+    {
+        if (Lingering.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var c in combatants.Where(c => c.IsOnCombatMap()))
+        {
+            foreach (var spell in Lingering.Catch(c.Index, c.X, c.Y,
+                                                  c.Icon.Width, c.Icon.Height))
+            {
+                if (spellInfo?.Invoke(spell.SpellId) is { } record)
+                {
+                    SpellResolution.Invoke(combatants[spell.Caster], c, record, dice,
+                                           elapsedMinutes: Round.Round,
+                                           activeSpellKey: spell.Key);
+                }
+            }
+        }
+    }
 
     /// <summary>The cast a player is currently choosing targets for, or null.</summary>
     public SpellTargetSelection? Selecting { get; private set; }
@@ -674,6 +746,7 @@ public sealed class CombatSession
                                              Map.Width, Map.Height),
                 };
 
+                lastAreaSquares = squares;
                 return [.. SpellArea.CombatantsIn(Map, squares).Select(i => combatants[i])];
             }
         }

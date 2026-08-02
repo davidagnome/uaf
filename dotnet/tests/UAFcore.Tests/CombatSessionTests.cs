@@ -105,6 +105,31 @@ public class CombatSessionTests
             CastMessage: string.Empty, Scripts: [],
             EffectDuration: Dice("3"), SpecialAbilities: null!, Attributes: []);
 
+    /// <summary>A circle centred on the cursor that stays on the map afterwards.</summary>
+    private static SpellRecord CloudSpell(string id) =>
+        new(0, id, string.Empty, string.Empty, [],
+            Level: 1, CastingTime: 0, CastingTimeType: (int)SpellCastingTime.Rounds,
+            CanTargetFriend: 1, CanTargetEnemy: 1, IsCumulative: 1, Restrictions: 0,
+            CanBeDispelled: 1, CanMemorize: 1, AllowScribe: 0, AutoScribe: 0,
+            Lingers: 1, LingerOnceOnly: 0, SaveVersus: 0,
+            SaveResult: (int)UAF.Rules.SaveResult.NoSave,
+            Targeting: (int)SpellTargeting.AreaCircle,
+            DurationRate: (int)UAF.Rules.SpellDurationRate.InRounds, CastCost: 0, CastPriority: 0,
+            Parameters: [], Effects: [CumulativeEffect()], CastArt: null, Art: [], Sounds: [],
+            CastMessage: string.Empty, Scripts: [],
+            EffectDuration: Dice("9"), SpecialAbilities: null!, Attributes: []);
+
+    private static UAF.Serialization.SpellEffect CumulativeEffect() =>
+        new("$CHAR_HITPOINTS",
+            (uint)(UAF.Rules.SpellEffectFlags.Target | UAF.Rules.SpellEffectFlags.Cumulative),
+            0, string.Empty, 0, 0, [], 0, 0, Dice("-1"));
+
+    /// <summary>A player-run fight whose spell leaves a cloud behind.</summary>
+    private static CombatSession CloudSession() =>
+        CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                            Party(2, auto: false), _ => Orc(), Roll(10),
+                            spellInfo: CloudSpell);
+
     /// <summary>A player-run fight whose spell needs its targets naming.</summary>
     private static CombatSession PickTwoSession() =>
         CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
@@ -777,6 +802,48 @@ public class CombatSessionTests
 
         Assert.Contains(session.Combatants, c => c.Effects.Count > 0);
         Assert.Null(session.Selecting);
+    }
+
+    [Fact]
+    public void A_lingering_spell_stays_on_the_map_and_catches_people_later()
+    {
+        var session = WithSpells(CloudSession(), "stinking cloud");
+        var actor = CastFirstSpell(session);
+
+        // Wait for the cast to come due and resolve; it leaves a cloud where the cursor was.
+        RunUntil(session, () => session.Lingering.Count > 0);
+        Assert.Equal(1, session.Lingering.Count);
+
+        var cloud = session.Lingering.Spells[0];
+        Assert.NotEmpty(cloud.Squares);
+        Assert.Equal("stinking cloud", cloud.SpellId);
+
+        // Stand somebody in it who was not there when it went off, and let a round roll over.
+        var victim = session.Combatants.First(c => c.Index != actor.Index
+                                                   && !cloud.Caught.Contains(c.Index));
+        var (cx, cy) = cloud.Squares.First();
+        session.Map.Remove(victim.X, victim.Y, victim.Icon.Width, victim.Icon.Height);
+        victim.X = cx;
+        victim.Y = cy;
+        session.Map.Place(cx, cy, victim.Index, victim.Icon.Width, victim.Icon.Height);
+        int before = victim.Effects.Count;
+
+        int round = session.Round.Round;
+        RunUntil(session, () => session.Round.Round > round && victim.Effects.Count > before);
+
+        Assert.Contains(victim.Index, cloud.Caught);
+        Assert.True(victim.Effects.Count > before);
+    }
+
+    [Fact]
+    public void A_spell_that_does_not_linger_leaves_nothing_behind()
+    {
+        var session = WithSpells(SelfSpellSession(), "shield");
+        CastFirstSpell(session);
+
+        RunUntil(session, () => session.Combatants.Any(c => c.Effects.Count > 0));
+
+        Assert.Equal(0, session.Lingering.Count);
     }
 
     [Fact]
