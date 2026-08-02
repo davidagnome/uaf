@@ -55,9 +55,7 @@ public class CombatGoldenFrameTests
         int roll = 0;
         var game = new Game(design, levelIndex: 1) { Dice = sides => ((roll++ * 7) % sides) + 1 };
 
-        var start = typeof(Game).GetMethod("StartEvent",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        start.Invoke(game, [combat]);
+        game.StartEvent(combat);
 
         for (int i = 0; i < steps && game.InCombat; i++)
         {

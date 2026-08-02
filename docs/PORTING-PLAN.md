@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,920 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,927 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2627,6 +2627,26 @@ porting what the program decides is a table. Two facts make the second reasonabl
 VM is still worth building — but it is a smaller prize than "the scripted AI is unported" suggested,
 and this is why.
 
+##### Driving a design through a fight, as tested
+
+`GameCombatTests` — the first tests that walk a real design through a whole encounter: start, rounds,
+verdict, spoils, and the engine handed back. Everything else about combat is unit-tested; this
+covers the **sequencing through `Game.Update`**, which is where the ordering bugs have been.
+
+Three things a future reader will hit trying to write one of these:
+
+- **Most combat events sit at (−1, −1).** They are chained to, not stepped on, so a party cannot be
+  walked onto one. `Game.StartEvent` is public for this — events are reached by chains and, later,
+  by scripts, not only by walking. It had been reached by reflection before
+  (`BindingFlags.NonPublic`) in the golden-frame test, which is the same need answered worse.
+- **Party members are player-run, so every turn of theirs must be driven to END.** Pressing Return
+  blindly re-selects MOVE, which fails with nowhere to go and never ends the turn — the fight then
+  makes no progress at all and the test times out looking like a hang.
+- **A fight where nobody ever hits does not end.** Rolling a 1 for everything does not produce a
+  stalemate: the idle rule keys on *attacking*, not on hitting, so two sides swinging and missing
+  are never idle. A test written to assert termination under those dice is asserting the opposite
+  of the rule.
+
 ##### The treasure a fight leaves, as ported
 
 The treasure half of the combat results screen (`RunEvent.cpp:19795`) — the fallen's possessions now
@@ -4275,12 +4295,7 @@ What is left, in order:
    it (§the attribute store), but no script layer consults it — that is the GPDL gap below, reached
    from the other end. The per-character, per-event and per-item stores are read off the wire and
    not yet held at runtime either; only the global one is.
-2. **An end-to-end test that drives a design through a fight.** `GameTests` does not run combat at
-   all: it reads design data and exercises events, but nothing walks a party onto a combat event,
-   fights it to a verdict and comes out the other side. The decisions either side of that are now
-   unit-tested (§the treasure a fight leaves, §the combat aftermath); what is untested is the
-   sequencing through `Game.Update`, which is where the last two ordering bugs were.
-3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
+2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
    What still needs it: a design that edits `AI_Script.BLK`,

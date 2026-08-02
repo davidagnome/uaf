@@ -653,8 +653,19 @@ public sealed class Game
         }
     }
 
-    private void StartEvent(IGameEvent gameEvent)
+    /// <summary>
+    /// Runs an event, as stepping onto one or chaining to one does
+    /// (<c>PushEvent</c>, <c>RunEvent.cpp</c> throughout).
+    /// </summary>
+    /// <remarks>
+    /// Public because events are not only reached by walking: a chain reaches them, and a design's
+    /// scripts will too. It is also the only way to drive a fight without walking a party to it —
+    /// most combat events sit at (−1, −1), meaning they are chained to rather than stepped on.
+    /// </remarks>
+    public void StartEvent(IGameEvent gameEvent)
     {
+        ArgumentNullException.ThrowIfNull(gameEvent);
+
         CurrentEvent = gameEvent;
 
         if (gameEvent is CombatEvent combat && StartCombat(combat))
