@@ -9,15 +9,15 @@ corpus parses, diffed against the oracle — and **the writer has started**: the
 shared leaves and the first whole record type, monsters, which round-trips all 570 records in the
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
-running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
-event types, presents the treasure and character screens, and sets up a combat encounter with the
+running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
+event types and executes eleven of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,090 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,121 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2750,6 +2750,60 @@ modern block does run off the end rather than quietly finding nothing.
 > the corpus test used items and passed by finding nothing; the guard assertion beside it,
 > asserting the corpus is non-empty, is what caught that and is why it stays.
 
+##### The event layer, as ported
+
+**Every one of the 44 event types now has a reader.** The eleven that were missing —
+`Damage`, `EncounterEvent`, `EnterPassword`, `HealParty`, `JournalEvent`, `PlayMovieEvent`,
+`SmallTown`, `TakePartyItems`, `TavernTales`, `Vault` and `WhoTries` — are in
+`EncounterEventReader`, `PartyEffectEventReaders`, `TrialEventReaders` and `MoreEventReaders`.
+Only three ordinals have no body, for two distinct reasons: `NoEvent` produces no object by
+design, and `InnEvent` and `GPDLEvent` reach `die(0xab51a)` in `CreateNewEvent` — the first
+commented "never", the second not in the switch at all — so neither can occur in a design the
+reference could load.
+
+> **These eleven are the weakest-verified readers in the port, and the reason is structural.** The
+> six level-bearing designs in the corpus hold 6,234 events and use **27** of the 44 types.
+> Every one of the eleven appears **zero** times. `EventWalkTests` — the marker-counting drift
+> detector that is what actually proves the other readers — cannot reach them at all.
+
+What stands in for a corpus, given a synthetic fixture can only pin a convention and never
+discover one:
+
+- **Each field list was cross-checked against the type's `Export(JWriter&)`**, a *separate*
+  description of the same record written independently of `Serialize`. That is what confirms
+  nothing is missing or invented, and it is how `PASSWORD_DATA::matchCase` was pinned as
+  exported-but-not-serialized — a field a reader written from the class declaration would insert
+  four bytes for.
+- **Every test asserts the stream lands exactly at the end of what it wrote**, so a wrong width
+  fails as a length error rather than as a plausible value.
+
+The traps found, all of the same family — **a `BYTE` among 4-byte `BOOL`s**, which is what the
+declarations interleave and `Serialize` hides: `HEAL_PARTY_DATA.chance` and `LiteralOrPercent`,
+`TAKE_PARTY_ITEMS_DATA.takeItems` and `WhichVault`, `VAULT_EVENT_DATA.WhichVault`,
+`WHO_TRIES_EVENT_DATA.strBonus` (immediately after *sixteen* consecutive `BOOL`s). And two fields
+that are serialized despite their names: `SMALL_TOWN_DATA.Unused`, and the eight thief-skill flags
+in `WHO_TRIES_EVENT_DATA` that the storing branch writes as literal `FALSE` and the loading branch
+still reads.
+
+**On the engine half, two more types execute**, bringing it to eleven of 44:
+
+> **`CHAIN_EVENT` replaces itself with its target rather than chaining to it**
+> (`RunEvent.cpp:10974`). Its own `chainEventHappen` is never consulted, and a target the level
+> does not contain **ends the run** — the reference pops the event rather than falling through.
+> Both halves of that are easy to get wrong in the direction of "chain normally", which would send
+> a design down a path it never authored. 165 of them in `Case.dsn` alone.
+
+> **A random event's chances need not sum to 100.** The die is sized to whatever they add up to,
+> so a design using 1/2/3 gets sixths; normalising to a percentage would change the outcome of
+> every such design. A branch counts only if its chance is above zero **and** its target exists,
+> and the dead branch's weight leaves the total rather than vanishing into a dead end — so the
+> survivors keep their relative odds. The boundary belongs to the earlier branch: with 30 and 70,
+> a roll of 30 takes the first.
+
+A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
+and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
+is an easy mistake to make and a hang tells the author nothing.
+
 ##### The first whole record the port can write, as ported
 
 `MONSTER_DATA::Serialize` (`Monster.cpp:629`) — `MonsterRecordWriter`, with `MonsterLeafWriters`
@@ -4553,7 +4607,7 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: casting, then the Forth VM
+### The next piece of work: the event layer's engine half
 
 **Combat is wired end to end and playable.** Walking onto a combat event starts a fight: the
 level's `CombatEvent` builds the encounter (`EncounterBuilder`), `CombatSetup` places both sides on
@@ -4568,7 +4622,22 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The rest of the archive writer.** The byte layer, both shared leaves and the first whole
+1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
+   reads (§the event layer), and eleven execute. The other 33 draw
+   `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
+   In corpus frequency order, and with what each is actually waiting on:
+   - **`FlowControl` (314 occurrences)** — named markers and global-variable actions. `Game.Globals`
+     is an `AttributeList` already, so this is the closest to reachable.
+   - **`QuestStage` (282)** — needs a quest-state store, which `Game` does not have. The record's
+     packed `m_quest` is already decomposed by `QuestEventReader.QuestId`/`QuestType`.
+   - **`Utilities` (280)** — a grab-bag; read the operation list before estimating it.
+   - **`GuidedTour` (138)** — walks the party along a recorded path; movement exists.
+   - **`SpecialItem` (69)** — tests the party's items; the inventory exists.
+   - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.
+   - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
+     `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
+
+2. **The rest of the archive writer.** The byte layer, both shared leaves and the first whole
    record type are done (§the archive writer's first layers, §the first whole record the port can
    write); what is missing is a writer per remaining record type, mirroring each reader. It is
    still the largest structural gap in the port: it gates Phase 1's round-trip exit criterion, save
@@ -4581,7 +4650,7 @@ What is left, in order:
      Two halves and both are unexplored: the LZW *encoder*, and the write side of string interning.
      Until it exists nothing can claim byte-identity with a shipped design — decompressing one does
      not give the plain stream, because the strings are interned across the whole archive.
-2. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
+3. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
    small and collectively large, and each needs the port to have the state it asks about.
@@ -4590,7 +4659,7 @@ What is left, in order:
    (§spell effects on a character outside combat). What is left in this family wants state the port
    does not have: the ability-score calls need `baseclass.dat`, which has no reader, and
    `$GET_CHAR_EFFAC` needs the attacker as well as the target.
-3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
+4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
    What still needs it: a design that edits `AI_Script.BLK`,
@@ -4631,7 +4700,7 @@ the round both call and neither has.
 |---|---|---|
 | **`ArchiveWriter`** | The byte layer, both shared leaves and `MONSTER_DATA` are written; the other record types and the whole `CAR` write path are not. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **13 event types have no reader** | `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` — 31 of 44 are done | Medium |
+| **33 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. By corpus frequency the ones that matter are `FlowControl` (314), `QuestStage` (282), `Utilities` (280), `GuidedTour` (138), `SpecialItem` (69) and `LogicBlock` (52) — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
 | **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. None is wired up; all three have faithful built-in defaults and are call-site changes once GPDL runs global scripts. Needs a `specialAbilities.txt` parser plus two sub-opcodes | Small |

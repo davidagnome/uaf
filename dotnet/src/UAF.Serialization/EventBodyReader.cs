@@ -100,6 +100,36 @@ public static class EventBodyReader
                 return TreasureEventReaders.ReadGiveTreasure(ar, version, role);
             case EventType.CombatTreasure:
                 return TreasureEventReaders.ReadCombatTreasure(ar, version, role);
+            case EventType.EncounterEvent:
+                return EncounterEventReader.Read(ar, version, role);
+            case EventType.Damage:
+                return PartyEffectEventReaders.ReadDamage(ar, version, role);
+            case EventType.HealParty:
+                return PartyEffectEventReaders.ReadHealParty(ar, version, role);
+            case EventType.TakePartyItems:
+                return PartyEffectEventReaders.ReadTakePartyItems(ar, version, role);
+            case EventType.EnterPassword:
+                return TrialEventReaders.Read(ar, version, role);
+            case EventType.WhoTries:
+                return TrialEventReaders.ReadWhoTries(ar, version, role);
+            case EventType.JournalEvent:
+                return MoreEventReaders.ReadJournal(ar, version, role);
+            case EventType.PlayMovieEvent:
+                return MoreEventReaders.ReadPlayMovie(ar, version, role);
+            case EventType.Vault:
+                return MoreEventReaders.ReadVault(ar, version, role);
+            case EventType.SmallTown:
+                return MoreEventReaders.ReadSmallTown(ar, version, role);
+            case EventType.TavernTales:
+                return MoreEventReaders.ReadTavernTales(ar, version, role);
+
+            // InnEvent and GPDLEvent reach `die(0xab51a)` in CreateNewEvent (GameEvent.cpp:3888):
+            // the first is marked "never" and the second is not in the switch at all. Neither can
+            // occur in a design the reference could load, so there is no shape to read -- and
+            // returning null here is the honest answer, because a body of unknown length cannot be
+            // stepped over.
+            case EventType.InnEvent:
+            case EventType.GPDLEvent:
             default:
                 return null;
         }

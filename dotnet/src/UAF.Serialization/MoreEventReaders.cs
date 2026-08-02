@@ -25,6 +25,30 @@ public sealed record WhoPaysEvent(
 /// <summary>A <c>REMOVE_NPC_DATA</c> — removes an NPC from the party.</summary>
 public sealed record RemoveNpcEvent(GameEventBase Base, int Distance, string CharacterId) : IGameEvent;
 
+/// <summary>A <c>JOURNAL_EVENT</c> — adds a numbered entry to the party's journal.</summary>
+public sealed record JournalEvent(GameEventBase Base, int Entry) : IGameEvent;
+
+/// <summary>A <c>PLAY_MOVIE_DATA</c> — plays a cutscene.</summary>
+public sealed record PlayMovieEvent(GameEventBase Base, string FileName, int Mode) : IGameEvent;
+
+/// <summary>A <c>VAULT_EVENT_DATA</c> — opens one of the party's storage vaults.</summary>
+public sealed record VaultEvent(GameEventBase Base, int ForceBackup, byte WhichVault) : IGameEvent;
+
+/// <summary>
+/// A <c>SMALL_TOWN_DATA</c> — a hub that chains to one of six town services.
+/// </summary>
+public sealed record SmallTownEvent(
+    GameEventBase Base, int Unused, uint TempleChain, uint TrainingHallChain, uint ShopChain,
+    uint InnChain, uint TavernChain, uint VaultChain) : IGameEvent;
+
+/// <summary>One tale a tavern can tell, with its own flags and attribute list.</summary>
+public sealed record TavernTale(string Text, uint Flags, IReadOnlyList<AslEntry> Attributes);
+
+/// <summary>A <c>TAVERN_TALES</c> — the rumours told in a tavern.</summary>
+public sealed record TavernTalesEvent(
+    GameEventBase Base, uint Flags, IReadOnlyList<TavernTale> Tales,
+    IReadOnlyList<AslEntry> Attributes) : IGameEvent;
+
 /// <summary>A <c>CAMP_EVENT_DATA</c> — lets the party rest.</summary>
 public sealed record CampEvent(GameEventBase Base, int ForceExit) : IGameEvent;
 
@@ -436,5 +460,130 @@ public static class MoreEventReaders
         return new WhoPaysEvent(baseEvent, impossible, gems, jewels, platinum,
                                 successChain, successAction, failAction, failChain,
                                 moneyType, successTransfer, failTransfer);
+    }
+
+    /// <summary>
+    /// Reads a <c>JOURNAL_EVENT</c> (<c>GameEvent.cpp:10225</c>) — the base plus one <c>int</c>.
+    /// </summary>
+    /// <remarks>
+    /// The smallest subclass in the format. The entry is an index into the design's journal text,
+    /// not the text itself.
+    /// </remarks>
+    public static JournalEvent ReadJournal(IArchiveCursor ar, DesignVersion version,
+                                           ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+        return new JournalEvent(baseEvent, ar.ReadInt32());
+    }
+
+    /// <summary>
+    /// Reads a <c>PLAY_MOVIE_DATA</c> (<c>GameEvent.cpp:6544</c>).
+    /// </summary>
+    /// <remarks>
+    /// <c>m_mode</c> arrives at 0.790, so an older design is a filename and nothing else. The
+    /// reference also strips the directory from the filename below 3.05 — a read-side fix-up, not
+    /// a format difference, and one this port leaves to the caller so the value stays what the
+    /// file held.
+    /// </remarks>
+    public static PlayMovieEvent ReadPlayMovie(IArchiveCursor ar, DesignVersion version,
+                                               ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        string fileName = ArchiveStringConventions.Decode(ar.ReadString());
+        int mode = version >= DesignVersion.V0790 ? ar.ReadInt32() : 0;
+
+        return new PlayMovieEvent(baseEvent, fileName, mode);
+    }
+
+    /// <summary>
+    /// Reads a <c>VAULT_EVENT_DATA</c> (<c>GameEvent.cpp:9390</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b><c>WhichVault</c> is a <c>BYTE</c></b>, and it is gated at 0.910 — so the record is five
+    /// bytes at and above that version and four below it, never eight.
+    /// </remarks>
+    public static VaultEvent ReadVault(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        int forceBackup = ar.ReadInt32();
+        byte whichVault = version >= DesignVersion.V0910 ? ar.ReadByte() : (byte)0;
+
+        return new VaultEvent(baseEvent, forceBackup, whichVault);
+    }
+
+    /// <summary>
+    /// Reads a <c>SMALL_TOWN_DATA</c> (<c>GameEvent.cpp:10138</c>) — six chains and a hole.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>Unused</c> is serialized.</b> It is a <c>long</c> the reference reads and writes and
+    /// nothing consults, so skipping it as its name invites loses four bytes and every chain after
+    /// it reads one field early.
+    /// </remarks>
+    public static SmallTownEvent ReadSmallTown(IArchiveCursor ar, DesignVersion version,
+                                               ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        return new SmallTownEvent(
+            baseEvent,
+            Unused: ar.ReadInt32(),
+            TempleChain: ar.ReadUInt32(),
+            TrainingHallChain: ar.ReadUInt32(),
+            ShopChain: ar.ReadUInt32(),
+            InnChain: ar.ReadUInt32(),
+            TavernChain: ar.ReadUInt32(),
+            VaultChain: ar.ReadUInt32());
+    }
+
+    /// <summary>
+    /// Reads a <c>TAVERN_TALES</c> (<c>GameEvent.cpp:9526</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Two ASL blocks under two different map names</b>, and they are easy to swap: each tale
+    /// carries a <c>"TALE"</c> block, and the event ends with a <c>"TAVTALE"</c> one. The names are
+    /// the sync markers, so getting them the wrong way round fails loudly rather than silently —
+    /// which is the one mercy in this record.
+    /// </para>
+    /// <para>
+    /// The tale's own text is written <b>verbatim</b>, not through the blank convention, unlike
+    /// every other body of prose in the event system.
+    /// </para>
+    /// <para>
+    /// The type is obsolete — tales are part of <c>TAVERN</c> now — and <c>CreateNewEvent</c> still
+    /// constructs it, so a design converted from FRUA can contain one.
+    /// </para>
+    /// </remarks>
+    public static TavernTalesEvent ReadTavernTales(IArchiveCursor ar, DesignVersion version,
+                                                   ArchiveRole role)
+    {
+        ArgumentNullException.ThrowIfNull(ar);
+
+        var baseEvent = GameEventReader.Read(ar, version, role);
+
+        uint flags = ar.ReadUInt32();
+
+        int count = ar.ReadInt32();
+        var tales = new List<TavernTale>(Math.Max(count, 0));
+        for (int i = 0; i < count; i++)
+        {
+            tales.Add(new TavernTale(
+                ar.ReadString(),                         // verbatim, no DAS
+                ar.ReadUInt32(),
+                AslReader.Read(ar, version, AslMaps.Tale)));
+        }
+
+        return new TavernTalesEvent(baseEvent, flags, tales,
+                                    AslReader.Read(ar, version, AslMaps.TavernTale));
     }
 }

@@ -59,6 +59,11 @@ public sealed class Game
             ? CharacterSheetBuilder.Build(active, design.Baseclasses, design.Item)
             : null;
 
+        // A random event's branch needs the level's event list and the dice, neither of which the
+        // runner has. Dice is read through the property so a test that replaces it still counts.
+        Runner.ChooseRandomBranch = random =>
+            RandomEventChoice.Pick(random, id => events?.ById(id) is not null, sides => Dice(sides));
+
         // The full level gives the wall sets, which sit after the event list; the map-only read is
         // the fallback for a level whose events cannot all be decoded, since movement needs the
         // grid and nothing else.
@@ -673,6 +678,17 @@ public sealed class Game
             return;
         }
 
+        // CHAIN_EVENT replaces itself with its target rather than chaining to it
+        // (RunEvent.cpp:10974). The difference is real: its own chainEventHappen is never
+        // consulted, and a target the level does not contain ends the run outright -- the
+        // reference pops the event rather than falling through to anything.
+        if (gameEvent is ChainEvent chain)
+        {
+            CurrentEvent = null;
+            FollowChain(chain.Chain);
+            return;
+        }
+
         if (ExecuteWithoutInput(gameEvent) is bool ran)
         {
             CurrentEvent = null;
@@ -1069,6 +1085,20 @@ public sealed class Game
     /// do-nothing event and carries on. Reported, though, because in a port it is far more likely
     /// to mean the reader dropped an event than that the design is wrong.
     /// </remarks>
+    /// <summary>
+    /// How many events one step onto a cell may run before the chain is assumed to be a loop.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not a rule from the reference</b>, which has no limit: it pushes and pops an event stack
+    /// and a design that chains an event to itself simply hangs. Chains of chains are ordinary —
+    /// <c>Case.dsn</c> alone holds 165 <c>CHAIN_EVENT</c>s — so a cycle is a mistake a design can
+    /// easily make, and a hang gives the author nothing to go on. The cap is far above any real
+    /// chain and reports where it stopped.
+    /// </remarks>
+    public const int MaxChainDepth = 256;
+
+    private int chainDepth;
+
     private void FollowChain(uint? id)
     {
         if (id is not uint target || events is null)
@@ -1083,7 +1113,22 @@ public sealed class Game
             return;
         }
 
-        StartEvent(next);
+        if (chainDepth >= MaxChainDepth)
+        {
+            Message = $"[event chain exceeded {MaxChainDepth} steps at event {target} -- " +
+                      "the design most likely chains an event back to itself]";
+            return;
+        }
+
+        chainDepth++;
+        try
+        {
+            StartEvent(next);
+        }
+        finally
+        {
+            chainDepth--;
+        }
     }
 
     /// <summary>Draws the current state and returns the framebuffer.</summary>

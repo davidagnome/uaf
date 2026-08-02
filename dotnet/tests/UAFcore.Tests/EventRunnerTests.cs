@@ -469,4 +469,102 @@ public class EventRunnerTests
         Assert.Null(runner.Stats);
         Assert.Contains("VIEW", runner.Unimplemented ?? "", StringComparison.Ordinal);
     }
+
+    // ---- random events -------------------------------------------------------------------------
+
+    private static RandomEvent Random(uint onHappened, params (uint Chain, byte Chance)[] branches) =>
+        new(Base(EventType.RandomEvent, text: "Something stirs.", onHappened: (int)onHappened),
+            [.. branches.Select(b => new RandomBranch(b.Chain, b.Chance))]);
+
+    [Fact]
+    public void A_random_event_presents_before_it_rolls()
+    {
+        // It looks like a text statement until Return, which is the point: nothing on screen says
+        // which way it went.
+        var runner = new EventRunner { ChooseRandomBranch = _ => 55u };
+
+        var step = Begin(runner, Random(0, (55, 100)));
+
+        Assert.Equal(EventStepKind.Running, step.Kind);
+        Assert.Null(runner.Unimplemented);
+    }
+
+    [Fact]
+    public void Return_replaces_the_random_event_with_the_branch_it_rolled()
+    {
+        var runner = new EventRunner { ChooseRandomBranch = _ => 77u };
+        Begin(runner, Random(onHappened: 5, (77, 100)));
+
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        // The rolled branch, not the event's own chain -- a random event replaces itself.
+        Assert.Equal(EventStepKind.Chain, step.Kind);
+        Assert.Equal(77u, step.ChainTo);
+    }
+
+    [Fact]
+    public void A_random_event_with_nothing_to_roll_falls_back_on_its_own_chain()
+    {
+        var runner = new EventRunner { ChooseRandomBranch = _ => null };
+        Begin(runner, Random(onHappened: 5));
+
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(EventStepKind.Chain, step.Kind);
+        Assert.Equal(5u, step.ChainTo);
+    }
+
+    // ---- the branch roll itself ------------------------------------------------------------------
+
+    private static uint? Pick(int roll, params (uint Chain, byte Chance)[] branches) =>
+        RandomEventChoice.Pick(Random(0, branches), _ => true, _ => roll);
+
+    [Theory]
+    [InlineData(1, 10u)]
+    [InlineData(30, 10u)]                                // the boundary belongs to the earlier one
+    [InlineData(31, 20u)]
+    [InlineData(100, 20u)]
+    public void The_roll_walks_the_running_total(int roll, uint expected)
+    {
+        Assert.Equal(expected, Pick(roll, (10, 30), (20, 70)));
+    }
+
+    [Fact]
+    public void The_die_is_sized_to_the_total_rather_than_to_a_hundred()
+    {
+        // Chances of 1, 2 and 3 give sixths. Normalising to a percentage would change the odds of
+        // every design that does not happen to add up to 100.
+        int sides = 0;
+        RandomEventChoice.Pick(Random(0, (10, 1), (20, 2), (30, 3)), _ => true,
+                               n => { sides = n; return 1; });
+
+        Assert.Equal(6, sides);
+    }
+
+    [Fact]
+    public void A_branch_naming_an_event_the_level_lacks_takes_no_share_of_the_odds()
+    {
+        // The weight is removed from the total, so the survivors keep their relative odds rather
+        // than the dead branch's share vanishing into a dead end.
+        int sides = 0;
+        var chosen = RandomEventChoice.Pick(
+            Random(0, (10, 50), (99, 50)),
+            id => id != 99,
+            n => { sides = n; return n; });
+
+        Assert.Equal(50, sides);
+        Assert.Equal(10u, chosen);
+    }
+
+    [Fact]
+    public void A_branch_with_no_chance_is_not_eligible_however_valid_it_is()
+    {
+        Assert.Null(RandomEventChoice.Pick(Random(0, (10, 0)), _ => true, _ => 1));
+    }
+
+    [Fact]
+    public void An_event_with_no_branches_at_all_picks_nothing()
+    {
+        Assert.Null(RandomEventChoice.Pick(Random(0), _ => true, _ => 1));
+    }
 }

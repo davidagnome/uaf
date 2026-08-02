@@ -359,6 +359,24 @@ Recurring shapes across the concrete subclasses, worth expecting rather than dis
 - **Shapes that change at a version.** `TAVERN` writes ten bare tales below 0.910 and a counted
   list above it.
 
+### Seventeen of the 44 types appear in no shipped design
+
+The six level-bearing designs in the corpus hold 6,234 events and use **27** types. The rest —
+including every one of `Damage`, `EncounterEvent`, `EnterPassword`, `HealParty`, `JournalEvent`,
+`PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault` and `WhoTries` — occur
+zero times, so the marker-counting walk that proves the other readers cannot reach them.
+
+Where a corpus cannot check a record, **`Export(JWriter&)` can**. Every event type has one, and it
+is a second description of the same fields written independently of `Serialize` — so comparing the
+two catches a field that was missed or invented. It is how `PASSWORD_DATA::matchCase` was pinned as
+exported but *not* serialized: a reader written from the class declaration inserts four bytes that
+are not on the wire.
+
+The failure mode these records share is one thing: **a `BYTE` among 4-byte `BOOL`s**, which the
+declarations interleave and `Serialize` gives no hint of. `HEAL_PARTY_DATA.chance`,
+`TAKE_PARTY_ITEMS_DATA.takeItems`, `VAULT_EVENT_DATA.WhichVault` and
+`WHO_TRIES_EVENT_DATA.strBonus` — the last immediately after sixteen consecutive `BOOL`s.
+
 ### Member names are not types
 
 This is the single most expensive mistake in the port — it has cost four separate bugs.

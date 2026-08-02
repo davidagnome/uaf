@@ -2,6 +2,7 @@ using UAF.Data;
 using UAF.Media;
 using UAF.Media.Sdl;
 using UAF.Rules;
+using UAF.Serialization;
 using UAFcore;
 
 namespace UAFcore.Tests;
@@ -1283,5 +1284,79 @@ public class GameTests
         }
 
         Assert.True(named > 0, "no zone named any treasure art");
+    }
+
+    // ---- chain events --------------------------------------------------------------------------
+
+    private static string? CaseRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "Shared")))
+        {
+            dir = dir.Parent;
+        }
+
+        string? design = dir is null ? null : Path.Combine(dir.FullName, "reference", "Case.dsn");
+        return design is not null && Directory.Exists(design) ? design : null;
+    }
+
+    [Fact]
+    public void A_real_chain_event_runs_its_target_rather_than_naming_itself()
+    {
+        // Case.dsn holds 165 CHAIN_EVENTs. Before this they drew "[ChainEventType here -- not
+        // implemented]" and the chain stopped dead at the first one.
+        string? root = CaseRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var level = design.Level(0);
+        if (level is null)
+        {
+            return;
+        }
+
+        var byId = level.Events.ToDictionary(e => e.Base.Id, e => e);
+        var chain = level.Events.OfType<ChainEvent>()
+            .FirstOrDefault(c => byId.ContainsKey(c.Chain));
+
+        Assert.NotNull(chain);
+
+        var game = new Game(design);
+        game.StartEvent(chain!);
+
+        Assert.DoesNotContain("not implemented", game.Message, StringComparison.Ordinal);
+
+        // It replaced itself: whatever is on screen or was consumed, it is not the chain event.
+        Assert.NotSame(chain, game.CurrentEvent);
+    }
+
+    [Fact]
+    public void A_chain_naming_an_event_the_level_lacks_stops_rather_than_falling_through()
+    {
+        string? root = CaseRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var level = design.Level(0);
+        if (level is null)
+        {
+            return;
+        }
+
+        // A CHAIN_EVENT does not consult its own chainEventHappen -- an unreachable target ends
+        // the run, which is what PopEvent does in the reference.
+        var orphan = new ChainEvent(level.Events[0].Base with { Id = 0 }, 0xDEADBEEF);
+
+        var game = new Game(design);
+        game.StartEvent(orphan);
+
+        Assert.Null(game.CurrentEvent);
+        Assert.Contains("3735928559", game.Message, StringComparison.Ordinal);
     }
 }

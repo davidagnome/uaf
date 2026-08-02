@@ -134,8 +134,50 @@ public sealed class EventRunner
             NpcSaysEvent npc => BeginNpcSays(npc, anchors),
             QuestionEvent question => BeginQuestion(question, anchors),
             TreasureEvent treasure => BeginTreasure(treasure, anchors),
+            RandomEvent random => BeginRandom(random, anchors),
             _ => BeginUnsupported(gameEvent),
         };
+    }
+
+    /// <summary>
+    /// Picks a random event's branch; set by the host.
+    /// </summary>
+    /// <remarks>
+    /// The choice needs the level's event list — a branch pointing at a deleted event does not
+    /// count — and the dice the rest of the engine rolls with. The runner has neither, the same
+    /// reason it cannot hand over a treasure. See <see cref="RandomEventChoice"/>.
+    /// </remarks>
+    public Func<RandomEvent, uint?>? ChooseRandomBranch { get; set; }
+
+    /// <summary>
+    /// <c>RANDOM_EVENT_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:12536</c>) — text and a Return.
+    /// </summary>
+    /// <remarks>
+    /// The event presents like a text statement and then, on Return, becomes whichever event it
+    /// rolled. Nothing on screen says which way it went, which is the point.
+    /// </remarks>
+    private EventStep BeginRandom(RandomEvent random, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                       ("PRESS ENTER TO CONTINUE", 7));
+        ShowText(random.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>Rolls the branch and replaces this event with it.</summary>
+    /// <remarks>
+    /// A roll that finds nothing to take falls back on the event's own chain — the reference's
+    /// <c>ChainHappened()</c> — rather than ending the run.
+    /// </remarks>
+    private EventStep ChooseRandom(RandomEvent random)
+    {
+        if (ChooseRandomBranch?.Invoke(random) is uint chosen && chosen > 0)
+        {
+            Current = null;
+            return EventStep.To(chosen);
+        }
+
+        return Complete(happened: true);
     }
 
     /// <summary>Wraps an event's text into the box, as <c>FormatDisplayText</c> does.</summary>
@@ -447,6 +489,7 @@ public sealed class EventRunner
             QuestionEvent question => ChooseOption(question),
             YesNoEvent yesNo => ChooseYesNo(yesNo),
             TreasureEvent treasure => ChooseTreasure(treasure),
+            RandomEvent random => ChooseRandom(random),
             _ => Complete(happened: true),
         };
     }
