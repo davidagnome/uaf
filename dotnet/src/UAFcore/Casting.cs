@@ -92,6 +92,29 @@ public static class Casting
     }
 
     /// <summary>
+    /// Begins a spell from an item (<c>StartInitialItemSpellCasting</c>, <c>Combatant.cpp:502</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Three differences from <see cref="Begin"/>, all small and all deliberate.</b> The
+    /// caster's targets are cleared <i>only when it is not on automatic</i>, so an AI-driven item
+    /// use keeps whatever it had preselected; there is no spell book to fetch from and no
+    /// memorised copy to spend, the item's charges being the resource; and the schedule overflows
+    /// a round later (see <see cref="PendingSpellList.BeginFromItem"/>).
+    /// </remarks>
+    public static void BeginFromItem(Combatant caster, string spellId, int castingTime,
+                                     SpellCastingTime type, PendingSpellList pending, int round)
+    {
+        ArgumentNullException.ThrowIfNull(caster);
+        ArgumentNullException.ThrowIfNull(pending);
+
+        caster.SpellBeingCast = spellId;
+        caster.ItemSpellBeingCast = spellId;
+        caster.State = CombatantState.Casting;
+        caster.PendingSpellKey = pending.BeginFromItem(caster.Index, spellId, castingTime, type,
+                                                       caster.Initiative, round);
+    }
+
+    /// <summary>
     /// Abandons a spell in progress (<c>StopCasting</c>, <c>Combatant.cpp:580</c>).
     /// </summary>
     /// <param name="endTurn">
@@ -124,6 +147,7 @@ public static class Casting
         }
 
         caster.SpellBeingCast = null;
+        caster.ItemSpellBeingCast = null;
 
         if (caster.State == CombatantState.Casting)
         {

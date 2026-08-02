@@ -170,6 +170,27 @@ public sealed class Combatant
     /// <summary>The spells this combatant knows and has ready.</summary>
     public SpellList Book { get; } = new();
 
+    /// <summary>What this combatant carries (<c>myItems</c>).</summary>
+    public List<UAF.Serialization.ItemInstance> Items { get; } = [];
+
+    /// <summary>
+    /// Spends one charge of an item.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="UAF.Serialization.ItemInstance"/> is a record read off the wire, so the charge
+    /// count is replaced rather than decremented in place.
+    /// </remarks>
+    public void SpendCharge(UAF.Serialization.ItemInstance item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        int at = Items.IndexOf(item);
+        if (at >= 0 && item.Charges > 0)
+        {
+            Items[at] = item with { Charges = item.Charges - 1 };
+        }
+    }
+
     /// <summary>
     /// The spell effects currently on this combatant (<c>CHARACTER::m_spellEffects</c>).
     /// </summary>
@@ -198,6 +219,12 @@ public sealed class Combatant
     /// The spell this combatant has begun, or null (<c>m_spellIDBeingCast</c>).
     /// </summary>
     public string? SpellBeingCast { get; set; }
+
+    /// <summary>
+    /// The spell an item is casting, or null (<c>m_itemSpellIDBeingCast</c>). Set alongside
+    /// <see cref="SpellBeingCast"/>, not instead of it.
+    /// </summary>
+    public string? ItemSpellBeingCast { get; set; }
 
     /// <summary>
     /// This combatant's entry in the pending-spell list, or <c>-1</c>

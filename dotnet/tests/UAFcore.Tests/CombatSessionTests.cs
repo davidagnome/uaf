@@ -70,6 +70,35 @@ public class CombatSessionTests
             CastMessage: string.Empty, Scripts: [], EffectDuration: null,
             SpecialAbilities: null!, Attributes: []);
 
+    /// <summary>An item that casts a spell when used, with the given number of charges.</summary>
+    private static ItemRecord Wand(string spellId, int charges = 3) =>
+        new(new ItemNames(0, spellId, "wand", "Wand of Shielding", string.Empty, string.Empty,
+                          string.Empty),
+            HitArt: null, MissileArt: null,
+            new ItemScalars(string.Empty, 0, 0, 0, 0, 0, 1, charges),
+            new ItemCombat(0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0),
+            new ItemTail(0, 0, 0, [], 0, 0, 0, string.Empty, string.Empty, 0, 0, null, 0, 0,
+                         null!, []));
+
+    private static ItemInstance Carried(string itemId, int charges = 3) =>
+        new(Key: 1, itemId, LegacyItemId: 0, ReadyLocation: 0, Quantity: 1, Identified: 1,
+            charges, Cursed: 0, Paid: 0);
+
+    /// <summary>A player-run fight whose party carries a wand.</summary>
+    private static CombatSession WandSession(int charges = 3)
+    {
+        var session = CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                                          Party(2, auto: false), _ => Orc(), Roll(10),
+                                          spellInfo: SelfSpell);
+        session.ItemInfo = _ => Wand("shield", charges);
+        foreach (var c in session.Combatants.Where(c => c.IsFriendly))
+        {
+            c.Items.Add(Carried("wand", charges));
+        }
+
+        return session;
+    }
+
     /// <summary>A spell that lands on the caster at once, with one effect.</summary>
     private static SpellRecord SelfSpell(string id) =>
         new(0, id, string.Empty, string.Empty, [],
@@ -311,6 +340,8 @@ public class CombatSessionTests
     public void An_unimplemented_command_says_so_rather_than_ending_the_turn()
     {
         // Offering a command that silently does nothing is worse than saying it is not there.
+        // SPEED is the game-speed setting -- a presentation control rather than a combat rule, and
+        // deliberately not ported.
         var session = Start(party: 2, monsters: 2, auto: false);
         while (!session.AwaitingPlayer)
         {
@@ -318,7 +349,7 @@ public class CombatSessionTests
         }
 
         var actor = session.Combatants[session.Acting];
-        while (CombatMenu.At(session.Menu.ActiveItem) != CombatCommand.View)
+        while (CombatMenu.At(session.Menu.ActiveItem) != CombatCommand.Speed)
         {
             session.Update(InputEvent.KeyDown(VirtualKey.Right));
         }
@@ -326,6 +357,19 @@ public class CombatSessionTests
         session.Update(InputEvent.KeyDown(VirtualKey.Return));
 
         Assert.Contains("not implemented", session.Message);
+        Assert.False(actor.TurnIsDone);
+    }
+
+    [Fact]
+    public void View_reports_the_acting_combatant_without_ending_its_turn()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.View);
+        var actor = session.Combatants[session.Acting];
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Contains(actor.Name, session.Message);
+        Assert.Contains("hp", session.Message);
         Assert.False(actor.TurnIsDone);
     }
 
@@ -1018,6 +1062,100 @@ public class CombatSessionTests
 
         Assert.Contains("turns 1", session.Message);
         Assert.Contains(session.Combatants, c => !c.IsFriendly && c.IsTurned);
+    }
+
+    // ---- using an item -------------------------------------------------------------------------
+
+    [Fact]
+    public void Use_lists_what_the_combatant_can_actually_invoke()
+    {
+        var session = AtCommand(WandSession(), CombatCommand.Use);
+        var actor = session.Combatants[session.Acting];
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.ChoosingItem, session.Mode);
+        Assert.Equal(CombatMenu.UseLabels.Length, session.Menu.Count);
+        Assert.Single(session.UsableItems(actor));
+        Assert.Contains("wand", session.Message);
+    }
+
+    [Fact]
+    public void An_item_with_no_charges_left_is_not_usable()
+    {
+        var session = AtCommand(WandSession(charges: 0), CombatCommand.Use);
+        var actor = session.Combatants[session.Acting];
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Empty(session.UsableItems(actor));
+        Assert.Contains("nothing to use", session.Message);
+        Assert.Equal(CombatMenuMode.Command, session.Mode);
+    }
+
+    [Fact]
+    public void An_item_that_names_no_spell_is_not_usable()
+    {
+        // The spell id is only on the wire from design version 0.999647; an older design's items
+        // name nothing, so USE has nothing to offer.
+        var session = WandSession();
+        session.ItemInfo = _ => Wand(string.Empty);
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        Assert.Empty(session.UsableItems(session.Combatants[session.Acting]));
+    }
+
+    [Fact]
+    public void Using_an_item_spends_a_charge_and_begins_its_spell()
+    {
+        var session = AtCommand(WandSession(charges: 3), CombatCommand.Use);
+        var actor = session.Combatants[session.Acting];
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));   // into the item list
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));   // USE
+
+        Assert.Equal(2, actor.Items[0].Charges);
+        Assert.Equal("shield", actor.SpellBeingCast);
+        Assert.Equal("shield", actor.ItemSpellBeingCast);
+        Assert.Equal(CombatantState.Using, actor.State);
+        Assert.True(actor.TurnIsDone);
+        Assert.Contains("uses wand", session.Message);
+    }
+
+    [Fact]
+    public void An_item_spell_never_touches_the_spell_book()
+    {
+        // The item's charges are the resource -- CastItemSpell has no book lookup and no
+        // DecMemorized.
+        var session = WithSpells(WandSession(), "shield");
+        AtCommand(session, CombatCommand.Use);
+        var actor = session.Combatants[session.Acting];
+        int memorised = actor.Book.Find("shield")!.Memorized;
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(memorised, actor.Book.Find("shield")!.Memorized);
+    }
+
+    [Fact]
+    public void Leaving_the_item_list_costs_neither_a_charge_nor_the_turn()
+    {
+        var session = AtCommand(WandSession(), CombatCommand.Use);
+        var actor = session.Combatants[session.Acting];
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        while ((CastCommand)(session.Menu.ActiveItem + 1) != CastCommand.Exit)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.Command, session.Mode);
+        Assert.Equal(3, actor.Items[0].Charges);
+        Assert.False(actor.TurnIsDone);
     }
 
     [Fact]

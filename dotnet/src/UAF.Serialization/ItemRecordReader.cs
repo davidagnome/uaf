@@ -30,7 +30,7 @@ public enum ArchiveRole
 }
 
 /// <summary>The leading, name-bearing portion of an <c>ITEM_DATA</c> record.</summary>
-public sealed record ItemNames(int PreSpellNameKey, string UniqueName, string IdName,
+public sealed record ItemNames(int PreSpellNameKey, string SpellId, string UniqueName, string IdName,
                                string HitSound, string MissSound, string LaunchSound);
 
 /// <summary>
@@ -173,9 +173,14 @@ public static class ItemRecordReader
         // 0.999647 is a bare literal in the C++ with no named constant -- one of several gate
         // values that exist only as inline numbers, which is why DesignVersion.All must never be
         // treated as the set of valid versions.
+        //
+        // This is the spell an item casts when USEd, and it is the whole of the item-invocation
+        // path: without it nothing can know what a wand does. It was read and discarded here until
+        // combat's USE command needed it.
+        string spellId = string.Empty;
         if (version.Value >= 0.999647)
         {
-            ar.ReadString();
+            spellId = ArchiveStringConventions.Decode(ar.ReadString());
         }
 
         string uniqueName = ArchiveStringConventions.Decode(ar.ReadString());
@@ -189,7 +194,8 @@ public static class ItemRecordReader
             launchSound = ArchiveStringConventions.Decode(ar.ReadString());
         }
 
-        return new ItemNames(preSpellNameKey, uniqueName, idName, hitSound, missSound, launchSound);
+        return new ItemNames(preSpellNameKey, spellId, uniqueName, idName, hitSound, missSound,
+                             launchSound);
     }
 
     /// <summary>

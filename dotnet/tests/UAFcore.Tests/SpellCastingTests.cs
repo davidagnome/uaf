@@ -229,6 +229,43 @@ public class SpellCastingTests
         Assert.Equal(3, list.Spells[0].Caster);
     }
 
+    // ---- item spells ---------------------------------------------------------------------------
+
+    [Fact]
+    public void An_overlong_item_spell_lands_a_round_later_than_an_overlong_book_spell()
+    {
+        // The two functions are otherwise word-for-word identical, comments included. CastSpell
+        // writes waitUntil = rnd; CastItemSpell writes rnd + 1 (Combatant.cpp:692, :815).
+        var book = Schedule(20, SpellCastingTime.Initiative, initiative: 6, round: 3);
+        var item = PendingSpellList.Schedule(20, SpellCastingTime.Initiative, initiative: 6,
+                                             round: 3, overflowToNextRound: true);
+
+        Assert.Equal(3, book.WaitUntil);
+        Assert.Equal(4, item.WaitUntil);
+        Assert.Equal(SpellCastingTime.Rounds, item.Timing);
+    }
+
+    [Fact]
+    public void The_two_agree_everywhere_the_overflow_branch_is_not_reached()
+    {
+        foreach (var type in new[] { SpellCastingTime.Immediate, SpellCastingTime.Initiative,
+                                     SpellCastingTime.Rounds, SpellCastingTime.Turns })
+        {
+            Assert.Equal(PendingSpellList.Schedule(2, type, 5, 3),
+                         PendingSpellList.Schedule(2, type, 5, 3, overflowToNextRound: true));
+        }
+    }
+
+    [Fact]
+    public void An_item_spell_is_queued_the_same_way_a_book_spell_is()
+    {
+        var list = new PendingSpellList();
+
+        Assert.Equal(-1, list.BeginFromItem(0, "wand", 0, SpellCastingTime.Immediate, 5, 1));
+        Assert.NotEqual(-1, list.BeginFromItem(0, "wand", 2, SpellCastingTime.Rounds, 5, 1));
+        Assert.Equal(1, list.Count);
+    }
+
     [Fact]
     public void Keys_are_not_reused_after_a_withdrawal()
     {

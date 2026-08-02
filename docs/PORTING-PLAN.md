@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,791 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,804 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,39 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Using an item, as ported
+
+USE and the item-spell path (`ITEMS_MENU_DATA` → `CastItemSpell`, `RunEvent.cpp:15917`,
+`Combatant.cpp:753`). **Every combat command is now implemented** except SPEED, which is a
+presentation setting rather than a combat rule.
+
+> **The item reader was throwing away the field the whole command rests on.** `ITEM_DATA::spellID`
+> is read at `Items.cpp:2761` — a string, despite sitting among integers — and this port's
+> `ItemRecordReader` consumed it with a bare `ar.ReadString()` and discarded the result. Without it
+> nothing can know what a wand does. Now captured on `ItemNames`. Checked against the corpus:
+> **135 of 551 items in `SomethingWild` and 78 of 479 in `Case` name a spell, and every one of them
+> resolves** against that design's own spell database (`Potion of Invisibility` →
+> `itemPotionInvisibility`, `Scroll of Hold Monster` → `Hold Monster`).
+>
+> The field is gated at design version **0.999647** — a bare literal in the C++ with no named
+> constant. `ci-tier3` predates it, so **none of its 285 items name a spell** and USE has nothing to
+> invoke there. That is not a defect; it is what the wire holds.
+
+**`CastItemSpell` is nearly a copy of `CastSpell`, with two real differences.** There is no book
+lookup and no `DecMemorized` — the item's charges are the resource — and **the overflow branch
+lands a round later**: where the spell version re-times an overlong initiative spell to
+`waitUntil = round`, the item version writes `round + 1` (`:815` against `:692`). The comment above
+both is word for word the same, including the commented-out line it replaced, so it reads like a
+slip; a one-round difference in when a wand goes off is the kind of thing a design is balanced
+against, so it is kept and tested.
+
+`StartInitialItemSpellCasting` differs from its spell twin in one more way worth knowing:
+**targets are cleared only when the caster is not on automatic**, so an AI-driven item use keeps
+whatever it had preselected.
+
+VIEW is wired to report the acting combatant. SPEED is `GAME_SPEED_MENU_DATA`, a game-speed
+control, and is the one command that still says it is not implemented — deliberately.
+
 ##### Turning, delaying and automatic, as ported
 
 TURN, DELAY and QUICK (`COMBAT_DATA::TurnUndead`, `COMBATANT::DelayAction`, `COMBATANT::Quick` —
@@ -3989,20 +4022,18 @@ a map derived from the dungeon, `CombatRound` + `TurnQueue` order the turns, `Mo
 monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack` resolve the
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
-art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage, cast,
-end — and **casting is complete**: the clock, saving throws, all ten targeting modes, the area
+art. A player takes their turn through `CombatSession` — **every command but SPEED** — and
+**casting is complete**: the clock, saving throws, all ten targeting modes, the area
 geometry, the effects and the clouds a spell leaves behind. Read the twenty-one "as ported"
 sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **USE**, the last unimplemented combat command — item invocation, which needs the item spell
-   path (`CastItemSpell`, `Combatant.cpp:740`). VIEW is the character sheet, which exists and only
-   needs wiring to the menu entry; SPEED is a presentation setting rather than a combat rule.
-2. **The Forth VM** (§the monster AI section) — the last large unported subsystem in Phase 2. It
+1. **The Forth VM** (§the monster AI section) — the last large unported subsystem in Phase 2. It
    unlocks the scripted AI, and with it a monster's own choice of spell and targets, which this
-   port currently approximates (§choosing a spell's targets).
-3. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
+   port currently approximates (§choosing a spell's targets), and the `TURN_ATTEMPT` hook that
+   turning undead entirely depends on (§turning, delaying and automatic).
+2. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
    read. `CombatSession` reports the verdict; nothing consumes it yet.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`

@@ -537,6 +537,92 @@ public sealed class CombatSession
         }
     }
 
+    /// <summary>Which item the USE list is sitting on.</summary>
+    public int SelectedItem { get; private set; }
+
+    /// <summary>
+    /// Looks up an item's record, for its spell. Null when the design has no item database.
+    /// </summary>
+    public Func<string, ItemRecord?>? ItemInfo { get; set; }
+
+    /// <summary>
+    /// What a combatant may invoke: what it carries that names a spell and has a charge left.
+    /// </summary>
+    /// <remarks>
+    /// <b>An item's spell is the whole of the USE path</b>, and it is only on the wire from design
+    /// version 0.999647 — an older design's items name no spell at all, so nothing is usable. The
+    /// charge test is the item instance's own count, not the database's <c>NumCharges</c>, which is
+    /// only the starting figure.
+    /// </remarks>
+    public List<ItemInstance> UsableItems(Combatant actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return [.. actor.Items.Where(
+            i => i.Charges > 0
+                 && ItemInfo?.Invoke(i.ItemId) is { } record
+                 && !string.IsNullOrEmpty(record.Names.SpellId))];
+    }
+
+    private void ShowSelectedItem(Combatant actor)
+    {
+        var items = UsableItems(actor);
+        Message = SelectedItem < items.Count
+            ? $"{items[SelectedItem].ItemId} ({items[SelectedItem].Charges})"
+            : "Nothing to use.";
+    }
+
+    /// <summary>
+    /// The USE submenu — the same shape as CAST, over items rather than spells.
+    /// </summary>
+    private bool ChooseItem(Combatant actor, CastCommand command)
+    {
+        var items = UsableItems(actor);
+
+        switch (command)
+        {
+            case CastCommand.Next:
+                SelectedItem = Math.Min(SelectedItem + 1, Math.Max(0, items.Count - 1));
+                ShowSelectedItem(actor);
+                return true;
+
+            case CastCommand.Previous:
+                SelectedItem = Math.Max(0, SelectedItem - 1);
+                ShowSelectedItem(actor);
+                return true;
+
+            case CastCommand.Cast:
+            {
+                if (SelectedItem >= items.Count
+                    || ItemInfo?.Invoke(items[SelectedItem].ItemId) is not { } record)
+                {
+                    return true;
+                }
+
+                var item = items[SelectedItem];
+                var spell = spellInfo?.Invoke(record.Names.SpellId);
+
+                // A charge goes whether or not the spell resolves -- the item is used either way.
+                actor.SpendCharge(item);
+
+                Mode = CombatMenuMode.Command;
+                Casting.BeginFromItem(actor, record.Names.SpellId,
+                                      spell?.CastingTime ?? 0,
+                                      (SpellCastingTime)(spell?.CastingTimeType ?? 0),
+                                      Pending, Round.Round);
+
+                Message = $"{actor.Name} uses {item.ItemId}.";
+                EndTurn(actor, CombatantState.Using);
+                return true;
+            }
+
+            default:
+                Mode = CombatMenuMode.Command;
+                CombatMenu.Build(Menu, OptionsFor(actor));
+                return true;
+        }
+    }
+
     /// <summary>The cast a player is currently choosing targets for, or null.</summary>
     public SpellTargetSelection? Selecting { get; private set; }
 
@@ -921,6 +1007,8 @@ public sealed class CombatSession
                         ChooseAimManual(actor, (AimManualCommand)(Menu.ActiveItem + 1)),
                     CombatMenuMode.ChoosingSpell =>
                         ChooseSpell(actor, (CastCommand)(Menu.ActiveItem + 1)),
+                    CombatMenuMode.ChoosingItem =>
+                        ChooseItem(actor, (CastCommand)(Menu.ActiveItem + 1)),
                     CombatMenuMode.SpellAiming =>
                         ChooseSpellAim(actor, (AimCommand)(Menu.ActiveItem + 1)),
                     CombatMenuMode.SpellAimingManual =>
@@ -1169,6 +1257,28 @@ public sealed class CombatSession
                 SelectedSpell = 0;
                 CombatMenu.BuildCast(Menu);
                 ShowSelectedSpell();
+                return true;
+
+            case CombatCommand.Use:
+            {
+                if (UsableItems(actor).Count == 0)
+                {
+                    Message = $"{actor.Name} has nothing to use.";
+                    return true;
+                }
+
+                Mode = CombatMenuMode.ChoosingItem;
+                SelectedItem = 0;
+                CombatMenu.BuildUse(Menu);
+                ShowSelectedItem(actor);
+                return true;
+            }
+
+            case CombatCommand.View:
+                // VIEW is the character sheet, which the engine already builds; combat just shows
+                // it for whoever is acting.
+                Message = $"{actor.Name}: {actor.HitPoints}/{actor.MaxHitPoints} hp, "
+                        + $"AC {actor.ArmorClass}.";
                 return true;
 
             case CombatCommand.Turn:

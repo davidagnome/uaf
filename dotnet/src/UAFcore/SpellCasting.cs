@@ -89,6 +89,11 @@ public sealed class PendingSpellList
     /// <param name="type">The spell's <c>Casting_Time_Type</c>.</param>
     /// <param name="initiative">The caster's initiative this round.</param>
     /// <param name="round">The round now being fought.</param>
+    /// <param name="overflowToNextRound">
+    /// Where an overlong initiative spell lands: the end of this round, or the end of the next. An
+    /// item spell uses the next (<c>Combatant.cpp:815</c>); a book spell uses this one
+    /// (<c>:692</c>). See <see cref="BeginFromItem"/>.
+    /// </param>
     /// <returns>When it lands, and how to read that number.</returns>
     /// <remarks>
     /// <para>
@@ -116,7 +121,8 @@ public sealed class PendingSpellList
     /// </para>
     /// </remarks>
     public static (int WaitUntil, SpellCastingTime Timing) Schedule(
-        int castingTime, SpellCastingTime type, int initiative, int round)
+        int castingTime, SpellCastingTime type, int initiative, int round,
+        bool overflowToNextRound = false)
     {
         castingTime = Math.Max(0, castingTime);
 
@@ -132,9 +138,9 @@ public sealed class PendingSpellList
 
                 if (wait > CombatRound.NeverInitiative)
                 {
-                    // Past the end of the initiative order: land at the end of this round instead.
+                    // Past the end of the initiative order: land at the end of a round instead.
                     timing = SpellCastingTime.Rounds;
-                    wait = round;
+                    wait = overflowToNextRound ? round + 1 : round;
                 }
 
                 // Deliberately not an `else if` — see the remarks. The reference isn't either.
@@ -191,6 +197,36 @@ public sealed class PendingSpellList
                      int initiative, int round)
     {
         var (waitUntil, timing) = Schedule(castingTime, type, initiative, round);
+
+        if (type == SpellCastingTime.Immediate)
+        {
+            return -1;
+        }
+
+        int key = nextKey++;
+        spells.Add(new PendingSpell(key, caster, spellId, waitUntil, timing));
+        return key;
+    }
+
+    /// <summary>
+    /// Begins a spell cast from an item rather than from a spell book
+    /// (<c>COMBATANT::CastItemSpell</c>, <c>Combatant.cpp:753</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Nearly a copy of <see cref="Begin"/>, with two real differences.</b> There is no book
+    /// lookup and no memorised copy to spend — the item's charges are the resource — and
+    /// <b>the overflow branch lands a round later</b>: where the spell version re-times an
+    /// overlong initiative spell to <c>waitUntil = round</c>, the item version writes
+    /// <c>round + 1</c> (<c>Combatant.cpp:815</c>). The comment above both is word for word the
+    /// same, including the commented-out line it replaced, so the difference reads like a slip —
+    /// but a one-round difference in when a wand goes off is exactly the kind of thing a design is
+    /// balanced against, so it is kept.
+    /// </remarks>
+    public int BeginFromItem(int caster, string spellId, int castingTime, SpellCastingTime type,
+                             int initiative, int round)
+    {
+        var (waitUntil, timing) = Schedule(castingTime, type, initiative, round,
+                                           overflowToNextRound: true);
 
         if (type == SpellCastingTime.Immediate)
         {

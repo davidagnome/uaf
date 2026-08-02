@@ -484,6 +484,7 @@ public sealed class Game
                                      id => design.Monster(id), Dice,
                                      name => design.Art(name, SurfaceKind.Icon), partyIcons,
                                      id => design.Spell(id));
+        Combat.ItemInfo = id => design.Item(id);
         Message = "Combat!";
         return true;
     }

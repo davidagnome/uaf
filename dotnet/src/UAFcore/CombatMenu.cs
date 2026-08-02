@@ -175,6 +175,19 @@ public static class CombatMenu
     /// <summary>Puts the CAST menu up.</summary>
     public static void BuildCast(Menu menu) => Fill(menu, CastLabels);
 
+    /// <summary>
+    /// The USE menu's entries, over the carried items (<c>ITEMS_MENU_DATA</c>,
+    /// <c>RunEvent.cpp:15917</c>).
+    /// </summary>
+    /// <remarks>
+    /// The reference shows the whole item screen here, with far more than four entries; this is
+    /// the subset combat needs — pick one thing and invoke it.
+    /// </remarks>
+    public static readonly string[] UseLabels = ["USE", "NEXT", "PREV", "EXIT"];
+
+    /// <summary>Puts the USE menu up.</summary>
+    public static void BuildUse(Menu menu) => Fill(menu, UseLabels);
+
     /// <summary>Fills a menu with the manual-aim submenu.</summary>
     public static void BuildAimManual(Menu menu)
     {
@@ -223,6 +236,9 @@ public enum CombatMenuMode
 
     /// <summary>Steering the cursor by hand while naming a spell's targets.</summary>
     SpellAimingManual,
+
+    /// <summary>Picking an item to use: USE, NEXT, PREV, EXIT.</summary>
+    ChoosingItem,
 }
 
 /// <summary>The CAST submenu's entries, one-based.</summary>
