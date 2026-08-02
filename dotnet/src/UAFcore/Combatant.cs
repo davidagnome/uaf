@@ -92,14 +92,37 @@ public sealed class Combatant
     /// <summary>Rolled initiative, 1..<see cref="CombatRound.MaxInitiative"/>.</summary>
     public int Initiative { get; set; }
 
-    /// <summary>Squares of movement left this round (<c>m_iMovement</c>).</summary>
+    /// <summary>
+    /// Movement points <b>spent</b> this round (<c>m_iMovement</c>) — it counts up from zero, not
+    /// down from <see cref="MaxMovement"/>.
+    /// </summary>
+    /// <remarks>
+    /// The name suggests an allowance and it is the opposite. <c>StartNewRound</c> zeroes it and
+    /// <c>MoveCombatant</c> adds to it (<c>Combatant.cpp:9369</c>), so a combatant that has not
+    /// moved reads 0. Reading it as "remaining" inverts every movement test.
+    /// </remarks>
     public int Movement { get; set; }
 
     /// <summary>
+    /// How many points may be spent per round (<c>GetAdjMaxMovement</c>).
+    /// </summary>
+    /// <remarks>
+    /// The reference derives this from the character's encumbrance and any spell effects. Held as
+    /// a plain value here; <c>UAF.Rules.Encumbrance</c> is where the derivation will come from.
+    /// </remarks>
+    public int MaxMovement { get; set; } = 12;
+
+    /// <summary>
     /// Diagonal steps taken this round (<c>m_iNumDiagonalMoves</c>), tracked separately because
-    /// diagonals are rationed rather than merely costed.
+    /// <b>every second diagonal is free</b> — see <see cref="CombatMovement"/>.
     /// </summary>
     public int DiagonalMoves { get; set; }
+
+    /// <summary>
+    /// The eight-way direction of the last step (<c>m_iMoveDir</c>), kept separately from
+    /// <see cref="Facing"/>, which only ever flips east or west.
+    /// </summary>
+    public PathDirection MoveDirection { get; set; } = PathDirection.None;
 
     /// <summary>Attacks left this round (<c>availAttacks</c>). Fractional by design.</summary>
     public double AvailableAttacks { get; set; }

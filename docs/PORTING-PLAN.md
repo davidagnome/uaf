@@ -9,9 +9,9 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed, pathing between them, a round that runs to completion in initiative
-order, and targeting to decide who may hit whom. Phases 5–7 have not started.
-**1,324 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed, a round that runs to completion in initiative order, targeting to
+decide who may hit whom, and movement along a found route. Phases 5–7 have not started.
+**1,349 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1619,8 +1619,9 @@ remains, in dependency order:
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
    `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
-   `Combatant` the entity, and `Targeting` who may hit whom — **a round runs end to end in
-   initiative order**. What remains is **movement**, then the attack itself, then the monster AI.
+   `Combatant` the entity, `Targeting` who may hit whom, and `CombatMovement` the walk — **a round
+   runs end to end and combatants move along real routes**. What remains is **the attack itself**,
+   then the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -2018,6 +2019,40 @@ reported, so naming them makes each test state which rule it is exercising.
 > rest are plain booleans on the combatant because `SPECIAL_ABILITIES` is not ported. They default
 > to off, which makes every target visible — the permissive choice, and the one that keeps a fight
 > running rather than silently refusing every ranged attack.
+
+##### Movement, as ported
+
+`CombatMovement` is `MoveCombatant` and `TakeNextStep` (`Combatant.cpp:9293`, `:4026`), plus the
+`GetDir` / `GetDist` helpers from `path.h`. It is what finally joins the pathfinder to the
+combatant: `CombatPathFinder` produces a route and `TakeNextStep` walks it down to empty.
+
+- **Every second diagonal is free.** A diagonal nominally costs 2, but `m_iNumDiagonalMoves` is
+  incremented first and the cost drops to 1 whenever the count lands even (`:9316`) — so diagonals
+  run 2, 1, 2, 1… and average 1.5. That is the AD&D rule made integral, and it is **the same 1.5
+  the pathfinder charges** (15 against 10, §the pathing section), so the search and the walk agree
+  on what a route costs. The counter moves whether or not the step is taken, so a refused diagonal
+  still shifts which of the next ones is free.
+- **`m_iMovement` counts points *spent*, not remaining.** It starts at zero each round and adds
+  up. The name says the opposite, and reading it as an allowance inverts every movement test. The
+  affordability check is `spent < max - (cost - 1)`, i.e. `spent + cost <= max`.
+- **Stepping off the map is fleeing, not a failed move.** The reference's `else` arm sets the
+  status to fled, bumps the side's flee counter and ends the turn (`:9440`). A caller that treats
+  an off-map destination as an error removes the only way out of a fight.
+- **Facing only ever becomes east or west.** The icon is a sprite that mirrors horizontally, so a
+  north or south step leaves the facing unchanged — the reference's `default:` arm says so
+  outright. The full eight-way direction goes to `m_iMoveDir` instead.
+- **Walking into somebody attacks them.** The blocking combatant is looked up before the wall test,
+  and if `canAttack` allows it the step becomes an attack — the combatant does not move.
+- **The occupancy and obstacle tests disagree on purpose.** The wall check that follows passes
+  `CheckOccupants = FALSE` (`:9362`), because the combatant just found in that square would
+  otherwise block its own attack.
+
+> **Three things in `MoveCombatant` are not ported and all three are hooks or effects**: the
+> `ON_STEP` script, the lingering-spell check on the square moved into, and
+> `CheckOpponentFreeAttack` — the attack of opportunity a retreating combatant grants, which sets
+> the mover's state back to `None` so its turn resumes after the interruption. The turn queue
+> already models that interruption (§the round clock); what is missing is the rule deciding when
+> one is owed.
 
 ##### `CLASS_DATA`, as ported
 
@@ -3059,29 +3094,30 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: movement, then the attack
+### The next piece of work: the attack
 
-**A round runs end to end and knows who may hit whom.** `CombatSetup` builds the encounter,
-`CombatRound` + `TurnQueue` order the turns, `Combatant` is the entity, `CombatPathFinder` is the
-search, and `Targeting` decides validity and reach. Read the seven "as ported" sections under §7
-Phase 4 before touching any of it.
+**A round runs end to end and combatants move along real routes.** `CombatSetup` builds the
+encounter, `CombatRound` + `TurnQueue` order the turns, `Combatant` is the entity,
+`CombatPathFinder` finds routes, `Targeting` decides who may be hit, and `CombatMovement` walks the
+route and spends the allowance. Read the eight "as ported" sections under §7 Phase 4 before
+touching any of it.
 
 What remains is:
 
-1. **Movement** — `HandleCurrState`'s `ICS_Moving` arm and `TakeNextStep` (`Combatant.cpp:3941`).
-   This is where `CombatPath` gets consumed and `Movement` / `DiagonalMoves` get spent; both sides
-   already exist, so it is the shortest remaining piece. Watch for the flee-the-map branch, which
-   is handled in the same arm: a combatant with no destination is leaving the field, not standing
-   still.
-2. **The attack** — `UAF.Rules` already has `ToHit`, `Thac0` and `ArmorClass`, so this is wiring
-   plus damage application, not new arithmetic. `StartAttack` (`Combatant.cpp:4197`) is the entry.
-3. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants, which decides between
-   moving, attacking, casting and fleeing. The largest of the three and the one that leans hardest
-   on scripts.
+1. **The attack.** `UAF.Rules` already has `ToHit`, `Thac0` and `ArmorClass`, so this is wiring
+   plus damage application, not new arithmetic. `StartAttack` (`Combatant.cpp:4197`) is the entry
+   and `GetDamageDice` (`:8378`) the part with no C# counterpart yet. Ammunition consumption
+   (`WpnConsumesAmmoAtRange`, `Items.cpp:279`) belongs here too.
+2. **Attacks of opportunity.** `CheckOpponentFreeAttack` is called from the middle of
+   `MoveCombatant` and is the one piece of movement left out — the turn queue already models the
+   interruption, so what is missing is only the rule deciding when one is owed.
+3. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants, choosing between moving,
+   attacking, casting and fleeing. The largest of the three and the one that leans hardest on
+   scripts.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
-are already stubbed permissively (see the combatant and targeting sections), and the AI calls into
-scripts too.
+are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped
+in movement, and the AI calls into scripts too.
 
 **The round clock is also what finishes the spell-effect layer** — see below.
 
