@@ -86,6 +86,29 @@ public sealed class Combatant
 
     public CharacterStatus Status { get; set; } = CharacterStatus.Okay;
 
+    /// <summary>
+    /// Current hit points. Negative means dying or dead — see <see cref="Attack.ApplyDamage"/>.
+    /// </summary>
+    /// <remarks>
+    /// The reference keeps these on the underlying <c>CHARACTER</c> and reaches them through the
+    /// combatant. Held here because every combat path that touches them goes through the
+    /// combatant anyway, and the character model is not ported.
+    /// </remarks>
+    public int HitPoints { get; set; }
+
+    /// <inheritdoc cref="HitPoints"/>
+    public int MaxHitPoints { get; set; } = int.MaxValue;
+
+    /// <summary>
+    /// Whether someone has bandaged this combatant, which stops it bleeding out
+    /// (<c>isBandaged</c>).
+    /// </summary>
+    /// <remarks>
+    /// Set once and never cleared during a fight: a bandaged combatant is out of the dying loop
+    /// permanently, not for one round.
+    /// </remarks>
+    public bool IsBandaged { get; set; }
+
     /// <summary>What this combatant is doing. Only ever set to a value below 11 — see the enum.</summary>
     public CombatantState State { get; set; } = CombatantState.None;
 

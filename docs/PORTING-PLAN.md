@@ -10,8 +10,8 @@ criterion is not met. Phases 2 and 3 are substantially delivered with named gaps
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
-pathing, movement and attacks. Phases 5–7 have not started.
-**1,403 tests, green on macOS, Linux and Windows; both CI workflows green.**
+pathing, movement, attacks and the dying clock. Phases 5–7 have not started.
+**1,414 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1620,8 +1620,8 @@ remains, in dependency order:
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
    `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
    `Combatant` the entity, `Targeting` who may hit whom, `CombatMovement` the walk, `Attack` the
-   swing and `MonsterAi` the choice — **a fight plays itself to a conclusion**. What remains is
-   morale and dying combatants, attacks of opportunity, and the spell layer.
+   swing, `MonsterAi` the choice and `CombatUpkeep` the dying clock — **a fight plays itself to a
+   conclusion**. What remains is attacks of opportunity, the spell layer, and the Forth VM.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -2140,6 +2140,52 @@ the fight is decided in six rounds with four heroes standing. Nothing drives it 
 pieces — setup, round clock, AI, pathing, movement, attack. The hit-point bands showed up correctly
 along the way, an orc at 0 reading `Unconscious` and one at −4 reading `Dying`, which is the
 `giveCharacterDamage` correction above holding under real play rather than only in its own test.
+
+##### Dying, bandaging and morale, as ported
+
+`CombatUpkeep` holds the two passes that run at the head of every round, plus bandaging. **Only one
+of the three does anything, and finding that out was most of the work.**
+
+**`CheckDyingCombatants` is live and small**: every combatant whose status is `Dying` and who is
+not bandaged takes one point (`Combatants.cpp:4697`). That is what gives the −1..−9 band its
+meaning — without it a combatant knocked below zero stays there forever. Nine rounds and it reaches
+−10 and dies.
+
+**`Bandage` is the only escape, and it stabilises rather than heals**: the worst-hurt dying
+combatant is set to **zero hit points and unconscious**, and `isBandaged` is set once and never
+cleared for the rest of the fight (`Combatants.cpp:1271`). Exactly one combatant per action; ties
+go to the later one, because the comparison is `<=`.
+
+> The reference seeds its search with combatant 0 whether or not it is dying, then compares every
+> candidate against it. It works because a dying combatant is below zero and a healthy one is not,
+> so the first real candidate always displaces the seed. The port takes the minimum over dying
+> combatants only, which agrees on every reachable case.
+
+> **`CheckMorale` does nothing, deliberately, and the reason is quoted in the source.** The
+> function computes a modifier from allies fled and slain and from being outnumbered three to one —
+> and discards it, because the `SetMorale(GetMorale() - mod)` that would apply it is commented out.
+> The decision is hard-coded:
+>
+> ```cpp
+> //int cur_morale = GetAdjMorale();
+> Flee = FALSE; //(RollDice(100, 1, 0) > cur_morale);
+> ```
+>
+> Directly above sits a quoted email from the designer dated 2018-11-02 — "I would like the Morale
+> value to not autochange" — so this is a removal, not an unfinished feature. Everything downstream
+> is unreachable: **both** sites that set `fleeBecauseImpossible` are inside `if (Flee)`, and the
+> block that would put a combatant into the running state is already excluded by an early return at
+> the top of the same function. Morale is still loaded and stored from a monster's record, but
+> `GetAdjMorale` appears **only in commented-out code** — nothing reads it for a decision.
+>
+> Nothing is ported because there is nothing to port. `CombatUpkeep.CheckMorale` is an empty method
+> carrying this note, so the next reader does not spend an afternoon transcribing dead arithmetic.
+> The live routes into fleeing are elsewhere: walking off the map, and an AI script setting the
+> flag.
+
+This makes **four** things now found dead by looking for consumers rather than by an `#ifdef`:
+`ComputeDistanceFromParty`, `CombatantsStateText`, the morale computation, and the flee decision it
+feeds.
 
 ##### `CLASS_DATA`, as ported
 
@@ -3181,27 +3227,25 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: morale and dying combatants
+### The next piece of work: attacks of opportunity, then spells
 
 **A fight plays itself.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue` order the
 turns, `Combatant` is the entity, `CombatPathFinder` finds routes, `Targeting` decides who may be
-hit, `CombatMovement` walks and spends the allowance, `Attack` resolves the swing, and `MonsterAi`
-chooses. Four heroes against four orcs on a real map resolves in six rounds with nothing but the
-ported code driving it. Read the ten "as ported" sections under §7 Phase 4 before touching any
-of it.
+hit, `CombatMovement` walks and spends the allowance, `Attack` resolves the swing, `MonsterAi`
+chooses, and `CombatUpkeep` bleeds the dying. Four heroes against four orcs on a real map resolves
+in six rounds with nothing but the ported code driving it. Read the eleven "as ported" sections
+under §7 Phase 4 before touching any of it.
 
 What remains, smallest first:
 
-1. **`CheckDyingCombatants` and `CheckMorale`**, both run at the head of every round
-   (`Combatants.cpp:4529`). Neither is ported, and **the first is what makes the −1..−9 band mean
-   anything** — a dying combatant loses a point a round until it stabilises or dies. Small, and it
-   closes a loop the attack work opened.
-2. **Attacks of opportunity.** `CheckOpponentFreeAttack` sits in the middle of `MoveCombatant` and
-   is the one piece of movement left out. The turn queue already models the interruption, so what
-   is missing is only the rule deciding when one is owed.
-3. **The spell layer.** `SpellEffects` has the arithmetic but not durations, sources or stacking —
-   see below. The round clock it was waiting for now exists.
-4. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
+1. **Attacks of opportunity.** `CheckOpponentFreeAttack` sits in the middle of `MoveCombatant`
+   (`Combatant.cpp:9385`) and is the last piece of movement left out. The turn queue already
+   models the interruption — `Push` with `affectStats: false` is exactly this case — so what is
+   missing is only the rule deciding when one is owed. `CanGuard` and the guarding-attack path are
+   its neighbours.
+2. **The spell layer.** `SpellEffects` has the arithmetic but not durations, sources or stacking —
+   see below. The round clock it was waiting for now exists, so this is unblocked.
+3. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
    unported subsystem in Phase 2.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
@@ -3253,9 +3297,11 @@ expires them than ahead of it.
   one sitting for exactly this.
 - **Check whether the code is live before porting it.** `ProjectVersion.h`, `MultiBoxTextAction`,
   one of the two `getCharTHAC0` definitions, one of the two `findEmptyCell`s, the whole A\*
-  pathfinder, `ComputeDistanceFromParty` and `CombatantsStateText` (the *plural* one) are all dead. The `#ifdef` that
-  decides is often nowhere near the function — and two of those are dead not by `#ifdef` but by
-  having **no reader at all**, which only a repo-wide search for consumers finds.
+  pathfinder, `ComputeDistanceFromParty`, `CombatantsStateText` (the *plural* one) and the entire
+  morale computation are all dead. The `#ifdef` that decides is often nowhere near the function —
+  and **four of those are dead not by `#ifdef` but by having no reader, or by one hard-coded
+  assignment upstream**, which only a search for consumers finds. `CheckMorale` is the clearest
+  case: forty lines of arithmetic feeding a variable the next line overwrites with `FALSE`.
 - **Cite the function you actually ported, and check the citation.** A first draft of
   `CombatRound.EndTurn` was invented whole and attributed to `Combatants.cpp:6187`, which turned
   out to just delegate to the combatant. Reading it revealed the real mechanism — `getNextCombatant`
