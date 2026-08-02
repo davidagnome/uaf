@@ -286,6 +286,130 @@ public class CombatSessionTests
                    c => Assert.True(c.HitPoints > 0, "a monster arrived already dead"));
     }
 
+    // ---- aiming ----------------------------------------------------------------------------
+
+    /// <summary>Drives to a player turn and selects a command without choosing it.</summary>
+    private static CombatSession AtCommand(CombatSession session, CombatCommand want)
+    {
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        while (CombatMenu.At(session.Menu.ActiveItem) != want)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+
+        return session;
+    }
+
+    [Fact]
+    public void Aim_opens_a_submenu_rather_than_attacking_outright()
+    {
+        // The player picks the target; AIM used to swing at whatever the cycle landed on.
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Aim);
+        var actor = session.Combatants[session.Acting];
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.Aiming, session.Mode);
+        Assert.Equal(CombatMenu.AimLabels.Length, session.Menu.Count);
+        Assert.False(actor.TurnIsDone);
+    }
+
+    [Fact]
+    public void Manual_aiming_lets_the_arrows_steer_the_cursor()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Aim);
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));      // into Aiming
+
+        while ((AimCommand)(session.Menu.ActiveItem + 1) != AimCommand.Manual)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.AimingManual, session.Mode);
+
+        var before = (session.Cursor.X, session.Cursor.Y);
+        session.Update(InputEvent.KeyDown(VirtualKey.Down));
+
+        Assert.Equal((before.Item1, before.Item2 + 1), (session.Cursor.X, session.Cursor.Y));
+    }
+
+    [Fact]
+    public void Exiting_the_aim_menu_returns_to_the_commands_without_spending_the_turn()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Aim);
+        var actor = session.Combatants[session.Acting];
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        while ((AimCommand)(session.Menu.ActiveItem + 1) != AimCommand.Exit)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.Command, session.Mode);
+        Assert.Equal(CombatMenu.Labels.Length, session.Menu.Count);
+        Assert.False(actor.TurnIsDone);
+    }
+
+    // ---- bandaging -------------------------------------------------------------------------
+
+    [Fact]
+    public void Bandaging_stabilises_a_dying_ally_and_ends_the_turn()
+    {
+        var session = Start(party: 3, monsters: 1, auto: false);
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        var hurt = session.Combatants.Last(c => c.IsFriendly && c.Index != session.Acting);
+        hurt.Status = CharacterStatus.Dying;
+        hurt.HitPoints = -4;
+
+        var actor = session.Combatants[session.Acting];
+        while (CombatMenu.At(session.Menu.ActiveItem) != CombatCommand.Bandage)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CharacterStatus.Unconscious, hurt.Status);
+        Assert.Equal(0, hurt.HitPoints);
+        Assert.True(actor.TurnIsDone);
+        Assert.Contains("bandages", session.Message);
+    }
+
+    [Fact]
+    public void Bandaging_with_nobody_dying_says_so_and_keeps_the_turn()
+    {
+        // CanBandage is just !IsDone in the reference, so the entry is offered regardless and the
+        // action finds a target or does nothing.
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Bandage);
+        var actor = session.Combatants[session.Acting];
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Contains("Nobody needs", session.Message);
+        Assert.False(actor.TurnIsDone);
+    }
+
+    [Fact]
+    public void A_turn_announces_whose_it_is()
+    {
+        var session = Start(party: 2, monsters: 2, auto: false);
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        Assert.Contains(session.Combatants[session.Acting].Name, session.Message);
+    }
+
     [Fact]
     public void The_view_scrolls_to_keep_the_acting_combatant_visible()
     {

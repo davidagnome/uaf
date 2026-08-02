@@ -101,6 +101,9 @@ public sealed class CombatSession
     /// <summary>The player's action menu, rebuilt each time a player-run combatant acts.</summary>
     public Menu Menu { get; }
 
+    /// <summary>What the menu is currently asking for.</summary>
+    public CombatMenuMode Mode { get; private set; } = CombatMenuMode.Command;
+
     /// <summary>Everybody in the fight, party first.</summary>
     public IReadOnlyList<Combatant> Combatants => combatants;
 
@@ -173,6 +176,13 @@ public sealed class CombatSession
                                       outdoor: combat.Outdoors != 0);
 
         var session = new CombatSession(all, setup, dice, (UAF.Rules.Surprise)combat.Surprise);
+
+        // Centre on the party before the first frame. The reference does this as combat opens
+        // (PlaceCursorOnCurrentDude); without it the very first frame looks at the map's corner,
+        // which is a screenful of empty floor a long way from the fight.
+        session.Cursor.CenterOn(all.FirstOrDefault(c => c.IsFriendly) ?? all[0]);
+        session.Renderer.ScrollX = setup.PartyX - (session.VisibleTilesAcross / 2);
+        session.Renderer.ScrollY = setup.PartyY - (session.VisibleTilesDown / 2);
         foreach (var (name, loaded) in icons)
         {
             session.icons[name] = loaded;
@@ -299,16 +309,26 @@ public sealed class CombatSession
         Renderer.EnsureVisible(Map, actor.X, actor.Y, VisibleTilesAcross, VisibleTilesDown);
         Cursor.CenterOn(actor);
 
+        Mode = CombatMenuMode.Command;
         CombatMenu.Build(Menu, OptionsFor(actor), acting: !actor.IsAuto);
+
+        // Name whose turn it is, so a player knows who the menu belongs to. The reference puts
+        // this in the same text box, through FormatCombatMoveText and the menu title.
+        Message = $"{actor.Name}'s turn.";
     }
 
     /// <summary>
     /// What the acting combatant may do.
     /// </summary>
     /// <remarks>
-    /// Guarding and delaying are always offered; the rest follow from what is ported. Turning
-    /// undead, bandaging and casting stay off because none of the three has an implementation yet —
-    /// offering a command that does nothing is worse than greying it.
+    /// <b><c>CanBandage</c> is just <c>!IsDone()</c> in the reference</b> (<c>Combatant.cpp:7074</c>)
+    /// — the entry is offered whenever the combatant can act, and the action itself finds a target
+    /// or does nothing. Gating the menu on somebody being dying would be stricter than the
+    /// original.
+    /// <para>
+    /// Casting and turning stay off because neither has an implementation: offering a command that
+    /// silently does nothing is worse than greying it.
+    /// </para>
     /// </remarks>
     private CombatOptions OptionsFor(Combatant actor) => new(
         CanMove: actor.Movement < actor.MaxMovement,
@@ -317,7 +337,7 @@ public sealed class CombatSession
         CanTurnUndead: false,
         CanGuard: true,
         CanDelay: true,
-        CanBandage: combatants.Any(c => c.Status == CharacterStatus.Dying),
+        CanBandage: !actor.IsDone(),
         IsEditor: false,
         SpecialActionName: string.Empty);
 
@@ -357,6 +377,12 @@ public sealed class CombatSession
 
     private bool HandlePlayerKey(Combatant actor, VirtualKey key)
     {
+        // Manual aiming steers with the arrows, so the menu cannot also use them.
+        if (Mode == CombatMenuMode.AimingManual && Steer(key))
+        {
+            return true;
+        }
+
         switch (key)
         {
             case VirtualKey.Left:
@@ -368,11 +394,129 @@ public sealed class CombatSession
                 return true;
 
             case VirtualKey.Return:
-                return Choose(actor, CombatMenu.At(Menu.ActiveItem));
+                return Mode switch
+                {
+                    CombatMenuMode.Aiming => ChooseAim(actor, (AimCommand)(Menu.ActiveItem + 1)),
+                    CombatMenuMode.AimingManual =>
+                        ChooseAimManual(actor, (AimManualCommand)(Menu.ActiveItem + 1)),
+                    _ => Choose(actor, CombatMenu.At(Menu.ActiveItem)),
+                };
 
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Moves the cursor a square, while manual aiming (<c>COMBAT_AIM_MANUAL_MENU_DATA</c>'s arrow
+    /// cases, <c>RunEvent.cpp:20110</c>).
+    /// </summary>
+    /// <returns>Whether the key was a direction.</returns>
+    private bool Steer(VirtualKey key)
+    {
+        var (dx, dy) = key switch
+        {
+            VirtualKey.Left => (-1, 0),
+            VirtualKey.Right => (1, 0),
+            VirtualKey.Up => (0, -1),
+            VirtualKey.Down => (0, 1),
+            _ => (0, 0),
+        };
+
+        if ((dx, dy) == (0, 0))
+        {
+            return false;
+        }
+
+        Cursor.MoveBy(Map, dx, dy);
+        Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y, VisibleTilesAcross, VisibleTilesDown);
+        return true;
+    }
+
+    /// <summary>
+    /// The AIM submenu (<c>COMBAT_AIM_MENU_DATA::OnKeypress</c>, <c>RunEvent.cpp:19952</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>TARGET only commits when the attack is actually possible</b>; otherwise the reference
+    /// clears the target and stays in the menu, so a player pointing at something unreachable is
+    /// told rather than silently having their turn end.
+    /// </remarks>
+    private bool ChooseAim(Combatant actor, AimCommand command)
+    {
+        switch (command)
+        {
+            case AimCommand.Next:
+                Cursor.Next(combatants, actor);
+                Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case AimCommand.Previous:
+                Cursor.Previous(combatants, actor);
+                Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case AimCommand.Manual:
+                Mode = CombatMenuMode.AimingManual;
+                CombatMenu.BuildAimManual(Menu);
+                Message = "Move the cursor.";
+                return true;
+
+            case AimCommand.Center:
+                Renderer.EnsureVisible(Map, actor.X, actor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case AimCommand.Target:
+                return Commit(actor);
+
+            default:
+                Mode = CombatMenuMode.Command;
+                Cursor.CenterOn(actor);
+                CombatMenu.Build(Menu, OptionsFor(actor));
+                return true;
+        }
+    }
+
+    /// <summary>
+    /// The manual-aim submenu (<c>COMBAT_AIM_MANUAL_MENU_DATA::OnKeypress</c>,
+    /// <c>RunEvent.cpp:20052</c>).
+    /// </summary>
+    private bool ChooseAimManual(Combatant actor, AimManualCommand command)
+    {
+        if (command == AimManualCommand.Target)
+        {
+            return Commit(actor);
+        }
+
+        Mode = CombatMenuMode.Command;
+        Cursor.CenterOn(actor);
+        CombatMenu.Build(Menu, OptionsFor(actor));
+        return true;
+    }
+
+    /// <summary>Attacks whatever the cursor is on, if that is possible.</summary>
+    private bool Commit(Combatant actor)
+    {
+        int target = Map.OccupantAt(Cursor.X, Cursor.Y, ignoreCombatant: actor.Index);
+
+        if (target == CombatMap.NoDude)
+        {
+            Message = "Nothing there.";
+            return true;
+        }
+
+        if (!CanAttack(actor, target))
+        {
+            Message = $"Cannot reach {combatants[target].Name}.";
+            return true;
+        }
+
+        Strike(actor, combatants[target]);
+        Mode = CombatMenuMode.Command;
+        EndTurn(actor, CombatantState.None);
+        return true;
     }
 
     /// <summary>
@@ -404,29 +548,36 @@ public sealed class CombatSession
             }
 
             case CombatCommand.Aim:
-            {
-                int target = Cursor.Next(combatants, actor);
-                if (target == actor.Index)
-                {
-                    Message = "No target.";
-                    return true;
-                }
-
-                if (!CanAttack(actor, target))
-                {
-                    Message = $"Cannot reach {combatants[target].Name}.";
-                    return true;
-                }
-
-                Strike(actor, combatants[target]);
-                EndTurn(actor, CombatantState.None);
+                // Opens the submenu rather than attacking outright: the player picks the target.
+                Mode = CombatMenuMode.Aiming;
+                CombatMenu.BuildAim(Menu);
+                Cursor.Next(combatants, actor);
+                Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
                 return true;
-            }
 
             case CombatCommand.Guard:
                 Message = $"{actor.Name} guards.";
                 EndTurn(actor, CombatantState.Guarding);
                 return true;
+
+            case CombatCommand.Bandage:
+            {
+                // The reference stabilises the worst-hurt dying combatant and sets the bandager's
+                // state so the status line names what it did (COMBAT_DATA::Bandage,
+                // Combatants.cpp:1271). It does nothing at all when nobody is dying.
+                var helped = CombatUpkeep.Bandage(combatants);
+                Message = helped is null
+                    ? "Nobody needs bandaging."
+                    : $"{actor.Name} bandages {helped.Name}.";
+
+                if (helped is not null)
+                {
+                    EndTurn(actor, CombatantState.Bandaging);
+                }
+
+                return true;
+            }
 
             case CombatCommand.End:
                 EndTurn(actor, CombatantState.None);
@@ -525,21 +676,71 @@ public sealed class CombatSession
         return Outcome;
     }
 
-    /// <summary>How many squares fit across the combat view, at the default screen size.</summary>
-    private const int VisibleTilesAcross = 10;
+    /// <summary>
+    /// Where on screen the map is drawn, which decides both the renderer's origin and how many
+    /// squares are visible.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference draws combat on its own full screen; this port draws it in the dungeon
+    /// viewport</b>, so <c>CombatScreenX/Y</c> (14, 16) are not the right origin — the view sits
+    /// wherever <c>VIEWPORT_RECT</c> puts it, which in `SomethingWild` is (48,54). Leaving the
+    /// default meant terrain drawn 34 pixels up and left of where it belonged, clipped rather than
+    /// aligned, and a cursor that fell outside the view and was silently dropped.
+    /// </remarks>
+    public SurfaceRect ViewArea
+    {
+        get => viewArea;
+        set
+        {
+            viewArea = value;
+            Renderer.OriginX = value.Left;
+            Renderer.OriginY = value.Top;
+        }
+    }
+
+    private SurfaceRect viewArea = new(0, 0, 10 * CombatMap.TileWidth, 8 * CombatMap.TileHeight);
+
+    /// <summary>How many whole squares fit across the view.</summary>
+    internal int VisibleTilesAcross => Math.Max(1, viewArea.Width / CombatMap.TileWidth);
 
     /// <inheritdoc cref="VisibleTilesAcross"/>
-    private const int VisibleTilesDown = 8;
+    internal int VisibleTilesDown => Math.Max(1, viewArea.Height / CombatMap.TileHeight);
 
-    /// <summary>Draws the map and everybody on it.</summary>
+    /// <summary>
+    /// Draws the map, the cursor and everybody on it.
+    /// </summary>
+    /// <param name="cursorArt">
+    /// The cursor frame, or null to leave it undrawn. Only shown while the player is being asked
+    /// for orders — a computer turn has nothing to aim.
+    /// </param>
+    /// <remarks>
+    /// Order matters: terrain, then the cursor, then combatants. The reference draws the cursor
+    /// alpha-blended and then redraws the occupant's sprite over it (<c>Combatants.cpp:4772</c>),
+    /// which is the same result as drawing combatants last.
+    /// </remarks>
     public void Render(Surface screen, Surface? sheet, SurfaceRect area,
-                       Func<Combatant, (Surface Sheet, SurfaceRect Source)?>? iconFor = null)
+                       Func<Combatant, (Surface Sheet, SurfaceRect Source)?>? iconFor = null,
+                       Surface? cursorArt = null)
     {
         ArgumentNullException.ThrowIfNull(screen);
+
+        // Keep the origin and the visible extent in step with wherever the caller is drawing.
+        if (area != viewArea)
+        {
+            ViewArea = area;
+            Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y, VisibleTilesAcross, VisibleTilesDown);
+        }
 
         if (sheet is not null)
         {
             Renderer.DrawTerrain(screen, Map, sheet, area);
+        }
+
+        if (cursorArt is not null && AwaitingPlayer)
+        {
+            int under = Map.OccupantAt(Cursor.X, Cursor.Y);
+            Renderer.DrawCursor(screen, cursorArt, Cursor.X, Cursor.Y, area,
+                                under != CombatMap.NoDude ? combatants[under] : null);
         }
 
         Renderer.DrawCombatants(screen, combatants, iconFor ?? IconFor, area);

@@ -237,6 +237,85 @@ public class CombatRendererTests
         Assert.Equal(0xFF00FF00u, screen[sx + 24, sy + 24]);
     }
 
+    // ---- the targeting cursor ---------------------------------------------------------------
+
+    private static Surface Cursor()
+    {
+        var c = new Surface(48, 48);
+        for (int y = 0; y < 48; y++)
+        {
+            for (int x = 0; x < 48; x++)
+            {
+                // Top-left is the colour key, so leave it distinct from the body.
+                c[x, y] = (x, y) == (0, 0) ? 0xFF000000 : 0xFFF0A44A;
+            }
+        }
+        return c;
+    }
+
+    [Fact]
+    public void The_cursor_marks_the_square_it_sits_on()
+    {
+        var screen = new Surface(640, 480);
+        var area = new SurfaceRect(48, 54, 48 + (3 * 48), 54 + (4 * 48));
+        var renderer = new CombatRenderer { OriginX = area.Left, OriginY = area.Top };
+
+        renderer.DrawCursor(screen, Cursor(), 1, 1, area);
+
+        var (sx, sy) = renderer.ToScreen(1, 1);
+        Assert.NotEqual(0u, screen[sx + 24, sy + 24]);
+        Assert.Equal(0u, screen[sx - 10, sy + 24]);      // nothing bled into the neighbour
+    }
+
+    [Fact]
+    public void The_cursor_covers_every_square_of_a_large_combatant()
+    {
+        // coverFullIcon: a two-square monster is highlighted across its whole footprint, which is
+        // how a player can see what is actually being targeted.
+        var screen = new Surface(640, 480);
+        var area = new SurfaceRect(48, 54, 48 + (5 * 48), 54 + (4 * 48));
+        var renderer = new CombatRenderer { OriginX = area.Left, OriginY = area.Top };
+
+        var tiger = new Combatant(0, false, new CombatantIcon(2, 1), "Tiger") { X = 1, Y = 1 };
+        renderer.DrawCursor(screen, Cursor(), tiger.X, tiger.Y, area, over: tiger);
+
+        var (ax, ay) = renderer.ToScreen(1, 1);
+        var (bx, by) = renderer.ToScreen(2, 1);
+        Assert.NotEqual(0u, screen[ax + 24, ay + 24]);
+        Assert.NotEqual(0u, screen[bx + 24, by + 24]);
+    }
+
+    [Fact]
+    public void A_cursor_that_would_overhang_the_view_is_dropped_whole()
+    {
+        // The reference tests the full 48x48 against the view's edges and draws nothing rather
+        // than clipping -- which is exactly what hid the cursor when the renderer's origin was
+        // left at the C++ combat screen's (14,16) instead of the viewport's own corner.
+        var screen = new Surface(640, 480);
+        var area = new SurfaceRect(48, 54, 48 + (3 * 48), 54 + (4 * 48));
+        var renderer = new CombatRenderer { OriginX = area.Left, OriginY = area.Top };
+
+        renderer.DrawCursor(screen, Cursor(), 3, 1, area);       // one square past the right edge
+
+        for (int y = area.Top; y < area.Bottom; y++)
+        {
+            for (int x = area.Left; x < area.Right; x++)
+            {
+                Assert.Equal(0u, screen[x, y]);
+            }
+        }
+    }
+
+    [Fact]
+    public void The_origin_places_the_scroll_corner_at_the_views_corner()
+    {
+        // Terrain drawn from the wrong origin is clipped rather than aligned, so it looks almost
+        // right and is not. Combat is drawn in the dungeon viewport here, not on its own screen.
+        var renderer = new CombatRenderer { OriginX = 48, OriginY = 54, ScrollX = 21, ScrollY = 22 };
+
+        Assert.Equal((48, 54), renderer.ToScreen(21, 22));
+    }
+
     [Fact]
     public void A_real_encounter_renders_with_the_zones_own_art()
     {

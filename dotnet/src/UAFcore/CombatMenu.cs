@@ -143,6 +143,79 @@ public static class CombatMenu
 
     /// <summary>The command at a zero-based menu position.</summary>
     public static CombatCommand At(int menuIndex) => (CombatCommand)(menuIndex + 1);
+
+    /// <summary>
+    /// The AIM submenu (<c>AimMenu</c>, <c>GameMenu.cpp:1189</c>).
+    /// </summary>
+    public static readonly string[] AimLabels =
+        ["NEXT", "PREV", "MANUAL", "TARGET", "CENTER", "EXIT"];
+
+    /// <summary>
+    /// The manual-aim submenu (<c>AimManualMenu</c>, <c>GameMenu.cpp:1205</c>), where the arrow
+    /// keys steer the cursor and these two end it.
+    /// </summary>
+    public static readonly string[] AimManualLabels = ["TARGET", "EXIT"];
+
+    /// <summary>Fills a menu with the AIM submenu.</summary>
+    public static void BuildAim(Menu menu)
+    {
+        ArgumentNullException.ThrowIfNull(menu);
+        Fill(menu, AimLabels);
+    }
+
+    /// <summary>Fills a menu with the manual-aim submenu.</summary>
+    public static void BuildAimManual(Menu menu)
+    {
+        ArgumentNullException.ThrowIfNull(menu);
+        Fill(menu, AimManualLabels);
+    }
+
+    private static void Fill(Menu menu, string[] labels)
+    {
+        menu.Reset();
+        menu.Orientation = MenuOrientation.Horizontal;
+        foreach (string label in labels)
+        {
+            menu.AddItem(label);
+        }
+        menu.SetAllItemsEnabled(true);
+    }
+}
+
+/// <summary>What the player's menu is currently asking for.</summary>
+/// <remarks>
+/// The reference models these as separate pushed events — <c>COMBAT_AIM_MENU_DATA</c> and
+/// <c>COMBAT_AIM_MANUAL_MENU_DATA</c> replace or stack on the main menu and pop when done. A mode
+/// on the session is the same shape without the event stack, which this port does not have.
+/// </remarks>
+public enum CombatMenuMode
+{
+    /// <summary>The main fifteen commands.</summary>
+    Command,
+
+    /// <summary>Choosing a target: NEXT, PREV, MANUAL, TARGET, CENTER, EXIT.</summary>
+    Aiming,
+
+    /// <summary>Steering the cursor by hand: arrows move, TARGET and EXIT end it.</summary>
+    AimingManual,
+}
+
+/// <summary>The AIM submenu's entries, one-based like the main menu.</summary>
+public enum AimCommand
+{
+    Next = 1,
+    Previous = 2,
+    Manual = 3,
+    Target = 4,
+    Center = 5,
+    Exit = 6,
+}
+
+/// <summary>The manual-aim submenu's entries, one-based.</summary>
+public enum AimManualCommand
+{
+    Target = 1,
+    Exit = 2,
 }
 
 /// <summary>

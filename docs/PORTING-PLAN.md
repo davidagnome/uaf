@@ -12,9 +12,9 @@ event types, presents the treasure and character screens, and sets up a combat e
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
-verdict, drawn on screen with real icons, with a menu for the player**. Phases 5–7 have not
-started.
-**1,530 tests, green on macOS, Linux and Windows; both CI workflows green.**
+verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
+bandage**. Phases 5–7 have not started.
+**1,542 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2456,6 +2456,67 @@ the message line. The terrain came out flat where an earlier frame was textured 
 than assumed, and it is correct: that zone names `combat_DungeonStreet.png`, a dirt street rather
 than flagged stone, and its 123 wall squares lie outside the visible window.
 
+##### The cursor, and an alignment bug it exposed
+
+`CombatRenderer.DrawCursor` is `displayCursor` (`Combatants.cpp:4733`). Alpha-blended at
+`aval` = 100 — the reference's comment beside the blit calls that "50%"; it is 100/255, nearer 39%,
+so **the value wins over the comment**. Two modes: a single square, or `coverFullIcon`, which
+highlights **every square of the combatant under it** so a player can see the whole of a large
+monster being targeted. A cursor that would overhang the view is **dropped whole**, not clipped.
+
+> **That whole-or-nothing rule is what surfaced a real defect.** `CombatRenderer` defaulted its
+> origin to the C++'s `CombatScreenX/Y` of (14, 16) — but the reference draws combat on its own
+> full screen, while this port draws it in the **dungeon viewport**, which `SomethingWild` puts at
+> (48, 54). Every square was therefore drawn 34 pixels up and left of where it belonged, *clipped
+> rather than aligned*, which looked almost right in a frame and was not. The cursor, computed at
+> screen x 254 against a view ending at 224, fell outside and vanished — and that is what made the
+> misalignment visible at all. `CombatSession.ViewArea` now derives both the origin and the
+> visible-tile counts from wherever the caller is drawing; the old hard-coded 10×8 was wrong too,
+> since that viewport fits about 3×4.
+
+**The view is now centred on the party when combat opens**, as the reference does
+(`PlaceCursorOnCurrentDude`). Without it the first frame looked at the map's corner — a screenful
+of empty floor a long way from the fight.
+
+##### The combat golden frame, as added
+
+`CombatGoldenFrameTests` hashes the viewport for a real encounter at three points in a
+deterministic fight, the same shape as `GoldenFrameTests` does for the dungeon view. A regression
+guard, not an oracle.
+
+> **Two of its own assertions were wrong before the code was.** The colour-variety floor was set at
+> 200 by analogy with the dungeon guard and failed on a perfectly correct frame: this zone's floor
+> tile is a **flat colour**, so terrain alone gives exactly *one*, and all the variety comes from
+> the combatant icons. And the three sampled step counts collapsed to two distinct frames, because
+> past a certain point the fight is simply waiting on the player and the screen legitimately stops
+> changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
+> numbers until they passed.
+
+##### Aiming and the small commands, as ported
+
+The AIM submenu and manual aiming (`COMBAT_AIM_MENU_DATA` and `COMBAT_AIM_MANUAL_MENU_DATA`,
+`RunEvent.cpp:19952`, `:20052`), plus BANDAGE and per-turn announcements. **A player can now pick
+their target rather than swinging at whatever the cycle lands on.**
+
+- **AIM opens a submenu** — NEXT, PREV, MANUAL, TARGET, CENTER, EXIT — instead of attacking
+  outright. MANUAL hands the arrow keys to the cursor; the menu gives them up while it does, which
+  is why the mode has to be checked before the ordinary menu keys.
+- **TARGET only commits when the attack is actually possible.** The reference clears the target and
+  stays in the menu otherwise, so a player pointing at something unreachable is told rather than
+  silently losing the turn. EXIT likewise costs nothing.
+- The reference models these as pushed events that replace or stack on the main menu and pop when
+  done; a `CombatMenuMode` on the session is the same shape without an event stack, which this port
+  does not have.
+
+> **`CanBandage` is just `!IsDone()`** (`Combatant.cpp:7074`) — the entry is offered whenever the
+> combatant can act, and `COMBAT_DATA::Bandage` then finds a target or does nothing. An earlier
+> revision here gated the *menu* on somebody being dying, which is stricter than the original.
+> Bandaging **stabilises rather than heals**: zero hit points and unconscious.
+
+Commands now working: MOVE, AIM (with the full submenu), GUARD, BANDAGE and END. USE, CAST, TURN,
+QUICK, DELAY, VIEW, SPEED and the design's special action still report that they are not
+implemented, which is deliberate — see the combat session section.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3496,39 +3557,31 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: wiring combat into the engine
+### The next piece of work: casting, then the Forth VM
 
-**Combat is substantially complete, and none of it is reachable from the game.** `CombatSetup`
-builds the encounter, `CombatRound` + `TurnQueue` order the turns, `Combatant` is the entity,
-`CombatPathFinder` finds routes, `Targeting` decides who may be hit, `CombatMovement` walks and
-spends the allowance, `Attack` resolves the swing, `MonsterAi` chooses, `CombatUpkeep` bleeds the
-dying, `OpportunityAttacks` interrupts, and `SpellDuration` + `SpellEffectList` expire what was
-cast. Four heroes against four orcs on a real map resolves in six rounds with nothing but the
-ported code driving it. Read the thirteen "as ported" sections under §7 Phase 4 before touching
-any of it.
+**Combat is wired end to end and playable.** Walking onto a combat event starts a fight: the
+level's `CombatEvent` builds the encounter (`EncounterBuilder`), `CombatSetup` places both sides on
+a map derived from the dungeon, `CombatRound` + `TurnQueue` order the turns, `MonsterAi` drives the
+monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack` resolve the
+swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
+`SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
+art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage, end.
+Read the fourteen "as ported" sections under §7 Phase 4 before touching any of it.
 
-**Two of the three pieces are now done.** The reader was already wired — `EventBodyReader`
-dispatches `EventType.Combat` to `CombatEventReader`, so a level's events do produce `CombatEvent`
-objects — and `CombatRenderer` now draws the map with the zone's own art (§the combat screen).
+What is left, in order:
 
-**What remains is combat state in `Game`.** Walking onto a combat event still prints
-`[Combat here -- not implemented]`, because `EventRunner` falls through to its unsupported arm.
-Every ingredient now exists — `EncounterBuilder` makes the combatants, `CombatSetup` places them,
-`CombatRenderer` draws them, and the round machinery runs them. What is left is:
-
-1. **The rest of the commands.** MOVE, AIM, GUARD and END work; USE, CAST, TURN, BANDAGE, QUICK,
-   DELAY, VIEW and SPEED report that they are not implemented. **CAST is the big one** — it needs
-   the casting half of the spell layer (choosing a spell, saving throws, the lingering-spell area
-   effects), which is now the largest unported piece of combat. TURN and BANDAGE are small by
-   comparison and `CombatUpkeep.Bandage` already exists.
-2. **A combat frame in `GoldenFrameTests`.** The viewport has had a regression guard since Phase 4;
-   combat has none, and it now draws enough — terrain, icons, roster, message — to be worth
-   hashing. Cheap, and it locks in what was just verified by eye.
-3. **The cursor on screen.** `AimCursor` tracks a square and nothing draws it, so AIM is invisible
-   to the player. `CursorSrc` (`Drawtile.h:26`) is the art rectangle.
-
-After that: **the Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the
-last large unported subsystem in Phase 2.
+1. **Casting.** The largest unported piece of combat, and now the only *big* one left in it:
+   choosing a spell from a memorised list, the casting-time and initiative interaction
+   (`spellCastingTimeType`, `GameRules.h:336`), saving throws, and the lingering-spell area effects
+   that movement and the round both call and neither has. `SpellEffects` + `SpellDuration` +
+   `SpellEffectList` are the arithmetic and bookkeeping it lands on, all ported.
+2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
+   ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
+   invocation.
+3. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
+   unported subsystem in Phase 2.
+4. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
+   read. `CombatSession` reports the verdict; nothing consumes it yet.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped

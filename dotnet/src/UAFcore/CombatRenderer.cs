@@ -164,6 +164,75 @@ public sealed class CombatRenderer
     }
 
     /// <summary>
+    /// How opaque the cursor is (<c>aval</c>, <c>Combatants.cpp:4732</c>).
+    /// </summary>
+    /// <remarks>
+    /// The reference's own comment beside the blit calls this "50%". It is 100 out of 255, which
+    /// is nearer 39% — the comment is wrong and the value is what ships, so the value wins.
+    /// </remarks>
+    public const int CursorAlpha = 100;
+
+    /// <summary>
+    /// Draws the targeting cursor (<c>displayCursor</c>, <c>Combatants.cpp:4733</c>).
+    /// </summary>
+    /// <param name="cursor">The cursor art, one 48×48 frame.</param>
+    /// <param name="over">
+    /// The combatant under the cursor, or null. When given, <b>every square of its footprint is
+    /// covered</b> rather than just the cursor's own — the reference's <c>coverFullIcon</c> path,
+    /// which is how a player can see the whole of a large monster being targeted.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// Alpha-blended, so the combatant underneath shows through. The reference redraws the
+    /// occupant's sprite on top afterwards; here the caller draws combatants after the cursor to
+    /// the same effect.
+    /// </para>
+    /// <para>
+    /// <b>The cursor is dropped entirely unless it fits</b> — the reference tests the whole 48×48
+    /// against the view's right and bottom edges and draws nothing when it would overhang, rather
+    /// than clipping it.
+    /// </para>
+    /// </remarks>
+    public void DrawCursor(Surface screen, Surface cursor, int terrainX, int terrainY,
+                           SurfaceRect area, Combatant? over = null)
+    {
+        ArgumentNullException.ThrowIfNull(screen);
+        ArgumentNullException.ThrowIfNull(cursor);
+
+        var source = new SurfaceRect(0, 0, CombatMap.TileWidth, CombatMap.TileHeight);
+
+        if (over is not null)
+        {
+            for (int dy = 0; dy < over.Icon.Height; dy++)
+            {
+                for (int dx = 0; dx < over.Icon.Width; dx++)
+                {
+                    Stamp(screen, cursor, source, over.X + dx, over.Y + dy, area);
+                }
+            }
+
+            return;
+        }
+
+        Stamp(screen, cursor, source, terrainX, terrainY, area);
+    }
+
+    private void Stamp(Surface screen, Surface cursor, SurfaceRect source,
+                       int terrainX, int terrainY, SurfaceRect area)
+    {
+        var (x, y) = ToScreen(terrainX, terrainY);
+
+        // Whole-or-nothing, as the reference is: no clipping at the edges.
+        if (x < area.Left || y < area.Top
+            || x + source.Width > area.Right || y + source.Height > area.Bottom)
+        {
+            return;
+        }
+
+        Blitter.BlitTransparentAlpha(screen, x, y, cursor, CursorAlpha, source);
+    }
+
+    /// <summary>
     /// Blits a tile, dropping it when it falls entirely outside the map area.
     /// </summary>
     /// <remarks>

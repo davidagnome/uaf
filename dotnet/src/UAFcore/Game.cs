@@ -837,6 +837,22 @@ public sealed class Game
         return string.IsNullOrEmpty(name) ? null : design.Art(name);
     }
 
+    /// <summary>
+    /// The combat cursor's art, named by <c>DEF_COMBAT_CURSOR</c> in the design's config.
+    /// </summary>
+    /// <remarks>
+    /// The reference keeps a hard-coded default (<c>cu_DefCC.png</c>, <c>PicSlot.cpp:104</c>) that
+    /// config overrides; every reference design sets the token, so the fallback is unused here.
+    /// </remarks>
+    private Surface? CursorArt()
+    {
+        design.Config.Rewind();
+        return design.Config.TryGetValue("DEF_COMBAT_CURSOR", out string name)
+               && !string.IsNullOrEmpty(name)
+            ? design.Art(name)
+            : null;
+    }
+
     private Surface? ScreenArt()
     {
         // CoversRoster means a sheet is over the whole screen, and the zone's picture belongs to
@@ -964,7 +980,8 @@ public sealed class Game
             {
                 // Combat owns the whole viewport, the same way a full-screen event does. The
                 // terrain sheet comes off the zone the party is standing in, not the design.
-                Combat.Render(screen, CombatArt(), new SurfaceRect(vx, vy, vr, vb));
+                Combat.Render(screen, CombatArt(), new SurfaceRect(vx, vy, vr, vb),
+                              cursorArt: CursorArt());
             }
             else if (Runner.OwnsScreen)
             {
