@@ -9,9 +9,9 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed, pathing between them, and a round clock to order their turns.
-Phases 5–7 have not started.
-**1,264 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed, pathing between them, and a round that runs to completion in
+initiative order. Phases 5–7 have not started.
+**1,292 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1618,9 +1618,9 @@ remains, in dependency order:
 3. **Combat — in progress; see §11.** **Encounter setup is done**: `CombatMap`,
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
-   `CombatPathFinder` ports `path.cpp`, and `CombatRound` + `TurnQueue` port the round clock and
-   turn order. **`COMBATANT` itself is the next piece** — it is the only thing left between here
-   and a round that runs. Then targeting, movement, and the monster AI.
+   `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
+   `Combatant` the entity — **a round now runs end to end in initiative order**. What remains is
+   what a turn *does*: **targeting**, then movement, then the attack itself, then the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -1917,12 +1917,62 @@ ICS_STATE...only for script", and a repo-wide search confirms none of them is ev
 are transcribed as they stand — inserting the missing member would renumber everything after it,
 and the numbering reaches save games (§4.4).
 
-> **Two dead tables found while porting this, neither worth carrying over.**
-> `CombatantsStateText` (`Combatants.cpp:95`) is declared with `NUM_COMBATANTS_STATES` = 17 against
-> a 23-value enum, and its entries desynchronise from index 9 on — slot 9 reads
-> `"OCS_CombatRoundDelay"`, a state that does not exist at all. It is **never read**, so the
-> mismatch is inert. This is the third such table in the port (after `ProjectVersion.h` and the
-> dead `findEmptyCell`); the habit of checking liveness before transcribing keeps paying.
+> **A dead state-name table, not worth carrying over — but mind which one.**
+> `CombatantsStateText` (**plural**, `Combatants.cpp:95`) is declared with
+> `NUM_COMBATANTS_STATES` = 17 against a 23-value enum, and its entries desynchronise from index 9
+> on — slot 9 reads `"OCS_CombatRoundDelay"`, a state that does not exist at all. It is **never
+> read**, so the mismatch is inert. Its near-namesake `CombatantStateText` (**singular**,
+> `Combatant.cpp:62`) is a different table, is live, and is correct; see the combatant section
+> below. Grepping for one and concluding about the other is a mistake this document has already
+> made once.
+
+##### The combatant, as ported
+
+`Combatant` is a **slice** of `COMBATANT` (`Combatant.h:103`), not the whole of it. The original
+declares some 90 members and most forward to the underlying `CHARACTER`; what is here is what the
+round clock and placement need — identity, position, the turn's resources, and the predicates that
+decide whether a combatant still has something to do. Spell casting, animation, the targeting queue
+and the auto-combat "thinking" are not ported. **With it, a round now runs end to end**: everybody
+acts once in initiative order and the round rolls over, driven by real entities rather than
+callbacks.
+
+`CombatSetup` was unified onto it — the placeholder record it used to take is gone, and setup now
+writes each combatant's square back onto the entity.
+
+- **`IsDone` mutates, and the round depends on it.** Being off the map, or being a free attacker
+  with no target, *sets* `turnIsDone` rather than merely returning true (`Combatant.cpp:7016`), so
+  asking the question changes the answer to later ones. The latch is what stops a fled combatant
+  being offered turns for the rest of the round.
+- **The free-attack latch fires before the return, not after.** `IsDone(freeAttack: true)` with no
+  target reports done on the *first* call. A test that assumed otherwise is what found this.
+- **Petrified short-circuits ahead of the readiness check**, so a petrified combatant is done
+  whatever a script would have said.
+- **`EndTurn` only acts for the combatant at the top of the queue** (`qcomb.Top() == self`,
+  `:6882`) — an interrupted combatant cannot end a turn it is not currently taking. Its latch
+  condition is `ChangeStats() || NumFreeAttacks() || NumGuardAttacks()`, so the one case that does
+  *not* latch is a spent interrupter, which is the entry about to be popped anyway.
+- **The start-of-round reset is gated on `charCanTakeAction() && IsDone()`** (`Combatants.cpp:4553`),
+  so a combatant mid-turn keeps what it had and an unconscious one is skipped entirely.
+- **Casting skips only the state reset.** The attacks-and-movement block sits *outside* the
+  `ICS_Casting` check (`:4592`), so returning early for a caster would leave it with last round's
+  movement. This is the kind of nesting that a skim gets backwards.
+- **Guarding persists by two different rules** — an auto combatant keeps `Guarding` outright, a
+  player-run one moves to `ContinueGuarding` and only when the hook said so.
+- **Unused attacks carry over, capped at this round's own ceiling**: new + leftover, clamped to
+  `ceil(new)` (`:4597`). Half an attack survives a round; it cannot be hoarded.
+
+> **The `IS_COMBAT_READY` script hook is the one part left stubbed**, exactly as predicted. It runs
+> against both the character and the combatant and either can veto (`Combatant.cpp:6981`); both need
+> GPDL global scripts. `IsCombatReady` is the settled answer only, defaulting to ready, so a design
+> whose scripts gate readiness — a sleep or hold effect — will have its combatants act when they
+> should not.
+
+> **There are two state-name tables and only the plural one is dead.** `CombatantStateText`
+> (**singular**, `Combatant.cpp:62`, 12 entries) is live and correct — it is returned to scripts by
+> a GPDL sub-opcode (`GPDLexec.cpp:5282`), not merely traced. Its 12 entries cover exactly the
+> states a combatant can actually be in, so the four enum values past its end are unreachable. The
+> dead one is `CombatantsStateText` (plural), covered above. An earlier revision of this document
+> grepped for the plural name and drew a conclusion about both.
 
 ##### `CLASS_DATA`, as ported
 
@@ -2964,34 +3014,27 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the combatant
+### The next piece of work: what a turn actually does
 
-**Encounter setup, pathing and the round clock are complete.** `CombatSetup.Begin` builds the map
-and puts everybody on it; `CombatPathFinder` is the search movement needs; `CombatRound` +
-`TurnQueue` decide whose turn it is and what the engine should be doing. Read the five "as ported"
-sections under §7 Phase 4 before touching any of it.
+**A round now runs end to end.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue`
+order the turns, `Combatant` is the entity, and `CombatPathFinder` is the search movement needs —
+everybody acts once in initiative order and the round rolls over. Read the six "as ported" sections
+under §7 Phase 4 before touching any of it.
 
-**`COMBATANT` is the gap, and it is now the only thing between here and a round that runs.**
-`Combatant.cpp` is 11,694 lines and `Combatant.h` declares the entity everything else talks to.
-Nothing of it exists yet — `UAFcore/Character.cs` models a character *sheet*, not a fighter in a
-fight. The round clock was deliberately built without it and takes its two questions
-(`isDone`, `initiativeOf`) as callbacks, so wiring is a constructor change.
+**What is missing is the content of a turn**, in dependency order:
 
-A combatant is a big class, but the round only needs a slice of it to start:
+1. **Targeting** — `GetCurrTarget`, `canAttack`, `IsValidTarget` (`Combatant.cpp`). Nothing else
+   can proceed without knowing who a combatant is fighting, and `Combatant.Target` is currently a
+   field nobody sets.
+2. **Movement** — `HandleCurrState`'s `ICS_Moving` arm and `TakeNextStep`. This is where
+   `CombatPath` gets consumed and `Movement`/`DiagonalMoves` get spent; both sides already exist.
+3. **The attack** — `UAF.Rules` already has `ToHit`, `Thac0` and `ArmorClass`, so this is wiring
+   plus damage application, not new arithmetic.
+4. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants, which decides between
+   moving, attacking, casting and fleeing.
 
-1. **Identity and position** — index, friendly flag, icon size, `x`/`y`, the character or monster
-   behind it. Placement already produces all of this; it just has nowhere to live.
-2. **The turn's resources** — `m_iMovement`, `availAttacks`/`determineNbrAttacks`, and `IsDone`,
-   which is what `Advance` calls and is the single most load-bearing predicate in the round.
-3. **`HandleCurrState`** (`Combatant.cpp:3903`) — the per-combatant half of the dispatch. Its
-   `ICS_Moving` arm is the one that consumes a `CombatPath`, so pathing and the combatant meet
-   there.
-4. **Targeting** — `GetCurrTarget`, `canAttack`, `IsValidTarget`.
-
-`UAF.Rules` already has `ToHit`, `Thac0`, `ArmorClass` and `Initiative`, so the arithmetic of an
-attack is ported; what is missing is the entity to hang it on. Expect the script hooks
-(`RunCombatantScripts`, `START_COMBAT_ROUND`) to be the one part that stays stubbed, since they
-need GPDL global scripts — the same gap monster placement worked around.
+Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` is already stubbed
+(see the combatant section), and targeting and the AI both call into scripts too.
 
 **The round clock is also what finishes the spell-effect layer** — see below.
 
@@ -3038,7 +3081,7 @@ expires them than ahead of it.
   one sitting for exactly this.
 - **Check whether the code is live before porting it.** `ProjectVersion.h`, `MultiBoxTextAction`,
   one of the two `getCharTHAC0` definitions, one of the two `findEmptyCell`s, the whole A\*
-  pathfinder, `ComputeDistanceFromParty` and `CombatantsStateText` are all dead. The `#ifdef` that
+  pathfinder, `ComputeDistanceFromParty` and `CombatantsStateText` (the *plural* one) are all dead. The `#ifdef` that
   decides is often nowhere near the function — and two of those are dead not by `#ifdef` but by
   having **no reader at all**, which only a repo-wide search for consumers finds.
 - **Cite the function you actually ported, and check the citation.** A first draft of

@@ -2,16 +2,17 @@ using UAF.Serialization;
 
 namespace UAFcore;
 
-/// <summary>One side's combatants, in the order <c>m_aCombatants</c> holds them.</summary>
-/// <param name="Icon">The footprint.</param>
-/// <param name="IsFriendly">Party and NPCs are friendly; everything else is a monster.</param>
-public readonly record struct Combatant(CombatantIcon Icon, bool IsFriendly);
-
 /// <summary>The result of setting up an encounter.</summary>
 /// <param name="Map">The generated combat grid, with everybody placed on it.</param>
 /// <param name="PartyX">The party's origin square.</param>
 /// <param name="PartyY">The party's origin square.</param>
-/// <param name="Positions">Where each combatant landed, indexed as <paramref name="Positions"/>.</param>
+/// <param name="Positions">Where each combatant landed, indexed as the combatant list is.</param>
+/// <remarks>
+/// The positions are also written back onto the combatants themselves — <see cref="Combatant.X"/>
+/// and <see cref="Combatant.Y"/> — so a caller can work from either. They are returned separately
+/// because "unplaced" is a distinct answer that the combatant records only as a negative
+/// coordinate.
+/// </remarks>
 public sealed record CombatSetupResult(CombatMap Map, int PartyX, int PartyY,
                                        IReadOnlyList<PlacedAt> Positions);
 
@@ -207,6 +208,14 @@ public static class CombatSetup
                 arrangement.Slots[i].PlaceX = -1;
                 arrangement.Slots[i].PlaceY = -1;
             }
+        }
+
+        // Mirror the outcome onto the combatants themselves, so the round can work from the
+        // entity rather than carrying a parallel array around.
+        for (int i = 0; i < combatants.Count; i++)
+        {
+            combatants[i].X = positions[i].X;
+            combatants[i].Y = positions[i].Y;
         }
 
         return new CombatSetupResult(map, partyX, partyY, positions);

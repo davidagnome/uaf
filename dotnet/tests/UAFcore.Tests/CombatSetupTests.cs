@@ -22,11 +22,16 @@ public class CombatSetupTests
             new WallSetSlot("wall.png", string.Empty, "overlay.png", string.Empty,
                             string.Empty, 1, 0, 0, string.Empty, 0, 0))];
 
-    private static List<Combatant> Encounter(int party, int monsters) =>
-    [
-        .. Enumerable.Repeat(new Combatant(new CombatantIcon(1, 1), IsFriendly: true), party),
-        .. Enumerable.Repeat(new Combatant(new CombatantIcon(1, 1), IsFriendly: false), monsters),
-    ];
+    /// <summary>A party followed by monsters, indexed the way <c>m_aCombatants</c> holds them.</summary>
+    private static List<Combatant> Encounter(int party, int monsters)
+    {
+        var all = new List<Combatant>();
+        for (int i = 0; i < party + monsters; i++)
+        {
+            all.Add(new Combatant(i, isFriendly: i < party, new CombatantIcon(1, 1)));
+        }
+        return all;
+    }
 
     [Fact]
     public void Everybody_lands_somewhere_distinct_and_passable()
