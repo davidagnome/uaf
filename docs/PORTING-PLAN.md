@@ -9,9 +9,9 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed, a round that runs to completion in initiative order, movement along a
-found route, and attacks that roll, hit and do damage. Phases 5–7 have not started.
-**1,385 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
+pathing, movement and attacks. Phases 5–7 have not started.
+**1,403 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1619,9 +1619,9 @@ remains, in dependency order:
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
    `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
-   `Combatant` the entity, `Targeting` who may hit whom, `CombatMovement` the walk, and `Attack`
-   the swing — **a fight now resolves**. What remains is **the monster AI**, plus attacks of
-   opportunity and the spell layer.
+   `Combatant` the entity, `Targeting` who may hit whom, `CombatMovement` the walk, `Attack` the
+   swing and `MonsterAi` the choice — **a fight plays itself to a conclusion**. What remains is
+   morale and dying combatants, attacks of opportunity, and the spell layer.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -2098,6 +2098,48 @@ with a dagger you could have thrown does not lose it.
 >
 > The first draft invented an AD&D-shaped rule from memory and cited a header that only declares
 > the enum. Reading the function is what produced all four.
+
+##### The monster AI, as ported
+
+`MonsterAi.Think` is `COMBATANT::Think` (`Combatant.cpp:2080`) — **the unscripted half**. It returns
+an `AiPlan` rather than assigning state and readying weapons as it goes; separating the decision
+from its execution is what lets a test assert the choice instead of its consequences.
+
+The decision order is the reference's and it matters:
+
+1. **Fleeing or turned beats everything**, checked before any target is considered.
+2. **Acquire a target** — keep the current one if still attackable, else the nearest enemy
+   **with line of sight**, else the nearest enemy at all.
+3. **Attack from here** if reach allows.
+4. **Otherwise walk toward** whichever target can actually be pathed to, trying them in order.
+5. **Guard** if none of the above.
+
+- **Line of sight is preferred, not required.** The reference makes two passes and its own comment
+  explains why: targets are ordered by distance, and the nearest may be on the far side of a wall,
+  so the shortest straight line is not the shortest walk.
+- **The walk's destination is the target's footprint expanded by one on every side**
+  (`x-1, y-1` through `x+width, y+height`, `:2719`), so a route ends *beside* the target. Asking
+  for the target's own square would never path — the target is standing in it.
+- **Standing on any map edge while fleeing means leaving the fight**, not walking to the edge. The
+  test fires before any pathing.
+- **`CanMove` is not just "has movement left"** — a combatant whose turn is done cannot move
+  either, and a monster can be pinned by the `Monster_NoMove` debug setting.
+- The reference has the flee block **twice**, once for `iFleeingFlags` and once for `isTurned`,
+  differing only in a trace message. Ported once.
+
+> **The scripted branch is not ported, and it is a separate large piece.** When a design supplies
+> an AI script, `Think` builds a `COMBAT_SUMMARY` of every combatant, weapon, attack and reachable
+> cell, enumerates candidate actions, and ranks them by running a **Forth** program (`RunTHINK`,
+> `:2251`) — a partial-order insertion into a binary tree so the best action bubbles up. That needs
+> the Forth VM, which is not started (§11). Every design without a custom AI takes the path that
+> *is* ported.
+
+**Verified by running a fight and watching it.** Four heroes and four orcs, all on auto, on a real
+combat map generated from `SomethingWild`: they close over round 1, trade blows from round 2, and
+the fight is decided in six rounds with four heroes standing. Nothing drives it but the ported
+pieces — setup, round clock, AI, pathing, movement, attack. The hit-point bands showed up correctly
+along the way, an orc at 0 reading `Unconscious` and one at −4 reading `Dying`, which is the
+`giveCharacterDamage` correction above holding under real play rather than only in its own test.
 
 ##### `CLASS_DATA`, as ported
 
@@ -3139,30 +3181,32 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the monster AI
+### The next piece of work: morale and dying combatants
 
-**A fight now resolves.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue` order the
+**A fight plays itself.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue` order the
 turns, `Combatant` is the entity, `CombatPathFinder` finds routes, `Targeting` decides who may be
-hit, `CombatMovement` walks and spends the allowance, and `Attack` rolls, hits and applies damage.
-Read the nine "as ported" sections under §7 Phase 4 before touching any of it.
+hit, `CombatMovement` walks and spends the allowance, `Attack` resolves the swing, and `MonsterAi`
+chooses. Four heroes against four orcs on a real map resolves in six rounds with nothing but the
+ported code driving it. Read the ten "as ported" sections under §7 Phase 4 before touching any
+of it.
 
-What remains is:
+What remains, smallest first:
 
-1. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants (`:2092` onward), choosing
-   between moving, attacking, casting and fleeing. **This is the piece that makes a fight play
-   itself**, and everything it needs now exists: it picks a target through `Targeting`, walks
-   there with `CombatPathFinder` + `CombatMovement`, and swings with `Attack`. It is also the part
-   that leans hardest on scripts, so expect a permissive stub or two.
-2. **Attacks of opportunity.** `CheckOpponentFreeAttack` is called from the middle of
-   `MoveCombatant` and is the one piece of movement left out — the turn queue already models the
-   interruption, so what is missing is only the rule deciding when one is owed.
-3. **Morale and the end of combat** — `CheckMorale` and `CheckDyingCombatants` run at the head of
-   every round (`Combatants.cpp:4529`), and neither is ported. Dying combatants losing a point a
-   round is what makes the −1..−9 band mean anything.
+1. **`CheckDyingCombatants` and `CheckMorale`**, both run at the head of every round
+   (`Combatants.cpp:4529`). Neither is ported, and **the first is what makes the −1..−9 band mean
+   anything** — a dying combatant loses a point a round until it stabilises or dies. Small, and it
+   closes a loop the attack work opened.
+2. **Attacks of opportunity.** `CheckOpponentFreeAttack` sits in the middle of `MoveCombatant` and
+   is the one piece of movement left out. The turn queue already models the interruption, so what
+   is missing is only the rule deciding when one is owed.
+3. **The spell layer.** `SpellEffects` has the arithmetic but not durations, sources or stacking —
+   see below. The round clock it was waiting for now exists.
+4. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
+   unported subsystem in Phase 2.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped
-in movement, and the AI calls into scripts too.
+in movement, and the scripted AI needs Forth.
 
 **The round clock is also what finishes the spell-effect layer** — see below.
 

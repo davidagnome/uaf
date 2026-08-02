@@ -148,6 +148,25 @@ public sealed class Combatant
     /// <summary>Whether a turning attempt has already been spent — once per combat, not per round.</summary>
     public bool HasTurnedUndead { get; set; }
 
+    /// <summary>
+    /// Whether this combatant is running (<c>iFleeingFlags</c>, non-zero).
+    /// </summary>
+    /// <remarks>
+    /// A bit field in the reference (<c>FLEEING_FLAGS</c>) recording <i>why</i>; only whether is
+    /// used by the AI, so it is a flag here.
+    /// </remarks>
+    public bool IsFleeing { get; set; }
+
+    /// <summary>
+    /// Whether a cleric has turned this undead, which makes it flee its turner
+    /// (<c>isTurned</c>).
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="IsFleeing"/> in the reference and handled by a near-identical
+    /// second block; the behaviour is the same, so the port takes either.
+    /// </remarks>
+    public bool IsTurned { get; set; }
+
     /// <summary>Character, NPC or monster. Decides who may be attacked on your own side.</summary>
     public CombatantKind Kind { get; set; } = CombatantKind.Character;
 
