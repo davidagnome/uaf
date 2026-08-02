@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,826 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,869 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,96 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Enumerating the AI's candidate actions, as ported
+
+`ListActions` and its three children (`Combatant.cpp:1770`, `:1522`, `:1619`, `:1649`) — building
+the list that §the monster AI's priority ordering ranks. `UAFcore/AiActions.cs`, and
+`MonsterAi.Think` now takes the combatant's weapons and uses the ranked plan when given them.
+
+One candidate per (target, weapon) pair, one per unarmed attack, and an advance on every target.
+
+- **Every combatant is considered as a target, including the acting one.** The loop runs from zero
+  over all of them; what stops a combatant attacking itself is the *friendly* test, not an identity
+  test — **except for unarmed attacks**, which do check explicitly (`:1629`).
+- **An ordinary weapon is never offered against a friend** (`if (friendly) return`, before the
+  ranged/melee split). A spell item gets past that point, but the script's `SpellCasterFilter`
+  opens with `FGDP?`, whose first test is `Friendly? ?EXIT` — so it is refused a step later anyway.
+  The two arrive at the same place by different routes.
+- **A spell item that names no spell yields no action at all**, rather than a failed one: the
+  reference returns before setting an action type.
+- **Advancing is offered even on an adjacent target.** The `distance22 > 8` guard was removed in
+  2016 with a long comment explaining why — a combatant out of attacks could not advance on the
+  enemy beside it, so it advanced on a further one, then back, forever. The engine turns an advance
+  on an adjacent target into a guard, which is what this port does too.
+
+> **A design's `CanTargetFriend`/`CanTargetEnemy` flags never reach the AI.** The checks that would
+> have applied them are commented out in both spell branches (`:1561`, `:1578`), so a monster's
+> choice of spell target is the script's business alone.
+
+`MonsterAi.Think` keeps its older, simpler rule when no weapon list is supplied — every existing
+caller still works — and follows the script when one is. The remaining gap is the caller: nothing
+yet builds an `AiWeapon` list from a monster's readied items, so combat still runs the simple path.
+
+##### The monster AI's priority ordering, as ported
+
+What the shipped `AI_Script.BLK` decides (`RunTHINK`, `Forth.cpp:2510`).
+`UAFcore/MonsterAiScript.cs`. **This is the script's decision function, not the Forth VM that runs
+it** — see the trade-off below before reaching for either.
+
+`THINK` is a **comparator**, not a planner. It is handed two candidate actions and returns A minus
+B, positive meaning A is preferred; the caller heap-sorts the candidate list with it
+(`Combatant.cpp:2240`). The script's own comments are the specification, and the order is:
+spell-caster items ("used first if the monster has them"), spell-like abilities ("Dragon Breath,
+Medusa Gase"), ranged weapons by average damage, melee likewise, unarmed, advancing on the nearest
+enemy — "the only action left is to guard".
+
+> **Every distance in the script is `distance22`, and none of them are square counts.** `C:Distance`
+> pushes that field (`Forth.cpp:2149`), which is `4 × (dx² + dy²)` between the **nearest edges** of
+> the two footprints (`Distance22`, `Combatant.cpp:1674`) — doubled and then squared, which is what
+> the trailing "22" means. Reading the thresholds as squares inverts two of the three range rules:
+> `TooNear? … 5 <` is `4d² < 5`, which holds only at `d ≤ 1`, and `NotAdjacent? … 8 >` is
+> `4d² > 8`, which holds from `d ≥ 2`. Both are adjacency tests, not five- and eight-square reaches.
+> This port got them wrong first time and the arithmetic caught it, not a test.
+
+Filters run first, per action type, and they are not the same:
+
+- `FGDP?` — "Friendly Gone Dead Dying or Petrified Targets should not be attacked". **Friendly is
+  tested first and exits early**, so an ally is refused whatever its condition. An *unconscious*
+  target is not in the list at all and is still attacked.
+- **A ranged weapon refuses an adjacent target** as well as a distant one. That is the whole of
+  `TooNear?` — a monster with a bow will not shoot somebody standing next to it, and will shoot
+  anything two squares out.
+- **Judo reaches exactly the adjacent squares**, diagonals included: a diagonal neighbour has a gap
+  of one on both axes, giving `distance22 = 8`, which `> 8` does not exceed.
+- **The ranged/melee split is made on the weapon, not the target**: `range22 > 9` is `4r² > 9`, so
+  reach 1 is melee and reach 2 or more is ranged.
+- **Advancing skips the range tests entirely** and checks only the target's condition, which is the
+  whole point of it.
+
+> **The melee test is a subtraction of two booleans, with the operands the other way round from
+> every neighbouring test.** The script writes
+> `B A:Type A:T:MeleeWeapon = A A:Type A:T:MeleeWeapon = -`, which is `isMelee(B) − isMelee(A)` —
+> and it comes out right only because Forth's `=` yields **−1** for true. Read as C, the sign is
+> backwards and monsters prefer *not* to use a weapon.
+
+> **Two of the eight tests compare weapon type, the rest compare action type.** The spell-caster
+> and spell-like tests read `W:Type`; everything after them reads `A:Type`. Using one throughout
+> silently changes which actions are preferred.
+
+**The trade-off, stated plainly.** The reference evaluates a 143-line Forth program through a
+2,534-line indirect-threaded interpreter (`Forth.cpp`). Porting the interpreter is a subsystem;
+porting what the program decides is a table. Two facts make the second reasonable:
+
+1. `AI_Script.BLK` **ships in every design's `Data` folder**, and `ExpandKernel` calls `die()` when
+   it is missing (`Forth.cpp:2333`) — so it is engine data with a version, not design content.
+2. Across the four reference designs there are exactly **two versions, differing by one line**:
+   1.01 (October 2014) adds `Dying?` to the do-not-attack filter; 0.999785 (August 2014) lacks it.
+   Both are reproduced, selectable by `AttacksTheDying`.
+
+**What this does not do**: honour a design that edited its own script. That needs the VM, and the
+VM is still worth building — but it is a smaller prize than "the scripted AI is unported" suggested,
+and this is why.
+
 ##### The combat aftermath, as ported
 
 `DetermineVictoryExpPoints` and the results screen (`Combatants.cpp:4315`, `RunEvent.cpp:19669`) —
@@ -4066,15 +4156,23 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The Forth VM** (§the monster AI section) — the last large unported subsystem in Phase 2. It
-   unlocks the scripted AI, and with it a monster's own choice of spell and targets, which this
-   port currently approximates (§choosing a spell's targets), and the `TURN_ATTEMPT` hook that
-   turning undead entirely depends on (§turning, delaying and automatic).
+1. **Giving the AI a weapon list.** The ordering and the candidate enumeration are both ported and
+   tested (§the monster AI's priority ordering, §enumerating the AI's candidate actions), and
+   `MonsterAi.Think` follows them when handed an `AiWeapon` list — but nothing builds that list
+   from a monster's readied items yet, so combat still takes the simple path. That needs
+   `ListWeapons`/`ListAmmo`/`ListAttacks` (`Combatant.cpp:1380`) and the monster record's attack
+   block.
 2. **The `"Combat Result"` ASL**, and the ASL layer generally. The aftermath computes the verdict
    and the spoils (§the combat aftermath) but nothing stores them where a design's scripts look.
    That is the same gap as the GPDL hooks below, reached from the other end.
 3. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
    reports them in the message line and drops them. The treasure screen itself exists (§Phase 4).
+4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
+   is a script that is the same in every shipped design bar one line
+   (§the monster AI's priority ordering). What still needs it: a design that edits `AI_Script.BLK`,
+   the `TURN_ATTEMPT` hook that turning undead depends on
+   (§turning, delaying and automatic), and a monster's own choice of spell targets
+   (§choosing a spell's targets).
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped

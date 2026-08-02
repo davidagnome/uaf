@@ -68,7 +68,8 @@ public static class MonsterAi
     /// execution is what lets a test assert the choice rather than its consequences.
     /// </remarks>
     public static AiPlan Think(Combatant self, IReadOnlyList<Combatant> all, CombatMap map,
-                               Func<Combatant, int, bool> canAttack)
+                               Func<Combatant, int, bool> canAttack,
+                               IReadOnlyList<AiWeapon>? weapons = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(all);
@@ -79,6 +80,12 @@ public static class MonsterAi
         if (self.IsFleeing || self.IsTurned)
         {
             return Flee(self, all, map);
+        }
+
+        // -- the scripted path, when the caller knows what this combatant is carrying -------
+        if (weapons is not null)
+        {
+            return Scripted(self, all, map, weapons);
         }
 
         // -- who are we fighting? ----------------------------------------------------------
@@ -108,6 +115,54 @@ public static class MonsterAi
         }
 
         return new AiPlan(AiDecision.Guard, target);
+    }
+
+    /// <summary>
+    /// Enumerates every candidate action and takes the best one the AI script ranks
+    /// (<c>Combatant.cpp:2213</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The script chooses, and then the engine decides what that choice means.</b> An advance
+    /// on an adjacent target is a legal and often preferred action — the guard that stopped it was
+    /// removed in 2016 — and it becomes a guard when carried out, because there is nowhere to
+    /// advance to.
+    /// </para>
+    /// <para>
+    /// <b>No candidates at all means guard</b>, which is the script's own last word: "the only
+    /// action left is to guard".
+    /// </para>
+    /// </remarks>
+    private static AiPlan Scripted(Combatant self, IReadOnlyList<Combatant> all, CombatMap map,
+                                   IReadOnlyList<AiWeapon> weapons)
+    {
+        var candidates = AiActions.For(self, all, weapons,
+                                       unarmedAttacks: Math.Max(0, self.TotalAttacks),
+                                       canMove: CanMove(self));
+
+        foreach (var action in MonsterAiScript.Rank(candidates))
+        {
+            var target = Get(all, action.Target);
+            if (target is null)
+            {
+                continue;
+            }
+
+            if (action.Type == AiActionType.Advance)
+            {
+                var path = PathToward(self, target, map);
+
+                // Nowhere to advance to: the engine's answer is to guard rather than to try the
+                // next-best action, so an adjacent target ends the search.
+                return path is null
+                    ? new AiPlan(AiDecision.Guard, action.Target)
+                    : new AiPlan(AiDecision.Move, action.Target, path);
+            }
+
+            return new AiPlan(AiDecision.Attack, action.Target);
+        }
+
+        return new AiPlan(AiDecision.Guard);
     }
 
     /// <summary>
