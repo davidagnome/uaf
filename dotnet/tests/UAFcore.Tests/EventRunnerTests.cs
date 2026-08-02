@@ -590,6 +590,45 @@ public class EventRunnerTests
         Assert.Null(runner.Unimplemented);
     }
 
+    // ---- damage and healing --------------------------------------------------------------------
+
+    [Fact]
+    public void A_damage_event_hurts_nobody_until_return_is_pressed()
+    {
+        // Both GIVE_DAMAGE_DATA and HEAL_PARTY_DATA do all their work in OnKeypress, so a run
+        // abandoned before the commit leaves the party untouched.
+        DamageEvent? applied = null;
+        var runner = new EventRunner { ApplyDamage = e => applied = e };
+        var damage = new DamageEvent(Base(EventType.Damage, text: "Darts fly out."),
+                                     1, 100, 6, 1, 0, 0, 15, 0, 0, 1, 0);
+
+        Begin(runner, damage);
+        Assert.Null(applied);
+        Assert.Null(runner.Unimplemented);
+
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Same(damage, applied);
+        Assert.NotEqual(EventStepKind.Running, step.Kind);
+    }
+
+    [Fact]
+    public void A_heal_event_takes_the_same_path()
+    {
+        HealPartyEvent? applied = null;
+        var runner = new EventRunner { ApplyHeal = e => applied = e };
+        var heal = new HealPartyEvent(Base(EventType.HealParty, text: "You feel better.",
+                                           onHappened: 6),
+                                      1, 0, 0, 100, 1, 10, 0);
+
+        Begin(runner, heal);
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Same(heal, applied);
+        Assert.Equal(EventStepKind.Chain, step.Kind);
+        Assert.Equal(6u, step.ChainTo);
+    }
+
     [Fact]
     public void Return_applies_the_list_and_then_chains()
     {

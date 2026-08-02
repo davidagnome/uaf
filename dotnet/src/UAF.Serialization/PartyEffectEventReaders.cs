@@ -85,9 +85,18 @@ public static class PartyEffectEventReaders
     /// </para>
     /// <para>
     /// <c>HowMuchHP</c> and <c>LiteralOrPercent</c> arrive at 0.882 — and note the second is a
-    /// <c>BYTE</c> too, so the gated part is five bytes, not eight. Below the gate the reference
-    /// leaves both at whatever <c>Clear</c> set, which is zero: a heal of "0 literal", meaning the
-    /// older full-heal behaviour rather than a heal of nothing.
+    /// <c>BYTE</c> too, so the gated part is five bytes, not eight.
+    /// </para>
+    /// <para>
+    /// <b>Below the gate the reference runs on 100/1, not on zero</b> — <c>Clear</c> sets
+    /// <c>HowMuchHP=100; LiteralOrPercent=1;</c> (<c>GameEvent.cpp:13726-13727</c>), which is
+    /// "add 100% of maximum", the old unconditional full heal. This reader writes 0/0 because it
+    /// has nothing to read: the zero pair is this port's stand-in for "absent", not the
+    /// reference's default, so <b>a consumer must map it back to 100/1</b> rather than read it as
+    /// "add nothing". <c>UAFcore.EventHeal.Adjustment</c> (<c>UAFcore/EventHeal.cs</c>) is where
+    /// that happens — a plain reference, not a <c>cref</c>, since <c>UAFcore</c> depends on this
+    /// assembly and not the reverse. The cost is a collision the format cannot resolve: a design
+    /// at 0.882 or above can author "add 0 to current", and once read the two are identical.
     /// </para>
     /// </remarks>
     public static HealPartyEvent ReadHealParty(IArchiveCursor ar, DesignVersion version,

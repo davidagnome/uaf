@@ -137,8 +137,37 @@ public sealed class EventRunner
             RandomEvent random => BeginRandom(random, anchors),
             SpecialItemEvent special => BeginSpecialItem(special, anchors),
             QuestEvent quest => BeginQuest(quest, anchors),
+            DamageEvent damage => BeginPressEnter(damage.Base.Text, anchors),
+            HealPartyEvent heal => BeginPressEnter(heal.Base.Text, anchors),
             _ => BeginUnsupported(gameEvent),
         };
+    }
+
+    /// <summary>Applies a damage event to the party; set by the host.</summary>
+    /// <remarks>
+    /// The runner owns no party, the same reason it cannot hand over a treasure. See
+    /// <see cref="EventDamage"/>.
+    /// </remarks>
+    public Action<DamageEvent>? ApplyDamage { get; set; }
+
+    /// <summary>Applies a heal event to the party; set by the host. See <see cref="EventHeal"/>.</summary>
+    public Action<HealPartyEvent>? ApplyHeal { get; set; }
+
+    /// <summary>
+    /// Text and a Return, for the events whose whole presentation is that.
+    /// </summary>
+    /// <remarks>
+    /// <c>GIVE_DAMAGE_DATA</c> and <c>HEAL_PARTY_DATA</c> both set this menu in
+    /// <c>OnInitialEvent</c> (<c>RunEvent.cpp:9989</c> and <c>:10216</c>) and do all their work in
+    /// <c>OnKeypress</c> — so the party is neither hurt nor healed until the player commits, and a
+    /// run abandoned before that leaves them untouched.
+    /// </remarks>
+    private EventStep BeginPressEnter(string text, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                       ("PRESS ENTER TO CONTINUE", 7));
+        ShowText(text);
+        return EventStep.Running;
     }
 
     /// <summary>Applies a quest event's outcome; set by the host.</summary>
@@ -569,6 +598,8 @@ public sealed class EventRunner
             RandomEvent random => ChooseRandom(random),
             SpecialItemEvent special => FinishSpecialItem(special),
             QuestEvent quest => FinishQuest(quest),
+            DamageEvent damage => Applied(() => ApplyDamage?.Invoke(damage)),
+            HealPartyEvent heal => Applied(() => ApplyHeal?.Invoke(heal)),
             _ => Complete(happened: true),
         };
     }
@@ -623,6 +654,13 @@ public sealed class EventRunner
     private EventStep FinishSpecialItem(SpecialItemEvent special)
     {
         ApplySpecialItems?.Invoke(special);
+        return Complete(happened: true);
+    }
+
+    /// <summary>Runs the host's effect on the way out, then chains.</summary>
+    private EventStep Applied(Action effect)
+    {
+        effect();
         return Complete(happened: true);
     }
 

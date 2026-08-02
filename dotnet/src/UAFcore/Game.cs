@@ -112,6 +112,25 @@ public sealed class Game
         {
             Party.Add(new Character(member, Money));
         }
+
+        // Damage and healing act on the party through PartyAffect, so neither needs the player to
+        // choose anyone -- unlike WhoTries and WhoPays, which do and are not wired yet.
+        Runner.ApplyDamage = damage =>
+        {
+            var hurt = EventDamage.Apply(damage, Party, sides => Dice(sides));
+            Message = hurt.TotalDamage > 0
+                ? $"The party takes {hurt.TotalDamage} damage."
+                : "The party is unharmed.";
+        };
+
+        Runner.ApplyHeal = heal =>
+        {
+            var healed = EventHeal.Apply(heal, Party, sides => Dice(sides));
+            Message = healed.HitPointsRestored > 0 || healed.CursesLifted > 0
+                ? $"The party is restored."
+                : "Nothing happens.";
+        };
+
     }
 
     private readonly EventLookup? events;

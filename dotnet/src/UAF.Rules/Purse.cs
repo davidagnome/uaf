@@ -176,6 +176,27 @@ public sealed class Purse(MoneyRules rules)
     public void AddJewelry(GemType piece) => jewelry.Add(piece);
 
     /// <summary>
+    /// Drops gems off the front of the list (<c>RemoveMultGems</c>, <c>Money.cpp:2208</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>From the head, so the <i>oldest</i> gems go first — not the cheapest.</b> Every gem is a
+    /// <see cref="GemType"/> with its own appraised value and this ignores all of them, so a
+    /// two-gem price can take a 5,000gp stone and leave a 10gp one behind. The count is clamped to
+    /// what is held rather than throwing, exactly as <c>min(count, NumGems())</c> does — and a
+    /// negative count removes nothing, because the reference's loop never runs.
+    /// </remarks>
+    public void RemoveGems(int count) =>
+        gems.RemoveRange(0, Math.Clamp(count, 0, gems.Count));
+
+    /// <summary>
+    /// Drops jewellery off the front of the list
+    /// (<c>RemoveMultJewelry</c>, <c>Money.cpp:2223</c>).
+    /// </summary>
+    /// <remarks>The same head-first, value-blind rule as <see cref="RemoveGems"/>.</remarks>
+    public void RemoveJewelry(int count) =>
+        jewelry.RemoveRange(0, Math.Clamp(count, 0, jewelry.Count));
+
+    /// <summary>
     /// Takes coins out, making change from other denominations when the named one is short
     /// (<c>Subtract</c>, <c>Money.cpp:1500</c>).
     /// </summary>

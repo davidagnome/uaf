@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes sixteen of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes eighteen of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,208 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,351 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2896,6 +2896,42 @@ on the event.
 > passes *through* squares without setting off what is on them, which is the reference's
 > `movePartyForward(0)`, and only fires an event at the end if the tour asks.
 
+**Four more types were ported in parallel by subagents**, each delivering a pure static plus tests
+in the same shape as `Quests` and `Utilities`, with all wiring done centrally afterwards so the
+conflict surface stayed at zero. **`Damage` and `HealParty` now execute**; `WhoTries` and `WhoPays`
+have their rules in `EventWhoTries` and `EventWhoPays` and are **not wired**, because both ask the
+player to pick a character and **this port has no character-selection screen**. That screen is the
+next thing to build, and it serves both.
+
+What that exercise established, beyond the code:
+
+> **`ChainOrQuit` is not `QUEST_EVENT_DATA`'s branch rule**, and both of these events use it
+> (`RunEvent.cpp:931`). It falls back on the ordinary chain for a chain id of zero **and** for one
+> naming a missing event, where a quest pushes a do-nothing event and ends the run. Nothing about
+> a toll or an ability check can end a run.
+
+> **`WHO_TRIES` is almost entirely dead by construction.** The storing branch writes a literal
+> `FALSE` for the eight thief flags and for `compareToDie`, and `0` for `compareDie` — so the
+> target number is always 0, every ability comparison becomes `score < 0`, and `NbrTries` never
+> fires a retry. The one reachable failure is the strength percentile against `strBonus`.
+
+> **`WHO_PAYS`'s `moneyType == 0` means Platinum, not "no coin".** The field arrived at 0.912 and
+> `Clear`'s default stands below it. `ItemClass 0` is `Item` and `MoneyRules.IndexOf` aborts on it,
+> so passing the zero through kills every pre-0.912 toll. Gems are **counted, never valued** —
+> two 1gp stones pay a two-gem toll and one 100,000gp stone does not — and removal takes from the
+> head of the list, oldest first.
+
+> **`GIVE_DAMAGE_DATA`'s saving throw cannot be modified from either side.** `saveBonus` is passed
+> and never read (`Char.cpp:8316`), and `ModifySaveRollAsTarget` is guarded on a non-null attacker
+> which the event never supplies — so protection-from-evil and friends give nothing against a trap.
+> Save-for-half's `max(1, result)` also means a zero-damage trap hurts those who *save* and spares
+> those who fail.
+
+> **`HEAL_PARTY_DATA` runs on 100/1 below 0.882, not on zero** — `Clear` sets `HowMuchHP=100;
+> LiteralOrPercent=1;`, the old unconditional full heal. This corrected a wrong premise in the
+> reader's own remarks. `HealDrain` is entirely dead, and `HealCurse` is the *item* flag rather
+> than a spell effect.
+
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
@@ -4719,7 +4755,7 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and sixteen execute. The other 28 draw
+   reads (§the event layer), and eighteen execute. The other 26 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.
