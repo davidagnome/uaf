@@ -11,9 +11,9 @@ running engine: it opens a design, walks a level, renders the viewport, executes
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
-stacking under it, **a combat screen that draws it**, and encounters built from real events.
-Phases 5–7 have not started.
-**1,477 tests, green on macOS, Linux and Windows; both CI workflows green.**
+stacking under it, **a combat screen that draws it**, encounters built from real events, and a
+player-driven combat menu. Phases 5–7 have not started.
+**1,496 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2335,6 +2335,36 @@ and quantities into `Combatant`s.
 > monster takes and the monster record alone cannot answer it. One square is the safe default: too
 > small never refuses a placement that should have succeeded, whereas too large would.
 
+##### The combat menu and cursor, as ported
+
+`CombatMenu` is `COMBAT_EVENT_DATA::OnUpdateUI` (`RunEvent.cpp:19533`) and `AimCursor` is
+`GetNextAim` / `GetPrevAim` (`Combatants.cpp:1363`). **The first thing in this port a player drives
+rather than watches** — everything before it has been computer-run.
+
+The fifteen commands are MOVE, AIM, USE, CAST, TURN, GUARD, QUICK, DELAY, BANDAGE, VIEW, SPEED,
+WIN, READY, END and a design-supplied special whose default label is SWEEP.
+
+- **`READY` is disabled unconditionally** (`:19584`), ahead of every conditional rule. Not a stub —
+  the reference simply never enables it.
+- **`WIN` is editor-only.** It forces a victory, so it is gated on `EditorMode()` rather than on
+  anything about the fight.
+- **Casting is refused for two separate reasons** — the caster cannot, or the *zone* forbids magic
+  — tested one after the other against the same entry. A design can have a no-magic zone that
+  silently disables spellcasting for everyone standing in it.
+- **A computer-run combatant gets the whole menu greyed**, and so does a turn with no current
+  combatant. The one exception is a moving auto combatant, whose title becomes the move readout and
+  whose menu is left alone.
+- **Only enemies are cycled by the cursor.** Party members and anything friendly are skipped, so
+  the cursor cannot be walked onto your own side even though the map has no such restriction — and
+  when nothing is targetable it **comes home to the acting combatant** rather than staying put or
+  reporting failure.
+
+> **`CombatCommand` is one-based and `Menu.SetItemEnabled` is zero-based.** The enum keeps the
+> reference's numbering so it can be checked against `RunEvent.cpp:19566` directly, and the
+> conversion lives in one named place rather than being absorbed silently. Passing a command
+> straight to the menu disables its *neighbour* — the same off-by-one the treasure screen's indices
+> set, and this document's note about that is what made it obvious to look for here.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3395,13 +3425,14 @@ objects — and `CombatRenderer` now draws the map with the zone's own art (§th
 Every ingredient now exists — `EncounterBuilder` makes the combatants, `CombatSetup` places them,
 `CombatRenderer` draws them, and the round machinery runs them. What is left is:
 
-1. **Combat state in `Game`**, driving the loop the scratch harness already proves — round,
-   `MonsterAi.Think`, movement, attack — and drawing through `CombatRenderer`. Mechanical, given
-   everything below.
-2. **Player input**, which is the genuinely new part: the reference presents a combat menu and a
-   cursor, and everything so far has been computer-run. `Getinput.cpp` and `GameMenu.cpp` are its
-   home, and the existing `TextForm` menu engine is the nearest ported equivalent. **Start here** —
-   an all-auto fight is a demo, and the menu is what makes it a game.
+1. **Combat state in `Game`** — the last structural piece. Drive the loop the scratch harness
+   already proves (round, `MonsterAi.Think`, movement, attack), draw through `CombatRenderer`, and
+   present `CombatMenu` when the acting combatant is player-run. Mechanical, given everything
+   below; the work is in `Game`'s own state machine rather than in anything new.
+2. **The commands themselves.** `CombatMenu` decides what is *offered*; MOVE, AIM, USE, CAST and
+   the rest still need to do something when chosen. MOVE and AIM are nearly free — the cursor and
+   `CombatMovement` exist — while CAST needs the casting half of the spell layer, which is the
+   largest unported piece of combat left.
 3. **Monster icons**, which combat placement needs for real footprints (see the encounter section)
    and the renderer needs to draw anything but coloured blocks. `PicRecord` is already read.
 
