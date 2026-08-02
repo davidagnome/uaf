@@ -1,3 +1,4 @@
+using UAF.Rules;
 using UAFcore;
 
 namespace UAFcore.Tests;
@@ -24,6 +25,10 @@ public class AttackTests
             Kind = friendly ? CombatantKind.Character : CombatantKind.Monster,
             AvailableAttacks = 1,
         };
+
+    private static void Bless(Combatant combatant, string attribute, double change) =>
+        combatant.Effects.Add(new ActiveSpellEffect(new UAF.Rules.SpellEffect(attribute, change),
+                                                    StopTime: null));
 
     /// <summary>A roller that returns a fixed sequence, so an attack has a known outcome.</summary>
     private static Func<int, int> Rolls(params int[] values)
@@ -330,5 +335,118 @@ public class AttackTests
         var c = Fighter(0, true, 5, 5);
         Assert.Equal(12, Attack.ApplyDamage(c, 8, -20, maxHitPoints: 12));
         Assert.Equal(CharacterStatus.Okay, c.Status);
+    }
+
+    // ---- ...through the adjusted accessors -------------------------------------------------
+    //
+    // The same three rules EventDamageTests pins on the Character port of giveCharacterDamage.
+    // Both are ports of Char.cpp:8245 and they have to agree, so these mirror those by name.
+
+    [Fact]
+    public void The_status_gate_reads_the_adjusted_status()
+    {
+        var c = Fighter(0, true, 5, 5);
+        c.Status = CharacterStatus.Dead;
+        Bless(c, "$CHAR_STATUS", -2);           // Dead(2) - 2 = Okay(0)
+
+        // The gate is GetAdjStatus(), not the stored field, so a spell that moves a combatant's
+        // apparent status decides whether damage lands at all.
+        Assert.Equal(CharacterStatus.Okay, Attack.AdjustedStatus(c));
+        Assert.Equal(7, Attack.ApplyDamage(c, 12, 5));
+        Assert.Equal(CharacterStatus.Dead, c.Status);       // no band fired; stored value stands
+
+        // ...and the write afterwards goes to the stored field regardless of what the gate read,
+        // which is how a combatant already marked dead gets knocked unconscious.
+        Assert.Equal(0, Attack.ApplyDamage(c, 12, 12));
+        Assert.Equal(CharacterStatus.Unconscious, c.Status);
+    }
+
+    [Fact]
+    public void A_status_adjustment_outside_the_enum_is_discarded_rather_than_clamped()
+    {
+        // Unlike every neighbouring GetAdj* accessor, this one reverts to the stored value rather
+        // than clamping into range -- so +1 changes everything and +100 changes nothing.
+        var c = Fighter(0, true, 5, 5);
+        c.Status = CharacterStatus.Dead;
+        Bless(c, "$CHAR_STATUS", 100);
+
+        Assert.Equal(CharacterStatus.Dead, Attack.AdjustedStatus(c));
+        Assert.Equal(12, Attack.ApplyDamage(c, 12, 5));      // gate refused; hit points unchanged
+        Assert.Equal(CharacterStatus.Dead, c.Status);
+
+        // Dying is 9 and the enum has ten members, so 9 is the last adjustment that survives.
+        var justInside = Fighter(1, true, 6, 5);
+        Bless(justInside, "$CHAR_STATUS", 9);
+        Assert.Equal(CharacterStatus.Dying, Attack.AdjustedStatus(justInside));
+
+        var justOutside = Fighter(2, true, 7, 5);
+        Bless(justOutside, "$CHAR_STATUS", 10);
+        Assert.Equal(CharacterStatus.Okay, Attack.AdjustedStatus(justOutside));
+    }
+
+    [Fact]
+    public void The_status_bands_are_read_from_the_adjusted_hit_points()
+    {
+        // The stored value is what took the damage; GetAdjHitPoints is what decides the
+        // consequence. So a buffed combatant reaches zero stored hit points and stays on its feet.
+        var buffed = Fighter(0, true, 5, 5);
+        Bless(buffed, "$CHAR_HITPOINTS", 10);
+
+        Assert.Equal(0, Attack.ApplyDamage(buffed, 5, 5));
+        Assert.Equal(CharacterStatus.Okay, buffed.Status);
+
+        // ...and a drained one is knocked out while its stored hit points are still positive.
+        var drained = Fighter(1, true, 6, 5);
+        Bless(drained, "$CHAR_HITPOINTS", -8);
+
+        Assert.Equal(8, Attack.ApplyDamage(drained, 10, 2));
+        Assert.Equal(CharacterStatus.Unconscious, drained.Status);
+    }
+
+    [Fact]
+    public void Death_clears_the_combatants_spell_effects_and_nothing_else_does()
+    {
+        // SetStatus is an inline setter with a side effect:
+        // `{ status=val; if (status==Dead) m_spellEffects.RemoveAll(); }`.
+        var killed = Fighter(0, true, 5, 5);
+        Bless(killed, "$CHAR_AC", -2);
+
+        Attack.ApplyDamage(killed, 5, 500);
+        Assert.Equal(CharacterStatus.Dead, killed.Status);
+        Assert.Equal(0, killed.Effects.Count);
+        Assert.True(killed.TurnIsDone);
+
+        // Only Dead does it. Going unconscious or dying leaves everything in place, which is what
+        // lets a bandaged combatant keep its buffs.
+        var dying = Fighter(1, true, 6, 5);
+        Bless(dying, "$CHAR_AC", -2);
+        Attack.ApplyDamage(dying, 5, 6);
+        Assert.Equal(CharacterStatus.Dying, dying.Status);
+        Assert.Equal(1, dying.Effects.Count);
+
+        var knockedOut = Fighter(2, true, 7, 5);
+        Bless(knockedOut, "$CHAR_AC", -2);
+        Attack.ApplyDamage(knockedOut, 5, 5);
+        Assert.Equal(CharacterStatus.Unconscious, knockedOut.Status);
+        Assert.Equal(1, knockedOut.Effects.Count);
+
+        // The dead-at-zero branch reaches the same setter, so it clears them too.
+        var collapsed = Fighter(3, true, 8, 5);
+        Bless(collapsed, "$CHAR_AC", -2);
+        Attack.ApplyDamage(collapsed, 5, 5, deadAtZero: true);
+        Assert.Equal(CharacterStatus.Dead, collapsed.Status);
+        Assert.Equal(0, collapsed.Effects.Count);
+    }
+
+    [Fact]
+    public void A_maximum_below_the_floor_wins_rather_than_raising_to_it()
+    {
+        // The reference floors at -10 and only then caps at the maximum, so the maximum has the
+        // last word. Math.Clamp(-1, -10, -20) throws instead -- degenerate data, but it is a throw
+        // where the reference has a value, on the path that decides whether a combatant is dead.
+        var c = Fighter(0, true, 5, 5);
+
+        Assert.Equal(-20, Attack.ApplyDamage(c, 0, 1, maxHitPoints: -20));
+        Assert.Equal(CharacterStatus.Dead, c.Status);
     }
 }

@@ -108,6 +108,24 @@ public class CharacterEffectsTests
     }
 
     [Fact]
+    public void A_maximum_below_the_floor_wins_rather_than_raising_to_it()
+    {
+        // `val = max(-10,val); val = min(val, GetMaxHitPoints())` floors and only then ceilings, so
+        // the maximum has the last word. Math.Clamp(value, DeadAt, MaxHitPoints) throws instead,
+        // its bounds being crossed -- degenerate data, but it would be a throw where the reference
+        // has a value, and this is read on the path that decides whether a character is dead.
+        var hero = Hero(hitPoints: 0, maxHitPoints: -20);
+
+        Assert.Equal(-20, hero.AdjustedHitPoints);
+
+        // The floor still runs first; it is simply overridden.
+        var drained = Hero(hitPoints: 0, maxHitPoints: -20);
+        drained.Effects.Add(Effect("$CHAR_HITPOINTS", -500));
+
+        Assert.Equal(-20, drained.AdjustedHitPoints);
+    }
+
+    [Fact]
     public void An_effect_on_another_attribute_leaves_this_one_alone()
     {
         var hero = Hero(hitPoints: 10, armorClass: 5);

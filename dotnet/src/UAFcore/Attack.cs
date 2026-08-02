@@ -140,22 +140,49 @@ public static class Attack
     /// <returns>The new hit points.</returns>
     /// <remarks>
     /// <para>
+    /// <b>The same reference function as <see cref="EventDamage.GiveCharacterDamage"/>, over the
+    /// other of the two types in this port that carry an effect list.</b> That one takes a
+    /// <see cref="Character"/>, which is what the event path holds; this takes a
+    /// <see cref="Combatant"/>. They are deliberately two ports of one function and they must not
+    /// disagree — every remark below applies to both.
+    /// </para>
+    /// <para>
     /// <b>Damage only lands on a combatant in one of five statuses</b> — okay, running,
     /// unconscious, animated or dying. Anything else, including already dead, fled or petrified,
     /// takes nothing at all and keeps its hit points unchanged. A caller that assumes damage always
     /// applies will kill things twice.
     /// </para>
     /// <para>
-    /// <b>Hit points clamp at −10 on the way down and at the maximum on the way up.</b> The floor
+    /// <b>The gate reads the <i>adjusted</i> status.</b> <c>charStatusType stype =
+    /// GetAdjStatus()</c> (<c>Char.cpp:8248</c>) runs the combatant's <c>$CHAR_STATUS</c> spell
+    /// effects over the stored value — see <see cref="AdjustedStatus"/> — so a spell that moves a
+    /// combatant's apparent status decides whether damage lands, and the write afterwards goes to
+    /// the stored field regardless.
+    /// </para>
+    /// <para>
+    /// <b>Hit points floor at −10 and are then capped at the maximum, in that order.</b> The floor
     /// is applied *before* the status test, so "dead" and "at the floor" are the same state and a
     /// massive blow is indistinguishable from a marginal one. The ceiling means passing negative
-    /// damage heals but cannot overheal.
+    /// damage heals but cannot overheal. Floor-then-ceiling is the reference's order and not
+    /// <see cref="Math.Clamp(int,int,int)"/>: a <paramref name="maxHitPoints"/> below the floor
+    /// wins rather than raises, where <c>Math.Clamp</c> would throw.
+    /// </para>
+    /// <para>
+    /// <b>The bands are read off the <i>adjusted</i> hit points.</b> <c>HP =
+    /// GetAdjHitPoints()</c> (<c>Char.cpp:8264</c>) — so a combatant carrying a
+    /// <c>$CHAR_HITPOINTS</c> effect can be driven to zero stored hit points and stay conscious, or
+    /// be knocked out while stored hit points are positive. The stored value is what took the
+    /// damage; the adjusted value is what decides the consequence.
     /// </para>
     /// <para>
     /// <b>Zero is unconscious, not dying.</b> The bands are <c>&lt;= −10</c> dead, <c>&lt; 0</c>
     /// dying, <c>== 0</c> unconscious (<c>:8271</c>) — so the dying band is −1 to −9 and exactly
     /// zero is the stable one. Folding zero into dying is an easy slip and would make every
     /// knocked-out character bleed out.
+    /// </para>
+    /// <para>
+    /// <b>Death clears the combatant's spell effects</b> — see <see cref="Kill"/>. Only death does;
+    /// going unconscious or dying leaves them in place.
     /// </para>
     /// <para>
     /// <b>Non-lethal damage is not handled here.</b> The reference's flag rides on the damage and
@@ -167,40 +194,94 @@ public static class Attack
     {
         ArgumentNullException.ThrowIfNull(combatant);
 
-        if (combatant.Status is not (CharacterStatus.Okay or CharacterStatus.Running
-                                     or CharacterStatus.Unconscious or CharacterStatus.Animated
-                                     or CharacterStatus.Dying))
+        if (AdjustedStatus(combatant) is not (CharacterStatus.Okay or CharacterStatus.Running
+                                              or CharacterStatus.Unconscious
+                                              or CharacterStatus.Animated or CharacterStatus.Dying))
         {
             return hitPoints;
         }
 
-        int remaining = Math.Clamp(hitPoints - damage, MinimumHitPoints, maxHitPoints);
+        int remaining = Bound(hitPoints - damage, maxHitPoints);
+
+        // GetAdjHitPoints over what the stored value is about to become. The reference writes the
+        // hit points and then re-reads them through the accessor; this hands them back to the
+        // caller instead, so the effects go over `remaining`.
+        int adjusted = Bound((int)combatant.Effects.Apply(remaining, "$CHAR_HITPOINTS"),
+                             maxHitPoints);
 
         if (deadAtZero)
         {
-            if (remaining <= 0)
+            if (adjusted <= 0)
             {
-                combatant.Status = CharacterStatus.Dead;
-                combatant.TurnIsDone = true;
+                Kill(combatant);
             }
 
             return remaining;
         }
 
-        if (remaining <= MinimumHitPoints)
+        if (adjusted <= MinimumHitPoints)
         {
-            combatant.Status = CharacterStatus.Dead;
-            combatant.TurnIsDone = true;
+            Kill(combatant);
         }
-        else if (remaining < 0)
+        else if (adjusted < 0)
         {
             combatant.Status = CharacterStatus.Dying;
         }
-        else if (remaining == 0)
+        else if (adjusted == 0)
         {
             combatant.Status = CharacterStatus.Unconscious;
         }
 
         return remaining;
+
+        // Sequential, not Math.Clamp: the reference floors then ceilings, so a maximum below the
+        // floor wins rather than raises -- and does not throw when it does.
+        static int Bound(int value, int max) => Math.Min(Math.Max(value, MinimumHitPoints), max);
+    }
+
+    /// <summary>
+    /// This combatant's status with spell effects applied
+    /// (<c>CHARACTER::GetAdjStatus</c>, <c>Char.cpp:13936</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It reverts rather than clamps.</b> Unlike every neighbouring <c>GetAdj*</c> accessor,
+    /// which pins the adjusted value inside a legal range, this one throws the adjustment away
+    /// entirely and returns the stored status when the result falls outside the enum — so an effect
+    /// of +100 on <c>$CHAR_STATUS</c> changes nothing at all, where +1 changes everything. The same
+    /// rule as <see cref="EventDamage.AdjustedStatus"/>, over a <see cref="Combatant"/> rather than
+    /// a <see cref="Character"/>.
+    /// </remarks>
+    public static CharacterStatus AdjustedStatus(Combatant combatant)
+    {
+        ArgumentNullException.ThrowIfNull(combatant);
+
+        int value = (int)combatant.Effects.Apply((int)combatant.Status, "$CHAR_STATUS");
+
+        return value < 0 || value >= EventDamage.CharacterStatusTypes
+            ? combatant.Status
+            : (CharacterStatus)value;
+    }
+
+    /// <summary>
+    /// <c>SetStatus(Dead)</c> (<c>Char.h:907</c>), side effect and all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The setter is <c>{ status=val; if (status==Dead) m_spellEffects.RemoveAll(); }</c> — an
+    /// inline one-liner with a side effect, easy to read past. Only <c>Dead</c> clears the effects;
+    /// <see cref="CharacterStatus.Unconscious"/> and <see cref="CharacterStatus.Dying"/> leave
+    /// everything in place, which is what lets a bandaged combatant keep its buffs.
+    /// </para>
+    /// <para>
+    /// <see cref="Combatant.TurnIsDone"/> is this port's own and not the reference's: a dead
+    /// combatant has to leave the round, and that latch is what
+    /// <see cref="CombatRound.Advance"/> walks.
+    /// </para>
+    /// </remarks>
+    private static void Kill(Combatant combatant)
+    {
+        combatant.Status = CharacterStatus.Dead;
+        combatant.Effects.Clear();
+        combatant.TurnIsDone = true;
     }
 }

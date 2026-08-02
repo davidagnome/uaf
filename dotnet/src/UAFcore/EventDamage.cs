@@ -400,12 +400,12 @@ public static class EventDamage
     /// <returns>The character's hit points afterwards.</returns>
     /// <remarks>
     /// <para>
-    /// <b>The same reference function as <see cref="Attack.ApplyDamage"/>, and this is not a
-    /// duplicate of it.</b> That one takes a <see cref="Combatant"/>; this takes a
-    /// <see cref="Character"/>, which is what the event path actually holds, and a
-    /// <see cref="Character"/> carries the two things the reference reads here that a combatant in
-    /// this port does not: a spell-effect list and a maximum. Three differences follow, all of them
-    /// the reference's.
+    /// <b>The same reference function as <see cref="Attack.ApplyDamage"/>, and the two must
+    /// agree.</b> That one takes a <see cref="Combatant"/>; this takes a <see cref="Character"/>,
+    /// which is what the event path actually holds. Both types carry the two things the reference
+    /// reads here — a spell-effect list and a maximum — so both ports reproduce all three of the
+    /// rules below, and a change to either belongs in both. Three of those rules are easy to read
+    /// past in the C++, and each was wrong in one of these ports at some point.
     /// </para>
     /// <para>
     /// <b>1. The gate reads the <i>adjusted</i> status.</b> <c>charStatusType stype =
@@ -449,9 +449,9 @@ public static class EventDamage
         }
 
         // Sequential, not Math.Clamp: the reference floors then ceilings, so a maximum below the
-        // floor would win rather than raise. Not demonstrable from here -- Character's own
-        // AdjustedHitPoints uses Math.Clamp(value, DeadAt, MaxHitPoints) and throws on such a
-        // character before this can return -- but transcribed the way the reference has it.
+        // floor wins rather than raises -- and does not throw when it does. Character's own
+        // AdjustedHitPoints clamps the same way round for the same reason, so this is observable
+        // end to end rather than merely transcribed.
         int points = character.HitPoints - damage;
         if (points < MinimumHitPoints)
         {

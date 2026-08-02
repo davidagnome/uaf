@@ -135,12 +135,24 @@ public sealed class Character
     /// Hit points with spell effects applied (<c>GetAdjHitPoints</c>, <c>Char.cpp:13239</c>).
     /// </summary>
     /// <remarks>
-    /// <b>Clamped to the character's own maximum, and to −10 below.</b> Ten below zero is where a
+    /// <para>
+    /// <b>Floored at −10, then capped at the character's own maximum.</b> Ten below zero is where a
     /// character is finally dead rather than dying, so an effect cannot drain someone past it —
     /// and a healing effect cannot push anyone above their maximum however large it is.
+    /// </para>
+    /// <para>
+    /// <b>Floor then ceiling, in that order, and not <see cref="Math.Clamp(int,int,int)"/>.</b> The
+    /// reference is <c>val = max(-10,val); val = min(val, GetMaxHitPoints());</c>
+    /// (<c>Char.cpp:13252</c>), so for a character whose <see cref="MaxHitPoints"/> is below
+    /// <see cref="DeadAt"/> the maximum simply wins — where <c>Math.Clamp</c> throws
+    /// <see cref="ArgumentException"/> because its bounds are crossed. Degenerate data, but the
+    /// reference has a value for it and this is read on the path that decides whether a character
+    /// is dead. <see cref="Attack.ApplyDamage"/> and
+    /// <see cref="EventDamage.GiveCharacterDamage"/> clamp the same way round for the same reason.
+    /// </para>
     /// </remarks>
     public int AdjustedHitPoints =>
-        Effects.Apply(HitPoints, "$CHAR_HITPOINTS", DeadAt, MaxHitPoints);
+        Math.Min(Math.Max((int)Effects.Apply(HitPoints, "$CHAR_HITPOINTS"), DeadAt), MaxHitPoints);
 
     /// <summary>Hit points at which a character is dead rather than dying.</summary>
     public const int DeadAt = -10;
