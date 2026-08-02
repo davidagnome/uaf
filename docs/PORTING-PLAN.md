@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,912 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,920 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2651,9 +2651,16 @@ across it.
 > *not* be followed when the screen closes — doing so would run the same destination twice. The
 > destination held back when the screen was raised wins instead.
 >
-> Two ways that hold could leak, both closed: `StartEvent` can decline a screen outright when no
-> font is available, and it can finish one immediately. The first leaves nothing to release the
-> chain and is followed directly; the second releases it through `Apply` before returning.
+> **Three ways that hold could go wrong, all closed.** `StartEvent` can decline a screen outright
+> (no font, nothing can be presented), leaving nothing to release the chain — so it is followed
+> directly. It can finish one immediately, in which case `Apply` has already released it. And the
+> screen can simply be *running*, where the hold must survive until it closes. The first draft of
+> this port handled the first two and got the third backwards, clearing the hold and following the
+> chain while the screen was still open.
+
+`CombatAftermath.TreasureScreen` decides whether a screen is raised at all, and lives with the rest
+of the aftermath rather than in `Game` — the decision is aftermath logic, and putting it there makes
+it directly testable rather than reachable only by driving a whole fight.
 
 ##### The attribute store, as ported
 
@@ -4268,10 +4275,11 @@ What is left, in order:
    it (§the attribute store), but no script layer consults it — that is the GPDL gap below, reached
    from the other end. The per-character, per-event and per-item stores are read off the wire and
    not yet held at runtime either; only the global one is.
-2. **An end-to-end test for the post-combat treasure screen.** The pieces are covered
-   (§the treasure a fight leaves) and the wiring is small, but nothing drives a design through a
-   won fight into the screen and out to the chain — `GameTests` does not run combat at all. That
-   is the least-covered seam in Phase 4.
+2. **An end-to-end test that drives a design through a fight.** `GameTests` does not run combat at
+   all: it reads design data and exercises events, but nothing walks a party onto a combat event,
+   fights it to a verdict and comes out the other side. The decisions either side of that are now
+   unit-tested (§the treasure a fight leaves, §the combat aftermath); what is untested is the
+   sequencing through `Game.Update`, which is where the last two ordering bugs were.
 3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.

@@ -349,4 +349,76 @@ public class CombatAftermathTests
 
         Assert.Single(money);
     }
+
+    // ---- the treasure screen -------------------------------------------------------------------
+
+    private static GameEventBase Base(uint id = 7, int happen = 42, int notHappen = 99) =>
+        new(new EventControl(0, 0, 0, 0, 0, string.Empty, 0, 0, 0, string.Empty,
+                             string.Empty, string.Empty, [], string.Empty, 0, 0, 0,
+                             string.Empty, 0, 0),
+            null!, null!, EventType: 0, id, X: 3, Y: 4,
+            ChainEventHappen: happen, ChainEventNotHappen: notHappen,
+            "text", "text2", "text3", []);
+
+    private static CombatSpoils Spoils(CombatResult result, params ItemInstance[] items) =>
+        new(result, 0, items, []);
+
+    [Fact]
+    public void A_won_fight_with_spoils_raises_a_screen()
+    {
+        var screen = CombatAftermath.TreasureScreen(
+            Spoils(CombatResult.Win, Carried("sword")), Base());
+
+        Assert.NotNull(screen);
+        Assert.Single(screen.Items.Items);
+        Assert.Equal(0, screen.SilentGiveToActiveChar);
+    }
+
+    [Fact]
+    public void The_screen_borrows_the_combat_events_own_base()
+    {
+        // Its picture, text and control block are the design's -- and so, unavoidably, are its
+        // chain fields, which is why the caller must not follow them.
+        var combat = Base(happen: 42);
+        var screen = CombatAftermath.TreasureScreen(
+            Spoils(CombatResult.Win, Carried("sword")), combat);
+
+        Assert.Same(combat, screen!.Base);
+        Assert.Equal(42, screen.Base.ChainEventHappen);
+    }
+
+    [Fact]
+    public void An_empty_pile_raises_no_screen_at_all()
+    {
+        // A fight against penniless monsters shows nothing and exits straight to the chain.
+        Assert.Null(CombatAftermath.TreasureScreen(Spoils(CombatResult.Win), Base()));
+    }
+
+    [Theory]
+    [InlineData(CombatResult.Lose)]
+    [InlineData(CombatResult.Flee)]
+    [InlineData(CombatResult.LoseButNeverDies)]
+    public void Only_a_win_yields_treasure(CombatResult result)
+    {
+        Assert.Null(CombatAftermath.TreasureScreen(Spoils(result, Carried("sword")), Base()));
+    }
+
+    [Fact]
+    public void Money_alone_is_enough_to_raise_the_screen()
+    {
+        var spoils = new CombatSpoils(CombatResult.Win, 0, [], [Purse(0, 25)]);
+
+        var screen = CombatAftermath.TreasureScreen(spoils, Base());
+
+        Assert.NotNull(screen);
+        Assert.Empty(screen.Items.Items);
+        Assert.Equal([0, 25], screen.Money.Coins);
+    }
+
+    [Fact]
+    public void A_fight_with_no_event_behind_it_raises_nothing()
+    {
+        Assert.Null(CombatAftermath.TreasureScreen(
+            Spoils(CombatResult.Win, Carried("sword")), null));
+    }
 }

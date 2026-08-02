@@ -546,7 +546,7 @@ public sealed class Game
 
             // The fallen's possessions go through the ordinary treasure screen, which is what the
             // reference builds a GIVE_TREASURE_DATA for and pushes ahead of the chain.
-            if (TreasureFrom(spoils, finished) is { } pile)
+            if (CombatAftermath.TreasureScreen(spoils, finished?.Base) is { } pile)
             {
                 pendingChain = chain;
                 StartEvent(pile);
@@ -643,37 +643,6 @@ public sealed class Game
     /// the destination is this port's equivalent of that push.
     /// </remarks>
     private uint? pendingChain;
-
-    /// <summary>
-    /// Builds the treasure screen for a won fight, or null when there is nothing to show.
-    /// </summary>
-    /// <remarks>
-    /// <b>An empty pile is not offered at all.</b> The reference deletes the event rather than
-    /// pushing an empty screen, and combat exits straight to the chain — so a fight against
-    /// penniless monsters shows nothing.
-    /// <para>
-    /// The synthesised event borrows the combat event's own base so its picture, text and control
-    /// block are the design's. <c>SilentGiveToActiveChar</c> stays zero, which is what makes it a
-    /// screen the player sees rather than a silent award.
-    /// </para>
-    /// </remarks>
-    private TreasureEvent? TreasureFrom(CombatSpoils spoils, IGameEvent? combat)
-    {
-        if (combat is null || spoils.Result != CombatResult.Win)
-        {
-            return null;
-        }
-
-        var money = CombatAftermath.Merge(spoils.Money);
-        if (!CombatAftermath.IsWorthShowing(spoils.Items, money))
-        {
-            return null;
-        }
-
-        return new TreasureEvent(combat.Base, money,
-                                 new ItemList(spoils.Items, new ReadyItems([])),
-                                 SilentGiveToActiveChar: 0);
-    }
 
     /// <summary>Puts anyone who ran back on their feet, as the results screen does.</summary>
     private void RestoreFled()

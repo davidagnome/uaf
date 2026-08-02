@@ -255,6 +255,41 @@ public static class CombatAftermath
     }
 
     /// <summary>
+    /// The treasure screen a won fight raises, or null when there is nothing to show
+    /// (<c>m_pTreasEvent</c>, <c>RunEvent.cpp:19795</c>).
+    /// </summary>
+    /// <param name="combat">The combat event, whose base the screen borrows.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Only a win yields treasure</b>, and only a non-empty pile is offered — the reference
+    /// deletes the event rather than pushing an empty screen.
+    /// </para>
+    /// <para>
+    /// The synthesised event borrows the combat event's base so its picture, text and control block
+    /// are the design's own. <c>SilentGiveToActiveChar</c> stays zero, which is what makes it a
+    /// screen the player sees rather than a silent award. <b>The borrowed base brings the combat
+    /// event's chain fields with it</b>, which the caller must therefore not follow when the screen
+    /// closes.
+    /// </para>
+    /// </remarks>
+    public static TreasureEvent? TreasureScreen(CombatSpoils spoils, GameEventBase? combat)
+    {
+        if (combat is null || spoils.Result != CombatResult.Win)
+        {
+            return null;
+        }
+
+        var money = Merge(spoils.Money);
+        if (!IsWorthShowing(spoils.Items, money))
+        {
+            return null;
+        }
+
+        return new TreasureEvent(combat, money, new ItemList(spoils.Items, new ReadyItems([])),
+                                 SilentGiveToActiveChar: 0);
+    }
+
+    /// <summary>
     /// The experience an item is worth, added on top of the monsters'
     /// (<c>RunEvent.cpp:19685</c>).
     /// </summary>
