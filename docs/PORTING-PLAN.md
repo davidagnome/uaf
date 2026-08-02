@@ -14,7 +14,7 @@ pathing, movement, attacks, the dying clock and attacks of opportunity — with 
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
 bandage**. Phases 5–7 have not started.
-**1,622 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,642 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2492,6 +2492,52 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Area geometry, as ported
+
+`GetMapTilesInRectangle` and the circle built on it (`Drawtile.cpp:4646`, `:4812`) — which squares
+an area spell covers. `UAFcore/SpellArea.cs`. The rectangle is the primitive; the cone and the two
+lines are built the same way and are **not** ported yet.
+
+Its own header comment gives the convention — **"Width is normal to casting direction; Height is
+parallel"** — and records that it was "totally rewritten to center the rectangle and rotate it for
+the various directions", with the older corner-anchored version left commented out beneath. The
+method is two half-planes through the target, one across the cast and one along it, intersected;
+rather than test every square it floods outward four-connected from the target, which is equivalent
+because the intersection of two slabs is convex. All arithmetic is in quarter-square integers.
+
+- **The target square is always included, tested against nothing.** The flood seeds with it and
+  marks it visited before the loop — so it is in the result even at 1×1, and even when it lies
+  outside the map, which the reference does not check.
+- **An even extent straddles the target one square off centre.** Coordinates are scaled by four and
+  nudged by one (`targetX += (x0<0) ? -1 : 1`), putting the centre a quarter-square past the
+  square's own position, so a width of 2 facing east takes the target's row and the one *below* it.
+  An odd extent is properly centred because the nudge cancels.
+- **The circle is a square pruned by distance**, side `radius * 2 | 1` — doubled then forced odd,
+  "so that there is `radius` on both sides of the target". A radius of 2 is a 5×5 square before
+  pruning, not 4×4. A negative radius covers nothing at all, not even the target.
+- **The tile prune and the combatant prune use different distances.** Tiles go by
+  `Distance(sx,sy,dx,dy)`, Euclidean rounded to nearest. Combatants go by the footprint-aware
+  overload (`Drawtile.cpp:1699`), which walks a large monster's icon inwards to its nearest
+  occupied square first — so a big monster is caught by a circle its top-left corner would fall
+  outside of.
+- **Order matters and is the flood's, not the combatant list's**: target square first, then north,
+  east, south, west outward. That decides which of two targets a spell resolves against first.
+
+**Two findings about diagonal casts, both reproduced.**
+
+*Width and height swap meaning.* The two tests use `(dirY, dirX)` and `(dirX, −dirY)` — the
+direction vector **reflected rather than rotated**. Reflection happens to give the perpendicular
+for the four cardinal directions, which is the only case where the header comment holds; on a
+diagonal the vector paired with `width` is the direction itself, so width measures extent *along*
+the cast and height measures it *across*. The code contradicts its own comment there.
+
+*A thin diagonal area collapses to one square.* The flood is four-connected (`deltax`/`deltay` are
+the four cardinals) but a diagonal strip one square thick is only diagonally connected. The squares
+that would pass both tests are unreachable from the seed and simply never appear — so an area spell
+cast diagonally with a height of 1 hits **the target square and nothing else**, however long its
+width says it should be. Not a rounding artefact: the geometry is right and the traversal cannot
+reach it.
+
 ##### Saving throws and spell targeting, as ported
 
 `DoesSavingThrowSucceed` / `DidSaveVersus` (`Char.cpp:11862`, `:8316`) and `InitTargeting` /
@@ -3702,7 +3748,7 @@ monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
 art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
-begin a spell, end. Read the sixteen "as ported" sections under §7 Phase 4 before touching any of
+begin a spell, end. Read the seventeen "as ported" sections under §7 Phase 4 before touching any of
 it.
 
 What is left, in order:
@@ -3710,11 +3756,10 @@ What is left, in order:
 1. **Resolving a spell**, which is the second half of casting. Done: the clock (§the casting
    clock), the saving throw and the targeting setup (§saving throws and spell targeting). What
    remains is
-   1. **the area geometry** — `GetMapTilesInRectangle` (`Drawtile.cpp:4646`) and the circle, cone
-      and two lines built on it. The rectangle is the primitive and the only hard one: a flood fill
-      in quarter-square coordinates against two rotated half-planes, centred on the target, with
-      **width normal to the casting direction and height parallel**. `AreaSquare` and `AreaCircle`
-      carry nearly every area spell the shipped designs have, so those two are worth doing first;
+   1. **the rest of the area geometry.** The rectangle and the circle are done (§area geometry),
+      which covers `AreaSquare` and `AreaCircle` — between them nearly every area spell the shipped
+      designs have. Still missing are the cone and the two lines (`GetCombatantsAndTilesInCone`,
+      `GetCombatantsInLine`), together 26 / 4 / 23 spells across the three designs;
    2. **choosing the targets** — `COMBAT_SPELL_AIM_MENU_DATA` for the player, and the AI's own
       pick for a monster;
    3. **applying the effects** — `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
