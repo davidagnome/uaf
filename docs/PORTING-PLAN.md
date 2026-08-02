@@ -14,7 +14,7 @@ pathing, movement, attacks, the dying clock and attacks of opportunity — with 
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
 bandage**. Phases 5–7 have not started.
-**1,642 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,657 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2494,9 +2494,9 @@ guard, not an oracle.
 
 ##### Area geometry, as ported
 
-`GetMapTilesInRectangle` and the circle built on it (`Drawtile.cpp:4646`, `:4812`) — which squares
-an area spell covers. `UAFcore/SpellArea.cs`. The rectangle is the primitive; the cone and the two
-lines are built the same way and are **not** ported yet.
+Which squares an area spell covers: `GetMapTilesInRectangle` and the circle built on it
+(`Drawtile.cpp:4646`, `:4812`), `GetCombatantsAndTilesInCone` (`:5083`) and the two line shapes
+(`:5540`). `UAFcore/SpellArea.cs`. **All five area targeting modes are covered.**
 
 Its own header comment gives the convention — **"Width is normal to casting direction; Height is
 parallel"** — and records that it was "totally rewritten to center the rectangle and rotate it for
@@ -2537,6 +2537,35 @@ that would pass both tests are unreachable from the seed and simply never appear
 cast diagonally with a height of 1 hits **the target square and nothing else**, however long its
 width says it should be. Not a rounding artefact: the geometry is right and the traversal cannot
 reach it.
+
+**The cone is a triangle whose apex is the target, not the caster.** The reference's own diagram
+shows the caster off to one side of it — `C-----T ------>L`, with the base A–B standing across the
+far point L — so a cone cast at an adjacent square starts *there* and spreads beyond; the squares
+between caster and target are not in it. The caster's position sets the direction and nothing else.
+Points are tested against the triangle over the bounding box of its corners rather than the
+triangle being rasterised, because "the Point-In-Triangle test is slow"; all three edges count as
+inside, and the far point is placed at `length - 0.000001` so the last row does not sit exactly on
+the boundary and get swept in.
+
+> **A cone cast on the caster's own square produces nothing.** The direction is
+> `sinT = (Ty-Cy)/D` with `D` the caster-to-target distance, so a zero distance divides by zero.
+> The reference has no guard: it builds a NaN triangle, which contains nothing. Same result, and
+> the port returns empty explicitly rather than arriving there through NaN comparisons.
+
+**A line is always exactly one square thick.** Both width-taking overloads (`Drawtile.cpp:5574`,
+`:5588`) test the width for being positive and then drop it — they call the two-point version
+without passing it on — and the directional overload has the widening loop written out and
+commented, under "need the following only if line width can be greater than 1". A spell's line
+width comes from `MaxTargets`, so for these two shapes that field is a zero test and nothing more.
+
+**Bresenham is run in pixels, not squares.** Both ends go through `TerrainToWorldCoord` (×48) and
+every step is converted back, so the line is drawn at forty-eight times the resolution and then
+quantised. That makes it *denser* than a tile-resolution walk, not sparser: at each diagonal
+transition both squares are visited. From (10,10) to (12,11) a tile walk gives three squares and
+never enters (11,10); the pixel walk gives four and picks it up. The conversion takes each square's
+**top-left corner** — the `+ COMBAT_TILE_WIDTH/2` that would have centred it is commented out at
+both ends — so the line runs corner to corner and leans up and left of where it looks. The walk
+stops at the first square outside the map rather than skipping it.
 
 ##### Saving throws and spell targeting, as ported
 
@@ -3754,17 +3783,13 @@ it.
 What is left, in order:
 
 1. **Resolving a spell**, which is the second half of casting. Done: the clock (§the casting
-   clock), the saving throw and the targeting setup (§saving throws and spell targeting). What
-   remains is
-   1. **the rest of the area geometry.** The rectangle and the circle are done (§area geometry),
-      which covers `AreaSquare` and `AreaCircle` — between them nearly every area spell the shipped
-      designs have. Still missing are the cone and the two lines (`GetCombatantsAndTilesInCone`,
-      `GetCombatantsInLine`), together 26 / 4 / 23 spells across the three designs;
-   2. **choosing the targets** — `COMBAT_SPELL_AIM_MENU_DATA` for the player, and the AI's own
+   clock), the saving throw and the targeting setup (§saving throws and spell targeting), and all
+   five area shapes (§area geometry). What remains is
+   1. **choosing the targets** — `COMBAT_SPELL_AIM_MENU_DATA` for the player, and the AI's own
       pick for a monster;
-   3. **applying the effects** — `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
+   2. **applying the effects** — `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
       arithmetic and bookkeeping, all ported, but nothing calls them from a cast yet; and
-   4. **the lingering-spell area effects** that movement and the round both call and neither has.
+   3. **the lingering-spell area effects** that movement and the round both call and neither has.
 
    Until this exists, an immediate spell says so rather than silently doing nothing.
 2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn

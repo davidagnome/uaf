@@ -188,6 +188,147 @@ public class SpellAreaTests
         }
     }
 
+    // ---- the cone ------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_cone_starts_at_the_target_and_widens_away_from_the_caster()
+    {
+        // Caster at (10,10) aiming at (12,10), reaching 3 further and 3 wide at the far end.
+        // The apex is the target, so the squares between caster and target are not in it, and the
+        // half-width grows with distance: 0.5 one step out, 1.0 two steps out.
+        var cone = SpellArea.Cone(10, 10, 12, 10, length: 3, width: 3,
+                                  forceNonZero: true, Map, Map).ToHashSet();
+
+        Assert.Equal(
+            [(12, 10), (13, 10), (14, 9), (14, 10), (14, 11)],
+            cone);
+    }
+
+    [Fact]
+    public void The_squares_between_the_caster_and_the_target_are_not_in_the_cone()
+    {
+        var cone = SpellArea.Cone(10, 10, 12, 10, 3, 3, true, Map, Map);
+
+        Assert.DoesNotContain((10, 10), cone);
+        Assert.DoesNotContain((11, 10), cone);
+    }
+
+    [Fact]
+    public void A_cone_cast_on_the_casters_own_square_produces_nothing()
+    {
+        // The direction comes from dividing by the caster-to-target distance. The reference has no
+        // guard and gets a NaN triangle that contains nothing; the result is the same.
+        Assert.Empty(SpellArea.Cone(10, 10, 10, 10, 5, 5, true, Map, Map));
+    }
+
+    [Fact]
+    public void A_cone_points_wherever_the_caster_is_relative_to_the_target()
+    {
+        // Same geometry rotated: caster below, aiming up.
+        var cone = SpellArea.Cone(10, 12, 10, 10, length: 3, width: 3,
+                                  forceNonZero: true, Map, Map).ToHashSet();
+
+        Assert.Equal(
+            [(10, 10), (10, 9), (9, 8), (10, 8), (11, 8)],
+            cone);
+    }
+
+    [Fact]
+    public void A_zero_length_or_width_cone_covers_nothing_unless_forced_up()
+    {
+        Assert.Empty(SpellArea.Cone(10, 10, 12, 10, 0, 3, forceNonZero: false, Map, Map));
+        Assert.Empty(SpellArea.Cone(10, 10, 12, 10, 3, 0, forceNonZero: false, Map, Map));
+        Assert.NotEmpty(SpellArea.Cone(10, 10, 12, 10, 0, 0, forceNonZero: true, Map, Map));
+    }
+
+    [Fact]
+    public void A_cone_is_clipped_to_the_map()
+    {
+        var cone = SpellArea.Cone(2, 2, 1, 2, length: 10, width: 6, forceNonZero: true,
+                                  Map, Map);
+
+        Assert.All(cone, c => Assert.True(c.X >= 0 && c.Y >= 0 && c.X < Map && c.Y < Map));
+    }
+
+    // ---- the triangle test ---------------------------------------------------------------------
+
+    [Fact]
+    public void A_degenerate_triangle_contains_nothing_at_all()
+    {
+        // Not even its own vertices: the zero-area test returns before anything else.
+        Assert.False(SpellArea.IsPointInTriangle(1, 1, 0, 0, 1, 1, 2, 2, onLine: 7));
+    }
+
+    [Fact]
+    public void The_online_flags_pick_which_edges_count_as_inside()
+    {
+        // (2, 0) sits on the edge from (0,0) to (4,0), which is the p1-p2 edge -- flag 4.
+        Assert.True(SpellArea.IsPointInTriangle(2, 0, 0, 0, 4, 0, 0, 4, onLine: 4));
+        Assert.False(SpellArea.IsPointInTriangle(2, 0, 0, 0, 4, 0, 0, 4, onLine: 3));
+    }
+
+    // ---- the lines -----------------------------------------------------------------------------
+
+    [Fact]
+    public void A_straight_line_covers_every_square_between_its_ends()
+    {
+        Assert.Equal([(10, 10), (11, 10), (12, 10), (13, 10)],
+                     SpellArea.Line(10, 10, 13, 10, Map, Map));
+    }
+
+    [Fact]
+    public void A_perfect_diagonal_line_steps_one_square_at_a_time()
+    {
+        Assert.Equal([(10, 10), (11, 11), (12, 12), (13, 13)],
+                     SpellArea.Line(10, 10, 13, 13, Map, Map));
+    }
+
+    [Fact]
+    public void A_shallow_line_covers_more_squares_than_a_tile_walk_would()
+    {
+        // Bresenham runs at 48x resolution over world coordinates and each step is quantised back,
+        // so both squares at a diagonal transition get visited. A tile-resolution walk from (10,10)
+        // to (12,11) gives (10,10), (11,11), (12,11) and never enters (11,10); the pixel walk picks
+        // it up on the way through.
+        var line = SpellArea.Line(10, 10, 12, 11, Map, Map);
+
+        Assert.Equal([(10, 10), (11, 10), (11, 11), (12, 11)], line);
+    }
+
+    [Fact]
+    public void A_steep_line_takes_the_other_corner_at_each_transition()
+    {
+        // The mirror of the shallow case, stepping in y rather than x. A tile walk would give
+        // (10,10), (11,11), (11,12); the pixel walk adds (10,11).
+        var line = SpellArea.Line(10, 10, 11, 12, Map, Map);
+
+        Assert.Equal([(10, 10), (10, 11), (11, 11), (11, 12)], line);
+    }
+
+    [Fact]
+    public void A_line_of_no_length_is_the_one_square()
+    {
+        Assert.Equal([(10, 10)], SpellArea.Line(10, 10, 10, 10, Map, Map));
+    }
+
+    [Fact]
+    public void A_line_stops_at_the_map_edge_rather_than_skipping_past_it()
+    {
+        // The callback returns false outside the map, which terminates the walk.
+        var line = SpellArea.Line(2, 2, 2, 40, Map, Map);
+
+        Assert.All(line, c => Assert.True(c.Y < Map));
+        Assert.Equal((2, Map - 1), line[^1]);
+    }
+
+    [Fact]
+    public void No_square_of_a_line_is_reported_twice()
+    {
+        var line = SpellArea.Line(3, 3, 20, 7, Map, Map);
+
+        Assert.Equal(line.Count, line.Distinct().Count());
+    }
+
     // ---- combatants ----------------------------------------------------------------------------
 
     [Fact]
