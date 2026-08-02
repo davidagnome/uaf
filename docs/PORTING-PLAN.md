@@ -9,8 +9,8 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed. Phases 5–7 have not started.
-**1,228 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed and pathing between them. Phases 5–7 have not started.
+**1,242 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1617,9 +1617,9 @@ remains, in dependency order:
 3. **Combat — in progress; see §11.** **Encounter setup is done**: `CombatMap`,
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
-   **`path.cpp` is the next piece** — it blocks unreachable-monster removal, `findEmptyCell`'s
-   reachability check and movement in the round. Then the round state machine, targeting, and the
-   monster AI.
+   `CombatPathFinder` ports `path.cpp`, so unreachable monsters are dropped and movement has a
+   route to follow. **The round state machine (`HandleCurrState`) is the next piece**, then
+   targeting, movement, and the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -1823,10 +1823,64 @@ names suggest: `n` for a northern approach calls `MoveTurtleX(partyMaxY)`, setti
 row. There is no observed behaviour to check a correction against, so inventing one would be
 guessing. `WithinSight`'s `placeX > 0` guard (rather than `>= 0`) is reproduced for the same reason.
 
-> **What is still missing removes monsters, never adds them.** After placement the reference
-> deletes any monster with no path to the party (`Combatants.cpp:255`) and retries the whole
-> placement at a shorter distance when nothing could be placed (`the for(;;)` at `:214`). Both need
-> `path.cpp`. Until then an encounter can leave a monster walled off in a pocket.
+> **Both of the passes that follow placement are now in.** `CombatSetup` deletes any monster with
+> no path to the party (`Combatants.cpp:255`) and retries the encounter at a shorter distance when
+> nothing could be placed (`the for(;;)` at `:214`). The reachability walk uses a **1×1** footprint
+> rather than the monster's own — "1x1 good enough to let party reach" (`:238`) — because the
+> question is whether the two sides can meet at all, not whether that particular monster fits.
+
+##### Combat pathing, as ported
+
+`CombatPathFinder` is `CPathFinder::GeneratePath` (`path.cpp:566`) — a cost-ordered best-first
+search over the eight neighbours of each square, stopping as soon as a square inside the
+destination rectangle is queued.
+
+**It is not the A\* implementation.** `path.cpp` contains two `CPathFinder` classes; the first —
+the `_asNode` / open-list / closed-list A\* at `:88–441` — is behind `#ifdef OLDPATH`, and
+`OLDPATH` is **commented out** at `path.h:97` and defined nowhere in the tree. So the ~350 lines
+that look like the real pathfinder are dead. The live one's own comment explains why it replaced
+them: the old one "took cpu time proportional to the fourth power of the distance".
+
+Details that decide the shape of a walk, rather than merely its length:
+
+- **Diagonals cost 15 against 10.** `GetCost` is `5·d² + 5` over the *squared* Euclidean distance
+  (`path.cpp:47`), so the ratio is 1.5 rather than √2 ≈ 1.414 — diagonals are slightly less
+  attractive than true geometry would make them, but still beat two orthogonal steps, so a walk
+  across open ground is Chebyshev-optimal.
+- **The neighbour order is orthogonal-first and load-bearing.** Equal-cost ties break on which
+  neighbour was queued first, so reordering `dX`/`dY` changes which of several shortest routes
+  gets walked. The file keeps the previous ordering in a comment marked "Old method
+  compatibility"; that one is not live.
+- **Two deliberate "more random-looking walks" rules, both deterministic.** `CostSort` jumps a
+  node ahead of its equals only on odd queue indices (`i & 1`), and an equal-cost rival takes over
+  as parent only on odd slots (`path.cpp:773`). They look like noise and are not optional — they
+  pick between equal-length routes.
+- **`CostSort` is not a sort.** It walks one node forward past a run of equal-or-greater cost,
+  swapping with the *first* node of each run. The queue stays grouped by cost without ever being
+  fully ordered.
+- **Arrival is tested on the node just added, not the node being examined**, so the search stops
+  one expansion earlier than a textbook Dijkstra.
+
+> **`IDTYPE` is a `WORD`, and node IDs are `x·rows + y`.** A combat map above 256×256 overflows it,
+> and `config.txt` allows up to 500×500 (§ the combat map). The port uses `int`, because
+> reproducing a 16-bit truncation would mean deliberately corrupting paths on large maps with no
+> observable behaviour to match. Nothing else in the port depends on the width.
+
+**Verified against an independent flood fill**, which is the strongest check available with no
+oracle: a plain 8-way BFS over the same passability must agree about which squares are reachable.
+Across 100 combat maps generated from a real level, **6,400 sampled targets, 4,970 reachable, zero
+disagreements** — and a seeded 30×30 maze runs the same comparison over all 900 squares in CI.
+Routes were also printed and looked at: a straight line due east, and a 14-step diagonal weave
+between the map's diagonal walls that is exactly Chebyshev-optimal.
+
+**`ComputeDistanceFromParty` is deliberately not ported.** It is a BFS filling
+`monsterArrangement.distanceFromParty`, and **nothing reads that array** — it is allocated, filled
+and freed, and a repo-wide search finds no consumer. Its one bug is therefore inert, but worth
+recording because it is invisible on a skim: the neighbour test reads `terrain[y][x].cell` — the
+**parent's** square, not the child `X,Y` it has just computed (`Combatants.cpp:2283`). Since the
+parent is by construction passable, every neighbour passes, so the fill would mark the whole map
+reachable and the "inaccessible" branch is unreachable code. An earlier note in this document
+listed it as a prerequisite for monster placement; it is not one.
 
 ##### `CLASS_DATA`, as ported
 
@@ -2868,28 +2922,24 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: pathing, then the round
+### The next piece of work: the round state machine
 
-**Combat setup is complete.** `CombatSetup.Begin` generates the map, places the party in formation
-and runs one turtle program per approach direction, and everybody lands on passable, distinct
-squares over every cell of a real level. Read the three "as ported" sections under §7 Phase 4
-before touching any of it — the 45° shear runs through all of them.
+**Encounter setup and pathing are complete.** `CombatSetup.Begin` generates the map, places the
+party in formation, runs one turtle program per approach direction, and drops any monster the party
+cannot reach; `CombatPathFinder` is the search that last step and all movement need. Read the four
+"as ported" sections under §7 Phase 4 before touching any of it — the 45° shear runs through the
+first three.
 
-**`path.cpp` is now the blocker, and it is blocking three separate things:**
+**`Combatants.cpp`'s state machine is what remains, and everything it needs now exists.**
+`HandleCurrState` drives the round: whose turn it is, what they may do, and when the round ends.
+The `OCS_*` enum (`Combatants.h:44`) names its seventeen states, and `CombatantsStateText` is
+parallel to it — both must keep their numbering, because the numbers reach save games through the
+`CProcinp` task system (§4.4).
 
-1. **Unreachable-monster removal.** `InitCombatData` deletes any monster with no path to the party
-   after placement (`Combatants.cpp:255`), and retries the whole encounter at a shorter distance
-   when nothing could be placed (`the for(;;)` at `:214`). Without it a monster can sit walled off
-   in a pocket. This is the one gap in otherwise-finished work.
-2. **`findEmptyCell`'s reachability check**, which rejects a square the party cannot walk to.
-3. **Movement in the round itself** — a combatant walking to its target is the whole of
-   `Combatant.cpp`'s movement half.
+In dependency order after it: targeting and validity (`IsValidTarget`, `CanAttack`), then movement
+consuming a combatant's allowance along a `CombatPath`, then the monster AI.
 
-So pathing is worth doing next on its own merits, and it is self-contained: a BFS over the combat
-grid's passability, plus `ComputeDistanceFromParty` (`Combatants.cpp:2240`), which is the same
-flood fill and which the turtle's own reachability rule would use.
-
-After that, the round state machine (`HandleCurrState`), then targeting, then the monster AI.
+**The round clock is also what finishes the spell-effect layer** — see below.
 
 #### The GPDL wiring that monster placement did *not* need
 
@@ -2921,7 +2971,6 @@ expires them than ahead of it.
 | **13 event types have no reader** | `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` — 31 of 44 are done | Medium |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
-| **`path.cpp`** | Blocks unreachable-monster removal, `findEmptyCell`'s reachability check, and all movement in a round. **The next piece of work** | Medium |
 | **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. None is wired up; all three have faithful built-in defaults and are call-site changes once GPDL runs global scripts. Needs a `specialAbilities.txt` parser plus two sub-opcodes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |

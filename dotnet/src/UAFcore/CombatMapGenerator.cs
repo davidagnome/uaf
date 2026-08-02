@@ -424,21 +424,53 @@ public sealed class CombatMapGenerator
     /// definitions, so the second is dead.
     /// </para>
     /// <para>
-    /// <b>Two pieces of the original are deliberately absent.</b> Its per-direction clamping
-    /// (place monsters behind the party when they approach from the north, and so on) takes a
-    /// <c>PATH_DIR</c>, and its reachability check calls <c>pathMgr.GetPath</c> to reject a square
-    /// the party cannot walk to. Neither the direction argument nor pathing has a caller yet:
-    /// nothing places monsters, and <c>path.cpp</c> is not ported. Both belong with combatant
-    /// placement, which is the next piece of work — until then this is the plain nearest-free
-    /// search, which is exactly what the original does for the party's own start, since that call
-    /// passes no meaningful direction and almost always succeeds on the first test.
+    /// <paramref name="reachableFrom"/> supplies the original's reachability rule: when given, a
+    /// square is only accepted if a path exists from it to that point, which is what stops a
+    /// combatant being dropped into a sealed-off pocket. The reference always applies it (via
+    /// <c>pathMgr.GetPath</c> to the party start) <i>except</i> when the direction argument is
+    /// <c>PathBAD</c>; passing null here is that case.
+    /// </para>
+    /// <para>
+    /// <b>One piece of the original is still absent.</b> Its per-direction clamping restricts the
+    /// search to one side of the start depending on which way the encounter came from, so monsters
+    /// appear ahead of the party rather than behind it. Four of its eight directions call
+    /// <c>die()</c> immediately (<c>Drawtile.cpp:3884</c> onward), so only the cardinals are
+    /// reachable — and no caller in the port passes a direction yet, because monster placement
+    /// goes through the turtle rather than through here.
     /// </para>
     /// </remarks>
     public static bool FindEmptyCell(CombatMap combat, ref int x, ref int y,
-                                     int width = 1, int height = 1)
+                                     int width = 1, int height = 1,
+                                     (int X, int Y)? reachableFrom = null)
     {
         ArgumentNullException.ThrowIfNull(combat);
 
+        CombatPathFinder? finder = reachableFrom is null
+            ? null
+            : new CombatPathFinder(combat) { PathWidth = 1, PathHeight = 1 };
+
+        bool Accept(int cx, int cy)
+        {
+            if (combat.Obstacle(cx, cy, width, height) != ObstacleType.None)
+            {
+                return false;
+            }
+
+            if (finder is null)
+            {
+                return true;
+            }
+
+            var (tx, ty) = reachableFrom!.Value;
+
+            // "Already there" counts as reachable; the reference's GetPath returns the same -1 for
+            // that as for failure, but its caller only asks whether a route exists.
+            return finder.IsAlreadyWithin(cx, cy, tx, ty, tx, ty)
+                   || finder.To(cx, cy, tx, ty) is not null;
+        }
+
+        // The starting square is tested without the reachability rule, exactly as the reference
+        // does: its first line is a bare ObsticalType check before the search begins.
         if (combat.Obstacle(x, y, width, height) == ObstacleType.None)
         {
             return true;
@@ -456,7 +488,7 @@ public sealed class CombatMapGenerator
             {
                 for (int i = left; i <= right; i++)
                 {
-                    if (combat.Obstacle(i, j, width, height) == ObstacleType.None)
+                    if (Accept(i, j))
                     {
                         x = i;
                         y = j;

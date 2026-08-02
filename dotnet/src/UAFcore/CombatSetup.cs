@@ -27,11 +27,11 @@ public sealed record CombatSetupResult(CombatMap Map, int PartyX, int PartyY,
 /// first places monsters against an empty grid and the <c>V</c> rule rejects every square.
 /// </para>
 /// <para>
-/// <b>Two pieces of the reference are missing and both would remove monsters, never add them.</b>
-/// After placement the original deletes any monster with no path to the party
-/// (<c>Combatants.cpp:255</c>), and it retries the whole placement at a shorter encounter distance
-/// when nothing could be placed at all (the <c>for(;;)</c> at <c>:214</c>). Both need
-/// <c>path.cpp</c>. Until they land, an encounter can leave a monster walled off in a pocket.
+/// After placement, any monster with no route to the party is <b>removed</b>
+/// (<c>Combatants.cpp:255</c>) — a monster sealed in a pocket would otherwise stall the round
+/// forever. If that empties the encounter, the whole thing is retried at a shorter distance (the
+/// <c>for(;;)</c> at <c>:214</c>), because "far away" on a cramped map can put every monster
+/// somewhere unreachable.
 /// </para>
 /// </remarks>
 public static class CombatSetup
@@ -55,6 +55,58 @@ public static class CombatSetup
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(combatants);
 
+        bool wantsMonsters = combatants.Any(c => !c.IsFriendly);
+
+        // Try the requested distance, then closer ones. A cramped map can put every monster
+        // somewhere the party cannot reach, and the reference would rather fight up close than
+        // present an encounter with nobody in it.
+        var result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
+                             distance, outdoor, program);
+
+        if (wantsMonsters && program is null && !AnyMonsterPlaced(result, combatants))
+        {
+            foreach (var closer in Closer(distance))
+            {
+                result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
+                                 closer, outdoor, program);
+                if (AnyMonsterPlaced(result, combatants))
+                {
+                    break;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>The distances to fall back through, nearest last.</summary>
+    private static IEnumerable<EncounterDistance> Closer(EncounterDistance from) => from switch
+    {
+        EncounterDistance.FarAway => [EncounterDistance.Nearby, EncounterDistance.UpClose],
+        EncounterDistance.Nearby => [EncounterDistance.UpClose],
+        _ => [],
+    };
+
+    private static bool AnyMonsterPlaced(CombatSetupResult result,
+                                         IReadOnlyList<Combatant> combatants)
+    {
+        for (int i = 0; i < combatants.Count; i++)
+        {
+            if (!combatants[i].IsFriendly && result.Positions[i].IsPlaced)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static CombatSetupResult Attempt(Map level, IReadOnlyList<WallSetSlot> wallSets,
+                                             int levelX, int levelY, Facing facing,
+                                             IReadOnlyList<Combatant> combatants,
+                                             EncounterDirection direction,
+                                             EncounterDistance distance, bool outdoor,
+                                             string? program)
+    {
         var generator = new CombatMapGenerator(level, wallSets);
         var (map, partyX, partyY) = generator.Generate(levelX, levelY);
 
@@ -122,12 +174,38 @@ public static class CombatSetup
                                 arrangement, map, icons);
         }
 
+        // -- drop anything the party cannot reach ------------------------------------------
+        // The reference walks a 1x1 path from each monster to the party start and removes the
+        // monster when there is none (Combatants.cpp:243). The footprint is deliberately 1x1
+        // rather than the monster's own -- "1x1 good enough to let party reach" (:238) -- because
+        // the question is whether the two sides can meet at all, not whether this particular
+        // monster can squeeze through.
+        var reach = new CombatPathFinder(map) { OccupantsBlock = false };
+
         for (int i = 0; i < combatants.Count; i++)
         {
-            if (!combatants[i].IsFriendly && arrangement.Slots[i].IsPlaced)
+            if (combatants[i].IsFriendly || !arrangement.Slots[i].IsPlaced)
             {
-                positions[i] = new PlacedAt(arrangement.Slots[i].PlaceX,
-                                            arrangement.Slots[i].PlaceY);
+                continue;
+            }
+
+            int mx = arrangement.Slots[i].PlaceX;
+            int my = arrangement.Slots[i].PlaceY;
+
+            bool reachable = (mx == partyX && my == partyY)
+                             || reach.IsAlreadyWithin(mx, my, partyX, partyY, partyX, partyY)
+                             || reach.To(mx, my, partyX, partyY) is not null;
+
+            if (reachable)
+            {
+                positions[i] = new PlacedAt(mx, my);
+            }
+            else
+            {
+                // Off the grid as well as out of the result, so it stops blocking a square.
+                map.Remove(mx, my, combatants[i].Icon.Width, combatants[i].Icon.Height);
+                arrangement.Slots[i].PlaceX = -1;
+                arrangement.Slots[i].PlaceY = -1;
             }
         }
 

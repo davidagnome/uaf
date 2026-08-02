@@ -132,6 +132,82 @@ public class CombatSetupTests
     }
 
     [Fact]
+    public void A_monster_the_party_cannot_reach_is_removed_from_the_encounter()
+    {
+        // InitCombatData walks a path from each monster to the party and drops the ones with no
+        // route (Combatants.cpp:243), because a monster sealed in a pocket would stall the round
+        // forever. Placed by hand here: the turtle would not choose a sealed square on its own,
+        // which is exactly why this needs its own test.
+        var map = new CombatMap(25, 25);
+        map.FillHoles();
+        map.CombatantCount = 2;
+
+        // A one-square cell walled off from everything.
+        for (int y = 4; y <= 6; y++)
+        {
+            for (int x = 4; x <= 6; x++)
+            {
+                if ((x, y) != (5, 5)) { map.SetTile(x, y, 1); }
+            }
+        }
+
+        var finder = new CombatPathFinder(map) { OccupantsBlock = false };
+        Assert.Null(finder.To(5, 5, 20, 20));
+        Assert.NotNull(finder.To(19, 19, 20, 20));
+    }
+
+    [Fact]
+    public void An_encounter_that_places_nobody_is_retried_closer_in()
+    {
+        // The reference loops over shorter distances until at least one monster is in
+        // (the for(;;) at Combatants.cpp:214), because "far away" on a cramped map can put every
+        // monster somewhere unreachable. On an open map the first attempt already succeeds, so
+        // this checks the fallback does not make things worse rather than that it fires.
+        var result = CombatSetup.Begin(EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                                       Encounter(4, 4), EncounterDirection.Any,
+                                       EncounterDistance.FarAway);
+
+        Assert.Contains(result.Positions.Skip(4), p => p.IsPlaced);
+    }
+
+    [Fact]
+    public void Every_placed_monster_can_reach_the_party()
+    {
+        // The invariant the removal pass exists to guarantee, asserted over a real level.
+        string? root = ReferenceDesign();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = LoadedDesign.Open(root);
+        var level = design.Level(0);
+        var map = design.Map(0);
+        if (level is null || map is null)
+        {
+            return;
+        }
+
+        for (int y = 0; y < map.Height; y++)
+        {
+            for (int x = 0; x < map.Width; x++)
+            {
+                var result = CombatSetup.Begin(map, level.WallSets, x, y, Facing.North,
+                                               Encounter(4, 6));
+                var finder = new CombatPathFinder(result.Map) { OccupantsBlock = false };
+
+                foreach (var p in result.Positions.Skip(4).Where(p => p.IsPlaced))
+                {
+                    bool reachable = (p.X == result.PartyX && p.Y == result.PartyY)
+                                     || finder.To(p.X, p.Y, result.PartyX, result.PartyY) is not null;
+                    Assert.True(reachable,
+                                $"({x},{y}): monster at ({p.X},{p.Y}) cannot reach the party");
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void Every_cell_of_a_real_level_sets_up_a_usable_encounter()
     {
         string? root = ReferenceDesign();

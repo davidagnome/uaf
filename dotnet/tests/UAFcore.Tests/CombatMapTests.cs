@@ -244,4 +244,34 @@ public class CombatMapTests
         int x = 10, y = 10;
         Assert.False(CombatMapGenerator.FindEmptyCell(map, ref x, ref y));
     }
+
+    [Fact]
+    public void Find_empty_cell_skips_a_sealed_pocket_when_asked_for_reachability()
+    {
+        // The reference rejects a square the party cannot walk to, via pathMgr.GetPath. Without
+        // the rule the nearest free square wins even when it is walled off; with it, the search
+        // keeps going.
+        var map = OpenMap(25, 25);
+
+        // A solid 5x5 block with one hole at its centre. Starting on the block's own edge, the
+        // hole is the only free square within a radius of one, so an unfiltered search must pick
+        // it -- which is what makes the filtered search's refusal meaningful.
+        for (int j = 3; j <= 7; j++)
+        {
+            for (int i = 3; i <= 7; i++)
+            {
+                if ((i, j) != (5, 5)) { map.SetTile(i, j, 1); }
+            }
+        }
+
+        int x = 5, y = 4;      // a wall, so the search starts looking around
+        Assert.True(CombatMapGenerator.FindEmptyCell(map, ref x, ref y));
+        Assert.Equal((5, 5), (x, y));       // without the rule, the pocket is nearest
+
+        x = 5; y = 4;
+        Assert.True(CombatMapGenerator.FindEmptyCell(map, ref x, ref y,
+                                                     reachableFrom: (20, 20)));
+        Assert.NotEqual((5, 5), (x, y));    // with it, the pocket is refused
+        Assert.Equal(ObstacleType.None, map.Obstacle(x, y));
+    }
 }
