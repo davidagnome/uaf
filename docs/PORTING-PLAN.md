@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes eleven of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes twelve of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,121 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,147 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2785,7 +2785,7 @@ that are serialized despite their names: `SMALL_TOWN_DATA.Unused`, and the eight
 in `WHO_TRIES_EVENT_DATA` that the storing branch writes as literal `FALSE` and the loading branch
 still reads.
 
-**On the engine half, two more types execute**, bringing it to eleven of 44:
+**On the engine half, three more types execute**, bringing it to twelve of 44:
 
 > **`CHAIN_EVENT` replaces itself with its target rather than chaining to it**
 > (`RunEvent.cpp:10974`). Its own `chainEventHappen` is never consulted, and a target the level
@@ -2799,6 +2799,26 @@ still reads.
 > and the dead branch's weight leaves the total rather than vanishing into a dead end — so the
 > survivors keep their relative odds. The boundary belongs to the earlier branch: with 30 and 70,
 > a roll of 30 takes the first.
+
+> **`FLOW_CONTROL_EVENT_DATA` is the design's `if` statement**, and the most common unexecuted
+> type there was — 314 across the corpus. It modifies a global attribute and then branches on the
+> result, and the order matters: **the modification happens first and is not conditional**, so a
+> design using flow control purely as a counter still counts even with the action set to `NONE`.
+> `Game.Globals` is the store, which is the one the scripting host and the savegame already read.
+
+> **Increment and decrement do nothing at all to a variable that does not exist.** The reference
+> breaks out before the insert, so there is no implicit "starts at zero" — only `SET` creates one,
+> and it writes flags of `0` where the other two write `MODIFIED`. A design that increments an
+> unset counter gets no counter, which is worth knowing before concluding its logic is broken.
+
+> **Only `ACTION_NONE` is distinguished.** `GOTO`, `CALL`, `RETURN` and `POP` all take the same
+> branch, so the call stack the last three imply was never built. Reproduced deliberately: a design
+> using `CALL` today gets a `GOTO`, and inventing a stack would change what it does.
+
+The comparison is textual throughout: increment reads with `atoi` semantics — leading digits, zero
+for anything else — writes back with `%d`, then compares the design's value *string* against that
+numeral, so `"007"` never equals an incremented `"7"`. `int.TryParse` is not a substitute for
+`atoi`; it rejects `"12 apples"`, which a design may well contain.
 
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
@@ -4623,11 +4643,9 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and eleven execute. The other 33 draw
+   reads (§the event layer), and twelve execute. The other 32 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
-   - **`FlowControl` (314 occurrences)** — named markers and global-variable actions. `Game.Globals`
-     is an `AttributeList` already, so this is the closest to reachable.
    - **`QuestStage` (282)** — needs a quest-state store, which `Game` does not have. The record's
      packed `m_quest` is already decomposed by `QuestEventReader.QuestId`/`QuestType`.
    - **`Utilities` (280)** — a grab-bag; read the operation list before estimating it.
@@ -4700,7 +4718,7 @@ the round both call and neither has.
 |---|---|---|
 | **`ArchiveWriter`** | The byte layer, both shared leaves and `MONSTER_DATA` are written; the other record types and the whole `CAR` write path are not. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **33 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. By corpus frequency the ones that matter are `FlowControl` (314), `QuestStage` (282), `Utilities` (280), `GuidedTour` (138), `SpecialItem` (69) and `LogicBlock` (52) — see §the event layer | Large |
+| **32 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. By corpus frequency the ones that matter are `QuestStage` (282), `Utilities` (280), `GuidedTour` (138), `SpecialItem` (69) and `LogicBlock` (52) — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
 | **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. None is wired up; all three have faithful built-in defaults and are call-site changes once GPDL runs global scripts. Needs a `specialAbilities.txt` parser plus two sub-opcodes | Small |

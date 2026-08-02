@@ -1288,7 +1288,7 @@ public class GameTests
 
     // ---- chain events --------------------------------------------------------------------------
 
-    private static string? CaseRoot()
+    private static string? ReferenceDesign(string name)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "Shared")))
@@ -1296,9 +1296,16 @@ public class GameTests
             dir = dir.Parent;
         }
 
-        string? design = dir is null ? null : Path.Combine(dir.FullName, "reference", "Case.dsn");
+        string? design = dir is null ? null : Path.Combine(dir.FullName, "reference", name);
         return design is not null && Directory.Exists(design) ? design : null;
     }
+
+    private static string? CaseRoot() => ReferenceDesign("Case.dsn");
+
+    /// <summary>The designs an event-type sweep should look in, in no particular order.</summary>
+    private static IEnumerable<string> EventBearingDesigns() =>
+        new[] { CaseRoot(), DesignRoot(), ReferenceDesign("Ambassador's_Letter") }
+            .Where(r => r is not null)!;
 
     [Fact]
     public void A_real_chain_event_runs_its_target_rather_than_naming_itself()
@@ -1358,5 +1365,71 @@ public class GameTests
 
         Assert.Null(game.CurrentEvent);
         Assert.Contains("3735928559", game.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Every event of a type across every level of a design.</summary>
+    private static List<T> AllEvents<T>(LoadedDesign design) where T : IGameEvent =>
+        [.. Enumerable.Range(0, design.LevelFiles.Count)
+            .Select(design.Level)
+            .Where(l => l is not null)
+            .SelectMany(l => l!.Events.OfType<T>())];
+
+    [Fact]
+    public void Real_flow_control_events_run_rather_than_naming_themselves()
+    {
+        // 314 of these across the corpus -- the most common unexecuted type there was. They are
+        // not evenly spread, so both designs are tried rather than assuming which one has them.
+        int checkedEvents = 0;
+
+        foreach (string root in EventBearingDesigns())
+        {
+            using var design = Open(root);
+            foreach (var flow in AllEvents<FlowControlEvent>(design))
+            {
+                var game = new Game(design);
+                game.StartEvent(flow);
+
+                // Not "no unimplemented message at all": a flow control event that branches lands
+                // on whatever it chose, and that can still be a type this port does not run. What
+                // must not appear is FlowControl naming itself.
+                Assert.DoesNotContain(nameof(EventType.FlowControl), game.Message,
+                                      StringComparison.Ordinal);
+                checkedEvents++;
+            }
+        }
+
+        if (!EventBearingDesigns().Any())
+        {
+            return;                                      // gitignored fixtures absent
+        }
+
+        Assert.True(checkedEvents > 0, "no flow-control event found to run");
+    }
+
+    [Fact]
+    public void A_flow_control_event_writes_its_global_where_the_rest_of_the_engine_can_see_it()
+    {
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+
+        // Whichever real event sets a variable -- the point is that Game.Globals is the store the
+        // scripting host and the savegame already read, not a second one.
+        var setter = AllEvents<FlowControlEvent>(design)
+            .FirstOrDefault(f => f.GlobalVariableName.Length > 0
+                                 && f.ValueModification == (int)ValueModification.Set);
+        if (setter is null)
+        {
+            return;
+        }
+
+        var game = new Game(design);
+        game.StartEvent(setter);
+
+        Assert.Equal(setter.Value, game.Globals.Find(setter.GlobalVariableName));
     }
 }

@@ -689,6 +689,25 @@ public sealed class Game
             return;
         }
 
+        // FLOW_CONTROL_EVENT_DATA modifies a global and branches on it, with no presentation at
+        // all. Like CHAIN_EVENT it can replace itself, so it cannot go through
+        // ExecuteWithoutInput -- that path always ends by following the ordinary chain.
+        if (gameEvent is FlowControlEvent flow)
+        {
+            CurrentEvent = null;
+            var outcome = FlowControl.Run(flow, Globals, id => events?.ById(id) is not null);
+
+            if (outcome.Stop)
+            {
+                Message = $"[flow control to event {flow.DestinationId}, " +
+                          "which this level does not contain]";
+                return;
+            }
+
+            FollowChain(outcome.GoTo ?? EventChain.Next(flow.Base, happened: true));
+            return;
+        }
+
         if (ExecuteWithoutInput(gameEvent) is bool ran)
         {
             CurrentEvent = null;
