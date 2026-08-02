@@ -96,6 +96,10 @@ public sealed class Game
         // is why this is wired after it exists rather than beside the other runner callbacks.
         Runner.ApplySpecialItems = special => SpecialItems.Apply(special, World);
 
+        // Quests share that store, and a quest event can set an item's or a key's stage instead.
+        Runner.ResolveQuest = (quest, accepted) =>
+            Quests.Resolve(quest, accepted, World, id => events?.ById(id) is not null);
+
         Globals.Load(design.Globals.Attributes);
 
         Money = design.Globals.Money is { } currency

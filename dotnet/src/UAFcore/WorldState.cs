@@ -96,6 +96,17 @@ public sealed class WorldState
 
     public void SetQuest(int id, QuestState state, int stage) => quests[id] = (state, stage);
 
+    /// <summary>Moves a quest to a stage, leaving its state alone.</summary>
+    /// <remarks>
+    /// State and stage are independent in the reference too — <c>SetStage</c> and
+    /// <c>SetComplete</c> are separate calls, and a quest event makes both in turn. Folding them
+    /// into one assignment loses whichever the caller did not mean to change.
+    /// </remarks>
+    public void SetQuestStage(int id, int stage) => quests[id] = (QuestStateOf(id), stage);
+
+    /// <summary>Moves a quest to a state, leaving its stage alone.</summary>
+    public void SetQuestState(int id, QuestState state) => quests[id] = (state, QuestStageOf(id));
+
     /// <summary>
     /// Whether the party has a special item (<c>PARTY::hasSpecialItem</c>, <c>Party.cpp:3275</c>).
     /// </summary>

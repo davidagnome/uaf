@@ -136,8 +136,65 @@ public sealed class EventRunner
             TreasureEvent treasure => BeginTreasure(treasure, anchors),
             RandomEvent random => BeginRandom(random, anchors),
             SpecialItemEvent special => BeginSpecialItem(special, anchors),
+            QuestEvent quest => BeginQuest(quest, anchors),
             _ => BeginUnsupported(gameEvent),
         };
+    }
+
+    /// <summary>Applies a quest event's outcome; set by the host.</summary>
+    /// <remarks>
+    /// Quest, special-item and key state all live on <see cref="WorldState"/>, which the runner
+    /// does not have. Takes whether the party accepted and returns where to go. See
+    /// <see cref="Quests"/>.
+    /// </remarks>
+    public Func<QuestEvent, bool, QuestOutcome>? ResolveQuest { get; set; }
+
+    /// <summary>
+    /// <c>QUEST_EVENT_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:12300</c>).
+    /// </summary>
+    /// <remarks>
+    /// The two automatic operations present text and a Return; everything else asks Yes or No —
+    /// including <c>QA_Impossible</c>, which asks and then refuses whatever the answer.
+    /// </remarks>
+    private EventStep BeginQuest(QuestEvent quest, MenuAnchors anchors)
+    {
+        if (Quests.AsksTheQuestion(quest.Operation))
+        {
+            SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+        }
+        else
+        {
+            SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                           ("PRESS ENTER TO CONTINUE", 7));
+        }
+
+        ShowText(quest.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>Applies the quest and takes its branch.</summary>
+    private EventStep FinishQuest(QuestEvent quest)
+    {
+        // The menu reports Yes as entry 0 here and the reference counts from 1, so the host is
+        // handed the reference's numbering rather than this menu's.
+        bool accepted = Quests.IsAccepted(quest.Operation, Menu.ActiveItem + 1);
+
+        var outcome = ResolveQuest?.Invoke(quest, accepted)
+                      ?? new QuestOutcome(accepted, null, Stop: false);
+
+        if (outcome.GoTo is uint target)
+        {
+            Current = null;
+            return EventStep.To(target);
+        }
+
+        if (outcome.Stop)
+        {
+            Current = null;
+            return EventStep.Finished;
+        }
+
+        return Complete(happened: true);
     }
 
     /// <summary>Applies a special-item event's give/take list; set by the host.</summary>
@@ -511,6 +568,7 @@ public sealed class EventRunner
             TreasureEvent treasure => ChooseTreasure(treasure),
             RandomEvent random => ChooseRandom(random),
             SpecialItemEvent special => FinishSpecialItem(special),
+            QuestEvent quest => FinishQuest(quest),
             _ => Complete(happened: true),
         };
     }
