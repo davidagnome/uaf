@@ -1,0 +1,152 @@
+namespace UAF.Rules;
+
+/// <summary>
+/// An effect on a character, with the bookkeeping that decides how long it lasts.
+/// </summary>
+/// <param name="Effect">The arithmetic — see <see cref="SpellEffects"/>.</param>
+/// <param name="StopTime">
+/// The elapsed-minute reading at which it ends, from <see cref="SpellDuration.StopTimeFor"/>.
+/// </param>
+/// <param name="FromScript">Whether it came from a script, which shifts the expiry test by one.</param>
+public readonly record struct ActiveSpellEffect(SpellEffect Effect, double? StopTime,
+                                                bool FromScript = false)
+{
+    /// <summary>The attribute this modifies.</summary>
+    public string Attribute => Effect.Attribute;
+
+    /// <summary>Whether this is an intrinsic character ability rather than a cast effect.</summary>
+    /// <remarks>
+    /// These survive a <see cref="SpellEffectFlags.RemoveAll"/> — they are part of what the
+    /// character <i>is</i>, not something done to it.
+    /// </remarks>
+    public bool IsIntrinsic =>
+        (Effect.Flags & SpellEffectFlags.CharacterSpecialAbility) != 0;
+}
+
+/// <summary>
+/// The effects currently on a character, and the rules for what happens when a new one arrives
+/// (<c>CHARACTER::AddSpellEffect</c>, <c>Char.cpp:11989</c>).
+/// </summary>
+/// <remarks>
+/// <para>
+/// This is the half of the spell layer <see cref="SpellEffects"/> deliberately left out: not how an
+/// effect changes a number, but <b>which effects are in the list at all</b>. Three rules decide
+/// it — a negated effect never lands, a non-cumulative one refuses to stack, and a remove-all one
+/// clears the attribute first.
+/// </para>
+/// <para>
+/// Order is preserved, and it matters: <see cref="SpellEffects.ApplyAll"/> walks the list in order
+/// and a percentage or absolute effect discards everything computed before it.
+/// </para>
+/// </remarks>
+public sealed class SpellEffectList
+{
+    private readonly List<ActiveSpellEffect> effects = [];
+
+    /// <summary>The effects, in application order.</summary>
+    public IReadOnlyList<ActiveSpellEffect> Effects => effects;
+
+    public int Count => effects.Count;
+
+    /// <summary>
+    /// Offers an effect to the list (<c>AddSpellEffect</c>, <c>Char.cpp:11989</c>).
+    /// </summary>
+    /// <returns>Whether it was added.</returns>
+    /// <remarks>
+    /// <para>
+    /// The three rules, in the order the reference applies them:
+    /// </para>
+    /// <list type="number">
+    ///   <item>
+    ///   <b><see cref="SpellEffectFlags.None"/> is refused outright.</b> That flag means a saving
+    ///   throw negated the effect. The check was added because effects were landing <i>despite</i>
+    ///   a successful save — there is a dated comment naming the person who reported it
+    ///   (<c>:11994</c>).
+    ///   </item>
+    ///   <item>
+    ///   <b>A non-cumulative effect refuses to stack.</b> If anything already modifies the same
+    ///   attribute, the new effect is <i>dropped</i> — the incumbent wins, not the newcomer. Two
+    ///   castings of the same buff do not add up, and the second is simply wasted.
+    ///   </item>
+    ///   <item>
+    ///   <b><see cref="SpellEffectFlags.RemoveAll"/> clears the attribute first</b>, except for
+    ///   intrinsic character abilities, which cannot be removed because they are part of the
+    ///   character rather than something done to it.
+    ///   </item>
+    /// </list>
+    /// <para>
+    /// Note rules 2 and 3 are <i>not</i> exclusive: an effect flagged both cumulative and
+    /// remove-all clears the attribute and then adds itself, which is how a spell that overrides
+    /// rather than stacks is written.
+    /// </para>
+    /// </remarks>
+    public bool Add(ActiveSpellEffect effect)
+    {
+        var flags = effect.Effect.Flags;
+
+        // 1. A save negated it.
+        if ((flags & SpellEffectFlags.None) != 0)
+        {
+            return false;
+        }
+
+        // 2. Not cumulative and something already holds this attribute: the incumbent wins.
+        if ((flags & SpellEffectFlags.Cumulative) == 0
+            && effects.Any(e => e.Attribute == effect.Attribute))
+        {
+            return false;
+        }
+
+        // 3. Clear the attribute, sparing intrinsic abilities.
+        if ((flags & SpellEffectFlags.RemoveAll) != 0)
+        {
+            effects.RemoveAll(e => e.Attribute == effect.Attribute && !e.IsIntrinsic);
+        }
+
+        effects.Add(effect);
+        return true;
+    }
+
+    /// <summary>
+    /// Drops every effect that has run out (<c>ProcessLingeringSpellEffects</c>' expiry half).
+    /// </summary>
+    /// <param name="elapsedMinutes">The clock now — one combat round is one minute.</param>
+    /// <returns>The effects removed, in the order they were held.</returns>
+    /// <remarks>
+    /// Called at the head of a round. Because a round is a minute, a spell cast for three rounds
+    /// survives exactly three of these.
+    /// </remarks>
+    public IReadOnlyList<ActiveSpellEffect> Expire(double elapsedMinutes)
+    {
+        var expired = effects
+            .Where(e => SpellDuration.IsReadyToExpire(e.StopTime, elapsedMinutes, e.FromScript))
+            .ToList();
+
+        foreach (var e in expired)
+        {
+            effects.Remove(e);
+        }
+
+        return expired;
+    }
+
+    /// <summary>Applies every effect on an attribute to a value, in order.</summary>
+    public double Apply(double value, string attribute) =>
+        SpellEffects.ApplyAll(value, attribute, effects.Select(e => e.Effect));
+
+    /// <summary>
+    /// Applies every effect on an attribute to an integer value, clamped to the attribute's own
+    /// legal range.
+    /// </summary>
+    /// <remarks>
+    /// The bounds are required rather than defaulted, matching
+    /// <see cref="SpellEffects.ApplyAll(int, string, IEnumerable{SpellEffect}, int, int)"/>: an
+    /// effect can otherwise push an attribute outside the range it is allowed to hold, and what
+    /// that range is depends on the attribute.
+    /// </remarks>
+    public int Apply(int value, string attribute, int min, int max) =>
+        SpellEffects.ApplyAll(value, attribute, effects.Select(e => e.Effect), min, max);
+
+    /// <summary>Removes everything, as the end of a fight does.</summary>
+    public void Clear() => effects.Clear();
+}

@@ -10,9 +10,9 @@ criterion is not met. Phases 2 and 3 are substantially delivered with named gaps
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
-pathing, movement, attacks, the dying clock and attacks of opportunity. Phases 5–7 have not
-started.
-**1,429 tests, green on macOS, Linux and Windows; both CI workflows green.**
+pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
+stacking under it. Phases 5–7 have not started.
+**1,451 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2226,6 +2226,54 @@ to. Both interrupt through the turn queue, which already modelled exactly this �
 The adjacency scan runs `-1` to `width` and `-1` to `height` inclusive, so it covers the footprint
 *and* the ring around it: a 1×1 combatant checks a 3×3 block.
 
+##### Spell durations and stacking, as ported
+
+`SpellDuration` and `SpellEffectList` are the half of the spell layer `SpellEffects` deliberately
+left out: not how an effect changes a number, but **how long it lasts and whether it lands at all**.
+This was blocked on the round clock and is now unblocked.
+
+**One combat round is one game minute**, and that is the whole bridge. `StartNewRound` calls
+`party.incrementClock(1)`, and that parameter is minutes (`Party.cpp:1422`) — so a three-round
+spell and a three-minute spell are the same thing, and every duration is stored as an
+elapsed-minute reading to compare against.
+
+- **Every timed rate has a floor of one minute**, applied *after* the unit conversion. The comments
+  on the three cases disagree about what the floor is called — "1 minute min" on rounds, "1 round
+  min" on hours and days — which is one value under two names.
+- **A stop time of zero means expire immediately.** It is the first test in `IsReadyToExpire`, so
+  "no duration" and "already over" are the same state.
+- **The two expiry paths disagree by one.** A script effect expires at `elapsed >= stop`, a spell
+  effect at `elapsed > stop` (`Spell.cpp:983` against `:1000`). The same duration lasts a minute
+  longer as a spell than as a script. Both are reachable and neither is obviously intended, so both
+  are transcribed.
+
+Three rules decide whether an effect lands (`Char.cpp:11989`), and their order matters:
+
+1. **A negated effect never lands** — the `EFFECT_NONE` flag means a saving throw stopped it. The
+   check carries a dated comment naming the person who reported effects landing *despite* a
+   successful save.
+2. **A non-cumulative effect refuses to stack, and the incumbent wins.** If anything already
+   modifies that attribute the *new* effect is dropped — so a second casting of the same buff is
+   simply wasted rather than replacing the first.
+3. **`RemoveAll` clears the attribute first, sparing intrinsic character abilities**, which cannot
+   be removed because they are part of what the character is.
+
+Rules 2 and 3 are not exclusive — an effect flagged both cumulative and remove-all clears the
+attribute and then adds itself, which is how a spell that overrides rather than stacks is written.
+But rule 2 runs first, so a *non*-cumulative remove-all never gets to clear anything.
+
+> **`Permanent` has no case in the reference at all.** The duration switch handles rounds, hours,
+> days and the two counted rates, then falls to `default: die()` — leaving the stop time at its
+> constructed value of zero, which means *expire immediately*. So a permanent spell effect lasts no
+> time at all. `StopTimeFor` returns null for it rather than inventing a value the reference never
+> computes, and `SpellDuration.PermanentExpiresImmediately` records what actually happens, as a
+> named constant rather than a buried comment — otherwise the next reader will assume it is a
+> porting mistake.
+
+> **`ByDamageTaken` and `ByNumberOfAttacks` are declared, authored and unsupported.** The duration
+> switch stores their count raw where a time belongs, and `IsReadyToExpire` reaches its error path
+> for both (`Spell.cpp:991`). A design can select them in the editor and they will not work.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3266,27 +3314,33 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the spell layer
+### The next piece of work: wiring combat into the engine
 
-**Combat is substantially complete.** `CombatSetup` builds the encounter, `CombatRound` +
-`TurnQueue` order the turns, `Combatant` is the entity, `CombatPathFinder` finds routes,
-`Targeting` decides who may be hit, `CombatMovement` walks and spends the allowance, `Attack`
-resolves the swing, `MonsterAi` chooses, `CombatUpkeep` bleeds the dying, and
-`OpportunityAttacks` interrupts. Four heroes against four orcs on a real map resolves in six rounds
-with nothing but the ported code driving it. Read the twelve "as ported" sections under §7 Phase 4
-before touching any of it.
+**Combat is substantially complete, and none of it is reachable from the game.** `CombatSetup`
+builds the encounter, `CombatRound` + `TurnQueue` order the turns, `Combatant` is the entity,
+`CombatPathFinder` finds routes, `Targeting` decides who may be hit, `CombatMovement` walks and
+spends the allowance, `Attack` resolves the swing, `MonsterAi` chooses, `CombatUpkeep` bleeds the
+dying, `OpportunityAttacks` interrupts, and `SpellDuration` + `SpellEffectList` expire what was
+cast. Four heroes against four orcs on a real map resolves in six rounds with nothing but the
+ported code driving it. Read the thirteen "as ported" sections under §7 Phase 4 before touching
+any of it.
 
-What remains:
+**But nothing in `UAFcore.Game` starts a fight.** `Combat` is still one of the 13 event types with
+no reader, so every piece above is exercised only by tests and scratch harnesses. That is now the
+highest-value next step by some distance — it is what turns a large body of verified machinery into
+something you can watch, and it brings the port's most reliable habit (render it and look) to bear
+on combat for the first time. It needs:
 
-1. **The spell layer.** `SpellEffects` has the arithmetic — how an effect changes a number — but
-   not durations, sources or stacking, which is the part that decides which effects exist at all.
-   That was always going to be built alongside the round that expires them, and **the round now
-   exists**, so this is unblocked and is the largest remaining gap in a working fight.
-2. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
-   unported subsystem in Phase 2.
-3. **Wiring combat into `Game`.** Every piece above is testable in isolation but nothing in
-   `UAFcore.Game` starts a fight yet — the `Combat` event type is still one of the 13 with no
-   reader. That is what would make combat visible rather than merely present.
+1. **`COMBAT_EVENT_DATA`'s reader** — the encounter definition: monsters, distance, direction,
+   surprise, the no-magic and never-dies flags. `CombatEventReader` already exists in
+   `UAF.Serialization` for part of this; check what it covers before writing.
+2. **A combat screen** — the map rendered through the existing blitter, which `Drawtile.cpp`'s
+   display half provides and which is not ported. `CombatMap` already holds tile indices and the
+   art sheet coordinates are in the generated tile table.
+3. **The engine's combat state** in `Game`, driving the loop the scratch harness already proves.
+
+After that: **the Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the
+last large unported subsystem in Phase 2.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped
@@ -3309,10 +3363,11 @@ but randomises terrain from `WildernessTileDensity` instead of reading the level
 wilderness half of the expansion table is already transcribed and unreachable — the 35
 `DBL_HIGH_*` / `SGL_HIGH_*` junction types. Nothing needs it until outdoor encounters run.
 
-**The round clock that the spell-effect layer was waiting for now exists.** `SpellEffects` ports
-the arithmetic — how an effect changes a number — but not durations, sources or stacking, which is
-the part that decides which effects exist at all. That half was always going to be built alongside
-the round that expires them; `CombatRound` is that round, so the dependency is discharged.
+**The spell-effect layer is complete.** `SpellEffects` has the arithmetic, and
+`SpellDuration` + `SpellEffectList` now have the durations and stacking it was missing — see the
+"as ported" section. What remains unported there is the *casting* half: choosing a spell, saving
+throws, and the lingering-spell area effects (`activeSpellList.LingerSpell*`), which movement and
+the round both call and neither has.
 
 ### Standing gaps, none of them blocking the above
 
