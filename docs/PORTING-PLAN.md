@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes twelve of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes thirteen of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,147 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,159 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2785,7 +2785,7 @@ that are serialized despite their names: `SMALL_TOWN_DATA.Unused`, and the eight
 in `WHO_TRIES_EVENT_DATA` that the storing branch writes as literal `FALSE` and the loading branch
 still reads.
 
-**On the engine half, three more types execute**, bringing it to twelve of 44:
+**On the engine half, four more types execute**, bringing it to thirteen of 44:
 
 > **`CHAIN_EVENT` replaces itself with its target rather than chaining to it**
 > (`RunEvent.cpp:10974`). Its own `chainEventHappen` is never consulted, and a target the level
@@ -2819,6 +2819,21 @@ The comparison is textual throughout: increment reads with `atoi` semantics — 
 for anything else — writes back with `%d`, then compares the design's value *string* against that
 numeral, so `"007"` never equals an incremented `"7"`. `int.TryParse` is not a substitute for
 `atoi`; it rejects `"12 apples"`, which a design may well contain.
+
+> **Special items and keys are global, not carried**, which is why they live on `WorldState` next
+> to quests rather than on a character. **Possession is a stage, and the stage doubles as the
+> flag** — giving sets stage 1, taking sets stage 0, and `HasSpecialItem` asks whether the stage is
+> above zero. The reference guards a give with `if (!hasSpecialItem(...))`, which is what stops a
+> re-give from rewinding an item that has progressed past stage 1.
+
+> **An id the design does not define is skipped, not created** ("Bogus special item index",
+> `Party.cpp:3203`), so an event left pointing at a deleted item is silent rather than resurrecting
+> it. `WorldState.DefinesSpecialItem` is the distinction — "defined" is not "held".
+
+The list is applied on **Return, not on arrival**, so a run abandoned before the keypress leaves
+the party without the item. `ForceExit` is not ported: the reference posts
+`TASKMSG_MovePartyBackward` and this port has no task queue to post to, so the party stays standing
+on the event.
 
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
@@ -4643,14 +4658,14 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and twelve execute. The other 32 draw
+   reads (§the event layer), and thirteen execute. The other 31 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
-   - **`QuestStage` (282)** — needs a quest-state store, which `Game` does not have. The record's
-     packed `m_quest` is already decomposed by `QuestEventReader.QuestId`/`QuestType`.
+   - **`QuestStage` (282)** — **closer than it looks**: `WorldState` already holds quest state
+     with `SetQuest`/`QuestStateOf`/`QuestStageOf`, and `QuestEventReader` already decomposes the
+     packed `m_quest`. What is left is the operation set and the accept/reject chains.
    - **`Utilities` (280)** — a grab-bag; read the operation list before estimating it.
    - **`GuidedTour` (138)** — walks the party along a recorded path; movement exists.
-   - **`SpecialItem` (69)** — tests the party's items; the inventory exists.
    - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
@@ -4718,7 +4733,7 @@ the round both call and neither has.
 |---|---|---|
 | **`ArchiveWriter`** | The byte layer, both shared leaves and `MONSTER_DATA` are written; the other record types and the whole `CAR` write path are not. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **32 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. By corpus frequency the ones that matter are `QuestStage` (282), `Utilities` (280), `GuidedTour` (138), `SpecialItem` (69) and `LogicBlock` (52) — see §the event layer | Large |
+| **31 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. By corpus frequency the ones that matter are `QuestStage` (282), `Utilities` (280), `GuidedTour` (138) and `LogicBlock` (52) — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
 | **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. None is wired up; all three have faithful built-in defaults and are call-site changes once GPDL runs global scripts. Needs a `specialAbilities.txt` parser plus two sub-opcodes | Small |

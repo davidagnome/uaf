@@ -567,4 +567,41 @@ public class EventRunnerTests
     {
         Assert.Null(RandomEventChoice.Pick(Random(0), _ => true, _ => 1));
     }
+
+    // ---- special items -------------------------------------------------------------------------
+
+    private static SpecialItemEvent Special(uint onHappened = 4) =>
+        new(Base(EventType.SpecialItem, text: "A chest stands open.",
+                 onHappened: (int)onHappened),
+            [new SpecialObjectEvent(SpecialItems.ItemFlag, SpecialItems.Give, 1, 0)],
+            ForceExit: 0, WaitForReturn: 0);
+
+    [Fact]
+    public void A_special_item_event_gives_nothing_until_return_is_pressed()
+    {
+        // The reference applies the list in OnKeypress, not OnInitialEvent. A run abandoned before
+        // Return leaves the party without the item, which matters when progress is gated on it.
+        SpecialItemEvent? applied = null;
+        var runner = new EventRunner { ApplySpecialItems = e => applied = e };
+
+        Begin(runner, Special());
+
+        Assert.Null(applied);
+        Assert.Null(runner.Unimplemented);
+    }
+
+    [Fact]
+    public void Return_applies_the_list_and_then_chains()
+    {
+        SpecialItemEvent? applied = null;
+        var runner = new EventRunner { ApplySpecialItems = e => applied = e };
+        var special = Special(onHappened: 4);
+        Begin(runner, special);
+
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Same(special, applied);
+        Assert.Equal(EventStepKind.Chain, step.Kind);
+        Assert.Equal(4u, step.ChainTo);
+    }
 }

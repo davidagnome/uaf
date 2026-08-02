@@ -135,8 +135,28 @@ public sealed class EventRunner
             QuestionEvent question => BeginQuestion(question, anchors),
             TreasureEvent treasure => BeginTreasure(treasure, anchors),
             RandomEvent random => BeginRandom(random, anchors),
+            SpecialItemEvent special => BeginSpecialItem(special, anchors),
             _ => BeginUnsupported(gameEvent),
         };
+    }
+
+    /// <summary>Applies a special-item event's give/take list; set by the host.</summary>
+    /// <remarks>
+    /// Special items and keys are global rather than carried, so they live on
+    /// <see cref="WorldState"/> — which the runner does not have. See <see cref="SpecialItems"/>.
+    /// </remarks>
+    public Action<SpecialItemEvent>? ApplySpecialItems { get; set; }
+
+    /// <summary>
+    /// <c>SPECIAL_ITEM_KEY_EVENT_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:12783</c>) — text and
+    /// a Return, with the giving and taking done on the way out.
+    /// </summary>
+    private EventStep BeginSpecialItem(SpecialItemEvent special, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal,
+                       ("PRESS ENTER TO CONTINUE", 7));
+        ShowText(special.Base.Text);
+        return EventStep.Running;
     }
 
     /// <summary>
@@ -490,6 +510,7 @@ public sealed class EventRunner
             YesNoEvent yesNo => ChooseYesNo(yesNo),
             TreasureEvent treasure => ChooseTreasure(treasure),
             RandomEvent random => ChooseRandom(random),
+            SpecialItemEvent special => FinishSpecialItem(special),
             _ => Complete(happened: true),
         };
     }
@@ -525,6 +546,25 @@ public sealed class EventRunner
             return EventStep.To(chain);
         }
 
+        return Complete(happened: true);
+    }
+
+    /// <summary>
+    /// Gives and takes on the way out, then chains.
+    /// </summary>
+    /// <remarks>
+    /// <b>The list is applied on Return, not on arrival.</b> A player who never presses Return —
+    /// because the run was abandoned — never receives the item, which is the reference's behaviour
+    /// and matters for a design that gates progress on one.
+    /// <para>
+    /// <c>ForceExit</c> is <b>not</b> ported: the reference posts <c>TASKMSG_MovePartyBackward</c>
+    /// to step the party off the square, and this port has no task queue to post to. A design
+    /// relying on it leaves the party standing on the event instead.
+    /// </para>
+    /// </remarks>
+    private EventStep FinishSpecialItem(SpecialItemEvent special)
+    {
+        ApplySpecialItems?.Invoke(special);
         return Complete(happened: true);
     }
 

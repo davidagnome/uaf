@@ -116,4 +116,18 @@ public sealed class WorldState
     public void SetSpecialItemStage(int id, int stage) => specialItems[id] = stage;
 
     public void SetKeyStage(int id, int stage) => keys[id] = stage;
+
+    /// <summary>
+    /// Whether the design defines this special item at all — held or not.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="HasSpecialItem"/>, which is "defined <i>and</i> at a stage above
+    /// zero". The reference's <c>addSpecialItem</c>/<c>removeSpecialItem</c> both refuse an
+    /// undefined id and log "Bogus special item index" rather than creating one
+    /// (<c>Party.cpp:3203</c>), so an event naming a deleted item does nothing at all.
+    /// </remarks>
+    public bool DefinesSpecialItem(int id) => specialItems.ContainsKey(id);
+
+    /// <inheritdoc cref="DefinesSpecialItem"/>
+    public bool DefinesKey(int id) => keys.ContainsKey(id);
 }

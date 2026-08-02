@@ -64,6 +64,7 @@ public sealed class Game
         Runner.ChooseRandomBranch = random =>
             RandomEventChoice.Pick(random, id => events?.ById(id) is not null, sides => Dice(sides));
 
+
         // The full level gives the wall sets, which sit after the event list; the map-only read is
         // the fallback for a level whose events cannot all be decoded, since movement needs the
         // grid and nothing else.
@@ -90,6 +91,10 @@ public sealed class Game
 
         World = WorldState.FromDesign(design.Globals.Quests, design.Globals.SpecialItems,
                                       design.Globals.Keys);
+
+        // Special items and keys are global rather than carried, so they live on World -- which
+        // is why this is wired after it exists rather than beside the other runner callbacks.
+        Runner.ApplySpecialItems = special => SpecialItems.Apply(special, World);
 
         Globals.Load(design.Globals.Attributes);
 
