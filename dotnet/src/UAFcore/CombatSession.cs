@@ -123,6 +123,17 @@ public sealed class CombatSession
     /// <summary>What happened last, for the message line.</summary>
     public string Message { get; private set; } = string.Empty;
 
+    /// <summary>Spells begun but not yet resolved.</summary>
+    public PendingSpellList Pending { get; } = new();
+
+    /// <summary>
+    /// Whether the encounter forbids magic (<c>CombatEvent.NoMagic</c>). Greys out CAST.
+    /// </summary>
+    public bool NoMagic { get; private set; }
+
+    /// <summary>Looks up a spell's record, for its casting time. Null when the design has none.</summary>
+    private Func<string, SpellRecord?>? spellInfo;
+
     /// <summary>
     /// Builds a fight from a combat event.
     /// </summary>
@@ -137,7 +148,8 @@ public sealed class CombatSession
                                       Func<string, Surface?>? art = null,
                                       IReadOnlyDictionary<string, (Surface Sheet,
                                                                    CombatantIcon Icon)>? partyIcons
-                                          = null)
+                                          = null,
+                                      Func<string, SpellRecord?>? spellInfo = null)
     {
         ArgumentNullException.ThrowIfNull(combat);
         ArgumentNullException.ThrowIfNull(dice);
@@ -175,7 +187,11 @@ public sealed class CombatSession
                                       (EncounterDistance)combat.Distance,
                                       outdoor: combat.Outdoors != 0);
 
-        var session = new CombatSession(all, setup, dice, (UAF.Rules.Surprise)combat.Surprise);
+        var session = new CombatSession(all, setup, dice, (UAF.Rules.Surprise)combat.Surprise)
+        {
+            NoMagic = combat.NoMagic != 0,
+            spellInfo = spellInfo,
+        };
 
         // Centre on the party before the first frame. The reference does this as combat opens
         // (PlaceCursorOnCurrentDude); without it the very first frame looks at the map's corner,
@@ -253,7 +269,8 @@ public sealed class CombatSession
     private bool Advance()
     {
         Acting = Round.Advance(i => combatants[i].IsDone(),
-                               i => combatants[i].Initiative, combatants.Count);
+                               i => combatants[i].Initiative, combatants.Count,
+                               onInitiative: init => ServicePendingSpells(0, init));
 
         if (Acting != CombatMap.NoDude)
         {
@@ -273,6 +290,26 @@ public sealed class CombatSession
         BeginRound();
         return true;
     }
+
+    /// <summary>
+    /// Ticks the casting clock, putting back on the queue anyone whose spell has landed
+    /// (<c>SpellActivate</c>, <c>Combatant.cpp:867</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Activation does not resolve the spell — it gives the caster its turn back.</b> The
+    /// reference clears <c>turnIsDone</c> and pushes the caster onto the tail of the queue; the
+    /// spell's targets are chosen and its effects applied when that turn comes round, still in
+    /// <see cref="CombatantState.Casting"/>. That is why a spell three rounds in the making
+    /// interrupts the initiative order when it lands.
+    /// </remarks>
+    private void ServicePendingSpells(int roundInc, int initiative) =>
+        Pending.Service(roundInc, initiative, Round.Round, spell =>
+        {
+            var caster = combatants[spell.Caster];
+            caster.PendingSpellKey = -1;
+            caster.TurnIsDone = false;
+            Round.Queue.PushTail(caster.Index, affectStats: true);
+        });
 
     private void BeginRound()
     {
@@ -297,6 +334,11 @@ public sealed class CombatSession
         // Surprise is a first-round effect only; the reference clears it after rolling
         // (Combatants.cpp:1500).
         surprise = UAF.Rules.Surprise.Neither;
+
+        // A round has passed, which forces through any spell waiting on an initiative slot that
+        // the round just finished never reached (Combatants.cpp:6923, roundDelta > 0). After the
+        // fresh turns are handed out, so the caster's restored turn is the one it keeps.
+        ServicePendingSpells(roundInc: 1, Round.CurrentInitiative);
 
         Acting = CombatMap.NoDude;
         CheckOutcome();
@@ -332,8 +374,8 @@ public sealed class CombatSession
     /// </remarks>
     private CombatOptions OptionsFor(Combatant actor) => new(
         CanMove: actor.Movement < actor.MaxMovement,
-        CanCast: false,
-        ZoneAllowsMagic: true,
+        CanCast: Casting.CanCast(actor, noMagic: NoMagic),
+        ZoneAllowsMagic: !NoMagic,
         CanTurnUndead: false,
         CanGuard: true,
         CanDelay: true,
@@ -399,6 +441,8 @@ public sealed class CombatSession
                     CombatMenuMode.Aiming => ChooseAim(actor, (AimCommand)(Menu.ActiveItem + 1)),
                     CombatMenuMode.AimingManual =>
                         ChooseAimManual(actor, (AimManualCommand)(Menu.ActiveItem + 1)),
+                    CombatMenuMode.ChoosingSpell =>
+                        ChooseSpell(actor, (CastCommand)(Menu.ActiveItem + 1)),
                     _ => Choose(actor, CombatMenu.At(Menu.ActiveItem)),
                 };
 
@@ -496,6 +540,88 @@ public sealed class CombatSession
         return true;
     }
 
+    /// <summary>
+    /// Which spell the CAST list is sitting on. Indexes <see cref="SpellList.Castable"/>.
+    /// </summary>
+    public int SelectedSpell { get; private set; }
+
+    /// <summary>The spells the CAST list is showing, or empty when not choosing one.</summary>
+    public IReadOnlyList<SpellListEntry> SpellChoices =>
+        Acting == CombatMap.NoDude ? [] : [.. combatants[Acting].Book.Castable];
+
+    /// <summary>
+    /// The CAST submenu (<c>CAST_MENU_DATA::OnKeypress</c>, <c>RunEvent.cpp:25754</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>NEXT and PREV page the list, and they do not wrap.</b> The reference's
+    /// <c>nextSpellPage</c> steps a pageful and stops at the ends. With no paging in this port —
+    /// the whole book fits — they step one entry, and still stop rather than wrap.
+    /// <para>
+    /// <b>CAST on an unmemorised spell does nothing at all.</b> The reference guards the whole
+    /// branch with <c>IsMemorized</c> and has no else, so the key press is simply swallowed. Here
+    /// the list only ever holds memorised spells, so the guard cannot fail — but the same silence
+    /// is kept for the empty book.
+    /// </para>
+    /// </remarks>
+    private bool ChooseSpell(Combatant actor, CastCommand command)
+    {
+        var choices = SpellChoices;
+
+        switch (command)
+        {
+            case CastCommand.Next:
+                SelectedSpell = Math.Min(SelectedSpell + 1, Math.Max(0, choices.Count - 1));
+                ShowSelectedSpell();
+                return true;
+
+            case CastCommand.Previous:
+                SelectedSpell = Math.Max(0, SelectedSpell - 1);
+                ShowSelectedSpell();
+                return true;
+
+            case CastCommand.Cast:
+            {
+                if (SelectedSpell >= choices.Count)
+                {
+                    return true;
+                }
+
+                var chosen = choices[SelectedSpell];
+                var record = spellInfo?.Invoke(chosen.SpellId);
+
+                Mode = CombatMenuMode.Command;
+                Casting.Begin(actor, chosen.SpellId,
+                              record?.CastingTime ?? 0,
+                              (SpellCastingTime)(record?.CastingTimeType ?? 0),
+                              Pending, Round.Round, Round.Queue);
+
+                // Two outcomes, and the reference splits on exactly this test
+                // (RunEvent.cpp:17104). A spell on the clock ends the turn at once -- the caster
+                // stands there casting, interruptible, until it lands. One that resolves
+                // immediately goes straight on to choosing targets in this same turn.
+                Message = actor.IsSpellPending
+                    ? $"{actor.Name} begins casting {chosen.SpellId}."
+                    : $"{actor.Name} casts {chosen.SpellId}, but the effect is not implemented.";
+
+                EndTurn(actor, CombatantState.Casting);
+                return true;
+            }
+
+            default:
+                Mode = CombatMenuMode.Command;
+                CombatMenu.Build(Menu, OptionsFor(actor));
+                return true;
+        }
+    }
+
+    private void ShowSelectedSpell()
+    {
+        var choices = SpellChoices;
+        Message = SelectedSpell < choices.Count
+            ? $"{choices[SelectedSpell].SpellId} ({choices[SelectedSpell].Memorized})"
+            : "No spells memorised.";
+    }
+
     /// <summary>Attacks whatever the cursor is on, if that is possible.</summary>
     private bool Commit(Combatant actor)
     {
@@ -554,6 +680,13 @@ public sealed class CombatSession
                 Cursor.Next(combatants, actor);
                 Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y,
                                        VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case CombatCommand.Cast:
+                Mode = CombatMenuMode.ChoosingSpell;
+                SelectedSpell = 0;
+                CombatMenu.BuildCast(Menu);
+                ShowSelectedSpell();
                 return true;
 
             case CombatCommand.Guard:
@@ -627,6 +760,14 @@ public sealed class CombatSession
         target.HitPoints = Attack.ApplyDamage(target, target.HitPoints, result.Damage,
                                               target.MaxHitPoints);
         Message = $"{actor.Name} hits {target.Name} for {result.Damage}.";
+
+        // Any hit voids a spell the target was in the middle of.
+        bool wasCasting = target.State == CombatantState.Casting;
+        Casting.OnDamaged(target, result.Damage, Pending, Round.Queue);
+        if (wasCasting && target.State != CombatantState.Casting)
+        {
+            Message += $" {target.Name}'s spell is lost.";
+        }
 
         if (!target.IsOnCombatMap())
         {

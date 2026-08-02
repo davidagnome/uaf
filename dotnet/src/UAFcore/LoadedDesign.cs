@@ -268,6 +268,70 @@ public sealed class LoadedDesign : IDisposable
             : Monsters?.FirstOrDefault(
                 m => string.Equals(m.Name, monsterId, StringComparison.OrdinalIgnoreCase));
 
+    private List<SpellRecord>? spells;
+    private bool spellsLoaded;
+
+    /// <summary>
+    /// The spell database, or null when it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// Same framing and fallback as <see cref="Monsters"/>. Combat needs it for casting times; a
+    /// design whose spells cannot be read still fights, with every spell resolving immediately.
+    /// </remarks>
+    public IReadOnlyList<SpellRecord>? Spells
+    {
+        get
+        {
+            if (spellsLoaded)
+            {
+                return spells;
+            }
+
+            spellsLoaded = true;
+            spells = LoadSpells();
+            return spells;
+        }
+    }
+
+    /// <summary>A spell by its unique name, or null. Matched as monsters and items are.</summary>
+    public SpellRecord? Spell(string spellId) =>
+        string.IsNullOrEmpty(spellId)
+            ? null
+            : Spells?.FirstOrDefault(
+                s => string.Equals(s.Name, spellId, StringComparison.OrdinalIgnoreCase));
+
+    private List<SpellRecord>? LoadSpells()
+    {
+        string path = Path.Combine(Root, "Data", "spells.dat");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var header = DesignFileHeader.Read(stream, DesignFileKind.Database,
+                                               DesignFileKind.ItemsFallback(Globals.Version));
+
+            if (header.Tier == ArchiveTier.CompressedCar)
+            {
+                stream.Seek(16, SeekOrigin.Begin);
+                return SpellRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
+                                                      header.Version, ArchiveRole.Engine);
+            }
+
+            stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
+            return SpellRecordReader.ReadDatabase(new MfcArchiveReader(stream),
+                                                  header.Version, ArchiveRole.Engine);
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     private List<MonsterRecord>? LoadMonsters()
     {
         string path = Path.Combine(Root, "Data", "monsters.dat");

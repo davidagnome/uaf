@@ -164,6 +164,18 @@ public static class CombatMenu
     }
 
     /// <summary>Fills a menu with the manual-aim submenu.</summary>
+    /// <summary>
+    /// The CAST menu's entries (<c>CastMenuData</c>, <c>RunEvent.cpp:25761</c>).
+    /// </summary>
+    /// <remarks>
+    /// NEXT and PREV page the spell list rather than moving one entry — the reference shows a
+    /// pageful at a time (<c>nextSpellPage</c>) and the arrow keys move within it.
+    /// </remarks>
+    public static readonly string[] CastLabels = ["CAST", "NEXT", "PREV", "EXIT"];
+
+    /// <summary>Puts the CAST menu up.</summary>
+    public static void BuildCast(Menu menu) => Fill(menu, CastLabels);
+
     public static void BuildAimManual(Menu menu)
     {
         ArgumentNullException.ThrowIfNull(menu);
@@ -198,6 +210,18 @@ public enum CombatMenuMode
 
     /// <summary>Steering the cursor by hand: arrows move, TARGET and EXIT end it.</summary>
     AimingManual,
+
+    /// <summary>Picking a spell from the book: CAST, NEXT, PREV, EXIT.</summary>
+    ChoosingSpell,
+}
+
+/// <summary>The CAST submenu's entries, one-based.</summary>
+public enum CastCommand
+{
+    Cast = 1,
+    Next = 2,
+    Previous = 3,
+    Exit = 4,
 }
 
 /// <summary>The AIM submenu's entries, one-based like the main menu.</summary>

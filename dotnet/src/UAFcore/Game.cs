@@ -482,7 +482,8 @@ public sealed class Game
 
         Combat = CombatSession.Begin(combat, Map, wallSets, X, Y, Facing, party,
                                      id => design.Monster(id), Dice,
-                                     name => design.Art(name, SurfaceKind.Icon), partyIcons);
+                                     name => design.Art(name, SurfaceKind.Icon), partyIcons,
+                                     id => design.Spell(id));
         Message = "Combat!";
         return true;
     }

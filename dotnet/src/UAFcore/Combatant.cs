@@ -167,6 +167,27 @@ public sealed class Combatant
     /// </summary>
     public bool TurnIsDone { get; set; }
 
+    /// <summary>The spells this combatant knows and has ready.</summary>
+    public SpellList Book { get; } = new();
+
+    /// <summary>
+    /// The spell this combatant has begun, or null (<c>m_spellIDBeingCast</c>).
+    /// </summary>
+    public string? SpellBeingCast { get; set; }
+
+    /// <summary>
+    /// This combatant's entry in the pending-spell list, or <c>-1</c>
+    /// (<c>combatant_pendingSpellKey</c>).
+    /// </summary>
+    /// <remarks>
+    /// Held so an interrupted caster can withdraw its own entry without searching. A spell that
+    /// resolves at once is never queued, so a combatant can be casting with no key.
+    /// </remarks>
+    public int PendingSpellKey { get; set; } = -1;
+
+    /// <summary>Whether a begun spell is still waiting on the clock (<c>IsSpellPending</c>).</summary>
+    public bool IsSpellPending => State == CombatantState.Casting && PendingSpellKey >= 0;
+
     /// <summary>Who this combatant is attacking, or <see cref="CombatMap.NoDude"/>.</summary>
     public int Target { get; set; } = CombatMap.NoDude;
 

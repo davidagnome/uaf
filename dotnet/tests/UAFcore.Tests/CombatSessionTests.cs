@@ -58,6 +58,24 @@ public class CombatSessionTests
     /// <summary>A roller with a fixed face, so a fight is deterministic.</summary>
     private static Func<int, int> Roll(int face) => _ => face;
 
+    /// <summary>A spell that takes two rounds to cast, so it lands on the clock rather than at once.</summary>
+    private static SpellRecord SlowSpell(string id) =>
+        new(0, id, string.Empty, string.Empty, [],
+            Level: 1, CastingTime: 2, CastingTimeType: (int)SpellCastingTime.Rounds,
+            CanTargetFriend: 0, CanTargetEnemy: 1, IsCumulative: 0, Restrictions: 0,
+            CanBeDispelled: 1, CanMemorize: 1, AllowScribe: 0, AutoScribe: 0,
+            Lingers: 0, LingerOnceOnly: 0, SaveVersus: 0, SaveResult: 0, Targeting: 0,
+            DurationRate: 0, CastCost: 0, CastPriority: 0,
+            Parameters: [], Effects: [], CastArt: null, Art: [], Sounds: [],
+            CastMessage: string.Empty, Scripts: [], EffectDuration: null,
+            SpecialAbilities: null!, Attributes: []);
+
+    /// <summary>A player-run fight whose spells run on the casting clock.</summary>
+    private static CombatSession SpellSession() =>
+        CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                            Party(2, auto: false), _ => Orc(), Roll(10),
+                            spellInfo: SlowSpell);
+
     private static CombatSession Start(int party, int monsters, bool auto = true,
                                        int face = 10, int distance = 0) =>
         CombatSession.Begin(Event(monsters, distance), EmptyLevel(), WallSets(), 5, 5,
@@ -408,6 +426,181 @@ public class CombatSessionTests
         }
 
         Assert.Contains(session.Combatants[session.Acting].Name, session.Message);
+    }
+
+    // ---- casting ---------------------------------------------------------------------------
+
+    /// <summary>Gives every friendly combatant one memorised spell, so CAST is offered.</summary>
+    private static CombatSession WithSpells(CombatSession session, string spellId = "sleep")
+    {
+        foreach (var c in session.Combatants.Where(c => c.IsFriendly))
+        {
+            c.Book.Add(spellId, level: 1, memorized: 1);
+        }
+
+        return session;
+    }
+
+    [Fact]
+    public void Cast_is_offered_only_when_there_is_something_memorised()
+    {
+        var bare = Start(party: 2, monsters: 2, auto: false);
+        while (!bare.AwaitingPlayer)
+        {
+            bare.Update();
+        }
+
+        Assert.False(bare.Menu.Items[(int)CombatCommand.Cast - 1].Enabled);
+
+        var armed = WithSpells(Start(party: 2, monsters: 2, auto: false));
+        while (!armed.AwaitingPlayer)
+        {
+            armed.Update();
+        }
+
+        Assert.True(armed.Menu.Items[(int)CombatCommand.Cast - 1].Enabled);
+    }
+
+    [Fact]
+    public void Cast_opens_the_spell_list()
+    {
+        var session = AtCommand(WithSpells(Start(party: 2, monsters: 2, auto: false)),
+                                CombatCommand.Cast);
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.ChoosingSpell, session.Mode);
+        Assert.Equal(CombatMenu.CastLabels.Length, session.Menu.Count);
+        Assert.Single(session.SpellChoices);
+        Assert.Contains("sleep", session.Message);
+    }
+
+    [Fact]
+    public void Leaving_the_spell_list_costs_neither_the_spell_nor_the_turn()
+    {
+        var session = AtCommand(WithSpells(Start(party: 2, monsters: 2, auto: false)),
+                                CombatCommand.Cast);
+        var actor = session.Combatants[session.Acting];
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        while ((CastCommand)(session.Menu.ActiveItem + 1) != CastCommand.Exit)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatMenuMode.Command, session.Mode);
+        Assert.False(actor.TurnIsDone);
+        Assert.Equal(1, actor.Book.Find("sleep")!.Memorized);
+    }
+
+    /// <summary>Drives the acting player to CAST and casts the first spell in the book.</summary>
+    private static Combatant CastFirstSpell(CombatSession session)
+    {
+        AtCommand(session, CombatCommand.Cast);
+        var actor = session.Combatants[session.Acting];
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));   // into the spell list
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));   // CAST
+        return actor;
+    }
+
+    [Fact]
+    public void Casting_spends_the_memorised_copy_and_ends_the_turn()
+    {
+        // Spent when the spell is begun, not when it lands -- which is what makes interrupting a
+        // caster worth doing.
+        var session = WithSpells(Start(party: 2, monsters: 2, auto: false));
+        var actor = CastFirstSpell(session);
+
+        Assert.Equal(0, actor.Book.Find("sleep")!.Memorized);
+        Assert.True(actor.TurnIsDone);
+        Assert.Equal(CombatantState.Casting, actor.State);
+    }
+
+    [Fact]
+    public void A_spell_with_no_casting_time_never_reaches_the_pending_list()
+    {
+        // No spell record is supplied here, so casting time is zero and the type is Immediate.
+        var session = WithSpells(Start(party: 2, monsters: 2, auto: false));
+        var actor = CastFirstSpell(session);
+
+        Assert.Equal(0, session.Pending.Count);
+        Assert.False(actor.IsSpellPending);
+    }
+
+    [Fact]
+    public void A_spell_on_the_clock_leaves_the_caster_casting_until_it_lands()
+    {
+        var session = WithSpells(SpellSession());
+        var actor = CastFirstSpell(session);
+
+        Assert.True(actor.IsSpellPending);
+        Assert.Equal(1, session.Pending.Count);
+        Assert.Contains("begins casting", session.Message);
+
+        // Run the fight on until the clock gives the caster its turn back. Every player is told
+        // to END, so the rounds actually roll over instead of stalling on the menu.
+        for (int step = 0; step < 2000 && session.Pending.Count > 0 && session.IsActive; step++)
+        {
+            if (!session.AwaitingPlayer)
+            {
+                session.Update();
+            }
+            else if (CombatMenu.At(session.Menu.ActiveItem) == CombatCommand.End)
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Return));
+            }
+            else
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Right));
+            }
+        }
+
+        Assert.True(session.Round.Round >= 3, $"only reached round {session.Round.Round}");
+
+        Assert.Equal(0, session.Pending.Count);
+        Assert.Equal(-1, actor.PendingSpellKey);
+    }
+
+    [Fact]
+    public void Damage_voids_a_spell_being_cast()
+    {
+        var session = WithSpells(SpellSession());
+        var actor = CastFirstSpell(session);
+        Assert.True(actor.IsSpellPending);
+
+        Casting.OnDamaged(actor, damage: 3, session.Pending, session.Round.Queue);
+
+        Assert.Equal(0, session.Pending.Count);
+        Assert.Equal(-1, actor.PendingSpellKey);
+        Assert.Null(actor.SpellBeingCast);
+        Assert.Equal(CombatantState.None, actor.State);
+        Assert.Equal(0, actor.Book.Find("sleep")!.Memorized);   // not refunded
+    }
+
+    [Fact]
+    public void A_caster_hurt_by_its_own_spell_finishes_casting()
+    {
+        var session = WithSpells(SpellSession());
+        var actor = CastFirstSpell(session);
+
+        Casting.OnDamaged(actor, damage: 3, session.Pending, session.Round.Queue, fromSelf: true);
+
+        Assert.True(actor.IsSpellPending);
+        Assert.Equal(1, session.Pending.Count);
+    }
+
+    [Fact]
+    public void A_caster_dropped_to_zero_loses_the_spell_even_from_its_own_blast()
+    {
+        var session = WithSpells(SpellSession());
+        var actor = CastFirstSpell(session);
+        actor.HitPoints = 0;
+
+        Casting.OnDamaged(actor, damage: 3, session.Pending, session.Round.Queue, fromSelf: true);
+
+        Assert.Equal(0, session.Pending.Count);
+        Assert.Equal(CombatantState.None, actor.State);
     }
 
     [Fact]

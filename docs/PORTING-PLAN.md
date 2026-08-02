@@ -14,7 +14,7 @@ pathing, movement, attacks, the dying clock and attacks of opportunity — with 
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
 bandage**. Phases 5–7 have not started.
-**1,542 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,579 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2492,6 +2492,69 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### The casting clock, as ported
+
+`COMBATANT::CastSpell` and `PENDING_SPELL_LIST` (`Combatant.cpp:615`, `Spell.cpp:7713`) — when a
+begun spell lands, and what stops it landing. **A player can now cast: the spell is chosen from the
+book, the memorised copy is spent, and the caster stands there interruptible until it comes due.**
+`SpellCasting.cs`, `SpellList.cs`, `Casting.cs`.
+
+The reference's own comment block beside the arithmetic (`Combatant.cpp:652`) is the clearest
+statement of the model anywhere in the codebase: ten initiatives to a round, one round to the
+minute, ten rounds to a turn, a spell needing whole rounds or turns lands at the *end* of one, and
+**any hit on the caster during the casting time voids the spell**.
+
+- **A spell can never wait past the round it was begun in.** An initiative-timed spell whose
+  casting time pushes it beyond `INITIATIVE_Never` is not deferred — it is re-timed to the end of
+  *this* round. The reference's comment says so outright: "we certainly don't want to wait many
+  rounds", with the older `waitUntil += (rnd+1)` commented out above it.
+- **Zero casting time collapses to immediate whatever the type says.** All three timed branches
+  test for it and rewrite themselves.
+- **The memorised copy is spent when the spell is begun, not when it lands.** An interrupted caster
+  does not get it back — which is what makes interrupting an enemy caster worth doing.
+- **Activation does not resolve the spell; it gives the caster its turn back.** `SpellActivate`
+  clears `turnIsDone` and pushes the caster onto the queue's tail; targets are chosen and effects
+  applied when that turn comes round, still in `ICS_Casting`. That is why a spell three rounds in
+  the making interrupts the initiative order when it lands.
+- **The turn ends immediately for a pending spell and continues for an immediate one.** The
+  reference splits on exactly `IsSpellPending()` (`RunEvent.cpp:17104`).
+
+> **What the shipped designs actually use.** Initiative timing dominates: 99 of 117 spells in
+> `ci-tier3`, 244 of 377 in `SomethingWild`, 199 of 318 in `Case`. Rounds and turns are rare
+> (15/3, 38/5, 32/4), and **`ci-tier3` has no immediate spells at all**. The clock is the normal
+> path through casting, not an edge case — which is worth knowing before treating the pending list
+> as an optimisation.
+>
+> Initiative runs 9–18 (`INITIATIVE_FirstDefault`/`LastDefault`), so the `> INITIATIVE_Never`
+> re-timing fires when casting time exceeds `23 − initiative`. About a quarter of initiative-timed
+> spells can reach it on a high roll (24 of 99, 59 of 244, 46 of 199); none reach it on every roll.
+> The branch is live, not theoretical.
+
+**Two reference bugs, one kept and one not.**
+
+The initiative branch's two `if`s are not exclusive where the shape of the code wants `else if`.
+After an overlong spell is re-timed to `waitUntil = round`, the second test asks whether
+`waitUntil == initiative` — comparing a round number against an initiative. When they coincide
+(round 5, a caster on initiative 5, casting time 19+) the spell just deferred to the round's end is
+marked immediate instead. **Kept**, because a design was tuned against what ships.
+
+`ProcessTimeSensitiveData`'s `castIt` is declared outside its loop and never reset, so any entry
+that activates leaves the flag set for every entry after it, activating those too regardless of
+their own timing; and the returned value is whatever the *last* entry decided rather than "anything
+activated". **Not kept** — the port resets per entry and returns the true answer, which is what
+every caller means. The one caller (`Combatants.cpp:1641`) only uses the result to decide whether
+to look at the turn queue, so the leak is invisible there and destructive anywhere else.
+
+> **`DecMemorized`'s count argument is a zero test and nothing more.** It refuses when zero and then
+> decrements by exactly one whatever it was — asking for five spends one. And `SetUnMemorized`
+> returns early when `selected` is false (`Spell.cpp:1254`), so a spell not marked for
+> re-memorisation is **cast without ever being used up**. `selected` means "will memorise this
+> again"; it has no business gating the spend, but it does.
+
+Casting is half ported. What is missing is resolution: choosing targets
+(`CAST_COMBAT_SPELL_MENU_DATA`), saving throws, applying the effects, and the lingering-spell area
+effects. An immediate spell therefore says so rather than pretending — see §11.
+
 ##### Aiming and the small commands, as ported
 
 The AIM submenu and manual aiming (`COMBAT_AIM_MENU_DATA` and `COMBAT_AIM_MANUAL_MENU_DATA`,
@@ -3565,16 +3628,20 @@ a map derived from the dungeon, `CombatRound` + `TurnQueue` order the turns, `Mo
 monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack` resolve the
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
-art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage, end.
-Read the fourteen "as ported" sections under §7 Phase 4 before touching any of it.
+art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
+begin a spell, end. Read the fifteen "as ported" sections under §7 Phase 4 before touching any of
+it.
 
 What is left, in order:
 
-1. **Casting.** The largest unported piece of combat, and now the only *big* one left in it:
-   choosing a spell from a memorised list, the casting-time and initiative interaction
-   (`spellCastingTimeType`, `GameRules.h:336`), saving throws, and the lingering-spell area effects
-   that movement and the round both call and neither has. `SpellEffects` + `SpellDuration` +
-   `SpellEffectList` are the arithmetic and bookkeeping it lands on, all ported.
+1. **Resolving a spell**, which is the second half of casting. The first half is done (§the
+   casting clock): a spell is chosen from the book, the copy is spent, the clock holds it, damage
+   voids it, and the caster is requeued when it lands. What that requeued turn should then do is
+   unported — choosing targets (`CAST_COMBAT_SPELL_MENU_DATA`, `RunEvent.cpp:15493`), saving
+   throws, applying the effects, and the lingering-spell area effects that movement and the round
+   both call and neither has. `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
+   arithmetic and bookkeeping it lands on, all ported. Until it exists, an immediate spell says so
+   rather than silently doing nothing.
 2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
    ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
    invocation.

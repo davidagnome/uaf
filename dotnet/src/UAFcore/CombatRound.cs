@@ -183,6 +183,16 @@ public sealed class CombatRound
     public const int MaxInitiative = 22;
 
     /// <summary>
+    /// The initiative slot that never comes round (<c>INITIATIVE_Never</c>, <c>Combatant.h:557</c>).
+    /// </summary>
+    /// <remarks>
+    /// One past <see cref="MaxInitiative"/>, so a combatant sitting on it is skipped by the walk.
+    /// Casting uses it as the ceiling: a spell whose casting time would push it here is re-timed
+    /// to land at the end of the round instead (see <see cref="PendingSpellList.Schedule"/>).
+    /// </remarks>
+    public const int NeverInitiative = 23;
+
+    /// <summary>
     /// How far through the initiative order this round has got. Reset to 1 each round.
     /// </summary>
     public int CurrentInitiative { get; private set; } = 1;
@@ -211,26 +221,36 @@ public sealed class CombatRound
     /// does that (<c>Combatants.cpp:4403</c>), not this method.
     /// </para>
     /// </remarks>
-    public int Advance(Func<int, bool> isDone, Func<int, int> initiativeOf, int combatantCount)
+    /// <param name="onInitiative">
+    /// Run at each initiative slot before anybody is looked for there. This is where the casting
+    /// clock ticks: a spell coming due requeues its caster, who then acts at that slot rather than
+    /// at their own initiative.
+    /// </param>
+    public int Advance(Func<int, bool> isDone, Func<int, int> initiativeOf, int combatantCount,
+                       Action<int>? onInitiative = null)
     {
         ArgumentNullException.ThrowIfNull(isDone);
         ArgumentNullException.ThrowIfNull(initiativeOf);
 
         // Stage one: whoever is queued and still has something to do.
-        int dude;
-        while ((dude = Queue.Top) != CombatMap.NoDude)
+        int dude = TakeFromQueue(isDone);
+        if (dude != CombatMap.NoDude)
         {
-            if (!isDone(dude))
-            {
-                return dude;
-            }
-
-            Queue.Pop();
+            return dude;
         }
 
         // Stage two: the next initiative slot with somebody in it.
         while (CurrentInitiative <= MaxInitiative)
         {
+            onInitiative?.Invoke(CurrentInitiative);
+
+            // A spell that just came due put its caster back on the queue.
+            dude = TakeFromQueue(isDone);
+            if (dude != CombatMap.NoDude)
+            {
+                return dude;
+            }
+
             for (int i = 0; i < combatantCount; i++)
             {
                 if (initiativeOf(i) == CurrentInitiative && !isDone(i))
@@ -241,6 +261,23 @@ public sealed class CombatRound
             }
 
             CurrentInitiative++;
+        }
+
+        return CombatMap.NoDude;
+    }
+
+    /// <summary>Drains the finished off the queue and returns the first who is not.</summary>
+    private int TakeFromQueue(Func<int, bool> isDone)
+    {
+        int dude;
+        while ((dude = Queue.Top) != CombatMap.NoDude)
+        {
+            if (!isDone(dude))
+            {
+                return dude;
+            }
+
+            Queue.Pop();
         }
 
         return CombatMap.NoDude;
