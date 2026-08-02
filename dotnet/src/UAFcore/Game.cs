@@ -540,15 +540,30 @@ public sealed class Game
                 _ => "The party has fallen.",
             };
 
-            if (spoils.Items.Count > 0)
+            uint? chain = finished is null
+                ? null
+                : EventChain.Next(finished.Base, outcome == CombatOutcome.PartyWon);
+
+            // The fallen's possessions go through the ordinary treasure screen, which is what the
+            // reference builds a GIVE_TREASURE_DATA for and pushes ahead of the chain.
+            if (TreasureFrom(spoils, finished) is { } pile)
             {
-                Message += $" {spoils.Items.Count} item(s) left behind.";
+                pendingChain = chain;
+                StartEvent(pile);
+
+                if (Runner.IsActive || pendingChain is null)
+                {
+                    // Either the screen is up and will release the chain when it closes, or it
+                    // finished at once and Apply has already followed it.
+                    return changed || !session.IsActive;
+                }
+
+                // StartEvent declined it -- with no font nothing can be presented -- so nothing
+                // will ever release the chain. Follow it here instead.
+                pendingChain = null;
             }
 
-            if (finished is not null)
-            {
-                FollowChain(EventChain.Next(finished.Base, outcome == CombatOutcome.PartyWon));
-            }
+            FollowChain(chain);
         }
 
         return changed || !session.IsActive;
@@ -618,6 +633,47 @@ public sealed class Game
     /// </remarks>
     private int ExperienceWorth(Combatant combatant) =>
         design.Monster(combatant.Name)?.ExperienceValue ?? 0;
+
+    /// <summary>
+    /// The chain to follow once a fight's treasure screen is done with.
+    /// </summary>
+    /// <remarks>
+    /// The reference pushes the treasure event ahead of the combat event's own exit, so the chain
+    /// is followed after the screen rather than instead of it (<c>RunEvent.cpp:19660</c>). Holding
+    /// the destination is this port's equivalent of that push.
+    /// </remarks>
+    private uint? pendingChain;
+
+    /// <summary>
+    /// Builds the treasure screen for a won fight, or null when there is nothing to show.
+    /// </summary>
+    /// <remarks>
+    /// <b>An empty pile is not offered at all.</b> The reference deletes the event rather than
+    /// pushing an empty screen, and combat exits straight to the chain — so a fight against
+    /// penniless monsters shows nothing.
+    /// <para>
+    /// The synthesised event borrows the combat event's own base so its picture, text and control
+    /// block are the design's. <c>SilentGiveToActiveChar</c> stays zero, which is what makes it a
+    /// screen the player sees rather than a silent award.
+    /// </para>
+    /// </remarks>
+    private TreasureEvent? TreasureFrom(CombatSpoils spoils, IGameEvent? combat)
+    {
+        if (combat is null || spoils.Result != CombatResult.Win)
+        {
+            return null;
+        }
+
+        var money = CombatAftermath.Merge(spoils.Money);
+        if (!CombatAftermath.IsWorthShowing(spoils.Items, money))
+        {
+            return null;
+        }
+
+        return new TreasureEvent(combat.Base, money,
+                                 new ItemList(spoils.Items, new ReadyItems([])),
+                                 SilentGiveToActiveChar: 0);
+    }
 
     /// <summary>Puts anyone who ran back on their feet, as the results screen does.</summary>
     private void RestoreFled()
@@ -1001,10 +1057,23 @@ public sealed class Game
     }
 
     /// <summary>Acts on a finished event's outcome.</summary>
+    /// <remarks>
+    /// <b>A fight's treasure screen borrows the combat event's chain, not its own.</b> The
+    /// synthesised event carries the combat event's base, so its chain fields point wherever the
+    /// combat event pointed — following them here would run the same destination twice. The
+    /// destination held back when the screen was raised wins instead.
+    /// </remarks>
     private void Apply(EventStep step)
     {
         CurrentEvent = null;
         Runner.Cancel();
+
+        if (pendingChain is { } afterCombat)
+        {
+            pendingChain = null;
+            FollowChain(afterCombat);
+            return;
+        }
 
         if (step.Kind == EventStepKind.Chain)
         {

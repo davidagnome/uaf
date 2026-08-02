@@ -207,6 +207,54 @@ public static class CombatAftermath
             || item.Tail.CanBeTradeDropSoldDep != 0);
 
     /// <summary>
+    /// Merges several fallen monsters' purses into one
+    /// (<c>m_pTreasEvent-&gt;money.Add(...)</c>, <c>RunEvent.cpp:19817</c>).
+    /// </summary>
+    /// <remarks>
+    /// Coins add per denomination; gems and jewellery are individual objects and simply pile up.
+    /// A short coin list is treated as zeroes beyond its end rather than as an error, because a
+    /// monster record need not carry every denomination.
+    /// </remarks>
+    public static MoneySack Merge(IEnumerable<MoneySack> purses)
+    {
+        ArgumentNullException.ThrowIfNull(purses);
+
+        var all = purses.ToList();
+        int denominations = all.Count == 0 ? 0 : all.Max(p => p.Coins.Count);
+
+        var coins = new int[denominations];
+        foreach (var purse in all)
+        {
+            for (int i = 0; i < purse.Coins.Count; i++)
+            {
+                coins[i] += purse.Coins[i];
+            }
+        }
+
+        return new MoneySack(coins,
+                             [.. all.SelectMany(p => p.Gems)],
+                             [.. all.SelectMany(p => p.Jewelry)]);
+    }
+
+    /// <summary>
+    /// Whether a pile is worth showing (<c>RunEvent.cpp:19851</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>An empty pile is not offered at all</b> — the reference deletes the treasure event
+    /// rather than pushing an empty screen, and combat exits straight to the chain.
+    /// </remarks>
+    public static bool IsWorthShowing(IReadOnlyList<ItemInstance> items, MoneySack money)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(money);
+
+        return items.Count > 0
+               || money.Coins.Any(c => c > 0)
+               || money.Gems.Count > 0
+               || money.Jewelry.Count > 0;
+    }
+
+    /// <summary>
     /// The experience an item is worth, added on top of the monsters'
     /// (<c>RunEvent.cpp:19685</c>).
     /// </summary>

@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,906 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,912 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2627,6 +2627,34 @@ porting what the program decides is a table. Two facts make the second reasonabl
 VM is still worth building — but it is a smaller prize than "the scripted AI is unported" suggested,
 and this is why.
 
+##### The treasure a fight leaves, as ported
+
+The treasure half of the combat results screen (`RunEvent.cpp:19795`) — the fallen's possessions now
+reach the party through the ordinary treasure screen. `CombatAftermath.Merge` and
+`IsWorthShowing`, plus the wiring in `Game`.
+
+The reference builds a `GIVE_TREASURE_DATA`, fills it from the dead, and **pushes it ahead of the
+combat event's own exit** so the chain is followed *after* the screen rather than instead of it.
+This port synthesises the same event from the spoils (§the combat aftermath) and holds the chain
+across it.
+
+- **Coins add per denomination; gems and jewellery pile up**, being individual objects. A monster
+  record need not carry every denomination, so a short coin list is treated as zeroes beyond its
+  end rather than as an error.
+- **An empty pile is not offered at all.** The reference deletes the event rather than pushing an
+  empty screen, so a fight against penniless monsters shows nothing and exits straight to the
+  chain.
+- The synthesised event borrows the combat event's own base, so its picture, text and control block
+  are the design's own.
+
+> **The borrowed base brings the combat event's chain fields with it**, which is exactly what must
+> *not* be followed when the screen closes — doing so would run the same destination twice. The
+> destination held back when the screen was raised wins instead.
+>
+> Two ways that hold could leak, both closed: `StartEvent` can decline a screen outright when no
+> font is available, and it can finish one immediately. The first leaves nothing to release the
+> chain and is followed directly; the second releases it through `Apply` before returning.
+
 ##### The attribute store, as ported
 
 `A_ASLENTRY_L` (`ASL.h:95`, `ASL.cpp:1285`) — the named key/value stores a design's scripts read and
@@ -4240,8 +4268,10 @@ What is left, in order:
    it (§the attribute store), but no script layer consults it — that is the GPDL gap below, reached
    from the other end. The per-character, per-event and per-item stores are read off the wire and
    not yet held at runtime either; only the global one is.
-2. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
-   reports them in the message line and drops them. The treasure screen itself exists (§Phase 4).
+2. **An end-to-end test for the post-combat treasure screen.** The pieces are covered
+   (§the treasure a fight leaves) and the wiring is small, but nothing drives a design through a
+   won fight into the screen and out to the chain — `GameTests` does not run combat at all. That
+   is the least-covered seam in Phase 4.
 3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.

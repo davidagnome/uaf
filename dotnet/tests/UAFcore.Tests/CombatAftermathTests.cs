@@ -212,6 +212,67 @@ public class CombatAftermathTests
         Assert.Equal(0, CombatAftermath.Distribute(party, -5));
     }
 
+    // ---- merging purses ------------------------------------------------------------------------
+
+    private static MoneySack Purse(params int[] coins) => new(coins, [], []);
+
+    [Fact]
+    public void Coins_add_per_denomination()
+    {
+        var merged = CombatAftermath.Merge([Purse(10, 5, 0), Purse(3, 0, 7)]);
+
+        Assert.Equal([13, 5, 7], merged.Coins);
+    }
+
+    [Fact]
+    public void A_short_coin_list_is_treated_as_zeroes_beyond_its_end()
+    {
+        // A monster record need not carry every denomination.
+        var merged = CombatAftermath.Merge([Purse(10), Purse(1, 2, 3)]);
+
+        Assert.Equal([11, 2, 3], merged.Coins);
+    }
+
+    [Fact]
+    public void Gems_and_jewellery_pile_up_rather_than_adding()
+    {
+        var a = new MoneySack([], [new GemType(1, 50)], []);
+        var b = new MoneySack([], [new GemType(2, 75)], [new GemType(3, 400)]);
+
+        var merged = CombatAftermath.Merge([a, b]);
+
+        Assert.Equal(2, merged.Gems.Count);
+        Assert.Single(merged.Jewelry);
+    }
+
+    [Fact]
+    public void Merging_nothing_yields_an_empty_purse()
+    {
+        var merged = CombatAftermath.Merge([]);
+
+        Assert.Empty(merged.Coins);
+        Assert.Empty(merged.Gems);
+    }
+
+    [Fact]
+    public void An_empty_pile_is_not_worth_showing()
+    {
+        // The reference deletes the treasure event rather than pushing an empty screen.
+        Assert.False(CombatAftermath.IsWorthShowing([], Purse(0, 0, 0)));
+        Assert.False(CombatAftermath.IsWorthShowing([], CombatAftermath.Merge([])));
+    }
+
+    [Fact]
+    public void Anything_at_all_makes_a_pile_worth_showing()
+    {
+        Assert.True(CombatAftermath.IsWorthShowing([Carried("sword")], Purse(0)));
+        Assert.True(CombatAftermath.IsWorthShowing([], Purse(0, 1)));
+        Assert.True(CombatAftermath.IsWorthShowing(
+            [], new MoneySack([], [new GemType(1, 50)], [])));
+        Assert.True(CombatAftermath.IsWorthShowing(
+            [], new MoneySack([], [], [new GemType(1, 400)])));
+    }
+
     // ---- treasure ------------------------------------------------------------------------------
 
     [Fact]
