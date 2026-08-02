@@ -17,7 +17,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,351 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,357 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
