@@ -328,7 +328,7 @@ public sealed class Game
     /// backwards without turning, so it leaves through the wall behind it. Checking the facing
     /// direction instead would let a party reverse straight through a wall it is staring at.
     /// </remarks>
-    private bool Step(bool forward)
+    private bool Step(bool forward, bool triggerEvents = true)
     {
         (int dx, int dy) = Facing switch
         {
@@ -386,7 +386,14 @@ public sealed class Game
         Minutes++;
         Message = $"Moved {(forward ? "forward" : "back")} to ({X}, {Y}).";
 
-        TriggerEvent();
+        // A guided tour walks the party through squares without setting off what is on them --
+        // the reference calls movePartyForward(0) rather than the ordinary move, and only fires
+        // an event at the destination if the tour asks for one.
+        if (triggerEvents)
+        {
+            TriggerEvent();
+        }
+
         return true;
     }
 
@@ -658,6 +665,83 @@ public sealed class Game
     /// </remarks>
     private uint? pendingChain;
 
+    /// <summary>
+    /// Walks a <c>GUIDED_TOUR</c> (<c>RunEvent.cpp:14568</c> and <c>:14652</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The tour runs to its end in one go rather than a step at a time.</b> The reference drives
+    /// it from a timer — <c>TASKTIMER_GuidedTour</c> — so the player watches the party walk and a
+    /// <c>Pause</c> step holds the caption on screen. This port has no task scheduler to hang that
+    /// timer on (§4.4), so the walk is applied at once and only the last caption survives. Where
+    /// the party ends up, which way it faces and whether the destination's event fires are all
+    /// correct; the animation is not there.
+    /// </para>
+    /// <para>
+    /// <b>An out-of-range starting square abandons the event outright.</b> No steps run, no chain
+    /// is followed — the reference pops the event. Returning "did not happen" instead would send a
+    /// design down its not-happened branch, which is a route it never wrote.
+    /// </para>
+    /// </remarks>
+    private bool? RunGuidedTour(GuidedTour tour)
+    {
+        if (tour.UseStartLocation != 0)
+        {
+            int width = Map?.Width ?? 0;
+            int height = Map?.Height ?? 0;
+
+            if (!GuidedTourPath.StartIsValid(tour, width, height))
+            {
+                CurrentEvent = null;
+                Message = $"[guided tour starts at ({tour.TourX}, {tour.TourY}), " +
+                          "which is off this level]";
+                return null;
+            }
+
+            X = tour.TourX;
+            Y = tour.TourY;
+            Facing = (Facing)(tour.Facing & 3);
+        }
+
+        string caption = string.Empty;
+
+        foreach (var step in GuidedTourPath.Steps(tour))
+        {
+            switch ((TourMove)step.Step)
+            {
+                case TourMove.Forward:
+                    Step(forward: true, triggerEvents: false);
+                    break;
+
+                case TourMove.Left:
+                    Facing = (Facing)(((int)Facing + 3) & 3);
+                    break;
+
+                case TourMove.Right:
+                    Facing = (Facing)(((int)Facing + 1) & 3);
+                    break;
+
+                case TourMove.Pause:
+                    break;
+            }
+
+            if (step.Text.Length > 0)
+            {
+                caption = step.Text;
+            }
+        }
+
+        Message = caption;
+
+        // TASKMSG_ExecuteEvent: the tour can hand over to whatever sits where it stopped.
+        if (tour.ExecuteEvent != 0)
+        {
+            TriggerEvent();
+        }
+
+        return true;
+    }
+
     /// <summary>Puts anyone who ran back on their feet, as the results screen does.</summary>
     private void RestoreFled()
     {
@@ -701,6 +785,20 @@ public sealed class Game
         // FLOW_CONTROL_EVENT_DATA modifies a global and branches on it, with no presentation at
         // all. Like CHAIN_EVENT it can replace itself, so it cannot go through
         // ExecuteWithoutInput -- that path always ends by following the ordinary chain.
+        // A guided tour can abandon itself outright, which ExecuteWithoutInput cannot express --
+        // its bool answer always ends in a chain, and "did not happen" is a route the design
+        // never wrote.
+        if (gameEvent is GuidedTour tour)
+        {
+            CurrentEvent = null;
+            if (RunGuidedTour(tour) is bool walked)
+            {
+                FollowChain(EventChain.Next(tour.Base, walked));
+            }
+
+            return;
+        }
+
         if (gameEvent is FlowControlEvent flow)
         {
             CurrentEvent = null;
