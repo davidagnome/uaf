@@ -139,6 +139,8 @@ public sealed class EventRunner
             QuestEvent quest => BeginQuest(quest, anchors),
             DamageEvent damage => BeginPressEnter(damage.Base.Text, anchors),
             HealPartyEvent heal => BeginPressEnter(heal.Base.Text, anchors),
+            WhoTriesEvent trial => BeginPressEnter(trial.Base.Text, anchors),
+            WhoPaysEvent toll => BeginWhoPays(toll, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
@@ -168,6 +170,57 @@ public sealed class EventRunner
                        ("PRESS ENTER TO CONTINUE", 7));
         ShowText(text);
         return EventStep.Running;
+    }
+
+    /// <summary>
+    /// Cycles the active party member; set by the host.
+    /// </summary>
+    /// <remarks>
+    /// <b>There is no character-selection screen in this format.</b> <c>GameEvent::TABParty</c>
+    /// (<c>RunEvent.cpp:792</c>) is the first line of <i>every</i> event's <c>OnKeypress</c>: TAB
+    /// advances <c>party.activeCharacter</c>, wrapping at the end, and the event then reads
+    /// whoever is active through <c>GetActiveChar</c>. So "who tries" and "who pays" are answered
+    /// by the same roster the player has been looking at all along.
+    /// </remarks>
+    public Action? TabParty { get; set; }
+
+    /// <summary>Resolves a who-tries attempt for the active character; set by the host.</summary>
+    public Func<WhoTriesEvent, WhoTriesOutcome>? ResolveWhoTries { get; set; }
+
+    /// <summary>Resolves a toll for the active character; set by the host.</summary>
+    /// <remarks>Takes the chosen menu entry, one-based, as <c>menu.currentItem()</c> reports it.</remarks>
+    public Func<WhoPaysEvent, int, WhoPaysOutcome>? ResolveWhoPays { get; set; }
+
+    /// <summary>
+    /// <c>WHO_PAYS_EVENT_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:10252</c>) — pay or leave.
+    /// </summary>
+    /// <remarks>
+    /// Entry 1 is the only one that pays; the reference's <c>else</c> treats everything else as
+    /// EXIT, which runs the failure action <i>without</i> the failure text.
+    /// </remarks>
+    private EventStep BeginWhoPays(WhoPaysEvent toll, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, title: null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+        ShowText(toll.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>Takes an outcome that may chain, may stop, or may do neither.</summary>
+    private EventStep Branch(uint? goTo, bool stop)
+    {
+        if (goTo is uint target)
+        {
+            Current = null;
+            return EventStep.To(target);
+        }
+
+        if (stop)
+        {
+            Current = null;
+            return EventStep.Finished;
+        }
+
+        return Complete(happened: true);
     }
 
     /// <summary>Applies a quest event's outcome; set by the host.</summary>
@@ -564,6 +617,14 @@ public sealed class EventRunner
             return EventStep.Finished;
         }
 
+        // TABParty is the FIRST line of every OnKeypress (RunEvent.cpp:792) and returns before the
+        // menu ever sees the key, so TAB can never also move a selection.
+        if (input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Tab)
+        {
+            TabParty?.Invoke();
+            return EventStep.Running;
+        }
+
         // Anything that is not a commit goes to the menu, exactly as every OnKeypress does.
         var result = MenuInput.Handle(Menu, input);
         bool committed = result == MenuInputResult.Accepted
@@ -600,6 +661,8 @@ public sealed class EventRunner
             QuestEvent quest => FinishQuest(quest),
             DamageEvent damage => Applied(() => ApplyDamage?.Invoke(damage)),
             HealPartyEvent heal => Applied(() => ApplyHeal?.Invoke(heal)),
+            WhoTriesEvent trial => FinishWhoTries(trial),
+            WhoPaysEvent toll => FinishWhoPays(toll),
             _ => Complete(happened: true),
         };
     }
@@ -655,6 +718,37 @@ public sealed class EventRunner
     {
         ApplySpecialItems?.Invoke(special);
         return Complete(happened: true);
+    }
+
+    /// <summary>Resolves the attempt against whoever is active.</summary>
+    /// <remarks>
+    /// <b>Neither of these ends a run.</b> Both go through <c>ChainOrQuit</c>
+    /// (<c>RunEvent.cpp:931</c>), which falls back on the ordinary chain for a chain id of zero
+    /// <i>and</i> for one naming a missing event — unlike <c>QUEST_EVENT_DATA</c>, which stops.
+    /// A who-tries whose action is out of range does nothing at all, which is the reference's
+    /// defaultless switch and leaves the player on a screen that will not advance.
+    /// </remarks>
+    private EventStep FinishWhoTries(WhoTriesEvent trial)
+    {
+        if (ResolveWhoTries?.Invoke(trial) is not { } outcome)
+        {
+            return Complete(happened: true);
+        }
+
+        return outcome.Chains || outcome.GoTo is not null
+            ? Branch(outcome.GoTo, stop: false)
+            : EventStep.Running;                         // the stuck case, reproduced
+    }
+
+    /// <inheritdoc cref="FinishWhoTries"/>
+    private EventStep FinishWhoPays(WhoPaysEvent toll)
+    {
+        if (ResolveWhoPays?.Invoke(toll, Menu.ActiveItem + 1) is not { } outcome)
+        {
+            return Complete(happened: true);
+        }
+
+        return outcome.Stuck ? EventStep.Running : Branch(outcome.GoTo, stop: false);
     }
 
     /// <summary>Runs the host's effect on the way out, then chains.</summary>

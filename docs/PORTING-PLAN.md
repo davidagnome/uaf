@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes eighteen of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes twenty of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,357 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,358 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2898,10 +2898,15 @@ on the event.
 
 **Four more types were ported in parallel by subagents**, each delivering a pure static plus tests
 in the same shape as `Quests` and `Utilities`, with all wiring done centrally afterwards so the
-conflict surface stayed at zero. **`Damage` and `HealParty` now execute**; `WhoTries` and `WhoPays`
-have their rules in `EventWhoTries` and `EventWhoPays` and are **not wired**, because both ask the
-player to pick a character and **this port has no character-selection screen**. That screen is the
-next thing to build, and it serves both.
+conflict surface stayed at zero. All four now execute.
+
+> **There is no character-selection screen in this format, and looking for one was a wrong turn.**
+> `GameEvent::TABParty` (`RunEvent.cpp:792`) is the *first line of every event's* `OnKeypress`:
+> TAB advances `party.activeCharacter`, wrapping at the end, and returns before the menu ever sees
+> the key — so TAB can never also move a selection. The event then reads whoever is active through
+> `GetActiveChar`. "Who tries" and "who pays" are answered by the same roster the player has been
+> looking at all along, which is why both events wire in a few lines rather than needing a screen
+> built first.
 
 What that exercise established, beyond the code:
 
@@ -4755,7 +4760,7 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and eighteen execute. The other 26 draw
+   reads (§the event layer), and twenty execute. The other 24 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.

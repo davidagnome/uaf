@@ -630,6 +630,24 @@ public class EventRunnerTests
     }
 
     [Fact]
+    public void Tab_cycles_the_party_and_never_reaches_the_menu()
+    {
+        // TABParty is the first line of every OnKeypress (RunEvent.cpp:792) and returns before the
+        // menu sees the key -- so TAB can never also move a selection. That is what makes "who
+        // tries" and "who pays" answerable without a selection screen.
+        int cycled = 0;
+        var runner = new EventRunner { TabParty = () => cycled++ };
+        Begin(runner, new YesNoEvent(Base(EventType.QuestionYesNo, text: "Enter?"), 0, 0, 21, 22));
+
+        int before = runner.Menu.ActiveItem;
+        var step = runner.Handle(InputEvent.KeyDown(VirtualKey.Tab));
+
+        Assert.Equal(1, cycled);
+        Assert.Equal(EventStepKind.Running, step.Kind);
+        Assert.Equal(before, runner.Menu.ActiveItem);
+    }
+
+    [Fact]
     public void Return_applies_the_list_and_then_chains()
     {
         SpecialItemEvent? applied = null;

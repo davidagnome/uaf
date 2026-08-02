@@ -123,6 +123,46 @@ public sealed class Game
                 : "The party is unharmed.";
         };
 
+        // TAB cycles the active party member, which is how the format answers "who tries" and
+        // "who pays" -- there is no selection screen; see EventRunner.TabParty.
+        Runner.TabParty = () =>
+        {
+            if (Party.Count > 0)
+            {
+                Party.ActiveCharacter = (Party.ActiveCharacter + 1) % Party.Count;
+            }
+        };
+
+        Runner.ResolveWhoTries = trial =>
+        {
+            var attempt = Party.Active is { } who
+                ? EventWhoTries.Attempt(trial, who, sides => Dice(sides))
+                : default;
+
+            Message = attempt.Succeeded ? "Success." : "It does not work.";
+            return EventWhoTries.Resolve(trial, attempt.Succeeded,
+                                         id => events?.ById(id) is not null);
+        };
+
+        Runner.ResolveWhoPays = (toll, chose) =>
+        {
+            if (Party.Active is not { } payer)
+            {
+                return default;
+            }
+
+            var outcome = EventWhoPays.Resolve(toll, chose, payer, Party,
+                                               id => events?.ById(id) is not null);
+            Message = outcome.Result switch
+            {
+                WhoPaysResult.Paid => $"{payer.Name} pays.",
+                WhoPaysResult.CannotPay => $"{payer.Name} cannot pay.",
+                _ => string.Empty,
+            };
+
+            return outcome;
+        };
+
         Runner.ApplyHeal = heal =>
         {
             var healed = EventHeal.Apply(heal, Party, sides => Dice(sides));
