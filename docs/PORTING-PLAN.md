@@ -11,8 +11,9 @@ running engine: it opens a design, walks a level, renders the viewport, executes
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
-stacking under it, **and a combat screen that draws it**. Phases 5–7 have not started.
-**1,463 tests, green on macOS, Linux and Windows; both CI workflows green.**
+stacking under it, **a combat screen that draws it**, and encounters built from real events.
+Phases 5–7 have not started.
+**1,477 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2309,6 +2310,31 @@ staircase in the generated terrain exactly.
 > from the event's monster list, run the loop the scratch harness already proves, and present it.
 > Every piece below that is done.
 
+##### Building an encounter, as ported
+
+`EncounterBuilder` is `AddCombatants` / `AddMonstersToCombatants` (`Combatants.cpp:490`, `:660`) —
+the join between the event reader and the combat machinery, turning a `CombatEvent`'s monster ids
+and quantities into `Combatant`s.
+
+- **The party goes in first, always.** The reference says so in a comment and everything downstream
+  depends on it: combatant indices *are* grid occupancy values, and `CombatPlacement` takes the
+  party from the front of the list.
+- **A random encounter picks one *entry*, not one monster.** With the flag set a single entry is
+  drawn and its quantity is still rolled, so "random" means which kind shows up rather than how
+  many.
+- **The two quantity branches differ.** The random one clamps to the remaining room *before*
+  flooring at one; the ordinary one does not clamp at all and relies on the add loop running out of
+  room. Both then floor at one, so a cap of zero still yields a monster.
+- The quantity modifier is a percentage of the rolled count, truncated with it — +50% on a roll of
+  3 gives 4.
+- `RollDice(sides, times, bonus)` returns **the bonus alone** when either count is non-positive
+  (`Globals.cpp:4925`), which is why the random pick clamps its index at zero.
+
+> **Monster footprints are all 1×1 for now, and that is a stand-in.** `determineIconSize` divides
+> the *loaded icon's* pixel dimensions by the tile size — so a design's art decides how much room a
+> monster takes and the monster record alone cannot answer it. One square is the safe default: too
+> small never refuses a placement that should have succeeded, whereas too large would.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3366,16 +3392,18 @@ objects — and `CombatRenderer` now draws the map with the zone's own art (§th
 
 **What remains is combat state in `Game`.** Walking onto a combat event still prints
 `[Combat here -- not implemented]`, because `EventRunner` falls through to its unsupported arm.
-It needs:
+Every ingredient now exists — `EncounterBuilder` makes the combatants, `CombatSetup` places them,
+`CombatRenderer` draws them, and the round machinery runs them. What is left is:
 
-1. **An encounter built from the event.** `CombatEvent.Monsters` gives quantity, monster id and
-   friendliness; `MonsterRecordReader` gives the icon size, hit dice and attacks. Rolling the
-   quantity dice and turning that list into `Combatant`s is the join.
-2. **Combat state in `Game`**, driving the loop the scratch harness already proves — round,
-   `MonsterAi.Think`, movement, attack — and drawing through `CombatRenderer`.
-3. **Player input**, which is the genuinely new part: the reference presents a combat menu and a
+1. **Combat state in `Game`**, driving the loop the scratch harness already proves — round,
+   `MonsterAi.Think`, movement, attack — and drawing through `CombatRenderer`. Mechanical, given
+   everything below.
+2. **Player input**, which is the genuinely new part: the reference presents a combat menu and a
    cursor, and everything so far has been computer-run. `Getinput.cpp` and `GameMenu.cpp` are its
-   home, and the existing `TextForm` menu engine is the nearest ported equivalent.
+   home, and the existing `TextForm` menu engine is the nearest ported equivalent. **Start here** —
+   an all-auto fight is a demo, and the menu is what makes it a game.
+3. **Monster icons**, which combat placement needs for real footprints (see the encounter section)
+   and the renderer needs to draw anything but coloured blocks. `PicRecord` is already read.
 
 After that: **the Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the
 last large unported subsystem in Phase 2.
