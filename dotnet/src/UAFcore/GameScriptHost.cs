@@ -90,9 +90,10 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         return stat switch
         {
             GpdlCharStat.Name => character.Name,
-            GpdlCharStat.HitPoints => Text(character.HitPoints),
+            GpdlCharStat.HitPoints => Text(character.AdjustedHitPoints),
             GpdlCharStat.MaxHitPoints => Text(character.MaxHitPoints),
             GpdlCharStat.ArmorClass => Text(character.ArmorClass),
+            GpdlCharStat.AdjustedArmorClass => Text(character.AdjustedArmorClass),
             GpdlCharStat.Experience => Text(character.TotalExperience),
             GpdlCharStat.ReadyToTrain => Text(character.ReadyToTrain ? 1 : 0),
             GpdlCharStat.Gender => Text((int)character.Gender),

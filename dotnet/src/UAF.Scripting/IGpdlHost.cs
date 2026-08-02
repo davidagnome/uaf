@@ -33,9 +33,9 @@ public enum GpdlCharStat
     Name,
 
     /// <summary>
-    /// Current hit points. The reference reads <c>GetAdjHitPoints</c> — <b>adjusted by active
-    /// spell effects</b> — which this port does not yet apply to a character outside combat, so it
-    /// answers with the base value.
+    /// Current hit points, <b>adjusted by active spell effects</b> as the reference's
+    /// <c>GetAdjHitPoints</c> is. There is no unadjusted form in the sub-opcode set: a script
+    /// asking for hit points always gets the adjusted number.
     /// </summary>
     HitPoints,
 
@@ -43,10 +43,18 @@ public enum GpdlCharStat
     MaxHitPoints,
 
     /// <summary>
-    /// Armour class. <c>$GET_CHAR_AC</c> is the <i>base</i> (<c>GetBaseAC</c>); the adjusted and
-    /// effective forms are separate sub-opcodes this port does not answer.
+    /// Base armour class (<c>$GET_CHAR_AC</c> → <c>GetBaseAC</c>), before spell effects.
     /// </summary>
     ArmorClass,
+
+    /// <summary>
+    /// Armour class with spell effects applied (<c>$GET_CHAR_ADJAC</c> → <c>GetAdjAC</c>).
+    /// </summary>
+    /// <remarks>
+    /// <c>$GET_CHAR_EFFAC</c> is a third form again — the <i>effective</i> class, which also folds
+    /// in the target's size and the attacker — and is not answered here.
+    /// </remarks>
+    AdjustedArmorClass,
 
     /// <summary>
     /// Total experience across every baseclass.

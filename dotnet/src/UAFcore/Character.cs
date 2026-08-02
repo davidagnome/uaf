@@ -105,6 +105,47 @@ public sealed class Character
     public int HitPoints { get; set; }
 
     /// <summary>
+    /// The spell effects currently on this character (<c>m_spellEffects</c>).
+    /// </summary>
+    /// <remarks>
+    /// The same list combat keeps on a <see cref="Combatant"/>, held here so the adjusted
+    /// accessors mean something outside a fight — a blessed character walking a corridor has the
+    /// armour class the blessing gives.
+    /// </remarks>
+    public UAF.Rules.SpellEffectList Effects { get; } = new();
+
+    /// <summary>The widest armour class the rules allow (<c>MAX_AC</c>, <c>Char.h:33</c>).</summary>
+    /// <remarks>
+    /// <b>The bounds are the wrong way round from what the names suggest.</b> Armour class counts
+    /// down, so <c>MAX_AC</c> is 10 — the <i>worst</i> — and <c>MIN_AC</c> is −500. A clamp written
+    /// as "at least MIN, at most MAX" is right; one written as "at least MAX" inverts the rule.
+    /// </remarks>
+    public const int WorstArmorClass = 10;
+
+    /// <inheritdoc cref="WorstArmorClass"/>
+    public const int BestArmorClass = -500;
+
+    /// <summary>
+    /// Armour class with spell effects applied (<c>GetAdjAC</c>, <c>Char.cpp:13198</c>).
+    /// </summary>
+    public int AdjustedArmorClass =>
+        Effects.Apply(ArmorClass, "$CHAR_AC", BestArmorClass, WorstArmorClass);
+
+    /// <summary>
+    /// Hit points with spell effects applied (<c>GetAdjHitPoints</c>, <c>Char.cpp:13239</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Clamped to the character's own maximum, and to −10 below.</b> Ten below zero is where a
+    /// character is finally dead rather than dying, so an effect cannot drain someone past it —
+    /// and a healing effect cannot push anyone above their maximum however large it is.
+    /// </remarks>
+    public int AdjustedHitPoints =>
+        Effects.Apply(HitPoints, "$CHAR_HITPOINTS", DeadAt, MaxHitPoints);
+
+    /// <summary>Hit points at which a character is dead rather than dying.</summary>
+    public const int DeadAt = -10;
+
+    /// <summary>
     /// This character's own attribute store (<c>char_asl</c>), seeded from its record.
     /// </summary>
     /// <remarks>

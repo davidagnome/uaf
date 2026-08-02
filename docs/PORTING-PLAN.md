@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,968 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,975 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2682,6 +2682,30 @@ across it.
 of the aftermath rather than in `Game` — the decision is aftermath logic, and putting it there makes
 it directly testable rather than reachable only by driving a whole fight.
 
+##### Spell effects on a character outside combat, as ported
+
+`GetAdjAC` and `GetAdjHitPoints` (`Char.cpp:13198`, `:13239`) — `Character.Effects` plus the
+adjusted accessors. Combat has kept a `SpellEffectList` on each combatant for a while; a character
+walking a corridor now keeps one too, so a blessed character has the armour class the blessing
+gives.
+
+The shape is uniform across the family and worth knowing before porting more of it: **base value,
+then `ApplySpellEffectAdjustments`, then a clamp** — and the clamp differs per attribute.
+
+> **The armour-class bounds run the opposite way from their names.** Armour class counts down, so
+> `MAX_AC` is **10** — the *worst* — and `MIN_AC` is **−500**. A clamp written as "at least MIN, at
+> most MAX" is right; one written from the names alone ("at least MAX") inverts the rule and makes
+> every blessing useless.
+
+**Hit points clamp to the character's own maximum above and to −10 below.** Ten below zero is where
+a character is finally dead rather than dying, so no effect can drain someone past it, and no
+healing effect can push anyone above their maximum however large it is.
+
+`$GET_CHAR_ADJAC` now answers, and `$GET_CHAR_HITPOINTS` answers with the adjusted value it was
+always supposed to — **there is no unadjusted form in the sub-opcode set**, so a script asking for
+hit points always gets the adjusted number. `$GET_CHAR_EFFAC` is a third form again, folding in the
+target's size and the attacker, and is still unanswered.
+
 ##### A script that can reach game state, as ported
 
 The attribute sub-opcodes (`GPDLexec.cpp:4178`, `:5498`, `:3379`) and `UAFcore/GameScriptHost.cs`.
@@ -2732,11 +2756,9 @@ macros `GET_CHAR_INT` and `GET_CHAR_STRING` (`GPDLexec.cpp:2269`).
 - **An integer stat arrives as text**, because GPDL's stack holds nothing else. The reference
   pushes through `m_pushInteger1`, which does the same conversion, so a script comparing a stat
   against a literal is comparing strings.
-- **`$GET_CHAR_AC` is the *base* armour class** (`GetBaseAC`); the adjusted and effective forms are
-  separate sub-opcodes this port does not answer.
-- **`$GET_CHAR_HITPOINTS` reads `GetAdjHitPoints`** — adjusted by active spell effects — which this
-  port does not yet apply to a character outside combat, so it answers with the base value. A
-  design whose script tests a buffed character's hit points gets the unbuffed number.
+- **`$GET_CHAR_AC` is the *base* armour class** (`GetBaseAC`); `$GET_CHAR_ADJAC` is the adjusted
+  one and both now answer (§spell effects on a character outside combat). `$GET_CHAR_EFFAC` is a
+  third form and does not.
 - **`$GET_CHAR_Exp` is not a plain stat** and is not wired: it takes a baseclass argument and
   reports that class's experience alone.
 
@@ -4386,11 +4408,11 @@ What is left, in order:
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
    small and collectively large, and each needs the port to have the state it asks about.
-   The attribute family is done — global, party and per-character — and six character stats with
-   it. What the remaining calls need is state the port does not have yet rather than more plumbing:
-   the *adjusted* forms (`$GET_CHAR_ADJAC`, `$GET_CHAR_ADJTHAC0`) want the spell-effect layer
-   applied to a character outside combat, and the ability-score and class calls want the parts of
-   Phase 1 that are still unread.
+   The attribute family is done — global, party and per-character — and seven character stats with
+   it, including the adjusted armour class now that characters carry spell effects
+   (§spell effects on a character outside combat). `$GET_CHAR_ADJTHAC0` is the same shape and wants
+   only a THAC0 on `Character`; the ability-score and class calls want parts of Phase 1 that are
+   still unread.
 2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
