@@ -74,6 +74,7 @@ public sealed class Game
             events = new EventLookup(level.Events);
             resolver = new WallResolver(Map, level.WallSets);
             wallFormats = WallFormatReader.ReadAll(design.Config);
+            wallSets = level.WallSets;
         }
 
         // The engine's own defaults, from GLOBAL_STATS. A design says where a new party starts.
@@ -189,6 +190,34 @@ public sealed class Game
     /// <summary>The event currently on screen, and its text and menu.</summary>
     public EventRunner Runner { get; } = new();
 
+    /// <summary>The fight in progress, or null.</summary>
+    /// <remarks>
+    /// <para>
+    /// Combat replaces the dungeon view entirely rather than drawing over it, so while this is
+    /// non-null <see cref="Update"/> routes every key to the session and <see cref="Render"/> draws
+    /// the combat map instead of the viewport. That is the same distinction the treasure screen
+    /// makes (<c>UpdateSmallSprite</c> against <c>UpdateAdventureScreen</c>), which this document
+    /// records under §7 Phase 4 — a full-screen event does not composite.
+    /// </para>
+    /// <para>
+    /// The session owns the fight; this only starts it, feeds it input and clears it. See
+    /// <see cref="CombatSession"/> for why it is a separate object.
+    /// </para>
+    /// </remarks>
+    public CombatSession? Combat { get; private set; }
+
+    /// <summary>Whether a fight is on.</summary>
+    public bool InCombat => Combat is { IsActive: true };
+
+    /// <summary>
+    /// The dice combat rolls with. Replaceable so a test can make a fight deterministic.
+    /// </summary>
+    /// <remarks>
+    /// The reference draws from the engine's shared Mersenne generator (<c>Globals.cpp:4925</c>);
+    /// nothing here needs to match its sequence, only its range.
+    /// </remarks>
+    public Func<int, int> Dice { get; set; } = sides => Random.Shared.Next(1, sides + 1);
+
     /// <summary>The menu anchor points this design configures.</summary>
     public MenuAnchors Anchors { get; private set; } = MenuAnchors.Default;
 
@@ -222,6 +251,11 @@ public sealed class Game
     /// </remarks>
     public bool Update(InputEvent input)
     {
+        if (Combat is not null)
+        {
+            return UpdateCombat(input);
+        }
+
         if (Runner.IsActive)
         {
             return UpdateEvent(input);
@@ -394,9 +428,113 @@ public sealed class Game
     /// from <c>OnInitialEvent</c> is over before a frame is drawn — but here it also marks the
     /// boundary between what this port can run and what it still only names.
     /// </remarks>
+    /// <summary>
+    /// Starts a fight from a combat event, if there is a level to fight on.
+    /// </summary>
+    /// <returns>Whether combat began. False falls through to the ordinary event path.</returns>
+    /// <remarks>
+    /// The party's combatants are built from its characters here rather than in the session,
+    /// because only <see cref="Game"/> knows what the party <i>is</i>. Everything else about the
+    /// encounter comes off the event.
+    /// </remarks>
+    private bool StartCombat(CombatEvent combat)
+    {
+        if (Map is null || wallSets is null)
+        {
+            return false;
+        }
+
+        // A character's footprint is measured off its combat icon, same as a monster's, so the
+        // art has to be resolved before the combatant is built rather than at draw time.
+        var partyIcons = new Dictionary<string, (Surface Sheet, CombatantIcon Icon)>();
+        var party = new List<Combatant>();
+
+        for (int i = 0; i < Party.Members.Count; i++)
+        {
+            var member = Party.Members[i];
+            var icon = new CombatantIcon(1, 1);
+
+            if (member.Record.Icon is { } pic
+                && CombatIcons.Load(pic.FileName, pic.NumFrames,
+                                    n => design.Art(n, SurfaceKind.Icon)) is { } loaded)
+            {
+                icon = loaded.Icon;
+                partyIcons[member.Name] = loaded;
+            }
+
+            party.Add(new Combatant(i, isFriendly: true, icon, member.Name)
+            {
+                Kind = CombatantKind.Character,
+                HitPoints = member.HitPoints,
+                MaxHitPoints = member.MaxHitPoints,
+                MaxMovement = 12,
+                Initiative = i + 1,
+                // Party members are player-run; nothing yet reads a per-character auto flag.
+                IsAuto = false,
+            });
+        }
+
+        if (party.Count == 0)
+        {
+            // A design can trigger combat before a party exists -- an empty fight is not a fight.
+            return false;
+        }
+
+        Combat = CombatSession.Begin(combat, Map, wallSets, X, Y, Facing, party,
+                                     id => design.Monster(id), Dice,
+                                     name => design.Art(name, SurfaceKind.Icon), partyIcons);
+        Message = "Combat!";
+        return true;
+    }
+
+    /// <summary>
+    /// Advances the fight, and folds the result back into the event chain when it ends.
+    /// </summary>
+    /// <remarks>
+    /// A fight that is waiting on the player consumes the key; otherwise it steps itself, so a
+    /// caller pressing nothing still watches the monsters act. That is this port's stand-in for
+    /// the reference's timed task scheduler.
+    /// </remarks>
+    private bool UpdateCombat(InputEvent input)
+    {
+        var session = Combat!;
+
+        bool changed = session.AwaitingPlayer
+            ? session.Update(input)
+            : session.Update();
+
+        Message = session.Message.Length > 0 ? session.Message : Message;
+
+        if (!session.IsActive)
+        {
+            var outcome = session.Outcome;
+            var finished = CurrentEvent;
+            Combat = null;
+            CurrentEvent = null;
+            Message = outcome switch
+            {
+                CombatOutcome.PartyWon => "The party is victorious!",
+                CombatOutcome.PartyLost => "The party has fallen.",
+                _ => "The fight breaks off.",
+            };
+
+            if (finished is not null)
+            {
+                FollowChain(EventChain.Next(finished.Base, outcome == CombatOutcome.PartyWon));
+            }
+        }
+
+        return changed || !session.IsActive;
+    }
+
     private void StartEvent(IGameEvent gameEvent)
     {
         CurrentEvent = gameEvent;
+
+        if (gameEvent is CombatEvent combat && StartCombat(combat))
+        {
+            return;
+        }
 
         if (ExecuteWithoutInput(gameEvent) is bool ran)
         {
@@ -655,6 +793,9 @@ public sealed class Game
 
     private readonly ZoneData? zones;
 
+    /// <summary>The level's wall sets, which combat needs to build its map.</summary>
+    private readonly IReadOnlyList<WallSetSlot>? wallSets;
+
     /// <summary>
     /// The art a full-screen event shows where the dungeon view was.
     /// </summary>
@@ -670,6 +811,32 @@ public sealed class Game
     /// the area simply stays empty, as it does when <c>currPic.key</c> is 0.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The combat terrain sheet for the zone the party is standing in.
+    /// </summary>
+    /// <remarks>
+    /// <b>Combat art belongs to the zone, not the design</b> (<c>Dgngame.cpp:1126</c>) — each zone
+    /// names an indoor and an outdoor sheet, and which one is used depends on the encounter rather
+    /// than on the zone. The indoor one is taken here because outdoor encounters need
+    /// <c>GenerateOutdoorCombatMap</c>, which is unported.
+    /// </remarks>
+    private Surface? CombatArt()
+    {
+        if (zones is null || Map is null)
+        {
+            return null;
+        }
+
+        int zone = Map.At(X, Y)?.Zone ?? 0;
+        if (zone < 0 || zone >= zones.Zones.Count)
+        {
+            return null;
+        }
+
+        string name = zones.Zones[zone].IndoorCombatArt;
+        return string.IsNullOrEmpty(name) ? null : design.Art(name);
+    }
+
     private Surface? ScreenArt()
     {
         // CoversRoster means a sheet is over the whole screen, and the zone's picture belongs to
@@ -793,7 +960,13 @@ public sealed class Game
         var backdrop = design.Art("backdrop_IndoorGreyStone.png", SurfaceKind.Background);
         if (config.TryGetRect("VIEWPORT_RECT", out int vx, out int vy, out int vr, out int vb))
         {
-            if (Runner.OwnsScreen)
+            if (Combat is not null)
+            {
+                // Combat owns the whole viewport, the same way a full-screen event does. The
+                // terrain sheet comes off the zone the party is standing in, not the design.
+                Combat.Render(screen, CombatArt(), new SurfaceRect(vx, vy, vr, vb));
+            }
+            else if (Runner.OwnsScreen)
             {
                 // The zone's picture takes the viewport's place, drawn through the colour key
                 // like every other sprite -- blitView asks for SmallPicDib | SpriteDib.

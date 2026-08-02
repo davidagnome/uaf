@@ -51,11 +51,16 @@ public static class EncounterBuilder
     /// which kind shows up, not how many.
     /// </para>
     /// </remarks>
+    /// <param name="iconSize">
+    /// The footprint a monster's combat icon measures to. Null gives every monster one square —
+    /// see <see cref="CombatIcons.SizeOf"/> for why the record alone cannot answer this.
+    /// </param>
     public static IReadOnlyList<Combatant> Build(CombatEvent combat,
                                                  IReadOnlyList<Combatant> party,
                                                  Func<int, int, int, int> rollDice,
                                                  Func<string, MonsterRecord?> monsterInfo,
-                                                 double quantityModPercent = 0)
+                                                 double quantityModPercent = 0,
+                                                 Func<MonsterRecord, CombatantIcon>? iconSize = null)
     {
         ArgumentNullException.ThrowIfNull(combat);
         ArgumentNullException.ThrowIfNull(party);
@@ -90,7 +95,12 @@ public static class EncounterBuilder
 
             for (int i = 0; i < count && all.Count < MaxCombatants; i++)
             {
-                all.Add(FromMonster(all.Count, entry, record));
+                var monster = FromMonster(all.Count, entry, record,
+                                          iconSize?.Invoke(record)
+                                          ?? new CombatantIcon(DefaultIconSide, DefaultIconSide));
+                monster.MaxHitPoints = RollHitPoints(record, rollDice);
+                monster.HitPoints = monster.MaxHitPoints;
+                all.Add(monster);
             }
         }
 
@@ -148,9 +158,9 @@ public static class EncounterBuilder
     /// rather than a flag because the editor offers it as a choice — a friendly monster fights on
     /// the party's side.
     /// </remarks>
-    private static Combatant FromMonster(int index, MonsterEvent entry, MonsterRecord record) =>
-        new(index, entry.Friendly != 0,
-            new CombatantIcon(DefaultIconSide, DefaultIconSide), record.Name)
+    private static Combatant FromMonster(int index, MonsterEvent entry, MonsterRecord record,
+                                         CombatantIcon icon) =>
+        new(index, entry.Friendly != 0, icon, record.Name)
         {
             Kind = CombatantKind.Monster,
             IsAuto = true,
@@ -161,14 +171,54 @@ public static class EncounterBuilder
         };
 
     /// <summary>
-    /// The footprint every monster is given here, pending real icon measurement.
+    /// Rolls a monster's hit points from its hit dice
+    /// (<c>CHARACTER::determineMaxHitPoints</c>'s monster branch, <c>Char.cpp:4941</c>).
     /// </summary>
     /// <remarks>
-    /// <b>The reference does not take this from the monster record.</b>
-    /// <c>determineIconSize</c> divides the <i>loaded icon's</i> pixel dimensions by the tile size,
-    /// so a design's art decides how much room a monster occupies and a record alone cannot answer
-    /// it. Until icons are loaded, one square is the safe default: too small never refuses a
-    /// placement that should have succeeded, whereas too large would.
+    /// <para>
+    /// <b><c>UseHitDice</c> being false means the field holds hit <i>points</i>, not dice</b> —
+    /// the value is taken literally with no roll and no bonus. A design can therefore pin a
+    /// monster's hit points exactly, and reading the field as dice regardless would reroll them
+    /// into something else entirely.
+    /// </para>
+    /// <para>
+    /// <b>Hit dice are d8, and a fractional die scales the sides rather than the count.</b> Under
+    /// one hit die the roll is <c>1d(8 × hd)</c> — so a half-die monster rolls 1d4, not half of
+    /// 1d8. At one or above it is <c>hd</c>d8 with the count truncated.
+    /// </para>
+    /// <para>
+    /// The result floors at 1: no monster arrives already dead.
+    /// </para>
+    /// </remarks>
+    public static int RollHitPoints(MonsterRecord record, Func<int, int, int, int> rollDice)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        ArgumentNullException.ThrowIfNull(rollDice);
+
+        double hitDice = record.HitDice;
+
+        if (record.UseHitDice == 0)
+        {
+            // The field is hit points already -- no roll, and the bonus does not apply.
+            return Math.Max(1, (int)hitDice);
+        }
+
+        int rolled = hitDice < 1.0
+            ? rollDice((int)(8.0 * hitDice), 1, record.HitDiceBonus)
+            : rollDice(8, (int)hitDice, record.HitDiceBonus);
+
+        return Math.Max(1, rolled);
+    }
+
+    /// <summary>
+    /// The footprint a monster gets when its icon cannot be measured.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference never takes this from the monster record.</b> <c>determineIconSize</c>
+    /// divides the <i>loaded icon's</i> pixel dimensions by the tile size, so a design's art
+    /// decides how much room a monster occupies — see <see cref="CombatIcons.SizeOf"/>. One square
+    /// is the safe fallback when the art is missing: too small never refuses a placement that
+    /// should have succeeded, whereas too large would.
     /// </remarks>
     private const int DefaultIconSide = 1;
 }

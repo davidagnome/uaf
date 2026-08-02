@@ -23,9 +23,10 @@ public class EncounterBuilderTests
             BackgroundSounds: null!, monsters);
 
     private static MonsterRecord Monster(string name, int movement = 9, int attacks = 1,
-                                         string undead = "") =>
+                                         string undead = "", float hitDice = 1,
+                                         int useHitDice = 1, int hitDiceBonus = 0) =>
         new(0, name, null, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
-            Intelligence: 8, ArmorClass: 6, movement, HitDice: 1, UseHitDice: 1, HitDiceBonus: 0,
+            Intelligence: 8, ArmorClass: 6, movement, hitDice, useHitDice, hitDiceBonus,
             Thac0: 19,
             Attacks: [.. Enumerable.Repeat(
                 new AttackDetails(6, 1, 0, string.Empty, string.Empty, 0, 0, 0), attacks)],
@@ -58,11 +59,19 @@ public class EncounterBuilderTests
     [Fact]
     public void A_literal_quantity_is_used_as_written()
     {
-        var all = EncounterBuilder.Build(Event([Entry("orc", quantity: 3)]), Party(1),
-                                         (_, _, _) => throw new InvalidOperationException("rolled"),
-                                         _ => Monster("Orc"));
+        // The quantity is taken literally with no roll. Hit points still roll, so the roller is
+        // called -- record what it is asked for rather than forbidding it outright.
+        var asked = new List<(int Sides, int Times)>();
+        var all = EncounterBuilder.Build(
+            Event([Entry("orc", quantity: 3)]), Party(1),
+            (sides, times, bonus) => { asked.Add((sides, times)); return times + bonus; },
+            _ => Monster("Orc"));
 
         Assert.Equal(3, all.Count(c => !c.IsFriendly));
+
+        // Three monsters, three hit-point rolls of 1d8 each, and nothing else.
+        Assert.Equal(3, asked.Count);
+        Assert.All(asked, a => Assert.Equal((8, 1), a));
     }
 
     [Fact]
@@ -172,6 +181,54 @@ public class EncounterBuilderTests
         Assert.Equal(12, monster.MaxMovement);
         Assert.Equal(3, monster.TotalAttacks);
         Assert.True(monster.IsUndead);
+    }
+
+    [Fact]
+    public void Hit_points_are_rolled_from_the_hit_dice()
+    {
+        // Hit dice are d8. A monster arriving with zero hit points is dead on the spot, which is
+        // exactly what happened the first time a real encounter ran end to end.
+        var all = EncounterBuilder.Build(Event([Entry("orc", quantity: 1)]), Party(1),
+                                         Fixed(5), _ => Monster("Orc", hitDice: 3));
+
+        var monster = all.Single(c => !c.IsFriendly);
+        Assert.Equal(15, monster.HitPoints);        // 3d8, each rolling 5
+        Assert.Equal(15, monster.MaxHitPoints);
+    }
+
+    [Fact]
+    public void A_record_that_holds_hit_points_rather_than_dice_is_taken_literally()
+    {
+        // UseHitDice = 0 means the field IS hit points: no roll, and no bonus either.
+        var all = EncounterBuilder.Build(
+            Event([Entry("orc", quantity: 1)]), Party(1),
+            (_, _, _) => throw new InvalidOperationException("rolled"),
+            _ => Monster("Orc", hitDice: 22, useHitDice: 0, hitDiceBonus: 7));
+
+        Assert.Equal(22, all.Single(c => !c.IsFriendly).HitPoints);
+    }
+
+    [Fact]
+    public void A_fractional_hit_die_scales_the_sides_not_the_count()
+    {
+        // Under one hit die the roll is 1d(8 x hd), so a half-die monster rolls 1d4.
+        var asked = new List<(int Sides, int Times)>();
+        EncounterBuilder.Build(
+            Event([Entry("rat", quantity: 1)]), Party(1),
+            (sides, times, bonus) => { asked.Add((sides, times)); return times + bonus; },
+            _ => Monster("Rat", hitDice: 0.5f));
+
+        Assert.Contains((4, 1), asked);
+    }
+
+    [Fact]
+    public void A_monster_never_arrives_already_dead()
+    {
+        var all = EncounterBuilder.Build(Event([Entry("wisp", quantity: 1)]), Party(1),
+                                         (_, _, bonus) => bonus,
+                                         _ => Monster("Wisp", hitDice: 1, hitDiceBonus: -99));
+
+        Assert.Equal(1, all.Single(c => !c.IsFriendly).HitPoints);
     }
 
     [Fact]

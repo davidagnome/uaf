@@ -11,9 +11,10 @@ running engine: it opens a design, walks a level, renders the viewport, executes
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
-stacking under it, **a combat screen that draws it**, and **a combat session that runs a real
-encounter to a verdict** with or without a player in it. Phases 5–7 have not started.
-**1,509 tests, green on macOS, Linux and Windows; both CI workflows green.**
+stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
+verdict, drawn on screen with real icons, with a menu for the player**. Phases 5–7 have not
+started.
+**1,530 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2395,6 +2396,66 @@ Casting is greyed at the menu, since the casting half of the spell layer is unpo
 > `lastAttackRound` **starts at zero**, not at a sentinel — a sentinel would overflow the
 > subtraction.
 
+##### Combat reachable from the engine, as ported
+
+`Game` now routes a `CombatEvent` to a `CombatSession` instead of `EventRunner`'s unsupported arm.
+**Walking onto a combat event starts a fight** — verified against `SomethingWild`'s level 1, whose
+first encounter is a Tiger: six party members from the design placed in formation, the Tiger read
+out of `monsters.dat`, and a fight that runs to a conclusion and chains on.
+
+- **Combat owns the viewport**, like a full-screen event: `Render` draws the map instead of the
+  dungeon view rather than compositing over it. Same distinction the treasure screen makes.
+- **The terrain sheet comes off the zone the party is standing in**, not the design.
+- `LoadedDesign.Monsters` / `Monster(id)` were added alongside `Items`, with the same framing and
+  the same unstamped-version fallback.
+
+> **Wiring it up immediately exposed two gaps that every isolated test had missed** — which is the
+> argument for doing integration before more breadth.
+>
+> 1. **Monsters arrived with zero hit points and died on the spot.** `EncounterBuilder` never
+>    rolled hit dice. The rule (`Char.cpp:4941`) is d8-based with two traps: `UseHitDice` being
+>    **false means the field holds hit *points***, taken literally with no roll and no bonus; and a
+>    **fractional hit die scales the sides, not the count** — under one die the roll is
+>    `1d(8 × hd)`, so a half-die monster rolls 1d4.
+> 2. **Monsters never acted at all.** `Initiative` was left at zero and the round's walk runs 1 to
+>    22, so no monster was ever reached. `UAF.Rules.Initiative` had been ported long before and was
+>    simply never *called* — `DetermineCombatInitiative` rolls it fresh every round, and surprise
+>    is cleared after the first (`Combatants.cpp:1500`).
+>
+> The first fight ran 21 rounds with only the party acting and ended on the idle rule. Both are now
+> covered by tests that name the symptom.
+
+##### Combat icons, as ported
+
+`CombatIcons` is `determineIconSize` and the measuring half of `LoadCombatIcon`
+(`Combatant.cpp:8579`, `:8492`). **Combatants now draw**, and the 1×1 stand-in in
+`EncounterBuilder` is gone.
+
+- **A footprint is measured off the art, never read from the record.** Nothing in `MONSTER_DATA`
+  says how many squares a monster occupies — the engine divides the loaded sprite's pixel
+  dimensions by the tile size. That is why `EncounterBuilder` could not size a monster alone, and
+  why the art has to be resolved *before* placement rather than at draw time.
+- **A sheet holds poses side by side, two per icon** — ready and attacking. Width is
+  `(sheetWidth / 48) / 2 / (frames / 2)`, height `sheetHeight / 48`, each flooring at one. **The
+  divisions are separate integer steps**: collapsing them to `w / n` changes the answer for sheets
+  that are not exact multiples.
+- **There is no upper clamp.** A comment in `Drawtile.cpp` says icons are at most 4×4 and nothing
+  enforces it — `SomethingWild`'s Red Dragon measures **8×4** off a 768×192 sheet. Real footprints
+  from that design: Orc 1×1, Tiger 2×1, Hill Giant 1×2.
+- **The `cm_` / `cn_` prefix is a fallback, not the normal path.** `LoadCombatIcon` calls
+  `LoadPicSurfaces("")` first and only uses the prefix when falling back to the default monster
+  icon. No reference design ships a `cm_`-prefixed file.
+- The `iconIndex` rewind is transcribed with its own oddity: the bounds test compares
+  `offset + width·48` against `imageWidth − width`, subtracting a *square count* from a *pixel
+  count* (`:8615`). It is off by nearly a whole tile; reproducing it keeps the same frames
+  reachable.
+
+**Looked at, as always.** A real encounter on `SomethingWild` level 1 now renders the party's own
+icons and the Tiger at 2×1 beside them, with the roster and "Tiger hits Human Fighter for 3." in
+the message line. The terrain came out flat where an earlier frame was textured — checked rather
+than assumed, and it is correct: that zone names `combat_DungeonStreet.png`, a dirt street rather
+than flagged stone, and its 123 wall squares lie outside the visible window.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3455,17 +3516,16 @@ objects — and `CombatRenderer` now draws the map with the zone's own art (§th
 Every ingredient now exists — `EncounterBuilder` makes the combatants, `CombatSetup` places them,
 `CombatRenderer` draws them, and the round machinery runs them. What is left is:
 
-1. **Hanging `CombatSession` off `Game`.** The session is complete and tested, but `Game` still
-   routes a `CombatEvent` to `EventRunner`'s unsupported arm, so walking onto one prints
-   `[Combat here -- not implemented]`. What is needed is a branch in `Game.Update` / `Game.Render`
-   that starts a session, routes input to it, draws it, and hands back a result when it ends. Small
-   and mechanical — the session takes a party and a dice roller and nothing else.
-2. **The rest of the commands.** MOVE, AIM, GUARD and END work; USE, CAST, TURN, BANDAGE, QUICK,
+1. **The rest of the commands.** MOVE, AIM, GUARD and END work; USE, CAST, TURN, BANDAGE, QUICK,
    DELAY, VIEW and SPEED report that they are not implemented. **CAST is the big one** — it needs
    the casting half of the spell layer (choosing a spell, saving throws, the lingering-spell area
-   effects), which is now the largest unported piece of combat.
-3. **Monster icons**, which combat placement needs for real footprints (see the encounter section)
-   and the renderer needs to draw anything but coloured blocks. `PicRecord` is already read.
+   effects), which is now the largest unported piece of combat. TURN and BANDAGE are small by
+   comparison and `CombatUpkeep.Bandage` already exists.
+2. **A combat frame in `GoldenFrameTests`.** The viewport has had a regression guard since Phase 4;
+   combat has none, and it now draws enough — terrain, icons, roster, message — to be worth
+   hashing. Cheap, and it locks in what was just verified by eye.
+3. **The cursor on screen.** `AimCursor` tracks a square and nothing draws it, so AIM is invisible
+   to the player. `CursorSrc` (`Drawtile.h:26`) is the art rectangle.
 
 After that: **the Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the
 last large unported subsystem in Phase 2.

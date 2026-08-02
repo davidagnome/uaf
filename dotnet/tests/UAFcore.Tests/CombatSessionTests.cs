@@ -246,6 +246,47 @@ public class CombatSessionTests
     }
 
     [Fact]
+    public void Initiative_is_rolled_for_everybody_at_the_start_of_a_round()
+    {
+        // Without this every monster sits at zero and the round's 1..22 walk never reaches it, so
+        // the fight runs itself out with only the party acting. That is exactly what happened the
+        // first time a real encounter was driven end to end.
+        var session = Start(party: 2, monsters: 3);
+
+        Assert.All(session.Combatants,
+                   c => Assert.InRange(c.Initiative, UAF.Rules.Initiative.First,
+                                       UAF.Rules.Initiative.Last));
+    }
+
+    [Fact]
+    public void Every_combatant_gets_a_turn_including_the_monsters()
+    {
+        var session = Start(party: 2, monsters: 2, face: 10);
+
+        var acted = new HashSet<int>();
+        for (int step = 0; step < 2000 && session.IsActive; step++)
+        {
+            if (session.Acting != CombatMap.NoDude)
+            {
+                acted.Add(session.Acting);
+            }
+            session.Update();
+        }
+
+        Assert.Contains(acted, i => !session.Combatants[i].IsFriendly);
+        Assert.Contains(acted, i => session.Combatants[i].IsFriendly);
+    }
+
+    [Fact]
+    public void Monsters_arrive_with_hit_points_rolled_from_their_dice()
+    {
+        var session = Start(party: 2, monsters: 2);
+
+        Assert.All(session.Combatants.Where(c => !c.IsFriendly),
+                   c => Assert.True(c.HitPoints > 0, "a monster arrived already dead"));
+    }
+
+    [Fact]
     public void The_view_scrolls_to_keep_the_acting_combatant_visible()
     {
         var session = Start(party: 2, monsters: 2);

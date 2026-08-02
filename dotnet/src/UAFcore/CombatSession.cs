@@ -43,11 +43,39 @@ public sealed class CombatSession
     private readonly Dictionary<int, List<(int X, int Y)>> paths = [];
     private readonly Func<int, int> dice;
 
+    private UAF.Rules.Surprise surprise;
+
+    /// <summary>Loaded icon sheets and footprints, by combatant name.</summary>
+    private readonly Dictionary<string, (Surface Sheet, CombatantIcon Icon)> icons = [];
+
+    /// <summary>
+    /// The sheet and source rectangle to draw a combatant with, or null when it has no art.
+    /// </summary>
+    /// <remarks>
+    /// The attacking pose is used while a combatant is mid-attack, which is the whole of the
+    /// reference's animation state this port models — <c>NeedHitAnimation</c> and its neighbours
+    /// drive the rest and are not ported.
+    /// </remarks>
+    public (Surface Sheet, SurfaceRect Source)? IconFor(Combatant combatant)
+    {
+        ArgumentNullException.ThrowIfNull(combatant);
+
+        if (!icons.TryGetValue(combatant.Name, out var loaded))
+        {
+            return null;
+        }
+
+        return (loaded.Sheet,
+                CombatIcons.PoseRect(loaded.Sheet, loaded.Icon,
+                                     attacking: combatant.State == CombatantState.Attacking));
+    }
+
     private CombatSession(IReadOnlyList<Combatant> combatants, CombatSetupResult setup,
-                          Func<int, int> dice)
+                          Func<int, int> dice, UAF.Rules.Surprise surprise)
     {
         this.combatants = [.. combatants];
         this.dice = dice;
+        this.surprise = surprise;
         Setup = setup;
         Round = new CombatRound(i => this.combatants[i].State);
         Renderer = new CombatRenderer();
@@ -102,19 +130,61 @@ public sealed class CombatSession
                                       int levelX, int levelY, Facing facing,
                                       IReadOnlyList<Combatant> party,
                                       Func<string, MonsterRecord?> monsterInfo,
-                                      Func<int, int> dice)
+                                      Func<int, int> dice,
+                                      Func<string, Surface?>? art = null,
+                                      IReadOnlyDictionary<string, (Surface Sheet,
+                                                                   CombatantIcon Icon)>? partyIcons
+                                          = null)
     {
         ArgumentNullException.ThrowIfNull(combat);
         ArgumentNullException.ThrowIfNull(dice);
 
-        var all = EncounterBuilder.Build(combat, party, RollDice(dice), monsterInfo);
+        // A monster's footprint is measured off its loaded icon, so the art has to be resolved
+        // before placement rather than at draw time.
+        var icons = new Dictionary<string, (Surface Sheet, CombatantIcon Icon)>();
+        CombatantIcon SizeOf(MonsterRecord record)
+        {
+            if (art is null || record.Icon is null)
+            {
+                return new CombatantIcon(1, 1);
+            }
+
+            if (!icons.TryGetValue(record.Name, out var loaded))
+            {
+                var found = CombatIcons.Load(record.Icon.FileName, record.Icon.NumFrames, art);
+                if (found is null)
+                {
+                    return new CombatantIcon(1, 1);
+                }
+
+                loaded = found.Value;
+                icons[record.Name] = loaded;
+            }
+
+            return loaded.Icon;
+        }
+
+        var all = EncounterBuilder.Build(combat, party, RollDice(dice), monsterInfo,
+                                         iconSize: SizeOf);
 
         var setup = CombatSetup.Begin(level, wallSets, levelX, levelY, facing, all,
                                       (EncounterDirection)combat.Direction,
                                       (EncounterDistance)combat.Distance,
                                       outdoor: combat.Outdoors != 0);
 
-        var session = new CombatSession(all, setup, dice);
+        var session = new CombatSession(all, setup, dice, (UAF.Rules.Surprise)combat.Surprise);
+        foreach (var (name, loaded) in icons)
+        {
+            session.icons[name] = loaded;
+        }
+
+        if (partyIcons is not null)
+        {
+            foreach (var (name, loaded) in partyIcons)
+            {
+                session.icons[name] = loaded;
+            }
+        }
         session.BeginRound();
         return session;
     }
@@ -204,9 +274,19 @@ public sealed class CombatSession
 
         foreach (var c in combatants)
         {
+            // Initiative is rolled fresh every round (DetermineCombatInitiative, called from
+            // StartNewRound). Without it a combatant sits at zero and the round's 1..22 walk never
+            // reaches it -- which is exactly what kept every monster out of the first fight this
+            // session ran end to end.
+            c.Initiative = UAF.Rules.Initiative.Roll(surprise, c.IsFriendly, dice(10));
+
             c.TurnIsDone = true;
             c.BeginRound(Math.Max(1, c.TotalAttacks), isAuto: c.IsAuto);
         }
+
+        // Surprise is a first-round effect only; the reference clears it after rolling
+        // (Combatants.cpp:1500).
+        surprise = UAF.Rules.Surprise.Neither;
 
         Acting = CombatMap.NoDude;
         CheckOutcome();
@@ -462,9 +542,6 @@ public sealed class CombatSession
             Renderer.DrawTerrain(screen, Map, sheet, area);
         }
 
-        if (iconFor is not null)
-        {
-            Renderer.DrawCombatants(screen, combatants, iconFor, area);
-        }
+        Renderer.DrawCombatants(screen, combatants, iconFor ?? IconFor, area);
     }
 }

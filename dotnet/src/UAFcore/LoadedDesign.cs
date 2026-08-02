@@ -229,6 +229,79 @@ public sealed class LoadedDesign : IDisposable
         }
     }
 
+    private List<MonsterRecord>? monsters;
+    private bool monstersLoaded;
+
+    /// <summary>
+    /// The monster database, or null when it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// Same framing and the same fallback as <see cref="Items"/> — both are ordinary databases and
+    /// both depend on <c>game.dat</c> having been read first for their unstamped version.
+    /// </remarks>
+    public IReadOnlyList<MonsterRecord>? Monsters
+    {
+        get
+        {
+            if (monstersLoaded)
+            {
+                return monsters;
+            }
+
+            monstersLoaded = true;
+            monsters = LoadMonsters();
+            return monsters;
+        }
+    }
+
+    /// <summary>
+    /// A monster by its unique name, or null.
+    /// </summary>
+    /// <remarks>
+    /// Matched case-insensitively on <see cref="MonsterRecord.Name"/>, which is what a combat
+    /// event's <c>monsterID</c> names. As with items, several records can share a name and the
+    /// first match wins.
+    /// </remarks>
+    public MonsterRecord? Monster(string monsterId) =>
+        string.IsNullOrEmpty(monsterId)
+            ? null
+            : Monsters?.FirstOrDefault(
+                m => string.Equals(m.Name, monsterId, StringComparison.OrdinalIgnoreCase));
+
+    private List<MonsterRecord>? LoadMonsters()
+    {
+        string path = Path.Combine(Root, "Data", "monsters.dat");
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var header = DesignFileHeader.Read(stream, DesignFileKind.Database,
+                                               DesignFileKind.ItemsFallback(Globals.Version));
+
+            if (header.Tier == ArchiveTier.CompressedCar)
+            {
+                stream.Seek(16, SeekOrigin.Begin);
+                return MonsterRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
+                                                        header.Version, ArchiveRole.Engine);
+            }
+
+            stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
+            return MonsterRecordReader.ReadDatabase(new MfcArchiveReader(stream),
+                                                    header.Version, ArchiveRole.Engine);
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            // A database this port cannot yet read is a real state: combat simply finds no
+            // monsters, rather than the design failing to open.
+            return null;
+        }
+    }
+
     private Dictionary<string, BaseclassRecord>? baseclasses;
     private bool baseclassesLoaded;
 
