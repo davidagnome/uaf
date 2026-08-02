@@ -231,6 +231,9 @@ public class GpdlAttributeTests
     [InlineData("$GET_CHAR_AC", GpdlCharStat.ArmorClass, "5")]
     [InlineData("$GET_CHAR_RDYTOTRAIN", GpdlCharStat.ReadyToTrain, "1")]
     [InlineData("$GET_CHAR_GENDER", GpdlCharStat.Gender, "0")]
+    [InlineData("$GET_CHAR_THAC0", GpdlCharStat.Thac0, "18")]
+    [InlineData("$GET_CHAR_ADJTHAC0", GpdlCharStat.AdjustedThac0, "15")]
+    [InlineData("$GET_CHAR_ADJAC", GpdlCharStat.AdjustedArmorClass, "3")]
     public void Each_stat_call_reaches_its_own_stat(string call, GpdlCharStat stat, string value)
     {
         // Every one of these is the same shape in the reference -- a macro over one accessor -- so

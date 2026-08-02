@@ -7,7 +7,8 @@ namespace UAFcore.Tests;
 /// <summary>Covers spell effects applied to a character outside combat.</summary>
 public class CharacterEffectsTests
 {
-    private static Character Hero(int hitPoints = 10, int maxHitPoints = 12, int armorClass = 5)
+    private static Character Hero(int hitPoints = 10, int maxHitPoints = 12, int armorClass = 5,
+                                  int thac0 = 18)
     {
         // Named where it matters: the record has seventeen leading scalars and getting armour
         // class or hit points into the wrong slot produces a character that looks fine and reads
@@ -16,7 +17,7 @@ public class CharacterEffectsTests
             CharacterVersion: 0, Type: 0, Race: "human", Gender: 0, ClassId: "fighter",
             Alignment: 0, AllowInCombat: 0, Status: 0, UndeadType: "", CreatureSize: 0,
             Name: "hero", CharacterId: "hero-1",
-            Thac0: 20, Morale: 50, Encumbrance: 0, MaxEncumbrance: 0, ArmorClass: armorClass,
+            Thac0: thac0, Morale: 50, Encumbrance: 0, MaxEncumbrance: 0, ArmorClass: armorClass,
             HitPoints: hitPoints, MaxHitPoints: maxHitPoints, NumberOfHitDice: 1,
             Age: 0, MaxAge: 0, Birthday: 0, MaxCureDisease: 0,
             UnarmedDieSmall: 0, UnarmedNumberDieSmall: 0, UnarmedBonus: 0,
@@ -123,5 +124,52 @@ public class CharacterEffectsTests
         hero.Effects.Add(Effect("$CHAR_AC", 2, SpellEffectFlags.Absolute));
 
         Assert.Equal(2, hero.AdjustedArmorClass);
+    }
+
+    // ---- to-hit --------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_thac0_bounds_run_the_same_way_round_as_armour_class()
+    {
+        // Two lines apart in the same header, and the same trap: THAC0 counts down, so MAX is the
+        // worst.
+        Assert.True(Character.BestThac0 < Character.WorstThac0);
+        Assert.Equal(20, Character.WorstThac0);
+    }
+
+    [Fact]
+    public void Bonuses_are_subtracted_because_a_lower_thac0_is_better()
+    {
+        var hero = Hero(thac0: 18);
+
+        Assert.Equal(18, hero.AdjustedThac0());
+        Assert.Equal(15, hero.AdjustedThac0(hitBonus: 3));
+        Assert.Equal(13, hero.AdjustedThac0(hitBonus: 3, weaponAttackBonus: 2));
+    }
+
+    [Fact]
+    public void Spell_effects_apply_on_top_of_the_bonuses()
+    {
+        var hero = Hero(thac0: 18);
+        hero.Effects.Add(Effect("$CHAR_THAC0", -2));
+
+        Assert.Equal(13, hero.AdjustedThac0(hitBonus: 3));
+    }
+
+    [Fact]
+    public void The_result_is_clamped_at_both_ends()
+    {
+        var superb = Hero(thac0: 18);
+        Assert.Equal(Character.BestThac0, superb.AdjustedThac0(hitBonus: 9999));
+
+        var hopeless = Hero(thac0: 18);
+        hopeless.Effects.Add(Effect("$CHAR_THAC0", 500));
+        Assert.Equal(Character.WorstThac0, hopeless.AdjustedThac0());
+    }
+
+    [Fact]
+    public void The_base_thac0_is_the_records_own()
+    {
+        Assert.Equal(16, Hero(thac0: 16).Thac0);
     }
 }

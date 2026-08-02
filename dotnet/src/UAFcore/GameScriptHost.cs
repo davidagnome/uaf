@@ -94,6 +94,11 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
             GpdlCharStat.MaxHitPoints => Text(character.MaxHitPoints),
             GpdlCharStat.ArmorClass => Text(character.ArmorClass),
             GpdlCharStat.AdjustedArmorClass => Text(character.AdjustedArmorClass),
+            GpdlCharStat.Thac0 => Text(character.Thac0),
+
+            // No readied-item model on a character outside combat, so the two bonuses the
+            // reference subtracts are zero here -- see Character.AdjustedThac0.
+            GpdlCharStat.AdjustedThac0 => Text(character.AdjustedThac0()),
             GpdlCharStat.Experience => Text(character.TotalExperience),
             GpdlCharStat.ReadyToTrain => Text(character.ReadyToTrain ? 1 : 0),
             GpdlCharStat.Gender => Text((int)character.Gender),

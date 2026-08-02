@@ -821,6 +821,8 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_CHAR_NAME:
             case SubOp.SUBOP_GET_CHAR_AC:
             case SubOp.SUBOP_GET_CHAR_ADJAC:
+            case SubOp.SUBOP_GET_CHAR_THAC0:
+            case SubOp.SUBOP_GET_CHAR_ADJTHAC0:
             case SubOp.SUBOP_GET_CHAR_HITPOINTS:
             case SubOp.SUBOP_GET_CHAR_MAXHITPOINTS:
             case SubOp.SUBOP_GET_CHAR_RDYTOTRAIN:
@@ -894,6 +896,8 @@ public sealed class GpdlVirtualMachine
     {
         SubOp.SUBOP_GET_CHAR_AC => GpdlCharStat.ArmorClass,
         SubOp.SUBOP_GET_CHAR_ADJAC => GpdlCharStat.AdjustedArmorClass,
+        SubOp.SUBOP_GET_CHAR_THAC0 => GpdlCharStat.Thac0,
+        SubOp.SUBOP_GET_CHAR_ADJTHAC0 => GpdlCharStat.AdjustedThac0,
         SubOp.SUBOP_GET_CHAR_HITPOINTS => GpdlCharStat.HitPoints,
         SubOp.SUBOP_GET_CHAR_MAXHITPOINTS => GpdlCharStat.MaxHitPoints,
         SubOp.SUBOP_GET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,

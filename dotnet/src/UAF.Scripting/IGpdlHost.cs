@@ -67,6 +67,15 @@ public enum GpdlCharStat
     /// </remarks>
     Experience,
 
+    /// <summary>The base to-hit number (<c>$GET_CHAR_THAC0</c> → <c>GetTHAC0</c>).</summary>
+    Thac0,
+
+    /// <summary>
+    /// The to-hit number with bonuses and spell effects applied
+    /// (<c>$GET_CHAR_ADJTHAC0</c> → <c>GetAdjTHAC0</c>).
+    /// </summary>
+    AdjustedThac0,
+
     /// <summary>Whether the character has enough experience to train (<c>GetAdjReadyToTrain</c>).</summary>
     ReadyToTrain,
 

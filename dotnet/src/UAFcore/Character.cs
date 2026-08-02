@@ -145,6 +145,46 @@ public sealed class Character
     /// <summary>Hit points at which a character is dead rather than dying.</summary>
     public const int DeadAt = -10;
 
+    /// <summary>The character's base to-hit number (<c>GetTHAC0</c>, <c>Char.cpp:6074</c>).</summary>
+    public int Thac0 => Record.Thac0;
+
+    /// <summary>
+    /// The worst to-hit number the rules allow (<c>MAX_THAC0</c>, <c>Char.h:36</c>).
+    /// </summary>
+    /// <remarks>
+    /// Like armour class, THAC0 counts <b>down</b> — so <c>MAX_THAC0</c> is 20, the worst, and
+    /// <c>MIN_THAC0</c> is −500. The same naming trap, in the same header, two lines apart.
+    /// </remarks>
+    public const int WorstThac0 = 20;
+
+    /// <inheritdoc cref="WorstThac0"/>
+    public const int BestThac0 = -500;
+
+    /// <summary>
+    /// To-hit number with bonuses and spell effects applied
+    /// (<c>GetAdjTHAC0</c>, <c>Char.cpp:13138</c>).
+    /// </summary>
+    /// <param name="hitBonus">
+    /// The character's adjusted hit bonus — strength, mostly. <b>Subtracted</b>, because a lower
+    /// THAC0 is better.
+    /// </param>
+    /// <param name="weaponAttackBonus">
+    /// The readied weapon's own attack bonus, also subtracted. Zero when nothing is readied.
+    /// </param>
+    /// <remarks>
+    /// <b>More than a clamp, unlike its neighbours.</b> Where <see cref="AdjustedArmorClass"/> is
+    /// base-then-effects-then-clamp, this subtracts two bonuses first — and gets them from the
+    /// caller here because the port has no readied-item model on a character outside combat.
+    /// <para>
+    /// The reference fetches the readied item <i>before</i> testing whether one exists, so
+    /// <c>GetItem(NO_READY_ITEM)</c> is called and its result handed to the hit-bonus lookup. Only
+    /// the weapon's attack bonus is properly guarded. Nothing observable turns on it.
+    /// </para>
+    /// </remarks>
+    public int AdjustedThac0(int hitBonus = 0, int weaponAttackBonus = 0) =>
+        Effects.Apply(Thac0 - hitBonus - weaponAttackBonus, "$CHAR_THAC0",
+                      BestThac0, WorstThac0);
+
     /// <summary>
     /// This character's own attribute store (<c>char_asl</c>), seeded from its record.
     /// </summary>

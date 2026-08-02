@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,975 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,985 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2706,6 +2706,16 @@ always supposed to — **there is no unadjusted form in the sub-opcode set**, so
 hit points always gets the adjusted number. `$GET_CHAR_EFFAC` is a third form again, folding in the
 target's size and the attacker, and is still unanswered.
 
+**THAC0 is the same trap twice over.** `MAX_THAC0` is 20 and `MIN_THAC0` is −500 — two lines below
+the armour-class pair in the same header, counting the same way down. And **`GetAdjTHAC0` is more
+than a clamp**, unlike its neighbours: it subtracts the character's hit bonus and the readied
+weapon's attack bonus *before* applying spell effects, because a lower THAC0 is better. This port
+takes both bonuses from the caller, having no readied-item model on a character outside combat.
+
+> The reference fetches the readied item **before** testing whether one exists, so
+> `GetItem(NO_READY_ITEM)` is called and its result handed to the hit-bonus lookup; only the
+> weapon's attack bonus is properly guarded. Nothing observable turns on it.
+
 ##### A script that can reach game state, as ported
 
 The attribute sub-opcodes (`GPDLexec.cpp:4178`, `:5498`, `:3379`) and `UAFcore/GameScriptHost.cs`.
@@ -4408,11 +4418,11 @@ What is left, in order:
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
    small and collectively large, and each needs the port to have the state it asks about.
-   The attribute family is done — global, party and per-character — and seven character stats with
-   it, including the adjusted armour class now that characters carry spell effects
-   (§spell effects on a character outside combat). `$GET_CHAR_ADJTHAC0` is the same shape and wants
-   only a THAC0 on `Character`; the ability-score and class calls want parts of Phase 1 that are
-   still unread.
+   The attribute family is done — global, party and per-character — and nine character stats with
+   it, including both adjusted forms now that characters carry spell effects
+   (§spell effects on a character outside combat). What is left in this family wants state the port
+   does not have: the ability-score calls need `baseclass.dat`, which has no reader, and
+   `$GET_CHAR_EFFAC` needs the attacker as well as the target.
 2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
