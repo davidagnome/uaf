@@ -206,4 +206,52 @@ public class GpdlAttributeTests
     {
         Assert.Equal("v", Run("""$RETURN $SET_CHAR_ASL("hero", "k", "v");""", Host()));
     }
+
+    // ---- character stats -----------------------------------------------------------------------
+
+    private static GpdlUnhostedEnvironment WithStats(string actor,
+                                                     params (GpdlCharStat Stat, string Value)[] stats)
+    {
+        var host = Host();
+        host.CharacterStats[actor] = stats.ToDictionary(s => s.Stat, s => s.Value);
+        return host;
+    }
+
+    [Fact]
+    public void A_characters_name_comes_back_as_a_string()
+    {
+        var host = WithStats("hero", (GpdlCharStat.Name, "Aldric"));
+
+        Assert.Equal("Aldric", Run("""$RETURN $GET_CHAR_NAME("hero");""", host));
+    }
+
+    [Theory]
+    [InlineData("$GET_CHAR_HITPOINTS", GpdlCharStat.HitPoints, "7")]
+    [InlineData("$GET_CHAR_MAXHITPOINTS", GpdlCharStat.MaxHitPoints, "12")]
+    [InlineData("$GET_CHAR_AC", GpdlCharStat.ArmorClass, "5")]
+    [InlineData("$GET_CHAR_RDYTOTRAIN", GpdlCharStat.ReadyToTrain, "1")]
+    [InlineData("$GET_CHAR_GENDER", GpdlCharStat.Gender, "0")]
+    public void Each_stat_call_reaches_its_own_stat(string call, GpdlCharStat stat, string value)
+    {
+        // Every one of these is the same shape in the reference -- a macro over one accessor -- so
+        // what is worth testing is that the sub-opcodes are not crossed.
+        var host = WithStats("hero", (stat, value));
+
+        Assert.Equal(value, Run($"""$RETURN {call}("hero");""", host));
+    }
+
+    [Fact]
+    public void An_integer_stat_arrives_as_text_because_the_stack_holds_nothing_else()
+    {
+        // A script comparing a stat against a literal is comparing text.
+        var host = WithStats("hero", (GpdlCharStat.HitPoints, "7"));
+
+        Assert.Equal("1", Run("""$RETURN $GET_CHAR_HITPOINTS("hero") == "7";""", host));
+    }
+
+    [Fact]
+    public void A_stat_read_off_nobody_gives_the_empty_string()
+    {
+        Assert.Equal("", Run("""$RETURN $GET_CHAR_NAME("nobody");""", Host()));
+    }
 }

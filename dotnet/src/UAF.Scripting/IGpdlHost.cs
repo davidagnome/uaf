@@ -18,6 +18,54 @@ namespace UAF.Scripting;
 /// source citation rather than guessing.
 /// </para>
 /// </remarks>
+/// <summary>
+/// A stat a script can read off a character (the <c>GET_CHAR_*</c> family,
+/// <c>GPDLexec.cpp:3200</c> onward).
+/// </summary>
+/// <remarks>
+/// One enum rather than a method each: the sub-opcodes differ only in which accessor they call,
+/// and the reference itself collapses most of them into two macros
+/// (<c>GET_CHAR_INT</c>, <c>GET_CHAR_STRING</c>).
+/// </remarks>
+public enum GpdlCharStat
+{
+    /// <summary>The character's name (<c>GetName</c>).</summary>
+    Name,
+
+    /// <summary>
+    /// Current hit points. The reference reads <c>GetAdjHitPoints</c> — <b>adjusted by active
+    /// spell effects</b> — which this port does not yet apply to a character outside combat, so it
+    /// answers with the base value.
+    /// </summary>
+    HitPoints,
+
+    /// <summary>Hit points at full health (<c>GetMaxHitPoints</c>).</summary>
+    MaxHitPoints,
+
+    /// <summary>
+    /// Armour class. <c>$GET_CHAR_AC</c> is the <i>base</i> (<c>GetBaseAC</c>); the adjusted and
+    /// effective forms are separate sub-opcodes this port does not answer.
+    /// </summary>
+    ArmorClass,
+
+    /// <summary>
+    /// Total experience across every baseclass.
+    /// </summary>
+    /// <remarks>
+    /// <b>No sub-opcode reaches this one yet.</b> <c>$GET_CHAR_Exp</c> takes a baseclass argument
+    /// and reports that class's experience alone (<c>GPDLexec.cpp:3218</c>), so it is not a plain
+    /// stat; the total is here because a host can answer it and the eventual per-class call will
+    /// want somewhere to sit.
+    /// </remarks>
+    Experience,
+
+    /// <summary>Whether the character has enough experience to train (<c>GetAdjReadyToTrain</c>).</summary>
+    ReadyToTrain,
+
+    /// <summary>The character's gender, as the serialized numbering.</summary>
+    Gender,
+}
+
 /// <summary>Which attribute store a GPDL script is reaching for.</summary>
 public enum GpdlAslScope
 {
@@ -110,6 +158,15 @@ public interface IGpdlHost
     /// <summary>Writes an attribute to one character's store (<c>$SET_CHAR_ASL</c>).</summary>
     void SetCharAsl(string actor, string key, string value);
 
+    /// <summary>
+    /// Reads a stat off a character (the <c>GET_CHAR_*</c> family).
+    /// </summary>
+    /// <returns>
+    /// The value as a string, because GPDL's stack holds nothing else. An integer stat is
+    /// formatted plainly; an actor that resolves to nobody yields the empty string.
+    /// </returns>
+    string GetCharStat(string actor, GpdlCharStat stat);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -188,6 +245,17 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
         store[key] = value;
     }
+
+    /// <summary>Stat values by actor, for a script running with no game behind it.</summary>
+    public Dictionary<string, Dictionary<GpdlCharStat, string>> CharacterStats { get; } =
+        new(StringComparer.Ordinal);
+
+    /// <inheritdoc/>
+    public virtual string GetCharStat(string actor, GpdlCharStat stat) =>
+        CharacterStats.TryGetValue(actor, out var stats)
+        && stats.TryGetValue(stat, out string? value)
+            ? value
+            : string.Empty;
 
     /// <inheritdoc/>
     public virtual bool HasAsl(GpdlAslScope scope, string key) =>

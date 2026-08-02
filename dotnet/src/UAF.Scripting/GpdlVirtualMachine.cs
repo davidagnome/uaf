@@ -818,6 +818,14 @@ public sealed class GpdlVirtualMachine
                     PushSp(_host.GetCharAsl(PopSp(), key));
                     break;
                 }
+            case SubOp.SUBOP_GET_CHAR_NAME:
+            case SubOp.SUBOP_GET_CHAR_AC:
+            case SubOp.SUBOP_GET_CHAR_HITPOINTS:
+            case SubOp.SUBOP_GET_CHAR_MAXHITPOINTS:
+            case SubOp.SUBOP_GET_CHAR_RDYTOTRAIN:
+            case SubOp.SUBOP_GET_CHAR_GENDER:
+                PushSp(_host.GetCharStat(PopSp(), StatOf(op)));
+                break;
             case SubOp.SUBOP_GREP:
                 {
                     string text = PopSp();
@@ -879,6 +887,17 @@ public sealed class GpdlVirtualMachine
         }
         return new string(lower);
     }
+
+    /// <summary>Which stat a <c>GET_CHAR_*</c> sub-opcode asks for.</summary>
+    private static GpdlCharStat StatOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_GET_CHAR_AC => GpdlCharStat.ArmorClass,
+        SubOp.SUBOP_GET_CHAR_HITPOINTS => GpdlCharStat.HitPoints,
+        SubOp.SUBOP_GET_CHAR_MAXHITPOINTS => GpdlCharStat.MaxHitPoints,
+        SubOp.SUBOP_GET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
+        SubOp.SUBOP_GET_CHAR_GENDER => GpdlCharStat.Gender,
+        _ => GpdlCharStat.Name,
+    };
 
     /// <summary>Which attribute store a sub-opcode reaches for.</summary>
     private static GpdlAslScope ScopeOf(SubOp op) => op switch

@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,960 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,968 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2723,6 +2723,23 @@ its in-memory stand-in so the VM's own tests need no engine.
   reaches a save game, so nothing observable turns on it — but the flag is not evidence a script
   wrote the value.
 
+**Character stats too.** `$GET_CHAR_NAME`, `$GET_CHAR_AC`, `$GET_CHAR_HITPOINTS`,
+`$GET_CHAR_MAXHITPOINTS`, `$GET_CHAR_RDYTOTRAIN` and `$GET_CHAR_GENDER` resolve their actor the
+same way and read state `Character` already holds. They are one enum on the host rather than a
+method each, which is what the reference does too — most of the family collapses into the two
+macros `GET_CHAR_INT` and `GET_CHAR_STRING` (`GPDLexec.cpp:2269`).
+
+- **An integer stat arrives as text**, because GPDL's stack holds nothing else. The reference
+  pushes through `m_pushInteger1`, which does the same conversion, so a script comparing a stat
+  against a literal is comparing strings.
+- **`$GET_CHAR_AC` is the *base* armour class** (`GetBaseAC`); the adjusted and effective forms are
+  separate sub-opcodes this port does not answer.
+- **`$GET_CHAR_HITPOINTS` reads `GetAdjHitPoints`** — adjusted by active spell effects — which this
+  port does not yet apply to a character outside combat, so it answers with the base value. A
+  design whose script tests a buffed character's hit points gets the unbuffed number.
+- **`$GET_CHAR_Exp` is not a plain stat** and is not wired: it takes a baseclass argument and
+  reports that class's experience alone.
+
 The tests drive real GPDL source through the compiler and the VM rather than poking the
 interpreter, so the argument order the code generator emits is under test alongside the
 sub-opcodes.
@@ -4369,10 +4386,11 @@ What is left, in order:
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
    small and collectively large, and each needs the port to have the state it asks about.
-   The whole attribute family is done — global, party and per-character. The next natural group is
-   the character *stats* (`$GET_CHAR_HITPOINTS`, `$GET_CHAR_AC`, `$GET_CHAR_NAME` and their
-   neighbours), which resolve their actor exactly the same way and read state `Character` already
-   holds.
+   The attribute family is done — global, party and per-character — and six character stats with
+   it. What the remaining calls need is state the port does not have yet rather than more plumbing:
+   the *adjusted* forms (`$GET_CHAR_ADJAC`, `$GET_CHAR_ADJTHAC0`) want the spell-effect layer
+   applied to a character outside combat, and the ability-score and class calls want the parts of
+   Phase 1 that are still unread.
 2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.

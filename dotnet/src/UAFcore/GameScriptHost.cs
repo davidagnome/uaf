@@ -73,4 +73,33 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// <inheritdoc/>
     public override void SetCharAsl(string actor, string key, string value) =>
         Resolve(actor)?.Attributes.Insert(key, value);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>An integer stat is formatted plainly, because GPDL's stack holds only strings.</b> The
+    /// reference pushes through <c>m_pushInteger1</c>, which does the same conversion — a script
+    /// comparing a stat against a literal is comparing text.
+    /// </remarks>
+    public override string GetCharStat(string actor, GpdlCharStat stat)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return string.Empty;
+        }
+
+        return stat switch
+        {
+            GpdlCharStat.Name => character.Name,
+            GpdlCharStat.HitPoints => Text(character.HitPoints),
+            GpdlCharStat.MaxHitPoints => Text(character.MaxHitPoints),
+            GpdlCharStat.ArmorClass => Text(character.ArmorClass),
+            GpdlCharStat.Experience => Text(character.TotalExperience),
+            GpdlCharStat.ReadyToTrain => Text(character.ReadyToTrain ? 1 : 0),
+            GpdlCharStat.Gender => Text((int)character.Gender),
+            _ => string.Empty,
+        };
+    }
+
+    private static string Text(int value) =>
+        value.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }
