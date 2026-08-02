@@ -72,6 +72,7 @@ public sealed class Character
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
         Status = (CharacterStatus)record.Status;
+        Attributes.Load(record.Attributes);
 
         baseclasses =
         [
@@ -102,6 +103,16 @@ public sealed class Character
 
     /// <summary>Current hit points, which combat and healing move.</summary>
     public int HitPoints { get; set; }
+
+    /// <summary>
+    /// This character's own attribute store (<c>char_asl</c>), seeded from its record.
+    /// </summary>
+    /// <remarks>
+    /// <b>Its only live use in the engine is <see cref="KnowableSpells"/></b> — everything else it
+    /// holds is design data that nothing reads back. It is saved with the character, minus its
+    /// read-only entries.
+    /// </remarks>
+    public AttributeList Attributes { get; } = new();
 
     /// <summary>
     /// The character's condition (<c>charStatusType</c>). Seeded from the record and changed by

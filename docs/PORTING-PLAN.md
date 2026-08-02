@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,927 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,945 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2682,6 +2682,35 @@ across it.
 of the aftermath rather than in `Game` — the decision is aftermath logic, and putting it there makes
 it directly testable rather than reachable only by driving a whole fight.
 
+##### The one thing a character's attribute store is used for, as ported
+
+`AddKnowableSpell`, `DelKnowableSpell`, `ClrKnowableSpell` (`Char.cpp:1145`) —
+`UAFcore/KnowableSpells.cs`, plus `Character.Attributes`.
+
+**Checked for liveness before porting, and it is the only live use of the per-character attribute
+list in the engine.** Everything else `char_asl` holds is design data nothing reads back. The
+spells a character may still learn are kept in it under `$KnowableSpells$` as one packed string: a
+bare concatenation of `?name` entries, so `?magic missile?sleep` is two spells. The delimiter
+**prefixes** each entry rather than separating them, and there is no terminator.
+
+That packing is where the traps are, and all three are the format's own consequence:
+
+> **Membership is a substring test, not an entry test.** `list.Find("?" + name)` — so a spell whose
+> entry is a prefix of another's silently fails to be added. With `?Fireball` already in the list,
+> adding `Fire` finds `?Fire` inside it and refuses; the other way round works. Reproduced, because
+> a design's spell names were chosen against it.
+
+> **Removal has two branches, and the first exists only because of the packing.** The last entry has
+> nothing after it, so the bounded `?name?` search cannot find it and it is matched as a *suffix*
+> of the whole string instead. Every other entry is matched with its following delimiter — and the
+> removal deliberately **leaves that delimiter behind**, because it introduces the entry after it.
+> The reference's arithmetic for that (`Right(len - n - str.Length + 1)`) is off-by-one-looking and
+> is not: the `+ 1` is the retained delimiter.
+
+> **`ClrKnowableSpell` returns `false` unconditionally**, where its two siblings return whether
+> anything changed. Nothing reads the result, so the inconsistency is invisible; this port returns
+> whether there was a list to clear.
+
 ##### The attribute store, as ported
 
 `A_ASLENTRY_L` (`ASL.h:95`, `ASL.cpp:1285`) — the named key/value stores a design's scripts read and
@@ -4291,10 +4320,13 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **Reading the attribute store from a script.** The store exists and the combat verdict reaches
-   it (§the attribute store), but no script layer consults it — that is the GPDL gap below, reached
-   from the other end. The per-character, per-event and per-item stores are read off the wire and
-   not yet held at runtime either; only the global one is.
+1. **Reading the attribute store from a script.** The global and per-character stores exist, the
+   combat verdict reaches one and `$KnowableSpells$` uses the other (§the attribute store, §the one
+   thing a character's attribute store is used for) — but no script layer consults either. That is
+   the GPDL gap below, reached from the other end. The **per-event and per-item** stores are still
+   read off the wire and dropped; they need mutable event and item objects, which this port does not
+   have (its records are immutable), so that is a design decision rather than an omission to
+   correct blindly.
 2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
