@@ -14,7 +14,7 @@ pathing, movement, attacks, the dying clock and attacks of opportunity — with 
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
 bandage**. Phases 5–7 have not started.
-**1,657 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,697 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2492,6 +2492,47 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Dice expressions, as ported
+
+`DICEPLUS::Roll` (`class.cpp:2193`) — the little arithmetic language a design writes every number
+in. `UAF.Rules/DiceExpression.cs`. **Nothing numeric a spell does was reachable without this**: the
+`DP2` form carries only source text, and *every* spell-effect expression in the shipped designs is
+`DP2` — 164 of 164 in `SomethingWild`, 150 of 150 in `ci-tier3`. The packed numeric fields of the
+older `DP0`/`DP1` forms are dead in practice.
+
+The grammar, taken from every distinct expression in four designs: integer literals, `NdS` dice,
+the identifier `level` (case-insensitively — designs write both `level` and `LEVEL`), `+ - * /`,
+one unary sign, and parentheses. Real examples: `1`, `-1d8`, `2d8+1`, `-(1d6)*level`,
+`-(1d4+1)*((level+1)/2)`, `6-(1/4*LEVEL)`.
+
+> **A deliberate divergence in route, not in result.** The reference compiles the text to an RDR
+> expression (`DICEPLUS::Compile`) and runs it through `RDREXEC`, a postfix interpreter shared with
+> GPDL, dispatching dice terms to `RollDice` and identifiers to
+> `GENERIC_REFERENCE::LookupReferenceData`. This port evaluates the same grammar directly. The
+> compiler and interpreter are a subsystem of their own and buy nothing here — what decides the
+> answer is the operator set, the precedence and the integer arithmetic, all of which are
+> reproduced. `DiceExpressionCorpusTests` checks the two agree in the only way that matters: every
+> expression the shipped designs contain evaluates.
+
+- **The arithmetic is integer throughout**, and that is not a rounding detail.
+  `RDREXEC::InterpretExpression` works on an `int` stack and its dice callback returns `int`, so
+  division truncates at every step. A design writing `6-(1/4*LEVEL)` gets **6 at every level**,
+  because `1/4` is zero before the multiply happens. That expression is in `ci-tier3`.
+- **`RollDice` returns nothing for a zero-sided or zero-count die**, so `1d0` — present in two
+  designs — is zero rather than an error or a one.
+- **Only one unary sign is allowed**: "We allow only one unary operator. Do you want more?"
+  (`GPDLcomp.cpp:4341`).
+- An identifier the lookup does not know evaluates to **zero, not a failure** — the reference logs
+  "Illegal RDR code" and returns 0.
+
+> **There are no fractional literals, and designs write them anyway.** The tokeniser treats only
+> `'0'`–`'9'` as numeric (`GPDLcomp.cpp:4221`) and accumulates digits into an `int`; a decimal point
+> falls through to the operator table, matches nothing, and the compile fails. `DICEPLUS::Roll`
+> then returns false with its result already zeroed — **the expression silently contributes
+> nothing**. `.5*level` is in all four designs checked and `1.5*level` in `ci-tier3`. All of them
+> are dead. This was only found by running the parser over the whole corpus rather than the
+> examples that prompted it.
+
 ##### Area geometry, as ported
 
 Which squares an area spell covers: `GetMapTilesInRectangle` and the circle built on it
@@ -2612,6 +2653,18 @@ spell book, quietly inert. Kept, because a design was balanced against what ship
 > inside the deprecated block that is commented out (`Char.cpp:8351`). So a design writing a
 > `SavingThrow` script to grant, say, +2 against a spell gets nothing unless that spell also uses
 > `UseTHAC0`, which is the one branch that does add it. Reproduced.
+
+> **`SaveForHalf` is inert: it behaves exactly like `NoSave`.** `DoesSavingThrowSucceed` writes
+> `changeResult / 2.0` into a `SAVING_THROW_DATA`, and **nothing ever reads that field again**.
+> Inside `InvokeSpellOnTarget` the struct is used for exactly one thing after the call —
+> `if (stData.noEffectWhatsoever) return` — and the effect's own `changeResult` is a different
+> field on a different struct, rolled independently by `GetChange()`. So `SaveNegates` works,
+> because it sets `noEffectWhatsoever`; half damage does not exist. This is consistent with the
+> dated note in `AddSpellEffect` (`Char.cpp:11994`) recording that spell effects were being applied
+> despite a successful save — fixed in 2014 by adding an `EFFECT_NONE` flag rather than by wiring
+> the multiplier up. **23 / 6 / 24 spells** in the three designs declare save-for-half and get full
+> effect. `SavingThrow.Resolve` still returns the 0.5, so the seam is one line from being honest
+> whenever that is wanted; nothing in the port consumes it yet either.
 
 **Targeting.** Ten modes, and the setup is a table:
 
@@ -3777,7 +3830,7 @@ monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
 art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
-begin a spell, end. Read the seventeen "as ported" sections under §7 Phase 4 before touching any of
+begin a spell, end. Read the eighteen "as ported" sections under §7 Phase 4 before touching any of
 it.
 
 What is left, in order:
@@ -3788,7 +3841,11 @@ What is left, in order:
    1. **choosing the targets** — `COMBAT_SPELL_AIM_MENU_DATA` for the player, and the AI's own
       pick for a monster;
    2. **applying the effects** — `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
-      arithmetic and bookkeeping, all ported, but nothing calls them from a cast yet; and
+      arithmetic and bookkeeping and `DiceExpression` now turns a design's text into a number
+      (§dice expressions), all ported, but nothing calls them from a cast yet. The per-target
+      sequence to reproduce is `InvokeSpellOnTarget` (`Char.cpp:15987`): refuse a non-cumulative
+      spell the target already has, roll the save unless `Save_Result` is `NoSave`, drop out on
+      `noEffectWhatsoever`, then roll and add each effect; and
    3. **the lingering-spell area effects** that movement and the round both call and neither has.
 
    Until this exists, an immediate spell says so rather than silently doing nothing.
