@@ -130,19 +130,48 @@ public sealed class CombatRound
     }
 
     /// <summary>
-    /// Records whether anything happened this round, and ends the fight after
-    /// <see cref="MaxIdleRounds"/> of nothing.
+    /// Whether nobody has attacked for long enough to call the fight off
+    /// (<c>CheckIdleTime</c>, <c>Combatants.cpp:4480</c>).
     /// </summary>
+    /// <param name="lastAttackRounds">
+    /// Each combatant's <see cref="Combatant.LastAttackRound"/>.
+    /// </param>
     /// <remarks>
-    /// The original's guard against two sides that cannot reach each other. Now that unreachable
-    /// monsters are removed at setup (<see cref="CombatSetup"/>) this is rarer, but a fight where
-    /// both sides only guard still needs an end.
+    /// <para>
+    /// <b>It is the minimum across every combatant, not a per-round flag.</b> The reference takes
+    /// the smallest <c>currentRound − lastAttackRound</c> over the whole list and calls the fight
+    /// idle when even that exceeds <see cref="MaxIdleRounds"/> — so <i>one</i> combatant still
+    /// swinging keeps everybody in it, and a fight only ends when nothing has attacked at all for
+    /// twenty rounds.
+    /// </para>
+    /// <para>
+    /// An earlier revision of this port had a per-round "did anything happen" counter here
+    /// instead. It was an invention, and a fragile one: any caller that treated a miss or a step
+    /// as activity would never fire it. The real rule keys on attacks alone.
+    /// </para>
     /// </remarks>
-    public void RecordActivity(bool anythingHappened)
+    public bool IsIdle(IEnumerable<int> lastAttackRounds)
     {
-        IdleRounds = anythingHappened ? 0 : IdleRounds + 1;
-        if (IdleRounds >= MaxIdleRounds)
+        ArgumentNullException.ThrowIfNull(lastAttackRounds);
+
+        int smallest = int.MaxValue;
+        foreach (int last in lastAttackRounds)
         {
+            smallest = Math.Min(smallest, Round - last);
+        }
+
+        // An empty list is not idle: there is nobody to be idle.
+        return smallest != int.MaxValue && smallest > MaxIdleRounds;
+    }
+
+    /// <summary>
+    /// Ends the fight when <see cref="IsIdle"/> says so, and reports the current idle span.
+    /// </summary>
+    public void CheckIdleTime(IEnumerable<int> lastAttackRounds)
+    {
+        if (IsIdle(lastAttackRounds))
+        {
+            IdleRounds = MaxIdleRounds;
             IsOver = true;
         }
     }

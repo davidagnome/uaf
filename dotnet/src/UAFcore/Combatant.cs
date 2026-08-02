@@ -219,10 +219,12 @@ public sealed class Combatant
 
     /// <summary>The round this combatant last attacked in (<c>lastAttackRound</c>).</summary>
     /// <remarks>
-    /// Used only to stop a fractional attack being spent in consecutive rounds — see
-    /// <see cref="Targeting.CanAttack"/>.
+    /// <b>Starts at zero</b> (<c>Combatant.cpp:127</c>), not at a sentinel — which matters, because
+    /// <c>CheckIdleTime</c> subtracts it from the round number and a sentinel would overflow. Two
+    /// rules read it: the fractional-attack limit (<see cref="Targeting.CanAttack"/>) and the idle
+    /// detection that ends a fight nobody is fighting (<see cref="CombatRound.IsIdle"/>).
     /// </remarks>
-    public int LastAttackRound { get; set; } = int.MinValue;
+    public int LastAttackRound { get; set; }
 
     /// <summary>
     /// Whether this combatant can see through invisibility (<c>GetAdjDetectingInvisible</c>).

@@ -282,33 +282,53 @@ public class CombatRoundTests
     }
 
     [Fact]
-    public void A_fight_where_nothing_happens_eventually_stops()
+    public void A_fight_where_nobody_attacks_is_eventually_called_off()
     {
+        // CheckIdleTime takes the smallest `round - lastAttackRound` over the whole list, so the
+        // fight only ends when nothing at all has attacked for twenty rounds.
         var round = new CombatRound();
-        for (int i = 0; i < CombatRound.MaxIdleRounds - 1; i++)
-        {
-            round.RecordActivity(anythingHappened: false);
-        }
-        Assert.False(round.IsOver);
+        int[] neverAttacked = [0, 0, 0];
 
-        round.RecordActivity(anythingHappened: false);
+        for (int i = 0; i < CombatRound.MaxIdleRounds; i++)
+        {
+            round.BeginRound();
+            round.CheckIdleTime(neverAttacked);
+            Assert.False(round.IsOver);
+        }
+
+        round.BeginRound();
+        round.CheckIdleTime(neverAttacked);
         Assert.True(round.IsOver);
     }
 
     [Fact]
-    public void Any_activity_resets_the_idle_count()
+    public void One_combatant_still_swinging_keeps_everybody_in_the_fight()
     {
+        // The minimum, not the average and not a per-round flag: a single active combatant holds
+        // the whole encounter open.
         var round = new CombatRound();
-        for (int i = 0; i < CombatRound.MaxIdleRounds - 1; i++)
+        for (int i = 0; i < CombatRound.MaxIdleRounds + 5; i++)
         {
-            round.RecordActivity(anythingHappened: false);
+            round.BeginRound();
         }
 
-        round.RecordActivity(anythingHappened: true);
-        Assert.Equal(0, round.IdleRounds);
+        Assert.True(round.IsIdle([0, 0, 0]));
+        Assert.False(round.IsIdle([0, 0, round.Round]));
 
-        round.RecordActivity(anythingHappened: false);
+        round.CheckIdleTime([0, 0, round.Round]);
         Assert.False(round.IsOver);
+    }
+
+    [Fact]
+    public void An_encounter_with_nobody_in_it_is_not_idle()
+    {
+        var round = new CombatRound();
+        for (int i = 0; i < CombatRound.MaxIdleRounds + 5; i++)
+        {
+            round.BeginRound();
+        }
+
+        Assert.False(round.IsIdle([]));
     }
 
     [Fact]

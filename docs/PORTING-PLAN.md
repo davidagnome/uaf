@@ -11,9 +11,9 @@ running engine: it opens a design, walks a level, renders the viewport, executes
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
-stacking under it, **a combat screen that draws it**, encounters built from real events, and a
-player-driven combat menu. Phases 5–7 have not started.
-**1,496 tests, green on macOS, Linux and Windows; both CI workflows green.**
+stacking under it, **a combat screen that draws it**, and **a combat session that runs a real
+encounter to a verdict** with or without a player in it. Phases 5–7 have not started.
+**1,509 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2365,6 +2365,36 @@ WIN, READY, END and a design-supplied special whose default label is SWEEP.
 > straight to the menu disables its *neighbour* — the same off-by-one the treasure screen's indices
 > set, and this document's note about that is what made it obvious to look for here.
 
+##### The combat session, as ported
+
+`CombatSession` owns one fight end to end: `EncounterBuilder` makes the combatants, `CombatSetup`
+places them, `CombatRound` orders the turns, `MonsterAi` decides for the computer-run ones,
+`CombatMenu` offers the player its commands, and `CombatRenderer` draws it. **A fight now runs from
+a real `CombatEvent` to a verdict**, with or without a player in it.
+
+**The reference has no object like this.** Its combat lives in `COMBAT_DATA`, a global, driven by
+the `CProcinp` task scheduler through `RunEvent.cpp`'s state machine. The engine here is still a
+synchronous loop (§7 Phase 4 item 5), so the session owns the fight directly and the scheduler
+stays unported — keeping it out of `Game` is also what lets a fight be driven in a test with no
+loaded design.
+
+Only four commands do anything: MOVE walks to the cursor, AIM attacks what it lands on, GUARD and
+END finish the turn. **The rest report that they are not implemented rather than silently ending
+the turn** — a command that appears to work and does nothing is worse than one that says so.
+Casting is greyed at the menu, since the casting half of the spell layer is unported.
+
+> **`CheckIdleTime` is not a per-round activity flag, and an earlier revision of this port invented
+> one.** The real rule (`Combatants.cpp:4480`) takes the smallest `currentRound − lastAttackRound`
+> across **every** combatant and calls the fight off only when even that exceeds twenty — so a
+> single combatant still swinging holds the whole encounter open. `CombatRound.RecordActivity` has
+> been replaced by `IsIdle` / `CheckIdleTime`, which is what the reference does.
+>
+> Two consequences worth stating, because a test got both wrong first time. **The rule keys on
+> attacking, not on hitting**: `Attack.Resolve` stamps `lastAttackRound` whether or not the blow
+> lands, so two sides swinging and missing forever are *not* idle and the fight does not end. And
+> `lastAttackRound` **starts at zero**, not at a sentinel — a sentinel would overflow the
+> subtraction.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3425,14 +3455,15 @@ objects — and `CombatRenderer` now draws the map with the zone's own art (§th
 Every ingredient now exists — `EncounterBuilder` makes the combatants, `CombatSetup` places them,
 `CombatRenderer` draws them, and the round machinery runs them. What is left is:
 
-1. **Combat state in `Game`** — the last structural piece. Drive the loop the scratch harness
-   already proves (round, `MonsterAi.Think`, movement, attack), draw through `CombatRenderer`, and
-   present `CombatMenu` when the acting combatant is player-run. Mechanical, given everything
-   below; the work is in `Game`'s own state machine rather than in anything new.
-2. **The commands themselves.** `CombatMenu` decides what is *offered*; MOVE, AIM, USE, CAST and
-   the rest still need to do something when chosen. MOVE and AIM are nearly free — the cursor and
-   `CombatMovement` exist — while CAST needs the casting half of the spell layer, which is the
-   largest unported piece of combat left.
+1. **Hanging `CombatSession` off `Game`.** The session is complete and tested, but `Game` still
+   routes a `CombatEvent` to `EventRunner`'s unsupported arm, so walking onto one prints
+   `[Combat here -- not implemented]`. What is needed is a branch in `Game.Update` / `Game.Render`
+   that starts a session, routes input to it, draws it, and hands back a result when it ends. Small
+   and mechanical — the session takes a party and a dice roller and nothing else.
+2. **The rest of the commands.** MOVE, AIM, GUARD and END work; USE, CAST, TURN, BANDAGE, QUICK,
+   DELAY, VIEW and SPEED report that they are not implemented. **CAST is the big one** — it needs
+   the casting half of the spell layer (choosing a spell, saving throws, the lingering-spell area
+   effects), which is now the largest unported piece of combat.
 3. **Monster icons**, which combat placement needs for real footprints (see the encounter section)
    and the renderer needs to draw anything but coloured blocks. `PicRecord` is already read.
 
