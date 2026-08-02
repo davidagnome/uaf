@@ -173,6 +173,9 @@ public sealed class Combatant
     /// <summary>What this combatant carries (<c>myItems</c>).</summary>
     public List<UAF.Serialization.ItemInstance> Items { get; } = [];
 
+    /// <summary>What it carries in coin, gems and jewellery, or null.</summary>
+    public UAF.Serialization.MoneySack? Money { get; set; }
+
     /// <summary>
     /// Spends one charge of an item.
     /// </summary>

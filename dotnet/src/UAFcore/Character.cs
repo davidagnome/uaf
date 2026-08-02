@@ -71,6 +71,7 @@ public sealed class Character
         HitPoints = record.HitPoints;
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
+        Status = (CharacterStatus)record.Status;
 
         baseclasses =
         [
@@ -101,6 +102,17 @@ public sealed class Character
 
     /// <summary>Current hit points, which combat and healing move.</summary>
     public int HitPoints { get; set; }
+
+    /// <summary>
+    /// The character's condition (<c>charStatusType</c>). Seeded from the record and changed by
+    /// combat.
+    /// </summary>
+    /// <remarks>
+    /// Load-bearing outside combat too: only a character who is
+    /// <see cref="CharacterStatus.Okay"/> shares in a fight's experience
+    /// (<see cref="CombatAftermath.Distribute"/>).
+    /// </remarks>
+    public CharacterStatus Status { get; set; }
 
     /// <summary>This character's own money, as distinct from the party's pooled purse.</summary>
     public Purse Purse { get; }

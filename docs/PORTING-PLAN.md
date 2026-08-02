@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,804 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,826 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,43 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### The combat aftermath, as ported
+
+`DetermineVictoryExpPoints` and the results screen (`Combatants.cpp:4315`, `RunEvent.cpp:19669`) —
+experience, treasure and the verdict a design's scripts read. `UAFcore/CombatAftermath.cs`, wired
+into `Game`. **Combat is now a closed loop**: a fight starts from an event, runs to a verdict, pays
+out, and hands the chain back.
+
+- **Only the *dead* count, for both experience and treasure.** The test is
+  `GetAdjStatus() == Dead` and nothing else, so a monster that fled, was turned or is merely
+  unconscious is worth nothing and keeps its possessions. **A fight won by driving everything off
+  the map pays no experience at all.**
+- The monster modifier is a percentage added on top (`mod=100` doubles it), and the total is
+  clamped at zero afterwards.
+- **Treasure items carry experience of their own**, counted from the treasure rather than from what
+  the party already holds and added *before* the share-out — so finding a magic sword pays for the
+  finding.
+- **Only characters with status `Okay` share**, and **the whole remainder goes to the first of
+  them** rather than being spread: three survivors and 100 points gives 34, 33, 33.
+- **Fled party members are restored to `Okay` on the way out**, on both a win and a flight — but
+  *after* the experience is shared, so a character who ran does not share in the fight they left.
+- Lingering spells are cleared at combat end (`RemoveLingerSpells`).
+
+> **"Fled" is derived after the fact, not decided during the fight.** The reference settles on
+> `MonsterWins` and only then scans the party for anyone with status `Fled`, promoting the result
+> to `PartyRanAway` if it finds one. A loss where a single character escaped is therefore a
+> *flight*, not a defeat — and the check is any member, not all of them.
+
+> **A monster's spell-casting items do not drop.** The filter is
+> `(Wpn_Type != SpellCaster && Wpn_Type != SpellLikeAbility) || CanBeTradeDropSoldDep`, so a wand
+> a monster used is kept out of the treasure unless the design explicitly marks it tradeable.
+> Dropping the filter hands the party every enemy wand in the game.
+
+The verdict reaches a design through a global ASL named **`"Combat Result"`**, whose values are
+`"Win"`, `"Lose"`, `"LoseButNeverDies"` and `"Flee"`. Those strings are the interface — a design
+tests them by name — so they are transcribed rather than derived. The ASL layer itself is not
+wired yet; `CombatResult` and `ResultText` are the seam.
+
 ##### Using an item, as ported
 
 USE and the item-spell path (`ITEMS_MENU_DATA` → `CastItemSpell`, `RunEvent.cpp:15917`,
@@ -4033,8 +4070,11 @@ What is left, in order:
    unlocks the scripted AI, and with it a monster's own choice of spell and targets, which this
    port currently approximates (§choosing a spell's targets), and the `TURN_ATTEMPT` hook that
    turning undead entirely depends on (§turning, delaying and automatic).
-2. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
-   read. `CombatSession` reports the verdict; nothing consumes it yet.
+2. **The `"Combat Result"` ASL**, and the ASL layer generally. The aftermath computes the verdict
+   and the spoils (§the combat aftermath) but nothing stores them where a design's scripts look.
+   That is the same gap as the GPDL hooks below, reached from the other end.
+3. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
+   reports them in the message line and drops them. The treasure screen itself exists (§Phase 4).
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped

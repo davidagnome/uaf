@@ -511,14 +511,25 @@ public sealed class Game
         {
             var outcome = session.Outcome;
             var finished = CurrentEvent;
+            var spoils = SettleCombat(session, finished as CombatEvent);
             Combat = null;
             CurrentEvent = null;
-            Message = outcome switch
+
+            Message = spoils.Result switch
             {
-                CombatOutcome.PartyWon => "The party is victorious!",
-                CombatOutcome.PartyLost => "The party has fallen.",
-                _ => "The fight breaks off.",
+                CombatResult.Win => spoils.Experience > 0
+                    ? $"The party is victorious, and receives {spoils.Experience} "
+                      + "experience points."
+                    : "The party is victorious!",
+                CombatResult.Flee => "The party has run away.",
+                CombatResult.LoseButNeverDies => "The party has survived.",
+                _ => "The party has fallen.",
             };
+
+            if (spoils.Items.Count > 0)
+            {
+                Message += $" {spoils.Items.Count} item(s) left behind.";
+            }
 
             if (finished is not null)
             {
@@ -527,6 +538,75 @@ public sealed class Game
         }
 
         return changed || !session.IsActive;
+    }
+
+    /// <summary>
+    /// What a finished fight is worth (<c>COMBAT_RESULTS_MENU_DATA::OnInitialEvent</c>,
+    /// <c>RunEvent.cpp:19669</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The order matters and is the reference's: clear the lingering spells, total the experience
+    /// (monsters first, then the treasure's own items), share it out, then gather the treasure.
+    /// An item's experience is counted from the <i>treasure</i> and added <i>before</i> the
+    /// distribution, so finding a magic sword pays for the finding.
+    /// </para>
+    /// <para>
+    /// <b>Fled party members are restored to <c>Okay</c> on the way out</b>, on both a win and a
+    /// flight (<c>RunEvent.cpp:19787</c>) — otherwise a character who ran once would stay fled for
+    /// the rest of the game. They are restored <i>after</i> the experience is shared, so a
+    /// character who fled does not share in the fight they left.
+    /// </para>
+    /// </remarks>
+    private CombatSpoils SettleCombat(CombatSession session, CombatEvent? combat)
+    {
+        session.Lingering.Clear();
+
+        var result = CombatAftermath.ResultOf(session.Outcome, session.Combatants,
+                                              partyNeverDies: combat?.PartyNeverDies != 0);
+
+        if (result != CombatResult.Win)
+        {
+            RestoreFled();
+            return new CombatSpoils(result, 0, [], []);
+        }
+
+        var (items, money) = CombatAftermath.Loot(
+            session.Combatants, id => design.Item(id),
+            noMonsterTreasure: combat?.NoMonsterTreasure != 0);
+
+        int experience = CombatAftermath.ExperienceFor(
+            session.Combatants, ExperienceWorth,
+            partyNoExperience: combat?.PartyNoExperience != 0);
+
+        if (combat?.PartyNoExperience == 0)
+        {
+            experience += CombatAftermath.ExperienceIn(items, id => design.Item(id));
+        }
+
+        CombatAftermath.Distribute(Party.Members, experience);
+        RestoreFled();
+
+        return new CombatSpoils(result, experience, items, money);
+    }
+
+    /// <summary>
+    /// What one fallen combatant is worth (<c>getCharExpWorth</c>).
+    /// </summary>
+    /// <remarks>
+    /// Read off the monster database by name, as the encounter builder placed it. A combatant with
+    /// no monster record — a party member, or a name the design does not hold — is worth nothing.
+    /// </remarks>
+    private int ExperienceWorth(Combatant combatant) =>
+        design.Monster(combatant.Name)?.ExperienceValue ?? 0;
+
+    /// <summary>Puts anyone who ran back on their feet, as the results screen does.</summary>
+    private void RestoreFled()
+    {
+        foreach (var member in Party.Members.Where(m => m.Status == CharacterStatus.Fled))
+        {
+            member.Status = CharacterStatus.Okay;
+        }
     }
 
     private void StartEvent(IGameEvent gameEvent)
