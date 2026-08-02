@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,954 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,960 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2688,10 +2688,11 @@ The attribute sub-opcodes (`GPDLexec.cpp:4178`, `:5498`, `:3379`) and `UAFcore/G
 **The first family of game-state calls the GPDL VM can actually serve** — until now it ran the
 bytecode faithfully and refused every one of the ~250 calls that touch the engine.
 
-`$SET_GLOBAL_ASL`, `$GET_GLOBAL_ASL`, `$SET_PARTY_ASL`, `$GET_PARTY_ASL`, `$IF_PARTY_ASL` and
-`$DELETE_PARTY_ASL` now run against the real stores: the design's global one (§the attribute store)
-and the party's own. `GameScriptHost` is the first `IGpdlHost` backed by a running game;
-`GpdlUnhostedEnvironment` keeps its in-memory stand-in so the VM's own tests need no engine.
+`$SET_GLOBAL_ASL`, `$GET_GLOBAL_ASL`, `$SET_PARTY_ASL`, `$GET_PARTY_ASL`, `$IF_PARTY_ASL`,
+`$DELETE_PARTY_ASL`, `$SET_CHAR_ASL`, `$GET_CHAR_ASL` and `$IF_CHAR_ASL` now run against the real
+stores: the design's global one (§the attribute store), the party's own, and each character's.
+`GameScriptHost` is the first `IGpdlHost` backed by a running game; `GpdlUnhostedEnvironment` keeps
+its in-memory stand-in so the VM's own tests need no engine.
 
 - **The value is on top of the stack, not the key.** GPDL pushes arguments left to right, so
   `$SET_GLOBAL_ASL(key, value)` leaves the value on top and it is popped first. Reading the pops in
@@ -2702,6 +2703,21 @@ and the party's own. `GameScriptHost` is the first `IGpdlHost` backed by a runni
 - **A missing key reads as the empty string**, because `Lookup` returns a shared empty string rather
   than signalling (`ASL.cpp:1089`). A script cannot tell an unset attribute from one set to nothing
   by reading it — only by asking whether the key exists.
+> **`$IF_CHAR_ASL` is not a test.** Despite the name it pushes the *value*, exactly as
+> `$GET_CHAR_ASL` does (`GPDLexec.cpp:4452`) — there is no existence check anywhere in it, and the
+> commented-out code above shows it was a lookup before too. A script using it as a boolean is
+> really testing the value for emptiness, so an attribute deliberately set to nothing reads as
+> false. Its party-scoped namesake `$IF_PARTY_ASL` *does* test existence, which makes the pair
+> actively misleading.
+
+- **Characters are named by id, not by party index.** A dated comment records the change: "almost
+  all functions use the uniqueID of the character rather than the party index. I decided that the
+  few exceptions should be treated as 'bugs'" (`:1845`). The *combat order* alternative the same
+  comment mentions is not resolved by this port — a script naming a combatant by its place in the
+  fight finds nobody.
+- **An actor that resolves to nobody is not an error.** The reference puts a message box in front of
+  the player and returns a null character whose store swallows the write, so a design with a
+  typo'd actor limps rather than stops. Same here, without the dialog.
 - **A script-set attribute carries no flags at all.** `InsertGlobalASL` defaults its `flags`
   parameter to zero and the sub-opcode passes nothing, so it is never marked modified. It still
   reaches a save game, so nothing observable turns on it — but the flag is not evidence a script
@@ -4353,9 +4369,10 @@ What is left, in order:
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
    small and collectively large, and each needs the port to have the state it asks about.
-   `$SET_CHAR_ASL` and `$GET_CHAR_ASL` are the obvious next few: `Character.Attributes` exists
-   (§the one thing a character's attribute store is used for), and what is missing is the
-   unique-id lookup the reference switched to.
+   The whole attribute family is done — global, party and per-character. The next natural group is
+   the character *stats* (`$GET_CHAR_HITPOINTS`, `$GET_CHAR_AC`, `$GET_CHAR_NAME` and their
+   neighbours), which resolve their actor exactly the same way and read state `Character` already
+   holds.
 2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.

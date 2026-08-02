@@ -44,4 +44,33 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// <inheritdoc/>
     public override void DeleteAsl(GpdlAslScope scope, string key) =>
         Store(scope).Remove(key);
+
+    /// <summary>
+    /// Resolves the actor string a script pushed to one of the party.
+    /// </summary>
+    /// <remarks>
+    /// <b>By character id, which is the unique id the reference settled on.</b> A dated comment
+    /// records the change: "almost all functions use the uniqueID of the character rather than the
+    /// party index. I decided that the few exceptions should be treated as 'bugs'"
+    /// (<c>GPDLexec.cpp:1845</c>). The <i>combat order</i> alternative the same comment mentions is
+    /// not resolved here — a script naming a combatant by its place in the fight finds nobody.
+    /// <para>
+    /// A name that resolves to nobody is not an error here. The reference puts a message box in
+    /// front of the player and returns a null character whose store swallows the write
+    /// (<c>GPDLexec.cpp:908</c>); a design with a typo'd actor therefore limps rather than stops,
+    /// and it does the same here without the dialog.
+    /// </para>
+    /// </remarks>
+    private Character? Resolve(string actor) =>
+        game.Party.Members.FirstOrDefault(
+            m => string.Equals(m.CharacterId, actor, StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(m.Name, actor, StringComparison.OrdinalIgnoreCase));
+
+    /// <inheritdoc/>
+    public override string GetCharAsl(string actor, string key) =>
+        Resolve(actor)?.Attributes.Find(key) ?? string.Empty;
+
+    /// <inheritdoc/>
+    public override void SetCharAsl(string actor, string key, string value) =>
+        Resolve(actor)?.Attributes.Insert(key, value);
 }

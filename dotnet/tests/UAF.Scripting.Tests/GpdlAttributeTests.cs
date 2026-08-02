@@ -139,4 +139,71 @@ public class GpdlAttributeTests
 
         Assert.Equal("", Run("""$RETURN $DELETE_PARTY_ASL("never there");""", host));
     }
+
+    // ---- per-character stores ------------------------------------------------------------------
+
+    [Fact]
+    public void A_characters_attribute_is_kept_under_that_character()
+    {
+        var host = Host();
+
+        Assert.Equal("wounded", Run("""
+            $SET_CHAR_ASL("hero", "mood", "wounded");
+            $RETURN $GET_CHAR_ASL("hero", "mood");
+            """, host));
+
+        Assert.Equal("wounded", host.CharacterAttributes["hero"]["mood"]);
+    }
+
+    [Fact]
+    public void Two_characters_do_not_share_a_store()
+    {
+        var host = Host();
+
+        Assert.Equal("b", Run("""
+            $SET_CHAR_ASL("alice", "mood", "a");
+            $SET_CHAR_ASL("bob", "mood", "b");
+            $RETURN $GET_CHAR_ASL("bob", "mood");
+            """, host));
+
+        Assert.Equal("a", host.CharacterAttributes["alice"]["mood"]);
+    }
+
+    [Fact]
+    public void Reading_a_character_nobody_answers_to_gives_the_empty_string()
+    {
+        Assert.Equal("", Run("""$RETURN $GET_CHAR_ASL("nobody", "mood");""", Host()));
+    }
+
+    [Fact]
+    public void If_char_asl_pushes_the_value_rather_than_a_boolean()
+    {
+        // Despite the name, it is the same call as $GET_CHAR_ASL -- there is no existence check
+        // anywhere in it. A script using it as a boolean is testing the value for emptiness.
+        var host = Host();
+
+        Assert.Equal("wounded", Run("""
+            $SET_CHAR_ASL("hero", "mood", "wounded");
+            $RETURN $IF_CHAR_ASL("hero", "mood");
+            """, host));
+    }
+
+    [Fact]
+    public void If_char_asl_on_an_attribute_set_to_nothing_reads_as_false()
+    {
+        // The consequence of the previous test: an attribute that exists but is empty is
+        // indistinguishable from one that was never set, because the value is what comes back.
+        var host = Host();
+
+        Assert.Equal("", Run("""
+            $SET_CHAR_ASL("hero", "mood", "");
+            $RETURN $IF_CHAR_ASL("hero", "mood");
+            """, host));
+    }
+
+    [Fact]
+    public void Setting_a_character_attribute_yields_the_value()
+    {
+        Assert.Equal("v", Run("""$RETURN $SET_CHAR_ASL("hero", "k", "v");""", Host()));
+    }
 }

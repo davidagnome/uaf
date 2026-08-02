@@ -89,6 +89,27 @@ public interface IGpdlHost
     /// </remarks>
     void SetAsl(GpdlAslScope scope, string key, string value);
 
+    /// <summary>
+    /// Reads an attribute from one character's store
+    /// (<c>$GET_CHAR_ASL</c>, and <c>$IF_CHAR_ASL</c> — see the remarks).
+    /// </summary>
+    /// <param name="actor">
+    /// The actor string the script pushed. The reference turns it into a character with
+    /// <c>m_StringToActor</c> and complains to the player when it names nobody
+    /// (<c>GPDLexec.cpp:908</c>); resolution is the host's business either way.
+    /// </param>
+    /// <remarks>
+    /// <b><c>$IF_CHAR_ASL</c> is the same call, not a test.</b> Despite the name it pushes the
+    /// <i>value</i> exactly as <c>$GET_CHAR_ASL</c> does (<c>GPDLexec.cpp:4452</c>) — there is no
+    /// existence check anywhere in it, and the commented-out code above shows it was a lookup
+    /// before too. A script using it as a boolean is really testing the value for emptiness, which
+    /// is only accidentally the same thing.
+    /// </remarks>
+    string GetCharAsl(string actor, string key);
+
+    /// <summary>Writes an attribute to one character's store (<c>$SET_CHAR_ASL</c>).</summary>
+    void SetCharAsl(string actor, string key, string value);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -144,6 +165,29 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     /// <inheritdoc/>
     public virtual void SetAsl(GpdlAslScope scope, string key, string value) =>
         Attributes[scope][key] = value;
+
+    /// <summary>Per-character stores, by whatever the actor string was.</summary>
+    public Dictionary<string, Dictionary<string, string>> CharacterAttributes { get; } =
+        new(StringComparer.Ordinal);
+
+    /// <inheritdoc/>
+    public virtual string GetCharAsl(string actor, string key) =>
+        CharacterAttributes.TryGetValue(actor, out var store)
+        && store.TryGetValue(key, out string? value)
+            ? value
+            : string.Empty;
+
+    /// <inheritdoc/>
+    public virtual void SetCharAsl(string actor, string key, string value)
+    {
+        if (!CharacterAttributes.TryGetValue(actor, out var store))
+        {
+            store = new Dictionary<string, string>(StringComparer.Ordinal);
+            CharacterAttributes[actor] = store;
+        }
+
+        store[key] = value;
+    }
 
     /// <inheritdoc/>
     public virtual bool HasAsl(GpdlAslScope scope, string key) =>

@@ -800,6 +800,24 @@ public sealed class GpdlVirtualMachine
                 _host.DeleteAsl(GpdlAslScope.Party, PopSp());
                 PushSp(False);
                 break;
+            case SubOp.SUBOP_SET_CHAR_ASL:
+                {
+                    // Three arguments, so three pops: value, key, then the actor.
+                    string value = PopSp();
+                    string key = PopSp();
+                    _host.SetCharAsl(PopSp(), key, value);
+                    PushSp(value);
+                    break;
+                }
+            case SubOp.SUBOP_GET_CHAR_ASL:
+            case SubOp.SUBOP_IF_CHAR_ASL:
+                {
+                    // IF_CHAR_ASL is the same call despite the name -- it pushes the value, not a
+                    // boolean. See IGpdlHost.GetCharAsl.
+                    string key = PopSp();
+                    PushSp(_host.GetCharAsl(PopSp(), key));
+                    break;
+                }
             case SubOp.SUBOP_GREP:
                 {
                     string text = PopSp();
