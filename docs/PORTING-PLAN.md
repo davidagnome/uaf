@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,945 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,954 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2682,6 +2682,35 @@ across it.
 of the aftermath rather than in `Game` — the decision is aftermath logic, and putting it there makes
 it directly testable rather than reachable only by driving a whole fight.
 
+##### A script that can reach game state, as ported
+
+The attribute sub-opcodes (`GPDLexec.cpp:4178`, `:5498`, `:3379`) and `UAFcore/GameScriptHost.cs`.
+**The first family of game-state calls the GPDL VM can actually serve** — until now it ran the
+bytecode faithfully and refused every one of the ~250 calls that touch the engine.
+
+`$SET_GLOBAL_ASL`, `$GET_GLOBAL_ASL`, `$SET_PARTY_ASL`, `$GET_PARTY_ASL`, `$IF_PARTY_ASL` and
+`$DELETE_PARTY_ASL` now run against the real stores: the design's global one (§the attribute store)
+and the party's own. `GameScriptHost` is the first `IGpdlHost` backed by a running game;
+`GpdlUnhostedEnvironment` keeps its in-memory stand-in so the VM's own tests need no engine.
+
+- **The value is on top of the stack, not the key.** GPDL pushes arguments left to right, so
+  `$SET_GLOBAL_ASL(key, value)` leaves the value on top and it is popped first. Reading the pops in
+  source order stores the key under the value.
+- **A set yields the value**, so the expression is usable; a **delete yields false whatever
+  happened** — the reference's own comment beside the push is "Must supply a result", so it exists
+  to balance the stack rather than to say anything. A script testing a delete learns nothing.
+- **A missing key reads as the empty string**, because `Lookup` returns a shared empty string rather
+  than signalling (`ASL.cpp:1089`). A script cannot tell an unset attribute from one set to nothing
+  by reading it — only by asking whether the key exists.
+- **A script-set attribute carries no flags at all.** `InsertGlobalASL` defaults its `flags`
+  parameter to zero and the sub-opcode passes nothing, so it is never marked modified. It still
+  reaches a save game, so nothing observable turns on it — but the flag is not evidence a script
+  wrote the value.
+
+The tests drive real GPDL source through the compiler and the VM rather than poking the
+interpreter, so the argument order the code generator emits is under test alongside the
+sub-opcodes.
+
 ##### The one thing a character's attribute store is used for, as ported
 
 `AddKnowableSpell`, `DelKnowableSpell`, `ClrKnowableSpell` (`Char.cpp:1145`) —
@@ -4320,13 +4349,13 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **Reading the attribute store from a script.** The global and per-character stores exist, the
-   combat verdict reaches one and `$KnowableSpells$` uses the other (§the attribute store, §the one
-   thing a character's attribute store is used for) — but no script layer consults either. That is
-   the GPDL gap below, reached from the other end. The **per-event and per-item** stores are still
-   read off the wire and dropped; they need mutable event and item objects, which this port does not
-   have (its records are immutable), so that is a design decision rather than an omission to
-   correct blindly.
+1. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
+   (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
+   character stats, party queries, combat state — still throw with a citation. They are individually
+   small and collectively large, and each needs the port to have the state it asks about.
+   `$SET_CHAR_ASL` and `$GET_CHAR_ASL` are the obvious next few: `Character.Attributes` exists
+   (§the one thing a character's attribute store is used for), and what is missing is the
+   unique-id lookup the reference switched to.
 2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.

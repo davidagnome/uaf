@@ -46,6 +46,16 @@ public sealed class Party
 
     public IReadOnlyList<Character> Members => members;
 
+    /// <summary>
+    /// The party's own attribute store (<c>party_asl</c>), which a design's scripts read and write
+    /// through <c>$SET_PARTY_ASL</c> and its neighbours.
+    /// </summary>
+    /// <remarks>
+    /// Starts empty: unlike the global store, nothing in a design seeds it — it exists purely for
+    /// state a script puts there during play.
+    /// </remarks>
+    public AttributeList Attributes { get; } = new();
+
     public int Count => members.Count;
 
     /// <summary>Whose turn it is to act, as an index into <see cref="Members"/>.</summary>

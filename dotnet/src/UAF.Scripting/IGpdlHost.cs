@@ -18,6 +18,16 @@ namespace UAF.Scripting;
 /// source citation rather than guessing.
 /// </para>
 /// </remarks>
+/// <summary>Which attribute store a GPDL script is reaching for.</summary>
+public enum GpdlAslScope
+{
+    /// <summary>The design's global store (<c>globalData.global_asl</c>).</summary>
+    Global,
+
+    /// <summary>The party's own store (<c>party.party_asl</c>).</summary>
+    Party,
+}
+
 public interface IGpdlHost
 {
     /// <summary>
@@ -57,6 +67,35 @@ public interface IGpdlHost
     string Wiggle(int group);
 
     /// <summary>
+    /// Reads an attribute from a named store (<c>$GET_GLOBAL_ASL</c>, <c>$GET_PARTY_ASL</c>).
+    /// </summary>
+    /// <param name="scope">Which store — see <see cref="GpdlAslScope"/>.</param>
+    /// <returns>
+    /// The value, or <b>the empty string when the key is absent</b>. The reference's
+    /// <c>Lookup</c> returns a reference to a shared empty string rather than signalling
+    /// (<c>ASL.cpp:1089</c>), so a script cannot tell an unset attribute from one set to nothing.
+    /// </returns>
+    string GetAsl(GpdlAslScope scope, string key);
+
+    /// <summary>
+    /// Writes an attribute (<c>$SET_GLOBAL_ASL</c>, <c>$SET_PARTY_ASL</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Written with no flags at all.</b> <c>InsertGlobalASL</c> defaults its <c>flags</c>
+    /// parameter to zero and the sub-opcode passes nothing (<c>GPDLexec.cpp:5501</c>), so a
+    /// script-set attribute is never marked modified. It still reaches a save game — only
+    /// read-only entries are excluded — so nothing observable turns on it, but the flag is not
+    /// evidence a script wrote the value.
+    /// </remarks>
+    void SetAsl(GpdlAslScope scope, string key, string value);
+
+    /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
+    bool HasAsl(GpdlAslScope scope, string key);
+
+    /// <summary>Removes an attribute (<c>$DELETE_PARTY_ASL</c>).</summary>
+    void DeleteAsl(GpdlAslScope scope, string key);
+
+    /// <summary>
     /// <c>$RANDOM(n)</c>. The original is <c>RollDice(n, 1, 0.0) - 1</c> (GPDLexec.cpp:5094), i.e.
     /// a value in <c>[0, n)</c> drawn from the engine's shared generator — <b>not</b>
     /// <c>rand() % n</c>, which is what the commented-out line above it used to do.
@@ -87,6 +126,32 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <summary>Messages passed to <see cref="Debug"/> and <see cref="DebugWrite"/>, in order.</summary>
     public List<string> DebugLog { get; } = [];
+
+    /// <summary>
+    /// The attribute stores, by scope. Present rather than throwing because an unhosted script that
+    /// reads an attribute should see an empty one, which is what a design with nothing set sees.
+    /// </summary>
+    public Dictionary<GpdlAslScope, Dictionary<string, string>> Attributes { get; } = new()
+    {
+        [GpdlAslScope.Global] = new(StringComparer.Ordinal),
+        [GpdlAslScope.Party] = new(StringComparer.Ordinal),
+    };
+
+    /// <inheritdoc/>
+    public virtual string GetAsl(GpdlAslScope scope, string key) =>
+        Attributes[scope].TryGetValue(key, out string? value) ? value : string.Empty;
+
+    /// <inheritdoc/>
+    public virtual void SetAsl(GpdlAslScope scope, string key, string value) =>
+        Attributes[scope][key] = value;
+
+    /// <inheritdoc/>
+    public virtual bool HasAsl(GpdlAslScope scope, string key) =>
+        Attributes[scope].ContainsKey(key);
+
+    /// <inheritdoc/>
+    public virtual void DeleteAsl(GpdlAslScope scope, string key) =>
+        Attributes[scope].Remove(key);
 
     /// <inheritdoc/>
     public virtual bool HasDiscourse => false;

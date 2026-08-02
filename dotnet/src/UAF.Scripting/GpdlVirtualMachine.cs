@@ -774,6 +774,32 @@ public sealed class GpdlVirtualMachine
                 _host.Say(PopSp());
                 PushSp(False);
                 return GpdlState.GPDL_WAIT_ACK;
+            case SubOp.SUBOP_SET_GLOBAL_ASL:
+            case SubOp.SUBOP_SET_PARTY_ASL:
+                {
+                    // Value first, then key: GPDL pushes arguments left to right, so the last one
+                    // is on top. The value is pushed back, so the expression yields what was set.
+                    string value = PopSp();
+                    string key = PopSp();
+                    _host.SetAsl(ScopeOf(op), key, value);
+                    PushSp(value);
+                    break;
+                }
+            case SubOp.SUBOP_GET_GLOBAL_ASL:
+            case SubOp.SUBOP_GET_PARTY_ASL:
+                PushSp(_host.GetAsl(ScopeOf(op), PopSp()));
+                break;
+            case SubOp.SUBOP_IF_PARTY_ASL:
+                PushSp(_host.HasAsl(GpdlAslScope.Party, PopSp()) ? True : False);
+                break;
+            case SubOp.SUBOP_DELETE_PARTY_ASL:
+                // Pushes false, not the removed value -- the reference's own comment is "Must
+                // supply a result" (GPDLexec.cpp:3383), so the push exists to balance the stack
+                // rather than to say anything. A script testing the result of a delete always
+                // sees false, whether or not the key was there.
+                _host.DeleteAsl(GpdlAslScope.Party, PopSp());
+                PushSp(False);
+                break;
             case SubOp.SUBOP_GREP:
                 {
                     string text = PopSp();
@@ -835,6 +861,14 @@ public sealed class GpdlVirtualMachine
         }
         return new string(lower);
     }
+
+    /// <summary>Which attribute store a sub-opcode reaches for.</summary>
+    private static GpdlAslScope ScopeOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_SET_PARTY_ASL or SubOp.SUBOP_GET_PARTY_ASL
+            or SubOp.SUBOP_IF_PARTY_ASL or SubOp.SUBOP_DELETE_PARTY_ASL => GpdlAslScope.Party,
+        _ => GpdlAslScope.Global,
+    };
 
     private static string BuildUnportedMessage(SubOp op)
     {
