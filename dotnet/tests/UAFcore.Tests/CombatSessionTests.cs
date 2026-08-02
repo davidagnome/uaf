@@ -91,6 +91,46 @@ public class CombatSessionTests
         new("$CHAR_AC", (uint)UAF.Rules.SpellEffectFlags.Target, 0, string.Empty, 0, 0, [], 0, 0,
             Dice("-2"));
 
+    /// <summary>A spell that makes the player name two enemies.</summary>
+    private static SpellRecord PickTwoSpell(string id) =>
+        new(0, id, string.Empty, string.Empty, [],
+            Level: 1, CastingTime: 0, CastingTimeType: (int)SpellCastingTime.Rounds,
+            CanTargetFriend: 0, CanTargetEnemy: 1, IsCumulative: 0, Restrictions: 0,
+            CanBeDispelled: 1, CanMemorize: 1, AllowScribe: 0, AutoScribe: 0,
+            Lingers: 0, LingerOnceOnly: 0, SaveVersus: 0,
+            SaveResult: (int)UAF.Rules.SaveResult.NoSave,
+            Targeting: (int)SpellTargeting.SelectedByCount,
+            DurationRate: (int)UAF.Rules.SpellDurationRate.InRounds, CastCost: 0, CastPriority: 0,
+            Parameters: [], Effects: [SelfEffect()], CastArt: null, Art: [], Sounds: [],
+            CastMessage: string.Empty, Scripts: [],
+            EffectDuration: Dice("3"), SpecialAbilities: null!, Attributes: []);
+
+    /// <summary>A player-run fight whose spell needs its targets naming.</summary>
+    private static CombatSession PickTwoSession() =>
+        CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                            Party(2, auto: false), _ => Orc(), Roll(10),
+                            spellInfo: PickTwoSpell);
+
+    /// <summary>Runs the fight until the given condition holds, ENDing every player turn.</summary>
+    private static void RunUntil(CombatSession session, Func<bool> until, int steps = 2000)
+    {
+        for (int step = 0; step < steps && !until() && session.IsActive; step++)
+        {
+            if (!session.AwaitingPlayer)
+            {
+                session.Update();
+            }
+            else if (CombatMenu.At(session.Menu.ActiveItem) == CombatCommand.End)
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Return));
+            }
+            else
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Right));
+            }
+        }
+    }
+
     /// <summary>A player-run fight whose spells resolve on the caster.</summary>
     private static CombatSession SelfSpellSession() =>
         CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
@@ -663,6 +703,80 @@ public class CombatSessionTests
         Assert.Equal("shield", actor.Effects.Effects[0].SourceSpell);
         Assert.Null(actor.SpellBeingCast);
         Assert.Contains("1 of 1 affected", session.Message);
+    }
+
+    [Fact]
+    public void A_spell_that_needs_targets_hands_the_cursor_to_the_player()
+    {
+        var session = WithSpells(PickTwoSession(), "magic missile");
+        var actor = CastFirstSpell(session);
+
+        RunUntil(session, () => session.Selecting is not null);
+
+        Assert.NotNull(session.Selecting);
+        Assert.Equal(CombatMenuMode.SpellAiming, session.Mode);
+        Assert.Equal(CombatMenu.AimLabels.Length, session.Menu.Count);
+        Assert.Contains("CHOOSE", session.Message);
+        Assert.False(actor.TurnIsDone);
+    }
+
+    [Fact]
+    public void Naming_the_last_target_resolves_the_spell_and_ends_the_turn()
+    {
+        var session = WithSpells(PickTwoSession(), "magic missile");
+        var actor = CastFirstSpell(session);
+        RunUntil(session, () => session.Selecting is not null);
+
+        // The setup asks for one target, so the first TARGET finishes the selection.
+        while ((AimCommand)(session.Menu.ActiveItem + 1) != AimCommand.Target)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Null(session.Selecting);
+        Assert.Equal(CombatMenuMode.Command, session.Mode);
+        Assert.True(actor.TurnIsDone);
+        Assert.Contains("affected", session.Message);
+    }
+
+    [Fact]
+    public void Leaving_the_target_menu_with_nobody_chosen_abandons_the_spell()
+    {
+        var session = WithSpells(PickTwoSession(), "magic missile");
+        var actor = CastFirstSpell(session);
+        RunUntil(session, () => session.Selecting is not null);
+
+        while ((AimCommand)(session.Menu.ActiveItem + 1) != AimCommand.Exit)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Null(session.Selecting);
+        Assert.Contains("abandons", session.Message);
+        Assert.True(actor.TurnIsDone);
+    }
+
+    [Fact]
+    public void A_computer_run_caster_picks_its_own_targets()
+    {
+        // The reference runs the design's Forth script here; this takes what it can legally reach,
+        // so a monster casting is at least a real cast rather than a no-op.
+        var session = CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                                          Party(2), _ => Orc(), Roll(10),
+                                          spellInfo: PickTwoSpell);
+        var caster = session.Combatants[0];
+        caster.Book.Add("magic missile", level: 1, memorized: 1);
+
+        Casting.Begin(caster, "magic missile", castingTime: 1, SpellCastingTime.Rounds,
+                      session.Pending, session.Round.Round, session.Round.Queue);
+        caster.TurnIsDone = true;
+
+        RunUntil(session, () => session.Combatants.Any(c => c.Effects.Count > 0));
+
+        Assert.Contains(session.Combatants, c => c.Effects.Count > 0);
+        Assert.Null(session.Selecting);
     }
 
     [Fact]

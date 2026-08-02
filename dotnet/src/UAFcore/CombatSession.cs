@@ -405,10 +405,19 @@ public sealed class CombatSession
         List<Combatant>? targets = TargetsFor(actor, targeting, setup);
         if (targets is null)
         {
-            Message = $"{actor.Name} casts {record.Name}, but picking its targets "
-                    + "is not implemented.";
-            EndTurn(actor, CombatantState.None);
-            return;
+            // The three unit-picking modes hand the cursor to the player, who names each target in
+            // turn (COMBAT_SPELL_AIM_MENU_DATA). A computer-run caster has no such menu, so it
+            // takes what it can reach in the order the combatant list holds -- the reference's AI
+            // path for this is Forth and is not ported.
+            if (actor.IsAuto)
+            {
+                targets = [.. AutoPick(actor, targeting, setup).Select(i => combatants[i])];
+            }
+            else
+            {
+                BeginSpellTargeting(actor, record, targeting, setup);
+                return;
+            }
         }
 
         var hits = SpellResolution.InvokeAll(actor, targets, record, dice,
@@ -426,6 +435,194 @@ public sealed class CombatSession
 
     /// <summary>One key per cast, so every target of it expires together.</summary>
     private int nextActiveSpellKey;
+
+    /// <summary>The cast a player is currently choosing targets for, or null.</summary>
+    public SpellTargetSelection? Selecting { get; private set; }
+
+    private SpellRecord? selectingSpell;
+
+    /// <summary>
+    /// Hands the cursor to the player to name each target
+    /// (<c>COMBAT_SPELL_AIM_MENU_DATA</c>, <c>RunEvent.cpp:20176</c>).
+    /// </summary>
+    /// <remarks>
+    /// The same six entries as the ordinary AIM menu — the reference builds both from
+    /// <c>AimMenuData</c>. What differs is that TARGET does not end the turn: it takes a target,
+    /// re-titles the menu with how many are still wanted, and steps the cursor on.
+    /// </remarks>
+    private void BeginSpellTargeting(Combatant actor, SpellRecord record,
+                                     SpellTargeting targeting, SpellTargetingSetup setup)
+    {
+        var selection = new SpellTargetSelection(targeting, setup, combatants.Count);
+
+        if (!selection.IsValid)
+        {
+            // The reference dies here and abandons the cast.
+            Message = $"{actor.Name}'s {record.Name} cannot choose targets.";
+            EndTurn(actor, CombatantState.None);
+            return;
+        }
+
+        Selecting = selection;
+        selectingSpell = record;
+        Mode = CombatMenuMode.SpellAiming;
+        CombatMenu.BuildAim(Menu);
+        Cursor.Next(combatants, actor);
+        Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y, VisibleTilesAcross, VisibleTilesDown);
+        Message = selection.RemainingText();
+    }
+
+    /// <summary>The spell-targeting submenu, which is the AIM menu doing a different job.</summary>
+    private bool ChooseSpellAim(Combatant actor, AimCommand command)
+    {
+        var selection = Selecting!;
+
+        switch (command)
+        {
+            case AimCommand.Next:
+                Cursor.Next(combatants, actor);
+                Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case AimCommand.Previous:
+                Cursor.Previous(combatants, actor);
+                Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case AimCommand.Manual:
+                Mode = CombatMenuMode.SpellAimingManual;
+                CombatMenu.BuildAimManual(Menu);
+                Message = "Move the cursor.";
+                return true;
+
+            case AimCommand.Center:
+                Renderer.EnsureVisible(Map, actor.X, actor.Y,
+                                       VisibleTilesAcross, VisibleTilesDown);
+                return true;
+
+            case AimCommand.Target:
+                return TakeSpellTarget(actor, selection);
+
+            default:
+                // EXIT. An empty selection abandons the spell; anything else is a cast.
+                if (selection.ExitWouldAbandon)
+                {
+                    Message = $"{actor.Name} abandons {selectingSpell!.Name}.";
+                    FinishSpellTargeting(actor, cast: false);
+                }
+                else
+                {
+                    FinishSpellTargeting(actor, cast: true);
+                }
+
+                return true;
+        }
+    }
+
+    /// <summary>Manual spell aiming: TARGET takes a target, EXIT goes back to the menu.</summary>
+    private bool ChooseSpellAimManual(Combatant actor, AimManualCommand command)
+    {
+        if (command == AimManualCommand.Target)
+        {
+            return TakeSpellTarget(actor, Selecting!);
+        }
+
+        Mode = CombatMenuMode.SpellAiming;
+        CombatMenu.BuildAim(Menu);
+        Message = Selecting!.RemainingText();
+        return true;
+    }
+
+    /// <summary>Takes whatever the cursor is on, and finishes when nothing more is wanted.</summary>
+    private bool TakeSpellTarget(Combatant actor, SpellTargetSelection selection)
+    {
+        int dude = Map.OccupantAt(Cursor.X, Cursor.Y);
+
+        if (dude == CombatMap.NoDude)
+        {
+            Message = "Nothing there.";
+            return true;
+        }
+
+        var target = combatants[dude];
+        int distance = CombatMap.Distance(actor.X, actor.Y, target.X, target.Y);
+
+        if (!selection.Add(dude, target.HitDice, distance))
+        {
+            Message = $"Cannot target {target.Name}.";
+            return true;
+        }
+
+        if (selection.AllChosen)
+        {
+            FinishSpellTargeting(actor, cast: true);
+            return true;
+        }
+
+        Message = selection.RemainingText();
+        Cursor.Next(combatants, actor);
+        Renderer.EnsureVisible(Map, Cursor.X, Cursor.Y, VisibleTilesAcross, VisibleTilesDown);
+        return true;
+    }
+
+    private void FinishSpellTargeting(Combatant actor, bool cast)
+    {
+        var selection = Selecting!;
+        var record = selectingSpell!;
+        Selecting = null;
+        selectingSpell = null;
+        Mode = CombatMenuMode.Command;
+
+        if (cast)
+        {
+            var targets = selection.Targets.Select(i => combatants[i]).ToList();
+            var hits = SpellResolution.InvokeAll(actor, targets, record, dice,
+                                                 elapsedMinutes: Round.Round,
+                                                 activeSpellKey: nextActiveSpellKey++,
+                                                 casterLevel: 1);
+
+            int landed = hits.Count(h => h.Outcome == SpellOutcome.Applied);
+            Message = $"{actor.Name} casts {record.Name}: {landed} of {targets.Count} affected.";
+        }
+
+        EndTurn(actor, CombatantState.None);
+    }
+
+    /// <summary>
+    /// What a computer-run caster targets when the mode would need a menu.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not the reference's rule</b> — its monster casting runs the design's Forth script, which
+    /// is unported. This takes reachable combatants in list order, respecting the spell's friend
+    /// and enemy flags and every limit the selection enforces, so a monster casting is at least
+    /// legal rather than arbitrary. Replace it when the Forth VM lands.
+    /// </remarks>
+    private List<int> AutoPick(Combatant actor, SpellTargeting targeting,
+                               SpellTargetingSetup setup)
+    {
+        var selection = new SpellTargetSelection(targeting, setup, combatants.Count);
+
+        foreach (var c in combatants.Where(c => c.IsOnCombatMap()))
+        {
+            if (selection.AllChosen)
+            {
+                break;
+            }
+
+            if (!SpellTargets.CanTarget(setup.SelectingUnits, actor.IsFriendly, c.IsFriendly,
+                                        canTargetFriend: true, canTargetEnemy: true))
+            {
+                continue;
+            }
+
+            selection.Add(c.Index, c.HitDice,
+                          CombatMap.Distance(actor.X, actor.Y, c.X, c.Y));
+        }
+
+        return [.. selection.Targets];
+    }
 
     /// <summary>
     /// Who a cast covers, or null when the mode needs a target menu this port does not have.
@@ -543,7 +740,8 @@ public sealed class CombatSession
     private bool HandlePlayerKey(Combatant actor, VirtualKey key)
     {
         // Manual aiming steers with the arrows, so the menu cannot also use them.
-        if (Mode == CombatMenuMode.AimingManual && Steer(key))
+        if (Mode is CombatMenuMode.AimingManual or CombatMenuMode.SpellAimingManual
+            && Steer(key))
         {
             return true;
         }
@@ -566,6 +764,10 @@ public sealed class CombatSession
                         ChooseAimManual(actor, (AimManualCommand)(Menu.ActiveItem + 1)),
                     CombatMenuMode.ChoosingSpell =>
                         ChooseSpell(actor, (CastCommand)(Menu.ActiveItem + 1)),
+                    CombatMenuMode.SpellAiming =>
+                        ChooseSpellAim(actor, (AimCommand)(Menu.ActiveItem + 1)),
+                    CombatMenuMode.SpellAimingManual =>
+                        ChooseSpellAimManual(actor, (AimManualCommand)(Menu.ActiveItem + 1)),
                     _ => Choose(actor, CombatMenu.At(Menu.ActiveItem)),
                 };
 

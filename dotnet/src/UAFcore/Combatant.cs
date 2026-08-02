@@ -178,6 +178,16 @@ public sealed class Combatant
     /// <summary>Percentage magic resistance (<c>GetAdjMagicResistance</c>).</summary>
     public int MagicResistance { get; set; }
 
+    /// <summary>
+    /// Hit dice, which is what a <see cref="SpellTargeting.SelectByHitDice"/> spell spends its
+    /// budget on (<c>GetNbrHD</c>).
+    /// </summary>
+    /// <remarks>
+    /// Fractional by design: the reference's accessor returns a double, because a monster can have
+    /// a half or quarter die.
+    /// </remarks>
+    public double HitDice { get; set; } = 1;
+
     /// <summary>Armour class, as a saving throw and an attack both need it.</summary>
     public int ArmorClass { get; set; } = 10;
 

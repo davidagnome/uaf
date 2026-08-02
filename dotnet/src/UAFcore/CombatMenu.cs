@@ -163,7 +163,6 @@ public static class CombatMenu
         Fill(menu, AimLabels);
     }
 
-    /// <summary>Fills a menu with the manual-aim submenu.</summary>
     /// <summary>
     /// The CAST menu's entries (<c>CastMenuData</c>, <c>RunEvent.cpp:25761</c>).
     /// </summary>
@@ -176,6 +175,7 @@ public static class CombatMenu
     /// <summary>Puts the CAST menu up.</summary>
     public static void BuildCast(Menu menu) => Fill(menu, CastLabels);
 
+    /// <summary>Fills a menu with the manual-aim submenu.</summary>
     public static void BuildAimManual(Menu menu)
     {
         ArgumentNullException.ThrowIfNull(menu);
@@ -213,6 +213,16 @@ public enum CombatMenuMode
 
     /// <summary>Picking a spell from the book: CAST, NEXT, PREV, EXIT.</summary>
     ChoosingSpell,
+
+    /// <summary>
+    /// Naming a spell's targets. The same six entries as <see cref="Aiming"/> — the reference
+    /// builds both from <c>AimMenuData</c> — but TARGET takes a target and carries on rather than
+    /// ending the turn.
+    /// </summary>
+    SpellAiming,
+
+    /// <summary>Steering the cursor by hand while naming a spell's targets.</summary>
+    SpellAimingManual,
 }
 
 /// <summary>The CAST submenu's entries, one-based.</summary>

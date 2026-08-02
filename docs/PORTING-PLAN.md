@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,719 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,752 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,48 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Choosing a spell's targets, as ported
+
+`SPELL_TARGETING_DATA` and `COMBAT_SPELL_AIM_MENU_DATA` (`Spell.h:340`, `RunEvent.cpp:20176`) — the
+player naming each target. `UAFcore/SpellTargetSelection.cs` plus two new session modes.
+**All ten targeting modes now cast.**
+
+The submenu is the *same six entries* as the ordinary AIM menu — the reference builds both from
+`AimMenuData` — but TARGET does a different job: it takes a target, re-titles the menu with how
+many are still wanted, steps the cursor on, and only ends the turn once nothing more is wanted.
+
+- **Each limit is only enforced when it is set.** All three tests in `STD_CanAddTarget` are guarded
+  by `> 0`, so a zero maximum means *no limit* rather than none allowed — which is exactly what
+  lets `SelectByHitDice` zero `MaxTargets` and still work.
+- **A target that exactly reaches the hit-dice budget is allowed.** The test refuses only what
+  would *exceed* it, while `HDLimitReached` is `>=`, so the last pick both lands and ends the
+  selection.
+- **The hit-dice total only accumulates for the hit-dice mode**, so a budget cannot leak into a
+  spell that does not use one.
+- **Running out of combatants ends the selection as surely as filling the quota.** The count modes
+  test `NumTargets() >= GetNumCombatants()` as well as against the maximum, so a spell allowed six
+  targets in a fight with three stops after three rather than leaving the player pressing EXIT.
+  The menu title is clamped the same way.
+- **Only an empty selection prompts "ABORT THIS SPELL?"** Fewer targets than the maximum is a
+  perfectly good cast, and EXIT takes it without asking.
+- **An area spell needs both a range and a target count to be castable at all**
+  (`ValidNumTargets`). A design leaving an area spell's quantity at zero cannot cast it, and
+  nothing fills that in; the reference `die()`s and abandons the cast.
+
+> **A computer-run caster is this port's own rule, not the reference's.** Monster casting there
+> runs the design's Forth script, which is unported, so a monster here takes whatever it can
+> legally reach in combatant order — respecting the spell's friend and enemy flags and every limit
+> the selection enforces. Legal rather than arbitrary, and the seam to replace when Forth lands.
+
+> **A transposed call in the reference feeds a garbage range into target selection.** At
+> `RunEvent.cpp:20233` the distance is taken as
+> `Distance(caster->self, caster->x, caster->y, target->self, target->y)` — five arguments where
+> the matching overload is `Distance(sX, sY, attackee, dX, dY)`, so the caster's *index* arrives as
+> an x coordinate and the target's x is missing entirely. The value goes straight to
+> `C_AddTarget`'s range check. This port computes the distance properly, which is a deliberate
+> divergence: reproducing it would mean reproducing an argument-order slip with no defensible
+> behaviour behind it.
+
 ##### Spell resolution, as ported
 
 `CHARACTER::InvokeSpellOnTarget` (`Char.cpp:15987`) — what a spell actually does to a target.
@@ -3870,26 +3912,21 @@ monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
 art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
-begin a spell, end. Read the nineteen "as ported" sections under §7 Phase 4 before touching any of
+begin a spell, end. Read the twenty "as ported" sections under §7 Phase 4 before touching any of
 it.
 
 What is left, in order:
 
-1. **Picking spell targets by hand.** Casting works end to end for self, whole-party and all five
-   area shapes (§spell resolution), but the three modes that need the player to pick individual
-   combatants — `SelectedByCount`, `TouchedTargets`, `SelectByHitDice` — need
-   `COMBAT_SPELL_AIM_MENU_DATA` (`RunEvent.cpp:15493`), and a monster casting needs the AI's own
-   pick. Everything underneath is built: the clock, the saving throw, the geometry, the expression
-   evaluator and the per-target sequence.
-2. **The lingering-spell area effects** that movement and the round both call and neither has
+1. **The lingering-spell area effects** that movement and the round both call and neither has
    (`SPELL_LINGER_DATA`). The `Lingers` flag is read and stored and nothing acts on it; about a
    fifth of the spells in the shipped designs set it.
-3. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
+2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
    ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
    invocation.
-4. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
+3. **The Forth VM**, which unlocks the scripted AI — and with it a monster's own choice of spell
+   and targets, which this port currently approximates (§choosing a spell's targets) (§the monster AI section) and is the last large
    unported subsystem in Phase 2.
-5. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
+4. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
    read. `CombatSession` reports the verdict; nothing consumes it yet.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
