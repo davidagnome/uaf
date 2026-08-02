@@ -11,8 +11,8 @@ running engine: it opens a design, walks a level, renders the viewport, executes
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
-stacking under it. Phases 5–7 have not started.
-**1,451 tests, green on macOS, Linux and Windows; both CI workflows green.**
+stacking under it, **and a combat screen that draws it**. Phases 5–7 have not started.
+**1,463 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2274,6 +2274,41 @@ But rule 2 runs first, so a *non*-cumulative remove-all never gets to clear anyt
 > switch stores their count raw where a time belongs, and `IsReadyToExpire` reaches its error path
 > for both (`Spell.cpp:991`). A design can select them in the editor and they will not work.
 
+##### The combat screen, as ported
+
+`CombatRenderer` is `displayCombatWalls` (`Drawtile.cpp:3085`) plus the coordinate helpers around
+it. **Combat is now visible** — a real encounter on a real map draws with the design's own tiles.
+
+Unlike the dungeon viewport there is no perspective and no slot geometry: every terrain square is
+one 48×48 tile cut from the sheet at the coordinates the generated tile table gives, so the whole
+renderer is a double loop and a blit.
+
+- **The art comes from the zone, not the design.** Each zone names an indoor and an outdoor combat
+  sheet (`ZoneRecord.IndoorCombatArt`) and the engine picks on whether the encounter is outdoors
+  (`Dgngame.cpp:1126`). `SomethingWild`'s zone 0 names `combat_Dungeon.png` / `combat_Wilderness.png`
+  and both ship.
+- **The reference draws two squares beyond the view on every side** — its loops run `start - 2` to
+  `start + tiles + 2` — so a part-scrolled edge has something under it rather than a gap. That is
+  what the clip rectangle is for, and it is why a test asserts every pixel of the area gets painted
+  under a scroll.
+- **The dying are drawn before the living**, which is why the grid keeps two occupancy layers:
+  `TERRAIN_CELL`'s own comment says "dying dude is drawn before regular dude", so a combatant
+  standing on a corpse hides it rather than the other way round.
+
+**Verified by rendering it and looking**, which is the habit this document keeps recommending and
+the reason this step was worth doing before the Forth VM. Two frames from `SomethingWild`: an open
+stretch at level (5,5) that comes out as unbroken floor — confirmed against the terrain indices,
+which really are all tile 23 there — and level (1,2), which draws a horizontal stone wall across
+the top and a diagonal corridor wall down the left, matching the `6`/`11` pair and the `4`/`14`/`5`
+staircase in the generated terrain exactly.
+
+> **The engine half is still missing.** `EventBodyReader` already dispatches `EventType.Combat` to
+> `CombatEventReader`, so a level's events do produce `CombatEvent` objects — but `EventRunner`
+> falls through to its unsupported arm for them, so walking onto one still prints
+> `[Combat here -- not implemented]`. What is needed is combat state in `Game`: build the encounter
+> from the event's monster list, run the loop the scratch harness already proves, and present it.
+> Every piece below that is done.
+
 ##### `CLASS_DATA`, as ported
 
 `ClassRecordReader` reads a `CL5` record completely (`class.cpp:7936`): tag, `preSpellNameKey`,
@@ -3325,19 +3360,22 @@ cast. Four heroes against four orcs on a real map resolves in six rounds with no
 ported code driving it. Read the thirteen "as ported" sections under §7 Phase 4 before touching
 any of it.
 
-**But nothing in `UAFcore.Game` starts a fight.** `Combat` is still one of the 13 event types with
-no reader, so every piece above is exercised only by tests and scratch harnesses. That is now the
-highest-value next step by some distance — it is what turns a large body of verified machinery into
-something you can watch, and it brings the port's most reliable habit (render it and look) to bear
-on combat for the first time. It needs:
+**Two of the three pieces are now done.** The reader was already wired — `EventBodyReader`
+dispatches `EventType.Combat` to `CombatEventReader`, so a level's events do produce `CombatEvent`
+objects — and `CombatRenderer` now draws the map with the zone's own art (§the combat screen).
 
-1. **`COMBAT_EVENT_DATA`'s reader** — the encounter definition: monsters, distance, direction,
-   surprise, the no-magic and never-dies flags. `CombatEventReader` already exists in
-   `UAF.Serialization` for part of this; check what it covers before writing.
-2. **A combat screen** — the map rendered through the existing blitter, which `Drawtile.cpp`'s
-   display half provides and which is not ported. `CombatMap` already holds tile indices and the
-   art sheet coordinates are in the generated tile table.
-3. **The engine's combat state** in `Game`, driving the loop the scratch harness already proves.
+**What remains is combat state in `Game`.** Walking onto a combat event still prints
+`[Combat here -- not implemented]`, because `EventRunner` falls through to its unsupported arm.
+It needs:
+
+1. **An encounter built from the event.** `CombatEvent.Monsters` gives quantity, monster id and
+   friendliness; `MonsterRecordReader` gives the icon size, hit dice and attacks. Rolling the
+   quantity dice and turning that list into `Combatant`s is the join.
+2. **Combat state in `Game`**, driving the loop the scratch harness already proves — round,
+   `MonsterAi.Think`, movement, attack — and drawing through `CombatRenderer`.
+3. **Player input**, which is the genuinely new part: the reference presents a combat menu and a
+   cursor, and everything so far has been computer-run. `Getinput.cpp` and `GameMenu.cpp` are its
+   home, and the existing `TextForm` menu engine is the nearest ported equivalent.
 
 After that: **the Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the
 last large unported subsystem in Phase 2.
