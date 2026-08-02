@@ -9,8 +9,9 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed and pathing between them. Phases 5–7 have not started.
-**1,242 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed, pathing between them, and a round clock to order their turns.
+Phases 5–7 have not started.
+**1,264 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1617,9 +1618,9 @@ remains, in dependency order:
 3. **Combat — in progress; see §11.** **Encounter setup is done**: `CombatMap`,
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
-   `CombatPathFinder` ports `path.cpp`, so unreachable monsters are dropped and movement has a
-   route to follow. **The round state machine (`HandleCurrState`) is the next piece**, then
-   targeting, movement, and the monster AI.
+   `CombatPathFinder` ports `path.cpp`, and `CombatRound` + `TurnQueue` port the round clock and
+   turn order. **`COMBATANT` itself is the next piece** — it is the only thing left between here
+   and a round that runs. Then targeting, movement, and the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -1881,6 +1882,47 @@ recording because it is invisible on a skim: the neighbour test reads `terrain[y
 parent is by construction passable, every neighbour passes, so the fill would mark the whole map
 reachable and the "inaccessible" branch is unreachable code. An earlier note in this document
 listed it as a prerequisite for monster placement; it is not one.
+
+##### The round clock, as ported
+
+`CombatRound` is the round half of `COMBAT_DATA` — which round it is, whose turn, and what the
+engine should be doing — and `TurnQueue` is `QueuedCombatantData`. **Deliberately no combatant
+model**: `COMBATANT::HandleCurrState` (`Combatant.cpp:3903`) needs attack resolution, movement and
+the GPDL script hooks, and building the clock first is what makes those testable when they arrive.
+
+- **The turn queue is a stack, not a queue.** `Push` adds at the *head* and `Top` reads it, so an
+  interrupting free or guarding attack goes in front of whoever was acting and the interrupted
+  combatant resumes when it pops. That is the entire interrupt mechanism, and the reason the
+  reference uses a list rather than an index.
+- **A round is never queued up in advance.** `getNextCombatant` (`Combatants.cpp:1610`) drains the
+  queue of anyone finished, and only when it is empty walks the initiative order — **1 to 22** —
+  pulling one combatant at a time. That is what lets a spell resolving mid-round insert somebody.
+- **`RestartInterruptedTurn = !StartOfTurn` on the displaced head** (`Combatant.h:737`), so a
+  combatant interrupted *before* it ever acted comes back as a fresh turn rather than a resumed
+  one. `IsStartOfTurn` ORs the two, so both count as starting.
+- **`PushTail` does not set a start of turn and `Push` does.** A combatant that reaches the top
+  because others popped off never announces itself. The asymmetry is in the original.
+- **A last round runs to completion.** `StartNewRound` tests `m_bLastRound` as its *first* act
+  (`:4520`), so the round marked last still happens and the *next* rollover ends the fight.
+- **Round 0 with initiative 1 is the starting state**, and `m_bStartingNewCombatRound` starts true,
+  so the first thing any encounter does is roll over into round 1 — "Characters start with
+  initiative=0 so we will need to start a new round before we can begin" (`:203`).
+
+**Two enums that the headers insist must match, and do not.** `individualCombatantState`
+(`Combatant.h:30`) carries `ICS_Unconscious` at 13; `overallCombatState` (`Combatants.h:34`) has no
+equivalent, so from 13 onward the two are **off by one** — and `GetCombatState` casts straight
+across (`:6604`), which would turn `Unconscious` into `Dead`, `Dead` into `Gone` and `Gone` into
+`NewCombatant`. It is latent, not live: every value from 11 up is marked "Not used as an
+ICS_STATE...only for script", and a repo-wide search confirms none of them is ever assigned. Both
+are transcribed as they stand — inserting the missing member would renumber everything after it,
+and the numbering reaches save games (§4.4).
+
+> **Two dead tables found while porting this, neither worth carrying over.**
+> `CombatantsStateText` (`Combatants.cpp:95`) is declared with `NUM_COMBATANTS_STATES` = 17 against
+> a 23-value enum, and its entries desynchronise from index 9 on — slot 9 reads
+> `"OCS_CombatRoundDelay"`, a state that does not exist at all. It is **never read**, so the
+> mismatch is inert. This is the third such table in the port (after `ProjectVersion.h` and the
+> dead `findEmptyCell`); the habit of checking liveness before transcribing keeps paying.
 
 ##### `CLASS_DATA`, as ported
 
@@ -2922,22 +2964,34 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the round state machine
+### The next piece of work: the combatant
 
-**Encounter setup and pathing are complete.** `CombatSetup.Begin` generates the map, places the
-party in formation, runs one turtle program per approach direction, and drops any monster the party
-cannot reach; `CombatPathFinder` is the search that last step and all movement need. Read the four
-"as ported" sections under §7 Phase 4 before touching any of it — the 45° shear runs through the
-first three.
+**Encounter setup, pathing and the round clock are complete.** `CombatSetup.Begin` builds the map
+and puts everybody on it; `CombatPathFinder` is the search movement needs; `CombatRound` +
+`TurnQueue` decide whose turn it is and what the engine should be doing. Read the five "as ported"
+sections under §7 Phase 4 before touching any of it.
 
-**`Combatants.cpp`'s state machine is what remains, and everything it needs now exists.**
-`HandleCurrState` drives the round: whose turn it is, what they may do, and when the round ends.
-The `OCS_*` enum (`Combatants.h:44`) names its seventeen states, and `CombatantsStateText` is
-parallel to it — both must keep their numbering, because the numbers reach save games through the
-`CProcinp` task system (§4.4).
+**`COMBATANT` is the gap, and it is now the only thing between here and a round that runs.**
+`Combatant.cpp` is 11,694 lines and `Combatant.h` declares the entity everything else talks to.
+Nothing of it exists yet — `UAFcore/Character.cs` models a character *sheet*, not a fighter in a
+fight. The round clock was deliberately built without it and takes its two questions
+(`isDone`, `initiativeOf`) as callbacks, so wiring is a constructor change.
 
-In dependency order after it: targeting and validity (`IsValidTarget`, `CanAttack`), then movement
-consuming a combatant's allowance along a `CombatPath`, then the monster AI.
+A combatant is a big class, but the round only needs a slice of it to start:
+
+1. **Identity and position** — index, friendly flag, icon size, `x`/`y`, the character or monster
+   behind it. Placement already produces all of this; it just has nowhere to live.
+2. **The turn's resources** — `m_iMovement`, `availAttacks`/`determineNbrAttacks`, and `IsDone`,
+   which is what `Advance` calls and is the single most load-bearing predicate in the round.
+3. **`HandleCurrState`** (`Combatant.cpp:3903`) — the per-combatant half of the dispatch. Its
+   `ICS_Moving` arm is the one that consumes a `CombatPath`, so pathing and the combatant meet
+   there.
+4. **Targeting** — `GetCurrTarget`, `canAttack`, `IsValidTarget`.
+
+`UAF.Rules` already has `ToHit`, `Thac0`, `ArmorClass` and `Initiative`, so the arithmetic of an
+attack is ported; what is missing is the entity to hang it on. Expect the script hooks
+(`RunCombatantScripts`, `START_COMBAT_ROUND`) to be the one part that stays stubbed, since they
+need GPDL global scripts — the same gap monster placement worked around.
 
 **The round clock is also what finishes the spell-effect layer** — see below.
 
@@ -2982,9 +3036,15 @@ expires them than ahead of it.
 - **Read the loading branch from its start, not from where a search lands.** Every serialization
   bug in this port came from transcribing a fragment. The `races.dat` reader failed three times in
   one sitting for exactly this.
-- **Check whether the code is live before porting it.** `ProjectVersion.h`, `MultiBoxTextAction`
-  and one of the two `getCharTHAC0` definitions are all dead. The `#ifdef` that decides is often
-  nowhere near the function.
+- **Check whether the code is live before porting it.** `ProjectVersion.h`, `MultiBoxTextAction`,
+  one of the two `getCharTHAC0` definitions, one of the two `findEmptyCell`s, the whole A\*
+  pathfinder, `ComputeDistanceFromParty` and `CombatantsStateText` are all dead. The `#ifdef` that
+  decides is often nowhere near the function — and two of those are dead not by `#ifdef` but by
+  having **no reader at all**, which only a repo-wide search for consumers finds.
+- **Cite the function you actually ported, and check the citation.** A first draft of
+  `CombatRound.EndTurn` was invented whole and attributed to `Combatants.cpp:6187`, which turned
+  out to just delegate to the combatant. Reading it revealed the real mechanism — `getNextCombatant`
+  pulling by initiative — which is a different design. The wrong citation was the tell.
 - **When a test fails, check the assertion before the code.** Six times now the port was
   right and the test encoded an assumption — `$$Help`, the zero-width row marker, the golden frame,
   the shared spell rows, a level-9 magic user's THAC0, and a guessed ratio between two combat maps.
