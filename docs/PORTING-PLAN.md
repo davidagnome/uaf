@@ -9,9 +9,9 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed, pathing between them, and a round that runs to completion in
-initiative order. Phases 5–7 have not started.
-**1,292 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed, pathing between them, a round that runs to completion in initiative
+order, and targeting to decide who may hit whom. Phases 5–7 have not started.
+**1,324 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1619,8 +1619,8 @@ remains, in dependency order:
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
    `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
-   `Combatant` the entity — **a round now runs end to end in initiative order**. What remains is
-   what a turn *does*: **targeting**, then movement, then the attack itself, then the monster AI.
+   `Combatant` the entity, and `Targeting` who may hit whom — **a round runs end to end in
+   initiative order**. What remains is **movement**, then the attack itself, then the monster AI.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -1973,6 +1973,51 @@ writes each combatant's square back onto the entity.
 > states a combatant can actually be in, so the four enum values past its end are unreachable. The
 > dead one is `CombatantsStateText` (plural), covered above. An earlier revision of this document
 > grepped for the plural name and drew a conclusion about both.
+
+##### Targeting, as ported
+
+`Targeting` is `GetCurrTarget`, `IsValidTarget` and `canAttack`; `WeaponRange` is
+`WpnCanAttackAtRange` (`Items.cpp:223`). `canAttack` returns a named `AttackRefusal` rather than
+the reference's bare `BOOL` — the order of its tests is preserved and the first refusal is the one
+reported, so naming them makes each test state which rule it is exercising.
+
+- **`IsValidTarget` is entirely a script hook, and it can only refuse.** The reference runs
+  `IS_VALID_TARGET` on the *target* and treats a leading `'N'` as a veto; an empty result — which
+  is what a design with no such script gives — leaves the answer at valid (`Combatants.cpp:1349`).
+  So with GPDL unported **every target is valid, and that is faithful** rather than a stand-in.
+  The reference caches per attacker in `targetValidity`, so the script runs once per target.
+- **The ranged weapon classes have a *minimum* range of 2, not just a maximum.** A bow, crossbow,
+  sling or thrown weapon cannot be used on an adjacent enemy at all. The hand classes have no
+  minimum, which is exactly what lets `HandThrow` cover both — the header's table at `Items.h:52`
+  spells this out and is worth reading before assuming anything from the names.
+- **Natural attacks bypass the range table entirely.** With no readied weapon the reference
+  refuses any distance above 1 outright (`Combatant.cpp:9100`); claws and fists never consult an
+  item range.
+- **A fractional attack cannot be spent in consecutive rounds** — `availAttacks < 1.0 &&
+  currentRound - lastAttackRound <= 1` refuses (`:8961`), so half an attack banked from last round
+  waits a round before it can be swung.
+- **Same-side targeting has three different answers.** An auto combatant never turns on its own
+  side; a player cannot strike a party *character*; a non-pregenerated **NPC** is the one same-side
+  target that is allowed — and in the reference that is where the NPC would change sides, though
+  the line doing so is commented out with a note saying it does not belong there.
+- **Invisibility only protects at a distance.** The whole block is gated on `dis > 1`, so an
+  adjacent attacker finds an invisible target regardless, and the selective variants
+  (`SA_InvisibleToUndead`, `SA_InvisibleToAnimals`) depend on what the *attacker* is.
+- **`GetCurrTarget` distinguishes asking from acting.** With `updateTarget` false a target that has
+  left the map is *returned anyway* rather than cleared (`:4183`), because the animation code wants
+  to know who it was without the side effect.
+
+> **`GetCenterX` and `GetCenterY` do not agree, and both feed line of sight.** X subtracts one from
+> the half-width **only when facing west** (`Combatant.cpp:10952`); Y subtracts one
+> **unconditionally** (`:10967`). So a 2×2 combatant facing north measures from `(x + 1, y)` — the
+> top-right of its footprint, not the middle. A first pass here wrote the symmetric version and
+> reading the second function caught it. Transcribed as it stands: range and line of sight are both
+> measured from here, so straightening it would move every ranged attack.
+
+> **Special abilities stand in as flags.** `DetectsInvisible`, `IsInvisible`, `IsUndead` and the
+> rest are plain booleans on the combatant because `SPECIAL_ABILITIES` is not ported. They default
+> to off, which makes every target visible — the permissive choice, and the one that keeps a fight
+> running rather than silently refusing every ranged attack.
 
 ##### `CLASS_DATA`, as ported
 
@@ -3014,27 +3059,29 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: what a turn actually does
+### The next piece of work: movement, then the attack
 
-**A round now runs end to end.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue`
-order the turns, `Combatant` is the entity, and `CombatPathFinder` is the search movement needs —
-everybody acts once in initiative order and the round rolls over. Read the six "as ported" sections
-under §7 Phase 4 before touching any of it.
+**A round runs end to end and knows who may hit whom.** `CombatSetup` builds the encounter,
+`CombatRound` + `TurnQueue` order the turns, `Combatant` is the entity, `CombatPathFinder` is the
+search, and `Targeting` decides validity and reach. Read the seven "as ported" sections under §7
+Phase 4 before touching any of it.
 
-**What is missing is the content of a turn**, in dependency order:
+What remains is:
 
-1. **Targeting** — `GetCurrTarget`, `canAttack`, `IsValidTarget` (`Combatant.cpp`). Nothing else
-   can proceed without knowing who a combatant is fighting, and `Combatant.Target` is currently a
-   field nobody sets.
-2. **Movement** — `HandleCurrState`'s `ICS_Moving` arm and `TakeNextStep`. This is where
-   `CombatPath` gets consumed and `Movement`/`DiagonalMoves` get spent; both sides already exist.
-3. **The attack** — `UAF.Rules` already has `ToHit`, `Thac0` and `ArmorClass`, so this is wiring
-   plus damage application, not new arithmetic.
-4. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants, which decides between
-   moving, attacking, casting and fleeing.
+1. **Movement** — `HandleCurrState`'s `ICS_Moving` arm and `TakeNextStep` (`Combatant.cpp:3941`).
+   This is where `CombatPath` gets consumed and `Movement` / `DiagonalMoves` get spent; both sides
+   already exist, so it is the shortest remaining piece. Watch for the flee-the-map branch, which
+   is handled in the same arm: a combatant with no destination is leaving the field, not standing
+   still.
+2. **The attack** — `UAF.Rules` already has `ToHit`, `Thac0` and `ArmorClass`, so this is wiring
+   plus damage application, not new arithmetic. `StartAttack` (`Combatant.cpp:4197`) is the entry.
+3. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants, which decides between
+   moving, attacking, casting and fleeing. The largest of the three and the one that leans hardest
+   on scripts.
 
-Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` is already stubbed
-(see the combatant section), and targeting and the AI both call into scripts too.
+Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
+are already stubbed permissively (see the combatant and targeting sections), and the AI calls into
+scripts too.
 
 **The round clock is also what finishes the spell-effect layer** — see below.
 

@@ -23,6 +23,21 @@ public enum CharacterStatus
 }
 
 /// <summary>
+/// What kind of thing a combatant is (<c>CHAR_TYPE</c> and friends, <c>Char.h:132</c>).
+/// </summary>
+/// <remarks>
+/// The distinction is load-bearing for targeting: a player character on your own side cannot be
+/// attacked at all, while a non-pregenerated NPC can be — in the reference that is where the NPC
+/// would change sides, though the line doing so is commented out.
+/// </remarks>
+public enum CombatantKind
+{
+    Character = 1,
+    Npc = 2,
+    Monster = 3,
+}
+
+/// <summary>
 /// One participant in a fight (<c>COMBATANT</c>, <c>Combatant.h:103</c>).
 /// </summary>
 /// <remarks>
@@ -109,6 +124,84 @@ public sealed class Combatant
 
     /// <summary>Whether a turning attempt has already been spent — once per combat, not per round.</summary>
     public bool HasTurnedUndead { get; set; }
+
+    /// <summary>Character, NPC or monster. Decides who may be attacked on your own side.</summary>
+    public CombatantKind Kind { get; set; } = CombatantKind.Character;
+
+    /// <summary>
+    /// Whether the computer runs this combatant (<c>OnAuto</c>). Every monster is auto, and a
+    /// party member can be.
+    /// </summary>
+    /// <remarks>
+    /// The reference's <c>OnAuto</c> can consult a script hook; this is the flag only. It matters
+    /// for targeting because <b>an auto combatant never attacks its own side</b>.
+    /// </remarks>
+    public bool IsAuto { get; set; }
+
+    /// <summary>A pre-generated NPC, which cannot be turned on by attacking it.</summary>
+    public bool IsPreGenerated { get; set; }
+
+    /// <summary>The round this combatant last attacked in (<c>lastAttackRound</c>).</summary>
+    /// <remarks>
+    /// Used only to stop a fractional attack being spent in consecutive rounds — see
+    /// <see cref="Targeting.CanAttack"/>.
+    /// </remarks>
+    public int LastAttackRound { get; set; } = int.MinValue;
+
+    /// <summary>
+    /// Whether this combatant can see through invisibility (<c>GetAdjDetectingInvisible</c>).
+    /// </summary>
+    /// <remarks>
+    /// This and the three flags below stand in for special abilities, which are not ported. They
+    /// default to off, which makes every target visible — the permissive choice, and the one that
+    /// keeps a fight running rather than silently refusing every ranged attack.
+    /// </remarks>
+    public bool DetectsInvisible { get; set; }
+
+    /// <summary>Invisible to everything (<c>SA_Invisible</c>).</summary>
+    public bool IsInvisible { get; set; }
+
+    /// <summary>Invisible to the undead only (<c>SA_InvisibleToUndead</c>).</summary>
+    public bool IsInvisibleToUndead { get; set; }
+
+    /// <summary>Invisible to animals only (<c>SA_InvisibleToAnimals</c>).</summary>
+    public bool IsInvisibleToAnimals { get; set; }
+
+    /// <summary>Whether this combatant is undead, for the invisibility rules.</summary>
+    public bool IsUndead { get; set; }
+
+    /// <summary>Whether this combatant is an animal, for the invisibility rules.</summary>
+    public bool IsAnimal { get; set; }
+
+    /// <summary>
+    /// The square line of sight is measured from (<c>GetCenterX</c>, <c>Combatant.cpp:10949</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A west-facing combatant measures from one square further left.</b> The reference
+    /// subtracts one from the half-width only when facing west, so a 2×2 monster's centre column
+    /// depends on which way it looks.
+    /// </para>
+    /// <para>
+    /// <b>The two axes do not agree.</b> <see cref="CenterY"/> subtracts one *unconditionally*
+    /// (<c>Combatant.cpp:10967</c>) while this subtracts one only when facing west, so a 2×2
+    /// combatant facing north has its centre at <c>(x + 1, y)</c> — the top-right square of its
+    /// footprint, not the middle. Transcribed as it stands: line of sight and range are both
+    /// measured from here, so straightening it would move every ranged attack.
+    /// </para>
+    /// </remarks>
+    public int CenterX => Icon.Width <= 1
+        ? X
+        : Facing == UAFcore.Facing.West ? X + (Icon.Width / 2) - 1 : X + (Icon.Width / 2);
+
+    /// <summary>
+    /// The square line of sight is measured from (<c>GetCenterY</c>, <c>Combatant.cpp:10964</c>).
+    /// </summary>
+    /// <remarks>Subtracts one whatever the facing — see <see cref="CenterX"/>.</remarks>
+    public int CenterY => Icon.Height <= 1 ? Y : Y + (Icon.Height / 2) - 1;
+
+    /// <summary>Which way this combatant is looking, which shifts <see cref="CenterX"/>.</summary>
+    public Facing Facing { get; set; } = Facing.North;
 
     /// <summary>
     /// Whether a script has declared this combatant unable to act
