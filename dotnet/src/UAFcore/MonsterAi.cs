@@ -69,7 +69,8 @@ public static class MonsterAi
     /// </remarks>
     public static AiPlan Think(Combatant self, IReadOnlyList<Combatant> all, CombatMap map,
                                Func<Combatant, int, bool> canAttack,
-                               IReadOnlyList<AiWeapon>? weapons = null)
+                               IReadOnlyList<AiWeapon>? weapons = null,
+                               IReadOnlyList<AiAmmo>? ammo = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(all);
@@ -85,7 +86,7 @@ public static class MonsterAi
         // -- the scripted path, when the caller knows what this combatant is carrying -------
         if (weapons is not null)
         {
-            return Scripted(self, all, map, weapons);
+            return Scripted(self, all, map, weapons, ammo);
         }
 
         // -- who are we fighting? ----------------------------------------------------------
@@ -134,11 +135,11 @@ public static class MonsterAi
     /// </para>
     /// </remarks>
     private static AiPlan Scripted(Combatant self, IReadOnlyList<Combatant> all, CombatMap map,
-                                   IReadOnlyList<AiWeapon> weapons)
+                                   IReadOnlyList<AiWeapon> weapons, IReadOnlyList<AiAmmo>? ammo)
     {
         var candidates = AiActions.For(self, all, weapons,
                                        unarmedAttacks: Math.Max(0, self.TotalAttacks),
-                                       canMove: CanMove(self));
+                                       canMove: CanMove(self), ammo: ammo);
 
         foreach (var action in MonsterAiScript.Rank(candidates))
         {

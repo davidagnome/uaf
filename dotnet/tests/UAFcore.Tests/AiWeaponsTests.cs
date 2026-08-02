@@ -12,13 +12,17 @@ public class AiWeaponsTests
 
     private static ItemRecord Item(WeaponClass weapon = WeaponClass.HandCutting,
                                    uint slot = 0, int range = 1, int count = 1, int sides = 8,
-                                   int bonus = 0, string spellId = "") =>
+                                   int bonus = 0, string spellId = "", string ammoType = "") =>
         new(new ItemNames(0, spellId, "id", "name", string.Empty, string.Empty, string.Empty),
             HitArt: null, MissileArt: null,
-            new ItemScalars(string.Empty, 0, 0, 0, 0, 0, 1, 0),
+            new ItemScalars(ammoType, 0, 0, 0, 0, 0, 1, 0),
             new ItemCombat(slot, 1, sides, count, bonus, sides, count, bonus, 1, 0, 0),
             new ItemTail((int)weapon, 0, 0, [], range, 0, 0, string.Empty, string.Empty, 0, 0,
                          null, 0, 0, null!, []));
+
+    private static ItemInstance Stack(string itemId, int quantity) =>
+        new(Key: 2, itemId, LegacyItemId: 0, ReadyLocation: 0, Quantity: quantity, Identified: 1,
+            Charges: 0, Cursed: 0, Paid: 0);
 
     private static MonsterRecord Monster(params AttackDetails[] attacks) =>
         new(0, "orc", null, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
@@ -123,6 +127,47 @@ public class AiWeaponsTests
         orc.Items.Add(Carried("sword"));
 
         Assert.Empty(AiWeapons.For(orc, null));
+    }
+
+    // ---- ammunition ----------------------------------------------------------------------------
+
+    [Fact]
+    public void Ammunition_is_listed_wherever_it_is_carried()
+    {
+        // Unlike weapons, there is no readied-slot test on ammunition.
+        var orc = Orc();
+        orc.Items.Add(Stack("arrows", 20));
+
+        var ammo = AiWeapons.AmmoFor(orc,
+                                     _ => Item(WeaponClass.Ammo, slot: 7, ammoType: "arrow"));
+
+        Assert.Single(ammo);
+        Assert.Equal("arrow", ammo[0].AmmoType);
+        Assert.Equal(20, ammo[0].Quantity);
+    }
+
+    [Fact]
+    public void The_quantity_comes_from_the_carried_stack_not_the_database()
+    {
+        var orc = Orc();
+        orc.Items.Add(Stack("arrows", 3));
+
+        Assert.Equal(3, AiWeapons.AmmoFor(orc, _ => Item(WeaponClass.Ammo)).Single().Quantity);
+    }
+
+    [Fact]
+    public void A_weapon_records_what_it_shoots_and_keeps_its_bonus_apart()
+    {
+        var orc = Orc();
+        orc.Items.Add(Carried("bow"));
+
+        var bow = AiWeapons.For(orc, null,
+                                _ => Item(WeaponClass.Bow, range: 12, count: 1, sides: 6,
+                                          bonus: 2, ammoType: "arrow")).Single();
+
+        Assert.Equal("arrow", bow.AmmoType);
+        Assert.Equal(20, bow.DamageBonus);
+        Assert.Equal(AiWeapons.WeaponDamage(1, 6, 0), bow.AverageDamage);
     }
 
     // ---- natural attacks -----------------------------------------------------------------------

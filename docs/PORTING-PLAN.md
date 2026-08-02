@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,882 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,890 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2521,9 +2521,21 @@ readied in the weapon hand, and natural **attacks**, which a monster's record su
 > swarm's nibbles. Nothing else reads the number, so it only ever changes which natural attack the
 > AI prefers. Reproduced.
 
-Only items in the weapon-hand slot count. The reference additionally asks `CanReady` — class
-restrictions, curses, hands free — which this port does not model yet, so every weapon-hand item is
-taken.
+> **A weapon firing ammunition takes its damage dice from the ammunition, not from itself.** The
+> estimate is `ammo dice + ammo bonus + weapon bonus` (`ListActionsByAmmo`, `Combatant.cpp:1503`) —
+> the weapon's own dice are dropped entirely. That is the tabletop convention (the arrow does the
+> damage, the bow adds its bonus), and the AI's ranking of two bows depends on it, so the weapon's
+> dice and bonus have to be kept apart rather than pre-summed.
+>
+> **One candidate per kind of ammunition**, so a bow with two sorts of arrow is two actions and the
+> script picks the better. **A weapon that names an ammunition type and has none to hand yields
+> nothing at all** — an archer out of arrows is offered no ranged action rather than a weak one. A
+> weapon with no ammunition type (a sling, a thrown dagger) uses its own dice.
+
+Only items in the weapon-hand slot count as weapons; **ammunition is taken wherever it is carried**,
+with no readied-slot test, and its quantity comes from the carried stack rather than the database.
+The reference additionally asks `CanReady` — class restrictions, curses, hands free — which this
+port does not model yet, so every weapon-hand item is taken.
 
 ##### Enumerating the AI's candidate actions, as ported
 
@@ -4193,10 +4205,7 @@ What is left, in order:
    That is the same gap as the GPDL hooks below, reached from the other end.
 2. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
    reports them in the message line and drops them. The treasure screen itself exists (§Phase 4).
-3. **`ListAmmo`** — ammunition is enumerated separately in the reference (`Combatant.cpp:1214`),
-   which is how a bow's damage estimate picks up its arrows'. This port ranks a bow on its own
-   damage alone, so two bows with different ammunition rank equal.
-4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
+3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
    What still needs it: a design that edits `AI_Script.BLK`,

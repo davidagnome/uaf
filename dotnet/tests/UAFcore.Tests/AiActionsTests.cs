@@ -159,6 +159,87 @@ public class AiActionsTests
         Assert.Empty(AiActions.For(self, all, [], canMove: false));
     }
 
+    // ---- ammunition ----------------------------------------------------------------------------
+
+    private static AiWeapon Longbow(int bonus = 0) =>
+        new(WeaponClass.Bow, Range: 12, AverageDamage: 45, AmmoType: "arrow",
+            DamageBonus: bonus);
+
+    private static AiAmmo Arrows(int damage, int quantity = 20, int bonus = 0) =>
+        new("arrow", quantity, damage, bonus);
+
+    [Fact]
+    public void A_bow_takes_its_damage_from_the_arrow_not_from_itself()
+    {
+        // ammo dice + ammo bonus + weapon bonus. The bow's own dice are dropped entirely.
+        var self = Orc();
+        var all = new List<Combatant> { self, Hero(1, 9, 5) };
+
+        var shot = AiActions.For(self, all, [Longbow(bonus: 10)], ammo: [Arrows(30, bonus: 5)])
+                            .Single(a => a.Type == AiActionType.RangedWeapon);
+
+        Assert.Equal(30 + 5 + 10, shot.Damage);
+    }
+
+    [Fact]
+    public void A_bow_offers_one_action_per_kind_of_arrow_it_can_fire()
+    {
+        var self = Orc();
+        var all = new List<Combatant> { self, Hero(1, 9, 5) };
+
+        var shots = AiActions.For(self, all, [Longbow()],
+                                  ammo: [Arrows(30), Arrows(60), new AiAmmo("bolt", 10, 99)]);
+
+        Assert.Equal(2, shots.Count(a => a.Type == AiActionType.RangedWeapon));
+        Assert.DoesNotContain(shots, a => a.Damage == 99);
+    }
+
+    [Fact]
+    public void An_archer_out_of_arrows_is_offered_no_shot_at_all()
+    {
+        // The loop simply finds no match, so there is no weak action to fall back on.
+        var self = Orc();
+        var all = new List<Combatant> { self, Hero(1, 9, 5) };
+
+        Assert.DoesNotContain(AiActions.For(self, all, [Longbow()], ammo: [Arrows(30, quantity: 0)]),
+                              a => a.Type == AiActionType.RangedWeapon);
+
+        Assert.DoesNotContain(AiActions.For(self, all, [Longbow()]),
+                              a => a.Type == AiActionType.RangedWeapon);
+    }
+
+    [Fact]
+    public void A_weapon_that_needs_no_ammunition_uses_its_own_dice()
+    {
+        // A sling or a thrown dagger: no ammo type, so the weapon's own estimate stands.
+        var self = Orc();
+        var all = new List<Combatant> { self, Hero(1, 9, 5) };
+        var sling = new AiWeapon(WeaponClass.SlingNoAmmo, Range: 12, AverageDamage: 25,
+                                 DamageBonus: 5);
+
+        var shot = AiActions.For(self, all, [sling])
+                            .Single(a => a.Type == AiActionType.RangedWeapon);
+
+        Assert.Equal(30, shot.Damage);
+    }
+
+    [Fact]
+    public void The_better_arrow_is_the_one_the_script_picks()
+    {
+        var map = Map();
+        var self = Orc();
+        var hero = Hero(1, 9, 5);
+        var all = new List<Combatant> { self, hero };
+        map.Place(self.X, self.Y, self.Index);
+        map.Place(hero.X, hero.Y, hero.Index);
+
+        var best = MonsterAiScript.Rank(
+            AiActions.For(self, all, [Longbow()], ammo: [Arrows(30), Arrows(60)]))[0];
+
+        Assert.Equal(AiActionType.RangedWeapon, best.Type);
+        Assert.Equal(60, best.Damage);
+    }
+
     // ---- what gets chosen ----------------------------------------------------------------------
 
     [Fact]

@@ -13,8 +13,27 @@ namespace UAFcore;
 /// (<c>Combatant.cpp:1559</c>), so a charged wand with no spell yields no action at all rather than
 /// a failed one.
 /// </param>
+/// <param name="AmmoType">
+/// What it shoots, or empty for a weapon that needs nothing. A weapon that names an ammunition
+/// type and has none to hand yields <b>no action at all</b>.
+/// </param>
+/// <param name="DamageBonus">
+/// Its own bonus, kept apart from <paramref name="AverageDamage"/> because <b>a weapon firing
+/// ammunition contributes only this</b> — the dice come from the ammunition.
+/// </param>
 public readonly record struct AiWeapon(WeaponClass Class, int Range, int AverageDamage = 0,
-                                       bool HasSpell = false);
+                                       bool HasSpell = false, string AmmoType = "",
+                                       int DamageBonus = 0);
+
+/// <summary>
+/// A stack of ammunition, as the AI sees it (<c>AMMO_SUMMARY</c>, <c>CombatSummary.h:84</c>).
+/// </summary>
+/// <param name="AmmoType">Which weapons can fire it.</param>
+/// <param name="Quantity">How many are left. A spent stack is skipped.</param>
+/// <param name="AverageDamage">Its dice, which replace the weapon's.</param>
+/// <param name="DamageBonus">Its bonus, which adds to the weapon's.</param>
+public readonly record struct AiAmmo(string AmmoType, int Quantity, int AverageDamage = 0,
+                                     int DamageBonus = 0);
 
 /// <summary>
 /// Enumerating what a computer-run combatant could do this turn
@@ -70,7 +89,8 @@ public static class AiActions
     public static List<AiAction> For(Combatant self, IReadOnlyList<Combatant> all,
                                      IReadOnlyList<AiWeapon> weapons, int unarmedAttacks = 0,
                                      bool canMove = true, bool judoMeleeOnly = false,
-                                     bool attacksTheDying = MonsterAiScript.AttacksTheDying)
+                                     bool attacksTheDying = MonsterAiScript.AttacksTheDying,
+                                     IReadOnlyList<AiAmmo>? ammo = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(all);
@@ -93,11 +113,9 @@ public static class AiActions
 
             foreach (var weapon in weapons)
             {
-                if (WeaponAction(self, target, weapon, distance, friendly, judoMeleeOnly,
-                                 attacksTheDying) is { } action)
-                {
-                    actions.Add(action);
-                }
+                actions.AddRange(WeaponActions(self, target, weapon, distance, friendly,
+                                               judoMeleeOnly, attacksTheDying,
+                                               ammo ?? []));
             }
 
             // Unarmed attacks, which are the one kind that refuses the acting combatant itself.
@@ -128,13 +146,68 @@ public static class AiActions
         return actions;
     }
 
-    private static AiAction? WeaponAction(Combatant self, Combatant target, AiWeapon weapon,
-                                          int distance, bool friendly, bool judoMeleeOnly,
-                                          bool attacksTheDying)
+    /// <summary>
+    /// The candidates one weapon offers against one target — plural, because a weapon that fires
+    /// ammunition offers one per kind it can fire (<c>ListActionsByAmmo</c>,
+    /// <c>Combatant.cpp:1477</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A weapon firing ammunition takes its damage dice from the ammunition, not from itself.</b>
+    /// The reference's estimate is <c>ammo dice + ammo bonus + weapon bonus</c> — the weapon's own
+    /// dice are dropped entirely. That is the tabletop convention (the arrow does the damage, the
+    /// bow adds its bonus) and the AI's ranking of two bows depends on it.
+    /// <para>
+    /// <b>A weapon that names an ammunition type and has none to hand yields nothing.</b> The loop
+    /// simply finds no match, so an archer out of arrows is offered no ranged action at all rather
+    /// than a weak one. A weapon with no ammunition type — a sling, a thrown dagger — uses its own
+    /// dice.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<AiAction> WeaponActions(
+        Combatant self, Combatant target, AiWeapon weapon, int distance, bool friendly,
+        bool judoMeleeOnly, bool attacksTheDying, IReadOnlyList<AiAmmo> ammo)
     {
+        if (Classify(weapon, friendly, judoMeleeOnly) is not { } type)
+        {
+            yield break;
+        }
+
         int range22 = MonsterAiScript.WeaponRange22(weapon.Range);
 
-        AiActionType type;
+        if (type != AiActionType.RangedWeapon || string.IsNullOrEmpty(weapon.AmmoType))
+        {
+            var plain = new AiAction(type, target.Index, weapon.Class,
+                                     weapon.AverageDamage + weapon.DamageBonus, distance);
+
+            if (MonsterAiScript.Survives(self, target, plain, range22, attacksTheDying))
+            {
+                yield return plain;
+            }
+
+            yield break;
+        }
+
+        foreach (var round in ammo)
+        {
+            if (round.AmmoType != weapon.AmmoType || round.Quantity <= 0)
+            {
+                continue;
+            }
+
+            var shot = new AiAction(type, target.Index, weapon.Class,
+                                    round.AverageDamage + round.DamageBonus + weapon.DamageBonus,
+                                    distance);
+
+            if (MonsterAiScript.Survives(self, target, shot, range22, attacksTheDying))
+            {
+                yield return shot;
+            }
+        }
+    }
+
+    /// <summary>Which kind of action a weapon offers, or null when it offers none.</summary>
+    private static AiActionType? Classify(AiWeapon weapon, bool friendly, bool judoMeleeOnly)
+    {
         switch (weapon.Class)
         {
             case WeaponClass.SpellCaster:
@@ -146,10 +219,9 @@ public static class AiActions
                     return null;
                 }
 
-                type = weapon.Class == WeaponClass.SpellCaster
+                return weapon.Class == WeaponClass.SpellCaster
                     ? AiActionType.SpellCaster
                     : AiActionType.SpellLikeAbility;
-                break;
 
             default:
                 if (friendly)
@@ -157,28 +229,12 @@ public static class AiActions
                     return null;
                 }
 
-                if (MonsterAiScript.IsRangedWeapon(weapon.Range))
+                if (!MonsterAiScript.IsRangedWeapon(weapon.Range))
                 {
-                    if (judoMeleeOnly)
-                    {
-                        return null;
-                    }
-
-                    type = AiActionType.RangedWeapon;
-                }
-                else
-                {
-                    type = AiActionType.MeleeWeapon;
+                    return AiActionType.MeleeWeapon;
                 }
 
-                break;
+                return judoMeleeOnly ? null : AiActionType.RangedWeapon;
         }
-
-        var action = new AiAction(type, target.Index, weapon.Class, weapon.AverageDamage,
-                                  distance);
-
-        return MonsterAiScript.Survives(self, target, action, range22, attacksTheDying)
-            ? action
-            : null;
     }
 }

@@ -31,7 +31,7 @@ public static class AiWeapons
     /// plus <c>10 × bonus</c> held in its own field. Correct.
     /// </remarks>
     public static int WeaponDamage(int count, int sides, int bonus) =>
-        (5 * ((1 + sides) * count)) + (DamageScale * bonus);
+        DiceEstimate(count, sides) + (DamageScale * bonus);
 
     /// <summary>
     /// A natural attack's damage estimate (<c>ListAttacks</c>, <c>Combatant.cpp:1346</c>).
@@ -86,16 +86,54 @@ public static class AiWeapons
             }
 
             var kind = (WeaponClass)item.Tail.WeaponType;
+
+            // The dice and the bonus are kept apart, because a weapon firing ammunition
+            // contributes only its bonus -- see AiActions.WeaponActions.
             weapons.Add(new AiWeapon(
                 kind,
                 item.Tail.RangeMax,
-                WeaponDamage(item.Combat.NbrDiceSm, item.Combat.DmgDiceSm,
-                             item.Combat.DmgBonusSm),
-                HasSpell: !string.IsNullOrEmpty(item.Names.SpellId)));
+                DiceEstimate(item.Combat.NbrDiceSm, item.Combat.DmgDiceSm),
+                HasSpell: !string.IsNullOrEmpty(item.Names.SpellId),
+                AmmoType: item.Scalars.AmmoType,
+                DamageBonus: DamageScale * item.Combat.DmgBonusSm));
         }
 
         return weapons;
     }
+
+    /// <summary>
+    /// What a combatant can shoot (<c>ListAmmo</c>, <c>Combatant.cpp:1213</c>).
+    /// </summary>
+    /// <remarks>
+    /// Ammunition is any carried item whose weapon type is <see cref="WeaponClass.Ammo"/>,
+    /// wherever it sits — unlike weapons, there is no readied-slot test. The quantity comes from
+    /// the carried stack rather than the database.
+    /// </remarks>
+    public static List<AiAmmo> AmmoFor(Combatant combatant,
+                                       Func<string, ItemRecord?>? itemInfo = null)
+    {
+        ArgumentNullException.ThrowIfNull(combatant);
+
+        var ammo = new List<AiAmmo>();
+
+        foreach (var carried in combatant.Items)
+        {
+            if (itemInfo?.Invoke(carried.ItemId) is not { } item
+                || (WeaponClass)item.Tail.WeaponType != WeaponClass.Ammo)
+            {
+                continue;
+            }
+
+            ammo.Add(new AiAmmo(item.Scalars.AmmoType, carried.Quantity,
+                                DiceEstimate(item.Combat.NbrDiceSm, item.Combat.DmgDiceSm),
+                                DamageScale * item.Combat.DmgBonusSm));
+        }
+
+        return ammo;
+    }
+
+    /// <summary>The dice half of a damage estimate, without its bonus.</summary>
+    private static int DiceEstimate(int count, int sides) => 5 * ((1 + sides) * count);
 
     /// <summary>
     /// How many natural attacks a monster has, and what the best of them is worth.

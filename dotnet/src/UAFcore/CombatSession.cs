@@ -916,7 +916,8 @@ public sealed class CombatSession
 
     private void RunAutoTurn(Combatant actor)
     {
-        var plan = MonsterAi.Think(actor, combatants, Map, CanAttack, WeaponsFor(actor));
+        var plan = MonsterAi.Think(actor, combatants, Map, CanAttack, WeaponsFor(actor),
+                                   AiWeapons.AmmoFor(actor, ItemInfo));
 
         switch (plan.Decision)
         {
