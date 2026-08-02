@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,985 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,011 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2682,6 +2682,29 @@ across it.
 of the aftermath rather than in `Game` — the decision is aftermath logic, and putting it there makes
 it directly testable rather than reachable only by driving a whole fight.
 
+##### The archive writer's byte layer, as ported
+
+`MfcArchiveWriter` — the exact inverse of `MfcArchiveReader`, and **the first piece of the writer
+Phase 1 has been missing**. Everything above it has a reader and no counterpart, which is why the
+round-trip exit criterion is unmet and why Phase 5 cannot start.
+
+The tests read back everything the writer writes. The reader is the specification: it was diffed
+against the C++ oracle, so agreeing with it is the strongest claim available without regenerating
+goldens. What they do **not** prove is that a design file round-trips — that needs the record
+writers on top of this.
+
+> **The two variable-width encodings are different schemes, and both escape on `0xFFFF`.** A string
+> length has *three* tiers — a byte, escaping to a word, escaping to a dword — while a collection
+> count has *two* and no byte form at all. So a count of 3 costs two bytes where a string length of
+> 3 costs one. Using one for the other produces a stream that reads back plausibly for small values
+> and desynchronises for large ones, which is the worst way for a format bug to behave.
+
+- **The tier boundaries are exclusive.** A string length of exactly 255 does not fit the byte tier,
+  because 255 *is* the escape; likewise 0xFFFF for the word tier.
+- **A string's length is in bytes, not characters.** Windows-1252 makes those the same for
+  everything it can encode, but a character it cannot becomes a single `?`, so the count has to come
+  from the encoded bytes rather than from the string.
+
 ##### Spell effects on a character outside combat, as ported
 
 `GetAdjAC` and `GetAdjHitPoints` (`Char.cpp:13198`, `:13239`) — `Character.Effects` plus the
@@ -4414,7 +4437,13 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
+1. **The rest of the archive writer.** The byte layer is done (§the archive writer's byte layer);
+   what is missing is a writer per record type, mirroring each reader. It is the largest structural
+   gap in the port: it gates Phase 1's round-trip exit criterion, save games, and Phase 5 entirely.
+   The order that proves the most soonest is probably a small tagged database — items or spells —
+   because a round-trip against a real `.dat` is a far stronger check than anything the byte layer
+   alone can assert.
+2. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
    small and collectively large, and each needs the port to have the state it asks about.
@@ -4423,7 +4452,7 @@ What is left, in order:
    (§spell effects on a character outside combat). What is left in this family wants state the port
    does not have: the ability-score calls need `baseclass.dat`, which has no reader, and
    `$GET_CHAR_EFFAC` needs the attacker as well as the target.
-2. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
+3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
    What still needs it: a design that edits `AI_Script.BLK`,
