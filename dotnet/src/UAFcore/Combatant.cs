@@ -151,6 +151,17 @@ public sealed class Combatant
     public double AvailableAttacks { get; set; }
 
     /// <summary>
+    /// Attacks per round before any are spent (<c>GetNbrAttacks</c>).
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="AvailableAttacks"/>, and the free-attack rule wants this one — the
+    /// shipped script grants a retreating opponent's attacker its <i>full</i> complement, not what
+    /// it has left. Also what <see cref="DamageDice.ForMonster"/> subtracts from to work out which
+    /// attack is being made.
+    /// </remarks>
+    public int TotalAttacks { get; set; } = 1;
+
+    /// <summary>
     /// Set once this combatant has finished its turn. <see cref="IsDone"/> returns it, and the
     /// round's <c>Advance</c> uses that to decide who acts.
     /// </summary>

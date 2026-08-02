@@ -10,8 +10,9 @@ criterion is not met. Phases 2 and 3 are substantially delivered with named gaps
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
-pathing, movement, attacks and the dying clock. Phases 5–7 have not started.
-**1,414 tests, green on macOS, Linux and Windows; both CI workflows green.**
+pathing, movement, attacks, the dying clock and attacks of opportunity. Phases 5–7 have not
+started.
+**1,429 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1620,8 +1621,9 @@ remains, in dependency order:
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
    `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
    `Combatant` the entity, `Targeting` who may hit whom, `CombatMovement` the walk, `Attack` the
-   swing, `MonsterAi` the choice and `CombatUpkeep` the dying clock — **a fight plays itself to a
-   conclusion**. What remains is attacks of opportunity, the spell layer, and the Forth VM.
+   swing, `MonsterAi` the choice, `CombatUpkeep` the dying clock and `OpportunityAttacks` the
+   interruptions — **a fight plays itself to a conclusion**. What remains is the spell layer and
+   the Forth VM.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -2186,6 +2188,43 @@ go to the later one, because the comparison is `<=`.
 This makes **four** things now found dead by looking for consumers rather than by an `#ifdef`:
 `ComputeDistanceFromParty`, `CombatantsStateText`, the morale computation, and the flee decision it
 feeds.
+
+##### Attacks of opportunity, as ported
+
+`OpportunityAttacks` is `CheckOpponentFreeAttack` (`Combatant.cpp:10060`), called from the middle of
+a step. It compares who was adjacent before the move with who will be adjacent after, and grants a
+**free attack** to anyone the mover retreated from and a **guard attack** to anyone it walked up
+to. Both interrupt through the turn queue, which already modelled exactly this —
+`Push` with `affectStats: false`.
+
+> **Read the pseudo-code specification at `Combatant.cpp:9990` first.** A quoted email lays out the
+> whole guarding/free-attack scheme as a set of named script hooks — `Guarding-CanGuard`,
+> `Guarding-Guard`, `FreeAttack-CanFreeAttack` and the rest — with their bodies in outline. It is
+> the clearest statement of intent anywhere in this codebase and it is a comment.
+
+- **The rules live in the design's scripts, not the engine.** The C++ asks
+  `FreeAttack-CanFreeAttack` and `Guarding-CanGuardAttack` and does nothing unless they return an
+  affirmative. **The polarity is the opposite of `IS_VALID_TARGET`**, where silence means yes:
+  here silence means no attack at all. The port transcribes the scripts every reference design
+  ships, so the defaults are the designs' rather than invented.
+- **A guard attack requires the attacker to actually be guarding**, and to have attacks left.
+  Exactly one is granted, always.
+- **A free attack grants the attacker's *whole* complement.** The shipped script returns hook
+  parameter 8, which is `GetNbrAttacks()` — total, not remaining. That is why `Combatant` now
+  carries `TotalAttacks` separately.
+- **A ranged weapon earns nothing**, which is the one rule both scripts agree on.
+- **A casting combatant never gets one** — breaking off to swing would lose the spell.
+- **Guard attacks are queued first so free attacks resolve first.** The queue is a stack, and the
+  reference's own comment explains the ordering.
+- **The mover is rewound to its old square while the attacks resolve**, with its destination parked
+  on the queue entry (`SetXY`) so the step can finish afterwards. Its state is set back to `None`,
+  so it does not resume mid-move.
+- The reference passes `FreeAttackDistance` — a distance function that **always returns 1**
+  (`:10047`) — into `canAttack`, so the weapon's range test always sees an adjacent target. Reach
+  is decided by the adjacency scan, not by the weapon.
+
+The adjacency scan runs `-1` to `width` and `-1` to `height` inclusive, so it covers the footprint
+*and* the ring around it: a 1×1 combatant checks a 3×3 block.
 
 ##### `CLASS_DATA`, as ported
 
@@ -3227,32 +3266,32 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: attacks of opportunity, then spells
+### The next piece of work: the spell layer
 
-**A fight plays itself.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue` order the
-turns, `Combatant` is the entity, `CombatPathFinder` finds routes, `Targeting` decides who may be
-hit, `CombatMovement` walks and spends the allowance, `Attack` resolves the swing, `MonsterAi`
-chooses, and `CombatUpkeep` bleeds the dying. Four heroes against four orcs on a real map resolves
-in six rounds with nothing but the ported code driving it. Read the eleven "as ported" sections
-under §7 Phase 4 before touching any of it.
+**Combat is substantially complete.** `CombatSetup` builds the encounter, `CombatRound` +
+`TurnQueue` order the turns, `Combatant` is the entity, `CombatPathFinder` finds routes,
+`Targeting` decides who may be hit, `CombatMovement` walks and spends the allowance, `Attack`
+resolves the swing, `MonsterAi` chooses, `CombatUpkeep` bleeds the dying, and
+`OpportunityAttacks` interrupts. Four heroes against four orcs on a real map resolves in six rounds
+with nothing but the ported code driving it. Read the twelve "as ported" sections under §7 Phase 4
+before touching any of it.
 
-What remains, smallest first:
+What remains:
 
-1. **Attacks of opportunity.** `CheckOpponentFreeAttack` sits in the middle of `MoveCombatant`
-   (`Combatant.cpp:9385`) and is the last piece of movement left out. The turn queue already
-   models the interruption — `Push` with `affectStats: false` is exactly this case — so what is
-   missing is only the rule deciding when one is owed. `CanGuard` and the guarding-attack path are
-   its neighbours.
-2. **The spell layer.** `SpellEffects` has the arithmetic but not durations, sources or stacking —
-   see below. The round clock it was waiting for now exists, so this is unblocked.
-3. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
+1. **The spell layer.** `SpellEffects` has the arithmetic — how an effect changes a number — but
+   not durations, sources or stacking, which is the part that decides which effects exist at all.
+   That was always going to be built alongside the round that expires them, and **the round now
+   exists**, so this is unblocked and is the largest remaining gap in a working fight.
+2. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
    unported subsystem in Phase 2.
+3. **Wiring combat into `Game`.** Every piece above is testable in isolation but nothing in
+   `UAFcore.Game` starts a fight yet — the `Combat` event type is still one of the 13 with no
+   reader. That is what would make combat visible rather than merely present.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped
 in movement, and the scripted AI needs Forth.
 
-**The round clock is also what finishes the spell-effect layer** — see below.
 
 #### The GPDL wiring that monster placement did *not* need
 
@@ -3270,10 +3309,10 @@ but randomises terrain from `WildernessTileDensity` instead of reading the level
 wilderness half of the expansion table is already transcribed and unreachable — the 35
 `DBL_HIGH_*` / `SGL_HIGH_*` junction types. Nothing needs it until outdoor encounters run.
 
-**The round clock is what finishes the spell-effect layer.** `SpellEffects` ports the arithmetic —
-how an effect changes a number — but not durations, sources or stacking, which is the part that
-decides which effects exist at all. That half is genuinely better built alongside the round that
-expires them than ahead of it.
+**The round clock that the spell-effect layer was waiting for now exists.** `SpellEffects` ports
+the arithmetic — how an effect changes a number — but not durations, sources or stacking, which is
+the part that decides which effects exist at all. That half was always going to be built alongside
+the round that expires them; `CombatRound` is that round, so the dependency is discharged.
 
 ### Standing gaps, none of them blocking the above
 
