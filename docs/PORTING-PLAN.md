@@ -14,7 +14,7 @@ pathing, movement, attacks, the dying clock and attacks of opportunity — with 
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
 bandage**. Phases 5–7 have not started.
-**1,579 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,622 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2492,6 +2492,79 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Saving throws and spell targeting, as ported
+
+`DoesSavingThrowSucceed` / `DidSaveVersus` (`Char.cpp:11862`, `:8316`) and `InitTargeting` /
+`NeedSpellTargeting` (`Char.cpp:15549`, `Globals.cpp:4176`) — whether a spell is resisted, and what
+it is allowed to land on. `UAF.Rules/SavingThrow.cs`, `UAFcore/SpellTargeting.cs`.
+
+The reference states the save rule itself in the comment heading `DoesSavingThrowSucceed`: each
+save type has a single value that rises with the target's level; roll a d20; **a roll below that
+value fails the save** and the full effect lands; a roll at or above it saves, and then
+`spellSaveEffectType` says what the save was worth.
+
+- **Magic resistance is checked first, and counts as a save rather than a bypass.** A target whose
+  d100 comes in at or under its resistance returns saved without touching the d20 — so a
+  save-for-half spell still does half damage to a fully resistant target. Resistance is not
+  immunity.
+- **A roll equal to the score saves.** The test is `roll < score` for failure, so the boundary
+  belongs to the target.
+- **The score is capped at 20 but has no floor.** `max(score, 1)` sits inside the commented-out
+  script block, so a save value of zero or less succeeds on any roll.
+- **The save is rolled even against your own party.** The comment above the function says no save
+  is needed on yourself or on a willing recipient and that "party members are always assumed to be
+  willing" — but the guard implementing it is commented out with a dated note ("Requested by Eric
+  20121017"). The comment describes an older engine.
+- `ModifySaveRollAsTarget` is live and gives the target +2 for protection from the caster's
+  alignment, +1 for a shield, +2 for displacement. **The attacker's half is dead**:
+  `ModifySaveRoll` returns false without touching anything.
+
+> **Two of the five save types cover almost everything.** `Sp` (spells generally) accounts for 340
+> of 377, 112 of 117 and 283 of 318 spells in the three designs; `ParPoiDM` takes most of the rest.
+> **`RodStaffWand` is used by no shipped design at all.** `NoSave` is the commonest save result by
+> far (259 / 84 / 214), so most spells simply land.
+
+**A THAC0-resolved spell essentially never lands, and that is reproduced.** The `UseTHAC0` branch
+tests `diceRoll > AC - adjTHAC0`, where hitting armour class `AC` with THAC0 `T` needs the roll to
+reach `T - AC`. The subtraction is the wrong way round: THAC0 18 against armour class 6 gives a
+threshold of −12, which every d20 clears, and the branch that then runs sets
+`noEffectWhatsoever`. It is reachable only when armour class exceeds the caster's THAC0, which no
+ordinary combatant has. **15, 6 and 12 spells** in the three designs use it — around 4% of each
+spell book, quietly inert. Kept, because a design was balanced against what ships.
+
+> **The saving-throw script's bonus is silently dropped for four of the five save types.**
+> `DidSaveVersus` takes a `bonus` parameter and the live code never reads it — its only use was
+> inside the deprecated block that is commented out (`Char.cpp:8351`). So a design writing a
+> `SavingThrow` script to grant, say, +2 against a spell gets nothing unless that spell also uses
+> `UseTHAC0`, which is the one branch that does add it. Reproduced.
+
+**Targeting.** Ten modes, and the setup is a table:
+
+- `Self` takes one target at no range; `WholeParty` takes the party size; `SelectedByCount` takes
+  the evaluated quantity. **A range of zero means unlimited** (stored as 1,000,000), not zero.
+- **`TouchedTargets` is given a range of 9999, not 1** — the line setting 1 is commented out beside
+  it, and the reach is enforced by `m_maxRangeX`/`m_maxRangeY`, both 1. A one-square box rather
+  than a radius: the same thing on a square grid, arrived at differently.
+- `SelectByHitDice` **replaces** the target count with a hit-dice budget, setting `MaxTargets` to
+  zero outright.
+- **Out of combat every area shape becomes the whole party.** Each area branch has an `else`
+  commented "acts like ttype=WholeParty" — units rather than squares, the party size as the cap,
+  and the design's width and height dropped on the floor.
+- **`MaxTargets` means two different things.** For the area shapes it caps how many combatants the
+  area catches; **for the two line shapes it is the line's width in squares**, passed straight into
+  `GetCombatantsInLine`'s width parameter (`Combatant.cpp:7999`).
+
+> **"Friend" means the caster's own side, not the party's.** `C_AddTarget` tests
+> `targ.GetIsFriendly() == this->GetIsFriendly()`, so a monster casting a friends-only spell
+> reaches other monsters. Reading it as "the party" makes every enemy buff heal the party instead.
+
+What is *not* ported is the area geometry: `GetMapTilesInRectangle` and its callers
+(`Drawtile.cpp:4646`), a flood fill in quarter-square coordinates against two rotated half-planes,
+with the circle, cone and both lines built on top. Its own header comment gives the convention —
+**"Width is normal to casting direction; Height is parallel"** — and the rectangle is centred on
+the target rather than anchored at a corner. That, plus applying the effects, is what remains of
+casting.
+
 ##### The casting clock, as ported
 
 `COMBATANT::CastSpell` and `PENDING_SPELL_LIST` (`Combatant.cpp:615`, `Spell.cpp:7713`) — when a
@@ -3629,19 +3702,26 @@ monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
 art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
-begin a spell, end. Read the fifteen "as ported" sections under §7 Phase 4 before touching any of
+begin a spell, end. Read the sixteen "as ported" sections under §7 Phase 4 before touching any of
 it.
 
 What is left, in order:
 
-1. **Resolving a spell**, which is the second half of casting. The first half is done (§the
-   casting clock): a spell is chosen from the book, the copy is spent, the clock holds it, damage
-   voids it, and the caster is requeued when it lands. What that requeued turn should then do is
-   unported — choosing targets (`CAST_COMBAT_SPELL_MENU_DATA`, `RunEvent.cpp:15493`), saving
-   throws, applying the effects, and the lingering-spell area effects that movement and the round
-   both call and neither has. `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
-   arithmetic and bookkeeping it lands on, all ported. Until it exists, an immediate spell says so
-   rather than silently doing nothing.
+1. **Resolving a spell**, which is the second half of casting. Done: the clock (§the casting
+   clock), the saving throw and the targeting setup (§saving throws and spell targeting). What
+   remains is
+   1. **the area geometry** — `GetMapTilesInRectangle` (`Drawtile.cpp:4646`) and the circle, cone
+      and two lines built on it. The rectangle is the primitive and the only hard one: a flood fill
+      in quarter-square coordinates against two rotated half-planes, centred on the target, with
+      **width normal to the casting direction and height parallel**. `AreaSquare` and `AreaCircle`
+      carry nearly every area spell the shipped designs have, so those two are worth doing first;
+   2. **choosing the targets** — `COMBAT_SPELL_AIM_MENU_DATA` for the player, and the AI's own
+      pick for a monster;
+   3. **applying the effects** — `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
+      arithmetic and bookkeeping, all ported, but nothing calls them from a cast yet; and
+   4. **the lingering-spell area effects** that movement and the round both call and neither has.
+
+   Until this exists, an immediate spell says so rather than silently doing nothing.
 2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
    ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
    invocation.
