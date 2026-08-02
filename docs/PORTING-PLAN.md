@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,769 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,791 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2493,6 +2493,51 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Turning, delaying and automatic, as ported
+
+TURN, DELAY and QUICK (`COMBAT_DATA::TurnUndead`, `COMBATANT::DelayAction`, `COMBATANT::Quick` —
+`Combatants.cpp:6311`, `Combatant.cpp:7685`, `:7034`). `UAFcore/TurnUndead.cs` plus the session
+wiring.
+
+> **The AD&D turning table is dead code.** `UndeadTurnTable` and `GetUndeadTurnValueByHD` are
+> complete and correct (`GameRules.cpp:506`, `:538`) — thirteen undead rows against fourteen cleric
+> levels — but their only caller, the exported `GetUndeadTurnValue`, was stubbed when the undead
+> type stopped being an enum: it tests a sentinel, calls `NotImplemented(0x145ab)` and returns
+> zero, with the line that would reach the table commented out beside it (`:629`). Nothing else
+> calls either function. **Turning is entirely design-scripted** through the `TURN_ATTEMPT` hook,
+> which returns the undead categories a cleric reaches. Not ported, for the same reason the other
+> dead branches were not — but it is the most convincing-looking dead code in the codebase, and
+> anyone porting combat will find it before they find the stub.
+
+What is real is the application half:
+
+- **Two passes, and the first ignores anyone already running.** A monster with status `Fled` or
+  `Running` is skipped on pass 0 and considered on pass 1, so a standing monster is always turned
+  in preference to one already leaving. Without the two passes a cleric could spend the whole
+  attempt on monsters that were going anyway.
+- The dead and the gone are skipped on both passes, so they never consume a slot.
+- **A turned monster is set running, not removed** — status `Running`, `isTurned` set, and its
+  last attacker set to the cleric, which is how it knows which way to run. A destroyed one becomes
+  `Gone` and leaves the map.
+- **The sentinel for "cannot turn" is 99, not zero.** `GetTurnUndeadLevel() < 99` is the whole
+  condition, so any lower value passes — including zero and negatives.
+
+**DELAY does not end the turn.** Initiative goes up by one, the state clears and the combatant
+comes off the queue, but `turnIsDone` is untouched — so the round's walk reaches it again at its
+new slot. That is the whole difference between DELAY and END. It is refused when
+`initiative + 1` would reach `INITIATIVE_Never`, because a delayed turn must still come round
+*this* round.
+
+> **QUICK only ever turns automatic ON.** The combat menu calls `Quick(TRUE)` and nothing else
+> (`RunEvent.cpp:15422`); there is no menu route back. Taking a party member back off automatic is
+> bound to **the space bar** (`:15129`), handled before any state check — the reference's comment
+> is "need to handle this regardless of state". Reading QUICK as a toggle gives the player a way
+> back that the original does not have. Turning automatic off also has to undo what the AI had the
+> combatant doing — path, targets, state and any spell in progress.
+
+SPEED is the game-speed menu (`GAME_SPEED_MENU_DATA`), a presentation setting rather than a combat
+rule, and is not ported. USE needs item invocation and is not started.
+
 ##### Lingering spells, as ported
 
 `SPELL_LINGER_DATA` and `ProcessLingeringSpellEffects` (`Spell.h:1068`, `Char.cpp:18158`) — a spell
@@ -3951,9 +3996,9 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
-   ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
-   invocation.
+1. **USE**, the last unimplemented combat command — item invocation, which needs the item spell
+   path (`CastItemSpell`, `Combatant.cpp:740`). VIEW is the character sheet, which exists and only
+   needs wiring to the menu entry; SPEED is a presentation setting rather than a combat rule.
 2. **The Forth VM** (§the monster AI section) — the last large unported subsystem in Phase 2. It
    unlocks the scripted AI, and with it a monster's own choice of spell and targets, which this
    port currently approximates (§choosing a spell's targets).

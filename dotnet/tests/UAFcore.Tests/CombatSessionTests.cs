@@ -846,6 +846,180 @@ public class CombatSessionTests
         Assert.Equal(0, session.Lingering.Count);
     }
 
+    // ---- the turn-ordering commands ----------------------------------------------------------
+
+    [Fact]
+    public void Delaying_moves_the_combatant_later_in_the_round_without_ending_its_turn()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Delay);
+        var actor = session.Combatants[session.Acting];
+        int before = actor.Initiative;
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(before + 1, actor.Initiative);
+        Assert.False(actor.TurnIsDone);
+        Assert.Contains("delays", session.Message);
+    }
+
+    [Fact]
+    public void A_delayed_combatant_gets_its_turn_again_at_the_new_slot()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Delay);
+        int who = session.Acting;
+        int round = session.Round.Round;
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        // Every other player ENDs, so the walk carries on rather than stalling on the menu.
+        for (int step = 0; step < 200 && session.Acting != who
+                           && session.Round.Round == round; step++)
+        {
+            if (!session.AwaitingPlayer)
+            {
+                session.Update();
+            }
+            else if (CombatMenu.At(session.Menu.ActiveItem) == CombatCommand.End)
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Return));
+            }
+            else
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Right));
+            }
+        }
+
+        Assert.Equal(who, session.Acting);
+        Assert.Equal(round, session.Round.Round);
+    }
+
+    [Fact]
+    public void Delaying_is_refused_at_the_last_initiative_slot()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Delay);
+        var actor = session.Combatants[session.Acting];
+        actor.Initiative = CombatRound.NeverInitiative - 1;
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Equal(CombatRound.NeverInitiative - 1, actor.Initiative);
+        Assert.Contains("cannot delay", session.Message);
+    }
+
+    [Fact]
+    public void Quick_only_ever_hands_the_combatant_to_the_ai()
+    {
+        // The menu calls Quick(TRUE) and nothing else -- there is no menu route back.
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Quick);
+        var actor = session.Combatants[session.Acting];
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.True(actor.IsAuto);
+        Assert.Contains("on automatic", session.Message);
+    }
+
+    [Fact]
+    public void Space_takes_a_party_member_back_off_automatic()
+    {
+        // Bound to the space bar rather than to a menu entry, and undoing whatever the AI had the
+        // combatant doing.
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Quick);
+        var actor = session.Combatants[session.Acting];
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+        Assert.True(actor.IsAuto);
+
+        actor.Target = 3;
+        actor.State = CombatantState.Attacking;
+        session.Update(InputEvent.KeyDown(VirtualKey.Space));
+
+        Assert.False(actor.IsAuto);
+        Assert.Equal(CombatMap.NoDude, actor.Target);
+        Assert.Equal(CombatantState.None, actor.State);
+        Assert.Contains("off automatic", session.Message);
+    }
+
+    [Fact]
+    public void A_combatant_denied_player_control_cannot_be_put_on_automatic()
+    {
+        var session = AtCommand(Start(party: 2, monsters: 2, auto: false), CombatCommand.Quick);
+        var actor = session.Combatants[session.Acting];
+        actor.AllowPlayerControl = false;
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.False(actor.IsAuto);
+        Assert.Contains("cannot be controlled", session.Message);
+    }
+
+    // ---- turning -------------------------------------------------------------------------------
+
+    [Fact]
+    public void Turn_is_offered_only_to_a_combatant_that_can_turn()
+    {
+        var session = Start(party: 2, monsters: 2, auto: false);
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        Assert.False(session.Menu.Items[(int)CombatCommand.Turn - 1].Enabled);
+
+        session.Combatants[session.Acting].TurnLevel = 3;
+        session.Update(InputEvent.KeyDown(VirtualKey.Right));   // rebuilds nothing by itself
+    }
+
+    [Fact]
+    public void Turning_with_no_script_answer_turns_nothing()
+    {
+        // The AD&D table is dead code; turning is entirely design-scripted, so without GPDL there
+        // is nothing to ask and nothing happens.
+        var session = Start(party: 2, monsters: 2, auto: false);
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        var actor = session.Combatants[session.Acting];
+        actor.TurnLevel = 3;
+        CombatMenu.Build(session.Menu, new CombatOptions(CanTurnUndead: true));
+        while (CombatMenu.At(session.Menu.ActiveItem) != CombatCommand.Turn)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Contains("turns nothing", session.Message);
+        Assert.True(actor.TurnIsDone);
+    }
+
+    [Fact]
+    public void Turning_with_a_script_answer_sends_the_undead_running()
+    {
+        var session = Start(party: 2, monsters: 2, auto: false);
+        session.TurnDataOf = c => c.IsFriendly ? null : new TurnData("skeleton", 9, false);
+        session.TurnAttempt = _ => new Dictionary<string, int> { ["skeleton"] = 1 };
+
+        while (!session.AwaitingPlayer)
+        {
+            session.Update();
+        }
+
+        var actor = session.Combatants[session.Acting];
+        actor.TurnLevel = 3;
+        CombatMenu.Build(session.Menu, new CombatOptions(CanTurnUndead: true));
+        while (CombatMenu.At(session.Menu.ActiveItem) != CombatCommand.Turn)
+        {
+            session.Update(InputEvent.KeyDown(VirtualKey.Right));
+        }
+
+        session.Update(InputEvent.KeyDown(VirtualKey.Return));
+
+        Assert.Contains("turns 1", session.Message);
+        Assert.Contains(session.Combatants, c => !c.IsFriendly && c.IsTurned);
+    }
+
     [Fact]
     public void The_view_scrolls_to_keep_the_acting_combatant_visible()
     {

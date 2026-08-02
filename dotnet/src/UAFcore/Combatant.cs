@@ -212,6 +212,63 @@ public sealed class Combatant
     /// <summary>Whether a begun spell is still waiting on the clock (<c>IsSpellPending</c>).</summary>
     public bool IsSpellPending => State == CombatantState.Casting && PendingSpellKey >= 0;
 
+    /// <summary>
+    /// The best turning level across this character's baseclasses — a baseclass's level minus its
+    /// <c>m_turnUndeadLevel</c> (<c>GetTurnUndeadLevel</c>).
+    /// </summary>
+    /// <remarks>
+    /// <see cref="TurnUndead.CannotTurn"/> is the sentinel for "does not turn", and is the
+    /// default: most combatants are not clerics.
+    /// </remarks>
+    public int TurnLevel { get; set; } = TurnUndead.CannotTurn;
+
+    /// <summary>
+    /// Whether the player may take this combatant off automatic
+    /// (<c>GetAdjAllowPlayerControl</c>). A spell can take control away.
+    /// </summary>
+    public bool AllowPlayerControl { get; set; } = true;
+
+    /// <summary>
+    /// Whether this combatant can put its turn off (<c>CanDelay</c>, <c>Combatant.cpp:7673</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Delaying is refused at the last initiative slot, not at the last walked one.</b> The test
+    /// is <c>m_iInitiative + 1 &lt; INITIATIVE_Never</c>, so a combatant on 21 may still delay to
+    /// 22 and one on 22 may not — the whole point being that a delayed turn must still come round
+    /// this round.
+    /// </remarks>
+    public bool CanDelay() => !IsDone() && Initiative + 1 < CombatRound.NeverInitiative;
+
+    /// <summary>
+    /// Puts this combatant's turn off until later in the round
+    /// (<c>DelayAction</c>, <c>Combatant.cpp:7685</c>).
+    /// </summary>
+    /// <returns>Whether the delay happened.</returns>
+    /// <remarks>
+    /// <b>Delaying does not end the turn.</b> Initiative goes up by one, the state clears and the
+    /// combatant comes off the queue — but <see cref="TurnIsDone"/> is untouched, so the round's
+    /// walk reaches it again at its new slot. That is what separates DELAY from END.
+    /// </remarks>
+    public bool DelayAction(TurnQueue queue)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+
+        if (!CanDelay())
+        {
+            return false;
+        }
+
+        Initiative++;
+        State = CombatantState.None;
+
+        if (queue.Top == Index)
+        {
+            queue.Pop();
+        }
+
+        return true;
+    }
+
     /// <summary>Who this combatant is attacking, or <see cref="CombatMap.NoDude"/>.</summary>
     public int Target { get; set; } = CombatMap.NoDude;
 

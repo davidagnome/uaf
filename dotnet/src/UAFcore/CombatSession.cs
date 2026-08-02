@@ -138,6 +138,28 @@ public sealed class CombatSession
     private Func<string, SpellRecord?>? spellInfo;
 
     /// <summary>
+    /// Stands in for the <c>TURN_ATTEMPT</c> script: which undead categories a cleric reaches, and
+    /// how many of each.
+    /// </summary>
+    /// <remarks>
+    /// <b>Turning is entirely design-scripted in the reference</b> — the AD&amp;D table is dead
+    /// code (see <see cref="TurnUndead"/>) — so without GPDL there is nothing to ask and nothing
+    /// is turned. Settable so a test, or a later script layer, can supply the answer.
+    /// </remarks>
+    public Func<Combatant, IReadOnlyDictionary<string, int>>? TurnAttempt
+    {
+        get => turnAttempt;
+        set => turnAttempt = value;
+    }
+
+    private Func<Combatant, IReadOnlyDictionary<string, int>>? turnAttempt;
+
+    /// <summary>The design's turning record for a combatant. Null means it is not undead.</summary>
+    public Func<Combatant, TurnData?>? TurnDataOf { get; set; }
+
+    private TurnData? TurnDataFor(Combatant combatant) => TurnDataOf?.Invoke(combatant);
+
+    /// <summary>
     /// Builds a fight from a combat event.
     /// </summary>
     /// <param name="party">The party, which goes in first and keeps its order.</param>
@@ -256,6 +278,13 @@ public sealed class CombatSession
         }
 
         var actor = combatants[Acting];
+
+        // Space takes a party member back off automatic, and is handled before the state check
+        // -- the reference's own comment is "need to handle this regardless of state".
+        if (input is { Kind: InputEventKind.KeyDown, Key: VirtualKey.Space } && TakeBackControl())
+        {
+            return true;
+        }
 
         if (actor.IsAuto)
         {
@@ -769,9 +798,9 @@ public sealed class CombatSession
         CanMove: actor.Movement < actor.MaxMovement,
         CanCast: Casting.CanCast(actor, noMagic: NoMagic),
         ZoneAllowsMagic: !NoMagic,
-        CanTurnUndead: false,
+        CanTurnUndead: TurnUndead.CanTurn(actor, actor.TurnLevel),
         CanGuard: true,
-        CanDelay: true,
+        CanDelay: actor.CanDelay(),
         CanBandage: !actor.IsDone(),
         IsEditor: false,
         SpecialActionName: string.Empty);
@@ -808,6 +837,61 @@ public sealed class CombatSession
         EndTurn(actor, plan.Decision == AiDecision.Guard
             ? CombatantState.Guarding
             : CombatantState.None);
+    }
+
+    /// <summary>
+    /// Puts a combatant on or off automatic (<c>COMBATANT::Quick</c>, <c>Combatant.cpp:7034</c>).
+    /// </summary>
+    /// <returns>Whether it was allowed — a spell can deny player control.</returns>
+    /// <remarks>
+    /// <b>Turning automatic off has to undo whatever the AI had it doing</b>: the path, the
+    /// targets, the state and any spell in progress. Leaving those set would hand the player a
+    /// combatant already committed to the computer's plan.
+    /// </remarks>
+    private bool SetAutomatic(Combatant actor, bool automatic)
+    {
+        if (!actor.AllowPlayerControl)
+        {
+            return false;
+        }
+
+        if (!automatic)
+        {
+            paths.Remove(actor.Index);
+            actor.Target = CombatMap.NoDude;
+            actor.State = CombatantState.None;
+            Casting.Stop(actor, Pending, Round.Queue);
+        }
+
+        actor.IsAuto = automatic;
+        return true;
+    }
+
+    /// <summary>
+    /// Takes a party member back off automatic (<c>RunEvent.cpp:15129</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Bound to the space bar, not to a menu entry</b>, and handled before any state check —
+    /// the reference's comment says "need to handle this regardless of state". It applies only to
+    /// a party member currently on automatic, which is why there is no menu entry for it: the menu
+    /// belongs to a combatant the player is already driving.
+    /// </remarks>
+    public bool TakeBackControl()
+    {
+        if (Acting == CombatMap.NoDude)
+        {
+            return false;
+        }
+
+        var actor = combatants[Acting];
+        if (!actor.IsFriendly || !actor.IsAuto || !SetAutomatic(actor, false))
+        {
+            return false;
+        }
+
+        Message = $"{actor.Name} is off automatic.";
+        CombatMenu.Build(Menu, OptionsFor(actor));
+        return true;
     }
 
     private bool HandlePlayerKey(Combatant actor, VirtualKey key)
@@ -1085,6 +1169,49 @@ public sealed class CombatSession
                 SelectedSpell = 0;
                 CombatMenu.BuildCast(Menu);
                 ShowSelectedSpell();
+                return true;
+
+            case CombatCommand.Turn:
+            {
+                // The design's TURN_ATTEMPT script says which undead categories this cleric
+                // reaches; without GPDL there is nothing to ask, so nothing is turned.
+                var reached = turnAttempt?.Invoke(actor) ?? new Dictionary<string, int>();
+                var results = TurnUndead.Resolve(combatants, TurnDataFor, reached);
+                TurnUndead.Apply(combatants, Map, Round.Queue, actor, results);
+
+                Message = results.Count == 0
+                    ? $"{actor.Name} turns nothing."
+                    : $"{actor.Name} turns {results.Count}.";
+
+                EndTurn(actor, CombatantState.Turning);
+                return true;
+            }
+
+            case CombatCommand.Quick:
+                // QUICK only ever turns automatic ON -- the menu calls Quick(TRUE) and nothing
+                // else (RunEvent.cpp:15422). Taking a combatant back is the space bar's job; see
+                // TakeBackControl.
+                if (!SetAutomatic(actor, true))
+                {
+                    Message = $"{actor.Name} cannot be controlled.";
+                    return true;
+                }
+
+                Message = $"{actor.Name} is on automatic.";
+                CombatMenu.Build(Menu, OptionsFor(actor), acting: false);
+                return true;
+
+            case CombatCommand.Delay:
+                if (!actor.DelayAction(Round.Queue))
+                {
+                    Message = $"{actor.Name} cannot delay.";
+                    return true;
+                }
+
+                // Not an end of turn: the round's walk reaches this combatant again at its new,
+                // later initiative.
+                Message = $"{actor.Name} delays.";
+                Acting = CombatMap.NoDude;
                 return true;
 
             case CombatCommand.Guard:
