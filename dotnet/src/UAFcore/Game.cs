@@ -86,6 +86,8 @@ public sealed class Game
         World = WorldState.FromDesign(design.Globals.Quests, design.Globals.SpecialItems,
                                       design.Globals.Keys);
 
+        Globals.Load(design.Globals.Attributes);
+
         Money = design.Globals.Money is { } currency
             ? MoneyRules.FromDesign(currency)
             : MoneyRules.Default;
@@ -165,6 +167,17 @@ public sealed class Game
 
     /// <summary>Quest, special-item and key state.</summary>
     public WorldState World { get; }
+
+    /// <summary>
+    /// The design's global attributes, which its scripts read and write
+    /// (<c>globalData.global_asl</c>).
+    /// </summary>
+    /// <remarks>
+    /// Seeded from the design and then written by the engine — the combat results screen puts its
+    /// verdict here under <see cref="AttributeList.CombatResultKey"/>, which is how a design
+    /// branches on how a fight went.
+    /// </remarks>
+    public AttributeList Globals { get; } = new();
 
     /// <summary>
     /// Column offsets from the roster's left edge (<c>displayPartyNames</c>,
@@ -565,6 +578,11 @@ public sealed class Game
 
         var result = CombatAftermath.ResultOf(session.Outcome, session.Combatants,
                                               partyNeverDies: combat?.PartyNeverDies != 0);
+
+        // What a design's scripts branch on. Written with ASLF_MODIFIED, as the results screen
+        // does, because this is a change during play rather than a first insertion.
+        Globals.Insert(AttributeList.CombatResultKey, CombatAftermath.ResultText(result),
+                       AttributeFlags.Modified);
 
         if (result != CombatResult.Win)
         {

@@ -15,7 +15,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**1,890 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**1,906 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2627,6 +2627,42 @@ porting what the program decides is a table. Two facts make the second reasonabl
 VM is still worth building — but it is a smaller prize than "the scripted AI is unported" suggested,
 and this is why.
 
+##### The attribute store, as ported
+
+`A_ASLENTRY_L` (`ASL.h:95`, `ASL.cpp:1285`) — the named key/value stores a design's scripts read and
+write. `UAFcore/AttributeList.cs`, wired into `Game` as the global one, and **the combat verdict now
+reaches a design** through it.
+
+The engine keeps several: one global, one per character, one per event, one per item. They are how a
+design records state that outlives a single script. Read off the wire already (`AslReader`); what
+was missing was somewhere to keep them at runtime.
+
+**Two of the four flags do the work; two are labelled "info only. Not used" in the header itself.**
+
+- **`ASLF_READONLY` is the load-bearing one.** It decides what a save game holds and what survives
+  a restore. A read-only attribute comes from the design and is reloaded with it, so storing it in
+  a save would only let a stale copy override the design later.
+- **`ASLF_MODIFIED` is set by the caller, not by the container.** The header says the first
+  insertion during play does not set it, and nothing in `Insert` does — it is a convention the call
+  sites follow. The combat results screen passes it explicitly.
+
+> **`Insert` returns true when the key was *already there*.** That reads backwards from "did it
+> work", and it is deliberate: callers testing the result are testing for a pre-existing value.
+> It also **replaces the flags, not just the value**, so inserting over a read-only attribute with
+> no flags makes it writable. The reference does not guard that.
+
+> **Read-only is not enforced by the container.** The flag's own comment says such an attribute
+> "can't be deleted", but `Delete` takes a key and removes whatever it finds. The protection lives
+> in the callers and in the save path — worth knowing before trusting the flag as a lock.
+
+`CommitRestore` is two halves and both matter: discard every non-read-only entry, *then* take the
+source's non-read-only entries. The discard is what stops a key the save game no longer has from
+lingering; the filter on the way in is what stops a save overriding the design's read-only values.
+
+**The combat verdict** is written under the key `"Combat Result"` — spelled with a space, and a
+design tests it by that exact name — with the four values `Win`, `Lose`, `LoseButNeverDies` and
+`Flee` (§the combat aftermath). `Game` writes it as the results screen does, flagged modified.
+
 ##### The combat aftermath, as ported
 
 `DetermineVictoryExpPoints` and the results screen (`Combatants.cpp:4315`, `RunEvent.cpp:19669`) —
@@ -4200,9 +4236,10 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The `"Combat Result"` ASL**, and the ASL layer generally. The aftermath computes the verdict
-   and the spoils (§the combat aftermath) but nothing stores them where a design's scripts look.
-   That is the same gap as the GPDL hooks below, reached from the other end.
+1. **Reading the attribute store from a script.** The store exists and the combat verdict reaches
+   it (§the attribute store), but no script layer consults it — that is the GPDL gap below, reached
+   from the other end. The per-character, per-event and per-item stores are read off the wire and
+   not yet held at runtime either; only the global one is.
 2. **The treasure screen after a fight.** `GIVE_TREASURE_DATA` is pushed with the spoils; this port
    reports them in the message line and drops them. The treasure screen itself exists (§Phase 4).
 3. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
