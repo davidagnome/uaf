@@ -2,11 +2,13 @@
 
 **Targets:** `UAFWin` → **UAFcore** (game engine + player), `UAFWinEd` → **UAFedit** (design editor)
 **Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
-**Date:** 2026-08-01
+**Date:** 2026-08-02
 
 **Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
-corpus parses, diffed against the oracle — but **no writer exists**, so its round-trip exit
-criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
+corpus parses, diffed against the oracle — and **the writer has started**: the byte layer, both
+shared leaves and the first whole record type, monsters, which round-trips all 570 records in the
+corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
+Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
@@ -15,7 +17,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,041 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,090 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2748,6 +2750,92 @@ modern block does run off the end rather than quietly finding nothing.
 > the corpus test used items and passed by finding nothing; the guard assertion beside it,
 > asserting the corpus is non-empty, is what caught that and is why it stays.
 
+##### The first whole record the port can write, as ported
+
+`MONSTER_DATA::Serialize` (`Monster.cpp:629`) — `MonsterRecordWriter`, with `MonsterLeafWriters`
+and `PicDataWriter` under it. **The first record type this port can write**, and the first thing
+above the byte layer that produces a file rather than a fragment.
+
+Monsters first because their records are the only ones in the corpus that carry real content in
+every leaf the other databases share: an ASL block on all 570 records across four designs, special
+abilities on 527, an embedded `PIC_DATA` on every one, an item list on 163, a money sack on all of
+them. Items and spells reuse most of that.
+
+> **One write path, whatever the version — and the reason is worth understanding before writing
+> the next record type.** The reference's storing branch is a flat run of writes with **no version
+> tests in it at all**; every gate lives in the loading half. That is not an oversight. A design is
+> always saved at the *current* version, so on the way out every gate is open by construction,
+> while the loading gates exist to read what older builds left behind. Mirroring them would emit an
+> old shape into a file stamped new, which is the one combination nothing can read. `SpecabWriter`
+> reached the same conclusion from its own gate; this is the general rule.
+
+`MonsterRecordWriter.WrittenVersion` names the earliest version whose *reader* reads exactly the
+shape written — **5.24**, bound by the icon's `RestartFrame`. Nothing is added to the record
+between there and `PRODUCT_VER`, so anything in that range reads it identically.
+
+**Four legacy shapes survive reading and cannot go out**, so `CanWrite` refuses them and says why:
+a record with only a pre-0.640 icon filename (building a `PIC_DATA` from it needs
+`SetDefaults()`, unported), an attack or a carried item still holding a pre-0.998101 *numeric* id,
+and special abilities in the pre-0.921 shape. **`DefaultDesign` is 0 of 44 writable** for the first
+three reasons at once, which is the useful demonstration that the refusal is not theoretical.
+
+> **A missing item list or money sack is *not* one of them.** Those are absent below 0.694 and
+> 0.906, where the reference writes its default-constructed members — an empty list with twelve
+> zeroed slots, ten zeroed coin types. Writing empties there is exact, not a guess, and the
+> distinction between "the reference has nothing to write" and "the port has lost something" is
+> what separates the two lists.
+
+- **The `DAS` blank convention applies to six strings and not to the rest.** Name, the four sounds
+  and the icon filename go through it; `classID`, `undeadType`, item ids and spell ids are written
+  verbatim. The reference marks the difference only by which macro it used at the call site.
+- **`readyLocation` goes out exactly as it came in.** The reference's *reader* maps the ordinals
+  0‥16 onto the base-38 packed constants (`itemReadiedLocation::Synonym`) and then stores the
+  mapped value, so a reference load-and-save silently upgrades an old slot. This port reads the raw
+  `DWORD`, which is what makes writing it back byte-exact.
+- **The `PIC_DATA` variant matters when writing too**, and it is not a version question: `style` is
+  written on the `CAR` path and commented out on the `CArchive` one, matching each path's reader.
+  Four bytes, with nothing in the record to say which.
+- **`$SYS$Race` is left alone.** The reference re-derives that attribute from its in-memory
+  `raceID` before writing the ASL (`StoreStringAsASL`); this port never splits the two apart, so it
+  writes the attribute back as read — the same bytes for any file the reference produced.
+
+**Three reader gaps surfaced while writing the inverse**, all of them things the reference does
+during a load that the port was not doing:
+
+> **The legacy undead type was being kept as its ordinal.** Below 0.998115 the file holds an index
+> which the reference names from `UndeadTypeText` as it loads (`Monster.cpp:816`); the port stored
+> `"1"` where the design means `"Skeleton"`. Reading it is harmless in isolation — nothing compares
+> it to anything — but *writing* it would have put the ordinal into a modern file permanently, and
+> no turning table has a category called `"1"`. Index 0 must still come out empty rather than
+> `"Not Undead"`, because "is this undead at all?" is asked everywhere as "is the string non-empty".
+
+> **A monster that loads with no attacks is given one** — 1d6, message `"attacks"`
+> (`Monster.cpp:764`) — at *every* version, not just in the legacy branch. Live in the corpus: one
+> of `dc-default`'s 171 monsters has an empty attack list on disk, and a literal reader leaves it
+> unable to attack at all.
+
+> **The pre-0.750 attack expansion floors three of its four scalars, not one**, and the floors
+> differ: one attack, ten sides, one die. A zero there means "unset", not "none".
+
+**What the corpus test proves and what it does not.** All 570 records read, write and read again
+unchanged, and writing what was read gives byte-identical output the second time — which catches a
+field that never went out at all, since a byte the writer omits is one the reader takes from
+somewhere else. It is **not** byte-identity with the shipped file: every modern `monsters.dat` in
+the corpus is a compressed `CAR`, and decompressing one does not yield the plain stream either,
+because `CAR` interns strings across the whole archive. Byte-identity needs the `CAR` writer —
+both halves of it.
+
+> **The reference does this exact round trip itself.** `WriteMonsterDB` saves the database, reads
+> it straight back and compares (`Dbutils.cpp:476`), normalising the version first because the
+> file it just wrote is at `PRODUCT_VER` and the one it loaded was not. That version fix-up is the
+> same asymmetry `WrittenVersion` names.
+
+One coverage gap worth stating rather than papering over: **every money sack in the corpus is
+empty** — ten zeroed coin slots, no gems, no jewellery, across all 570 records. The sack's
+non-empty form is covered by unit tests only. What the corpus does prove about it is that the empty
+sack is written at exactly the right size, since anything else would leave the next record
+misaligned.
+
 ##### Spell effects on a character outside combat, as ported
 
 `GetAdjAC` and `GetAdjHitPoints` (`Char.cpp:13198`, `:13239`) — `Character.Effects` plus the
@@ -4480,13 +4568,19 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The rest of the archive writer.** The byte layer and the ASL leaf are done
-   (§the archive writer's first two layers); what is missing is a writer per record type, mirroring
-   each reader. It is the largest structural gap in the port: it gates Phase 1's round-trip exit
-   criterion, save games, and Phase 5 entirely. Both shared leaves are done, so the next step is a
-   whole record: **monsters** is the best first target — the corpus proves its records carry real
-   ASL and special-ability content, and `MonsterRecordReader` is the smallest of the three database
-   readers.
+1. **The rest of the archive writer.** The byte layer, both shared leaves and the first whole
+   record type are done (§the archive writer's first layers, §the first whole record the port can
+   write); what is missing is a writer per remaining record type, mirroring each reader. It is
+   still the largest structural gap in the port: it gates Phase 1's round-trip exit criterion, save
+   games, and Phase 5 entirely. Two things to take next, in either order:
+   - **Items, then spells** — `ITEM_DATA` is the closest sibling of the record just written, shares
+     three of its four leaves, and ends *at* its ASL rather than continuing past it. Read the
+     monster section's rule about the storing branch having no version gates before starting;
+     it is the general rule, not a monster quirk.
+   - **The `CAR` write path**, which is what turns any of this into a file the reference will open.
+     Two halves and both are unexplored: the LZW *encoder*, and the write side of string interning.
+     Until it exists nothing can claim byte-identity with a shipped design — decompressing one does
+     not give the plain stream, because the strings are interned across the whole archive.
 2. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
@@ -4535,7 +4629,7 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | Nothing writes. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
+| **`ArchiveWriter`** | The byte layer, both shared leaves and `MONSTER_DATA` are written; the other record types and the whole `CAR` write path are not. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **13 event types have no reader** | `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` — 31 of 44 are done | Medium |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |

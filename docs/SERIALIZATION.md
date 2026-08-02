@@ -23,6 +23,9 @@ opens its storing branch with `die("We should not be serializing itemdata with C
 A reader transcribed from the storing branch will read modern files correctly and every older file
 wrongly.
 
+**Writing a record inverts this rule** — a writer must transcribe the storing branch, and inherits
+the consequence that it can only produce today's layout. See §10a.
+
 ---
 
 ## 2. Version numbers
@@ -558,6 +561,61 @@ Assertions worth writing, in descending order of value:
 4. **Round decimals** (`startTime` = 800, `startExp` = 30,000,000) — a one-byte slip yields
    arbitrary noise, not round numbers.
 5. Printability of names — the weakest; use it to *locate* drift, not to prove its absence.
+
+---
+
+## 10a. Writing
+
+Everything above describes reading. Writing is a different discipline, and §1's cardinal rule —
+transcribe the *loading* branch — does not carry over: a writer must transcribe the **storing**
+branch, and the two are not mirror images.
+
+**The storing branch has no version gates.** Not in `MONSTER_DATA`, not in `PIC_DATA`, not in
+`ITEM`, `ITEM_LIST`, `MONEY_SACK`, `ATTACK_DETAILS` or `READY_ITEMS`; `SPECIAL_ABILITIES` has one
+and it is explicitly `&& !ar.IsStoring()`. That is not an oversight. **A design is always saved at
+the current version**, so on the way out every gate is open by construction, and the loading gates
+exist only to read what older builds left behind. It follows that:
+
+- **Write the modern shape unconditionally.** Mirroring the reader's forks emits an old shape into
+  a file stamped new, which is the one combination nothing can read.
+- **Name the version whose reader the output matches**, because it is not the version the record
+  was read at. For `MONSTER_DATA` that is 5.24, bound by the icon's `RestartFrame`.
+- **Refuse a record still in a legacy shape** rather than writing it hollow. The reference converts
+  as it loads, using databases and defaults the port may not have; where the conversion is not
+  ported there is no honest modern form, and an empty block reads back cleanly with the content
+  silently gone.
+
+**Loading is not always lossless, and where it is not, the writer inherits the loss.** Three cases
+found so far, all of them in `MONSTER_DATA`: an undead type below 0.998115 is an *ordinal* the
+reference names from `UndeadTypeText` as it loads; a monster that loads with no attacks is given
+one; and `readyLocation` ordinals 0‥16 are mapped to their base-38 constants on the way in. A port
+that keeps the raw value writes byte-exact and diverges from the reference's in-memory state; a
+port that converts matches the reference and no longer round-trips its own input. Neither is wrong
+— but the choice has to be made deliberately, per field.
+
+**The one asymmetry to watch for in a record body**: a field the loading branch reads only in some
+version ranges but the storing branch always writes. `MONSTER_DATA::preSpellNameKey` is read when
+`ver < VersionSpellNames || ver >= VersionSaveIDs` and written always. Harmless in the reference,
+which only ever saves at the current version; a trap for a port tempted to write at an arbitrary
+one.
+
+**Byte-identity with a shipped file needs the `CAR` writer, and decompression is not enough.**
+Compressed `CAR` interns strings across the whole archive (§4.2), so the decompressed stream is not
+the plain `CArchive` stream. Until both halves exist — the LZW encoder and the interning table — a
+writer can only be validated against the port's own reader.
+
+**Assertions worth writing, in descending order of value:**
+
+1. **Read back everything written**, field by field. The reader is the specification; it has been
+   diffed against the oracle.
+2. **Write, read, write again — the bytes must match.** Catches a field that never went out at
+   all, since a byte the writer omits is one the reader takes from somewhere else.
+3. **A marker written straight after a record** must survive the read, which proves the record ends
+   where the reader thinks it does.
+4. **Round-trip real records, not fixtures**, and **assert the corpus is non-empty** — an earlier
+   corpus test passed by finding nothing to check.
+5. **Name what the corpus does not reach.** Every money sack in every shipped design is empty, so
+   the gem paths are unit-tested only. Say so rather than implying coverage.
 
 ---
 

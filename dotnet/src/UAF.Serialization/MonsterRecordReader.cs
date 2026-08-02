@@ -88,16 +88,30 @@ public static class MonsterRecordReader
             int dmgDiceBonus = ar.ReadInt32();
             int nbrDmgDice = ar.ReadInt32();
 
+            // Three of the four are floored, and the floors differ: one attack, ten sides, one
+            // die. A zero in the file means "unset", not "none" (Monster.cpp:746).
+            if (nbrAttacks <= 0) nbrAttacks = 1;
             if (dmgDiceForAttack <= 0) dmgDiceForAttack = 10;
+            if (nbrDmgDice <= 0) nbrDmgDice = 1;
+
             for (int i = 0; i < nbrAttacks; i++)
             {
                 attacks.Add(new AttackDetails(dmgDiceForAttack, nbrDmgDice, dmgDiceBonus,
-                                              string.Empty, string.Empty, 0, 0, 0));
+                                              DefaultAttackMessage, string.Empty, 0, 0, 0));
             }
         }
         else
         {
             attacks = MonsterLeafReaders.ReadAttackData(ar, version, role);
+        }
+
+        // Applied at EVERY version, not just the legacy branch: a monster that reaches here with
+        // no attacks is given one (Monster.cpp:764). Live in the corpus -- one of dc-default's 171
+        // monsters has an empty list on disk, and the reference fights it with 1d6 where a literal
+        // reader leaves it unable to attack at all.
+        if (attacks.Count == 0)
+        {
+            attacks.Add(new AttackDetails(6, 1, 0, DefaultAttackMessage, string.Empty, 0, 0, 0));
         }
 
         int magicResistance = ar.ReadInt32();
@@ -129,8 +143,7 @@ public static class MonsterRecordReader
             // A numeric index into UndeadTypeText, replaced by the name itself at 0.998115.
             if (version.Value <= 0.998115)
             {
-                int index = ar.ReadInt32();
-                undeadType = index is > 0 and < 14 ? index.ToString() : string.Empty;
+                undeadType = UndeadTypeName(ar.ReadInt32());
             }
             else
             {
@@ -184,6 +197,41 @@ public static class MonsterRecordReader
     public static List<MonsterRecord> ReadDatabase(CarArchiveReader ar, DesignVersion version,
                                                    ArchiveRole role) =>
         ReadDatabase(ArchiveCursor.For(ar), version, role);
+
+    /// <summary>
+    /// What the reference names an attack it had to invent (<c>Monster.cpp:756</c>).
+    /// </summary>
+    /// <remarks>
+    /// It reads as a verb because the combat log renders it as <c>"&lt;name&gt; attacks"</c>.
+    /// </remarks>
+    public const string DefaultAttackMessage = "attacks";
+
+    /// <summary>
+    /// The turning categories, indexed as the <c>undeadType</c> enum
+    /// (<c>Externs.h:899</c>) — <c>UndeadTypeText</c>, <c>Globtext.cpp:667</c>.
+    /// </summary>
+    /// <remarks>
+    /// Only ever used to name an index read from a design at or below 0.998115. Above that the
+    /// name is in the file, and this table is not consulted — which is why designs may contain
+    /// categories that are not in it at all.
+    /// </remarks>
+    public static readonly IReadOnlyList<string> UndeadTypeNames =
+    [
+        "Not Undead", "Skeleton", "Zombie", "Ghoul", "Shadow", "Wight", "Ghast",
+        "Wraith", "Mummy", "Spectre", "Vampire", "Ghost", "Lich", "Special",
+    ];
+
+    /// <summary>
+    /// Names a legacy undead-type index, or gives empty for one that names nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>Index 0 is empty, not <c>"Not Undead"</c>.</b> The reference clears the string first and
+    /// only fills it for <c>0 &lt; index &lt; 14</c> (<c>Monster.cpp:812</c>), so the zero row of
+    /// its own table is unreachable — and it must stay unreachable, because "is this monster
+    /// undead at all?" is asked everywhere as "is the string non-empty".
+    /// </remarks>
+    public static string UndeadTypeName(int index) =>
+        index is > 0 and < 14 ? UndeadTypeNames[index] : string.Empty;
 
     private static string ReadDas(IArchiveCursor ar) =>
         ArchiveStringConventions.Decode(ar.ReadString());
