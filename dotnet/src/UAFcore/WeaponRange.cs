@@ -84,4 +84,43 @@ public static class WeaponRange
 
         _ => false,
     };
+
+    /// <summary>
+    /// Whether an attack spends a round of ammunition
+    /// (<c>WpnConsumesAmmoAtRange</c>, <c>Items.cpp:280</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A thrown weapon only costs ammunition beyond range 1.</b> Both throwing classes return
+    /// <c>Range &gt; 1</c>, so stabbing with a dagger you could have thrown does not lose it — and
+    /// a sling never consumes anything, which is what <see cref="WeaponClass.SlingNoAmmo"/> is
+    /// named for.
+    /// </remarks>
+    public static bool ConsumesAmmoAt(WeaponClass weapon, int range) => weapon switch
+    {
+        WeaponClass.HandBlunt or WeaponClass.HandCutting or WeaponClass.SlingNoAmmo
+            or WeaponClass.SpellCaster or WeaponClass.SpellLikeAbility => false,
+
+        WeaponClass.HandThrow or WeaponClass.Throw => range > 1,
+
+        WeaponClass.Bow or WeaponClass.Crossbow => true,
+
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether the weapon <i>is</i> the ammunition, so the weapon's own stack shrinks rather than
+    /// a quiver's (<c>WpnConsumesSelfAsAmmo</c>, <c>Items.cpp:164</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The two spell classes consume themselves but never consume ammunition</b>, which reads
+    /// as a contradiction against <see cref="ConsumesAmmoAt"/> until you notice they are answering
+    /// different questions: a wand has no quiver, and spends a charge of itself. Bows are the
+    /// mirror image — they consume ammunition and never themselves.
+    /// </remarks>
+    public static bool ConsumesSelfAsAmmo(WeaponClass weapon) => weapon switch
+    {
+        WeaponClass.HandThrow or WeaponClass.Throw
+            or WeaponClass.SpellCaster or WeaponClass.SpellLikeAbility => true,
+        _ => false,
+    };
 }

@@ -9,9 +9,9 @@ corpus parses, diffed against the oracle — but **no writer exists**, so its ro
 criterion is not met. Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, executes nine of the 44
 event types, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed, a round that runs to completion in initiative order, targeting to
-decide who may hit whom, and movement along a found route. Phases 5–7 have not started.
-**1,349 tests, green on macOS, Linux and Windows; both CI workflows green.**
+party and monsters placed, a round that runs to completion in initiative order, movement along a
+found route, and attacks that roll, hit and do damage. Phases 5–7 have not started.
+**1,385 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1619,9 +1619,9 @@ remains, in dependency order:
    `CombatMapGenerator`, `CombatPlacement` (party formations), `TurtlePlacement` +
    `MonsterArrangement` + `MonsterApproach` (monsters), and `CombatSetup` over the lot.
    `CombatPathFinder` ports `path.cpp`, `CombatRound` + `TurnQueue` the round clock, and
-   `Combatant` the entity, `Targeting` who may hit whom, and `CombatMovement` the walk — **a round
-   runs end to end and combatants move along real routes**. What remains is **the attack itself**,
-   then the monster AI.
+   `Combatant` the entity, `Targeting` who may hit whom, `CombatMovement` the walk, and `Attack`
+   the swing — **a fight now resolves**. What remains is **the monster AI**, plus attacks of
+   opportunity and the spell layer.
 4. **The remaining viewport squares**, 3 and 4.
 5. **The engine thread and the `CProcinp` task scheduler** (§4.4). The engine is still a synchronous
    loop; nothing has needed the scheduler yet, but `TASKSTATE` numbering is serialized into save
@@ -2053,6 +2053,51 @@ combatant: `CombatPathFinder` produces a route and `TakeNextStep` walks it down 
 > the mover's state back to `None` so its turn resumes after the interruption. The turn queue
 > already models that interruption (§the round clock); what is missing is the rule deciding when
 > one is owed.
+
+##### The attack, as ported
+
+`DamageDice` is `GetDamageDice` (`Combatant.cpp:8379`), `Attack.Resolve` the swing, and
+`Attack.ApplyDamage` is `CHARACTER::giveCharacterDamage` (`Char.cpp:8245`). The arithmetic already
+lived in `UAF.Rules` — `ToHit`, `Thac0`, `ArmorClass` — so this is wiring plus the dice selection.
+
+**Dice come from the caller.** The reference rolls through the engine's shared generator; passing a
+roller in keeps resolution deterministic and `UAFcore` free of a global.
+
+Four quirks in the damage dice, none of them derivable:
+
+- **A weapon's to-hit bonus is added to its damage as well.** `Attack_Bonus` goes into the damage
+  bonus alongside the size-specific one (`:8407`), so a +1 sword both lands more often and hits
+  harder — one field doing two jobs, and the same field `ToHit.TargetNumber` subtracts.
+- **Unarmed damage drops the unarmed bonus against large targets.** Small uses
+  `unarmedBonus + GetAdjDmgBonus()`; large uses `GetAdjDmgBonus()` alone (`:8469`). No comment, no
+  obvious reason.
+- **A monster's own attack takes no adjusted damage bonus at all** (`:8462`) — unlike every other
+  branch, including the unarmed fallback the same monster uses when it defines no attacks.
+- **Which attack a monster is making is inferred, not tracked**: the index is
+  `totalAttacks − availAttacks`, so a three-attack monster rolls its profiles in order as its
+  allowance drains. The reference clamps the index twice because `availAttacks` is a `double`.
+
+**Ammunition is two separate questions.** `WpnConsumesAmmoAtRange` asks whether a quiver empties;
+`WpnConsumesSelfAsAmmo` whether the weapon itself is spent. They disagree for the spell classes
+(self yes, ammo no) and for bows (ammo yes, self no), which reads as a contradiction until you
+notice a wand has no quiver. A thrown weapon only costs anything **beyond range 1**, so stabbing
+with a dagger you could have thrown does not lose it.
+
+> **`giveCharacterDamage` was got wrong four ways on the first pass** and is worth stating
+> carefully.
+> 1. **Damage only lands on five statuses** — okay, running, unconscious, animated, dying.
+>    Anything else, already-dead included, takes nothing and keeps its hit points.
+> 2. **Hit points clamp at −10 going down and at the maximum going up.** The floor is applied
+>    *before* the status test, so "dead" and "at the floor" are the same state; the ceiling means
+>    negative damage heals but cannot overheal.
+> 3. **Zero is unconscious, not dying.** The bands are `<= −10` dead, `< 0` dying, `== 0`
+>    unconscious (`:8271`) — the dying band is −1 to −9. Folding zero into dying would make every
+>    knocked-out character bleed out.
+> 4. **There is no non-lethal branch here.** The flag rides on the damage and is consumed
+>    elsewhere, so the port carries it through without acting on it.
+>
+> The first draft invented an AD&D-shaped rule from memory and cited a header that only declares
+> the enum. Reading the function is what produced all four.
 
 ##### `CLASS_DATA`, as ported
 
@@ -3094,26 +3139,26 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the attack
+### The next piece of work: the monster AI
 
-**A round runs end to end and combatants move along real routes.** `CombatSetup` builds the
-encounter, `CombatRound` + `TurnQueue` order the turns, `Combatant` is the entity,
-`CombatPathFinder` finds routes, `Targeting` decides who may be hit, and `CombatMovement` walks the
-route and spends the allowance. Read the eight "as ported" sections under §7 Phase 4 before
-touching any of it.
+**A fight now resolves.** `CombatSetup` builds the encounter, `CombatRound` + `TurnQueue` order the
+turns, `Combatant` is the entity, `CombatPathFinder` finds routes, `Targeting` decides who may be
+hit, `CombatMovement` walks and spends the allowance, and `Attack` rolls, hits and applies damage.
+Read the nine "as ported" sections under §7 Phase 4 before touching any of it.
 
 What remains is:
 
-1. **The attack.** `UAF.Rules` already has `ToHit`, `Thac0` and `ArmorClass`, so this is wiring
-   plus damage application, not new arithmetic. `StartAttack` (`Combatant.cpp:4197`) is the entry
-   and `GetDamageDice` (`:8378`) the part with no C# counterpart yet. Ammunition consumption
-   (`WpnConsumesAmmoAtRange`, `Items.cpp:279`) belongs here too.
+1. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants (`:2092` onward), choosing
+   between moving, attacking, casting and fleeing. **This is the piece that makes a fight play
+   itself**, and everything it needs now exists: it picks a target through `Targeting`, walks
+   there with `CombatPathFinder` + `CombatMovement`, and swings with `Attack`. It is also the part
+   that leans hardest on scripts, so expect a permissive stub or two.
 2. **Attacks of opportunity.** `CheckOpponentFreeAttack` is called from the middle of
    `MoveCombatant` and is the one piece of movement left out — the turn queue already models the
    interruption, so what is missing is only the rule deciding when one is owed.
-3. **The monster AI** — `Combatant.cpp`'s "thinking" for auto combatants, choosing between moving,
-   attacking, casting and fleeing. The largest of the three and the one that leans hardest on
-   scripts.
+3. **Morale and the end of combat** — `CheckMorale` and `CheckDyingCombatants` run at the head of
+   every round (`Combatants.cpp:4529`), and neither is ported. Dying combatants losing a point a
+   round is what makes the −1..−9 band mean anything.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`
 are already stubbed permissively (see the combatant and targeting sections), `ON_STEP` is skipped
