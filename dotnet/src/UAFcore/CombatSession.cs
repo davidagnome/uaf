@@ -351,12 +351,135 @@ public sealed class CombatSession
         Renderer.EnsureVisible(Map, actor.X, actor.Y, VisibleTilesAcross, VisibleTilesDown);
         Cursor.CenterOn(actor);
 
+        // A caster whose spell has come due resumes its turn to resolve it, not to take a fresh
+        // one (RunEvent.cpp:17104). That happens here rather than through the menu.
+        if (actor.State == CombatantState.Casting && actor.SpellBeingCast is not null
+            && !actor.IsSpellPending)
+        {
+            ResolveSpell(actor);
+            return;
+        }
+
         Mode = CombatMenuMode.Command;
         CombatMenu.Build(Menu, OptionsFor(actor), acting: !actor.IsAuto);
 
         // Name whose turn it is, so a player knows who the menu belongs to. The reference puts
         // this in the same text box, through FormatCombatMoveText and the menu title.
         Message = $"{actor.Name}'s turn.";
+    }
+
+    /// <summary>
+    /// Works out who a cast lands on and applies it
+    /// (<c>TASK_CombatActivateSpell</c> and what it reaches, <c>RunEvent.cpp:15522</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three of the ten targeting modes need the player to pick individual combatants —
+    /// <c>SelectedByCount</c>, <c>TouchedTargets</c> and <c>SelectByHitDice</c> — and that menu
+    /// (<c>COMBAT_SPELL_AIM_MENU_DATA</c>) is not ported, so those say so rather than guessing.
+    /// The rest need no picking or need only a square, which the aim cursor already is.
+    /// </para>
+    /// <para>
+    /// <b>The area shapes are laid out from the caster towards the cursor.</b> That direction is
+    /// what rotates the rectangle and cone; a cast on the caster's own square has no direction and
+    /// the geometry degenerates, which is the reference's behaviour too.
+    /// </para>
+    /// </remarks>
+    private void ResolveSpell(Combatant actor)
+    {
+        string spellId = actor.SpellBeingCast!;
+        var record = spellInfo?.Invoke(spellId);
+        actor.SpellBeingCast = null;
+
+        if (record is null)
+        {
+            Message = $"{actor.Name}'s {spellId} fizzles.";
+            EndTurn(actor, CombatantState.None);
+            return;
+        }
+
+        var targeting = (SpellTargeting)record.Targeting;
+        var setup = SpellTargets.Setup(targeting, targets: 1, range: 0, width: 1, height: 1,
+                                       partySize: combatants.Count(c => c.IsFriendly));
+
+        List<Combatant>? targets = TargetsFor(actor, targeting, setup);
+        if (targets is null)
+        {
+            Message = $"{actor.Name} casts {record.Name}, but picking its targets "
+                    + "is not implemented.";
+            EndTurn(actor, CombatantState.None);
+            return;
+        }
+
+        var hits = SpellResolution.InvokeAll(actor, targets, record, dice,
+                                             elapsedMinutes: Round.Round,
+                                             activeSpellKey: nextActiveSpellKey++,
+                                             casterLevel: 1);
+
+        int landed = hits.Count(h => h.Outcome == SpellOutcome.Applied);
+        Message = targets.Count == 0
+            ? $"{actor.Name} casts {record.Name} at nothing."
+            : $"{actor.Name} casts {record.Name}: {landed} of {targets.Count} affected.";
+
+        EndTurn(actor, CombatantState.None);
+    }
+
+    /// <summary>One key per cast, so every target of it expires together.</summary>
+    private int nextActiveSpellKey;
+
+    /// <summary>
+    /// Who a cast covers, or null when the mode needs a target menu this port does not have.
+    /// </summary>
+    private List<Combatant>? TargetsFor(Combatant actor, SpellTargeting targeting,
+                                        SpellTargetingSetup setup)
+    {
+        switch (targeting)
+        {
+            case SpellTargeting.Self:
+                return [actor];
+
+            case SpellTargeting.WholeParty:
+                return [.. combatants.Where(c => c.IsFriendly && c.IsOnCombatMap())];
+
+            case SpellTargeting.SelectedByCount:
+            case SpellTargeting.TouchedTargets:
+            case SpellTargeting.SelectByHitDice:
+                return null;
+
+            default:
+            {
+                // An area, laid out from the caster towards whatever the cursor is on.
+                int dirX = Math.Sign(Cursor.X - actor.X);
+                int dirY = Math.Sign(Cursor.Y - actor.Y);
+
+                var squares = targeting switch
+                {
+                    SpellTargeting.AreaCircle =>
+                        SpellArea.Circle(Cursor.X, Cursor.Y, setup.Width, Map.Width, Map.Height),
+
+                    SpellTargeting.AreaCone =>
+                        SpellArea.Cone(actor.X, actor.Y, Cursor.X, Cursor.Y,
+                                       setup.Height, setup.Width, forceNonZero: true,
+                                       Map.Width, Map.Height),
+
+                    SpellTargeting.AreaLinePickEnd =>
+                        SpellArea.Line(actor.X, actor.Y, Cursor.X, Cursor.Y,
+                                       Map.Width, Map.Height),
+
+                    SpellTargeting.AreaLinePickStart =>
+                        SpellArea.Line(Cursor.X, Cursor.Y,
+                                       Cursor.X + (dirX * setup.MaxRange),
+                                       Cursor.Y + (dirY * setup.MaxRange),
+                                       Map.Width, Map.Height),
+
+                    _ => SpellArea.Rectangle(Cursor.X, Cursor.Y, dirX, dirY,
+                                             setup.Width, setup.Height, forceNonZero: true,
+                                             Map.Width, Map.Height),
+                };
+
+                return [.. SpellArea.CombatantsIn(Map, squares).Select(i => combatants[i])];
+            }
+        }
     }
 
     /// <summary>

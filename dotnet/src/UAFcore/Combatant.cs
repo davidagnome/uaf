@@ -171,6 +171,20 @@ public sealed class Combatant
     public SpellList Book { get; } = new();
 
     /// <summary>
+    /// The spell effects currently on this combatant (<c>CHARACTER::m_spellEffects</c>).
+    /// </summary>
+    public UAF.Rules.SpellEffectList Effects { get; } = new();
+
+    /// <summary>Percentage magic resistance (<c>GetAdjMagicResistance</c>).</summary>
+    public int MagicResistance { get; set; }
+
+    /// <summary>Armour class, as a saving throw and an attack both need it.</summary>
+    public int ArmorClass { get; set; } = 10;
+
+    /// <summary>To-hit number, likewise.</summary>
+    public int Thac0 { get; set; } = 20;
+
+    /// <summary>
     /// The spell this combatant has begun, or null (<c>m_spellIDBeingCast</c>).
     /// </summary>
     public string? SpellBeingCast { get; set; }

@@ -70,6 +70,33 @@ public class CombatSessionTests
             CastMessage: string.Empty, Scripts: [], EffectDuration: null,
             SpecialAbilities: null!, Attributes: []);
 
+    /// <summary>A spell that lands on the caster at once, with one effect.</summary>
+    private static SpellRecord SelfSpell(string id) =>
+        new(0, id, string.Empty, string.Empty, [],
+            Level: 1, CastingTime: 0, CastingTimeType: (int)SpellCastingTime.Rounds,
+            CanTargetFriend: 1, CanTargetEnemy: 0, IsCumulative: 0, Restrictions: 0,
+            CanBeDispelled: 1, CanMemorize: 1, AllowScribe: 0, AutoScribe: 0,
+            Lingers: 0, LingerOnceOnly: 0, SaveVersus: 0,
+            SaveResult: (int)UAF.Rules.SaveResult.NoSave,
+            Targeting: (int)SpellTargeting.Self,
+            DurationRate: (int)UAF.Rules.SpellDurationRate.InRounds, CastCost: 0, CastPriority: 0,
+            Parameters: [], Effects: [SelfEffect()], CastArt: null, Art: [], Sounds: [],
+            CastMessage: string.Empty, Scripts: [],
+            EffectDuration: Dice("3"), SpecialAbilities: null!, Attributes: []);
+
+    private static DicePlus Dice(string text) =>
+        new("DP2", text, string.Empty, 0, 0, 0, 0, 0, 1, []);
+
+    private static UAF.Serialization.SpellEffect SelfEffect() =>
+        new("$CHAR_AC", (uint)UAF.Rules.SpellEffectFlags.Target, 0, string.Empty, 0, 0, [], 0, 0,
+            Dice("-2"));
+
+    /// <summary>A player-run fight whose spells resolve on the caster.</summary>
+    private static CombatSession SelfSpellSession() =>
+        CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
+                            Party(2, auto: false), _ => Orc(), Roll(10),
+                            spellInfo: SelfSpell);
+
     /// <summary>A player-run fight whose spells run on the casting clock.</summary>
     private static CombatSession SpellSession() =>
         CombatSession.Begin(Event(2), EmptyLevel(), WallSets(), 5, 5, Facing.North,
@@ -601,6 +628,41 @@ public class CombatSessionTests
 
         Assert.Equal(0, session.Pending.Count);
         Assert.Equal(CombatantState.None, actor.State);
+    }
+
+    [Fact]
+    public void A_spell_that_comes_due_resolves_on_its_target()
+    {
+        // The whole casting stack end to end: choose from the book, spend the copy, wait out the
+        // casting time, get the turn back, and land the effect.
+        var session = WithSpells(SelfSpellSession(), "shield");
+        var actor = CastFirstSpell(session);
+
+        Assert.True(actor.IsSpellPending);
+        Assert.Equal(0, actor.Effects.Count);
+
+        for (int step = 0; step < 2000 && actor.Effects.Count == 0 && session.IsActive; step++)
+        {
+            if (!session.AwaitingPlayer)
+            {
+                session.Update();
+            }
+            else if (CombatMenu.At(session.Menu.ActiveItem) == CombatCommand.End)
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Return));
+            }
+            else
+            {
+                session.Update(InputEvent.KeyDown(VirtualKey.Right));
+            }
+        }
+
+        Assert.Equal(1, actor.Effects.Count);
+        Assert.Equal("$CHAR_AC", actor.Effects.Effects[0].Attribute);
+        Assert.Equal(-2, actor.Effects.Effects[0].Effect.Change);
+        Assert.Equal("shield", actor.Effects.Effects[0].SourceSpell);
+        Assert.Null(actor.SpellBeingCast);
+        Assert.Contains("1 of 1 affected", session.Message);
     }
 
     [Fact]

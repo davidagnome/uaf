@@ -12,9 +12,10 @@ event types, presents the treasure and character screens, and sets up a combat e
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
-verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard and
-bandage**. Phases 5–7 have not started.
-**1,697 tests, green on macOS, Linux and Windows; both CI workflows green.**
+verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
+and cast** — spells run the full casting clock, saving throw, area geometry and effect
+application. Phases 5–7 have not started.
+**1,719 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2492,6 +2493,45 @@ guard, not an oracle.
 > changing. Both were fixed by measuring what the frames actually contain rather than by tuning the
 > numbers until they passed.
 
+##### Spell resolution, as ported
+
+`CHARACTER::InvokeSpellOnTarget` (`Char.cpp:15987`) — what a spell actually does to a target.
+`UAFcore/SpellResolution.cs`, wired into `CombatSession`. **Casting now runs end to end**: choose
+from the book, spend the memorised copy, wait out the casting time, get the turn back when the
+clock says so, and land the effects.
+
+The per-target sequence, in the reference's order:
+
+1. **The non-cumulative check comes first — before the scripts, before the save.** A second casting
+   of a spell the target already carries is not merely wasted, it never even rolls. It is the
+   *spell* that is checked, by source; the per-attribute cumulative rule inside
+   `SpellEffectList.Add` is a separate and independent gate.
+2. The `DOES_SPELL_ATTACK_SUCCEED` chain — tried against the spell, then the target's race, then
+   its monster record, then its character record, first non-empty answer winning, `'N'` meaning no.
+3. **The saving throw, rolled only when `Save_Result` is not `NoSave`.** The reference guards the
+   call, so a no-save spell spends no d20 and runs no save-succeeded script — not the same as
+   rolling and ignoring the answer. Two thirds of the spells in every shipped design are `NoSave`.
+4. Out on `noEffectWhatsoever`.
+5. Roll and add each effect **flagged `EFFECT_TARGET`**; the others describe the caster or the map
+   and are skipped silently.
+
+> **One active-spell entry per cast, not per target.** The reference allocates the key before the
+> target loop, so a fireball that caught four combatants expires from all four together rather than
+> wearing off piecemeal.
+
+**Five script hooks live in this function and none are ported**: the attack-succeeds chain, the
+spell's begin script, each effect's activation and modification scripts, and
+`INVOKE_SPELL_ON_TARGET`. All are optional and all default to "carry on", so a spell with no
+scripts — which is most of them — resolves identically. The two that can refuse are exposed as
+predicates, ready for GPDL.
+
+**What the session does with a resolved cast.** Self and whole-party need no picking; the five area
+shapes need only a square, and the aim cursor already is one, so they are laid out from the caster
+towards it and resolved through §area geometry. **The three unit-picking modes are not wired** —
+`SelectedByCount`, `TouchedTargets` and `SelectByHitDice` need `COMBAT_SPELL_AIM_MENU_DATA`, and
+they say so rather than guessing. By spell count that leaves the commonest modes unreached; by
+machinery, everything under them is built.
+
 ##### Dice expressions, as ported
 
 `DICEPLUS::Roll` (`class.cpp:2193`) — the little arithmetic language a design writes every number
@@ -3830,31 +3870,26 @@ monsters, `CombatPathFinder` + `CombatMovement` walk them, `Targeting` + `Attack
 swings, `CombatUpkeep` bleeds the dying, `OpportunityAttacks` interrupts, `SpellDuration` +
 `SpellEffectList` expire what was cast, and `CombatRenderer` draws all of it with the zone's own
 art. A player takes their turn through `CombatSession` — move, aim, attack, guard, bandage,
-begin a spell, end. Read the eighteen "as ported" sections under §7 Phase 4 before touching any of
+begin a spell, end. Read the nineteen "as ported" sections under §7 Phase 4 before touching any of
 it.
 
 What is left, in order:
 
-1. **Resolving a spell**, which is the second half of casting. Done: the clock (§the casting
-   clock), the saving throw and the targeting setup (§saving throws and spell targeting), and all
-   five area shapes (§area geometry). What remains is
-   1. **choosing the targets** — `COMBAT_SPELL_AIM_MENU_DATA` for the player, and the AI's own
-      pick for a monster;
-   2. **applying the effects** — `SpellEffects` + `SpellDuration` + `SpellEffectList` are the
-      arithmetic and bookkeeping and `DiceExpression` now turns a design's text into a number
-      (§dice expressions), all ported, but nothing calls them from a cast yet. The per-target
-      sequence to reproduce is `InvokeSpellOnTarget` (`Char.cpp:15987`): refuse a non-cumulative
-      spell the target already has, roll the save unless `Save_Result` is `NoSave`, drop out on
-      `noEffectWhatsoever`, then roll and add each effect; and
-   3. **the lingering-spell area effects** that movement and the round both call and neither has.
-
-   Until this exists, an immediate spell says so rather than silently doing nothing.
-2. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
+1. **Picking spell targets by hand.** Casting works end to end for self, whole-party and all five
+   area shapes (§spell resolution), but the three modes that need the player to pick individual
+   combatants — `SelectedByCount`, `TouchedTargets`, `SelectByHitDice` — need
+   `COMBAT_SPELL_AIM_MENU_DATA` (`RunEvent.cpp:15493`), and a monster casting needs the AI's own
+   pick. Everything underneath is built: the clock, the saving throw, the geometry, the expression
+   evaluator and the per-target sequence.
+2. **The lingering-spell area effects** that movement and the round both call and neither has
+   (`SPELL_LINGER_DATA`). The `Lingers` flag is read and stored and nothing acts on it; about a
+   fifth of the spells in the shipped designs set it.
+3. **The smaller commands.** TURN needs the turning-undead table; QUICK, DELAY and SPEED are turn
    ordering rather than new rules; VIEW is the character sheet, which exists. USE needs item
    invocation.
-3. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
+4. **The Forth VM**, which unlocks the scripted AI (§the monster AI section) and is the last large
    unported subsystem in Phase 2.
-4. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
+5. **The aftermath** — experience, treasure and the `CombatOutcome` branches the design's events
    read. `CombatSession` reports the verdict; nothing consumes it yet.
 
 Expect the GPDL script hooks to keep being the ragged edge: `IS_COMBAT_READY` and `IS_VALID_TARGET`

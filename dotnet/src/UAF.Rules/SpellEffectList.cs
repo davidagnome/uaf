@@ -8,8 +8,17 @@ namespace UAF.Rules;
 /// The elapsed-minute reading at which it ends, from <see cref="SpellDuration.StopTimeFor"/>.
 /// </param>
 /// <param name="FromScript">Whether it came from a script, which shifts the expiry test by one.</param>
+/// <param name="SourceSpell">
+/// The spell that cast it (<c>SPELL_EFFECTS_DATA::SourceSpell_ID</c>). Empty when the effect is not
+/// from a spell — an intrinsic ability, or an item.
+/// </param>
+/// <param name="Parent">
+/// The active-spell entry this belongs to (<c>parent</c>), or <c>-1</c>. One cast produces one
+/// entry however many targets it lands on, which is what lets a whole cast expire together.
+/// </param>
 public readonly record struct ActiveSpellEffect(SpellEffect Effect, double? StopTime,
-                                                bool FromScript = false)
+                                                bool FromScript = false,
+                                                string SourceSpell = "", int Parent = -1)
 {
     /// <summary>The attribute this modifies.</summary>
     public string Attribute => Effect.Attribute;
