@@ -38,7 +38,11 @@ public static class EventBodyWriter
         EventType.TransferModule or EventType.TextStatement or EventType.QuestStage or
         EventType.GuidedTour or EventType.SpecialItem or EventType.Utilities or
         EventType.GiveTreasure or EventType.CombatTreasure or EventType.LogicBlock or
-        EventType.Combat or EventType.PickOneCombat => true,
+        EventType.Combat or EventType.PickOneCombat or
+        EventType.Sounds or EventType.GainExperience or EventType.Camp or
+        EventType.RemoveNPCEvent or EventType.NPCSays or EventType.TrainingHallEvent or
+        EventType.TempleEvent or EventType.ShopEvent or EventType.TavernEvent or
+        EventType.WhoPays => true,
         _ => false,
     };
 
@@ -108,6 +112,37 @@ public static class EventBodyWriter
             case EventType.Combat:
             case EventType.PickOneCombat:
                 CombatEventWriter.Write(ar, Expect<CombatEvent>(body, type));
+                return;
+
+            case EventType.Sounds:
+                TownEventWriters.WriteSound(ar, Expect<SoundEvent>(body, type));
+                return;
+            case EventType.GainExperience:
+                TownEventWriters.WriteGainExperience(ar, Expect<GainExperienceEvent>(body, type));
+                return;
+            case EventType.Camp:
+                TownEventWriters.WriteCamp(ar, Expect<CampEvent>(body, type));
+                return;
+            case EventType.RemoveNPCEvent:
+                TownEventWriters.WriteRemoveNpc(ar, Expect<RemoveNpcEvent>(body, type));
+                return;
+            case EventType.NPCSays:
+                TownEventWriters.WriteNpcSays(ar, Expect<NpcSaysEvent>(body, type));
+                return;
+            case EventType.TrainingHallEvent:
+                TownEventWriters.WriteTrainingHall(ar, Expect<TrainingHallEvent>(body, type));
+                return;
+            case EventType.TempleEvent:
+                TownEventWriters.WriteTemple(ar, Expect<TempleEvent>(body, type));
+                return;
+            case EventType.ShopEvent:
+                TownEventWriters.WriteShop(ar, Expect<ShopEvent>(body, type));
+                return;
+            case EventType.TavernEvent:
+                TownEventWriters.WriteTavern(ar, Expect<TavernEvent>(body, type));
+                return;
+            case EventType.WhoPays:
+                TownEventWriters.WriteWhoPays(ar, Expect<WhoPaysEvent>(body, type));
                 return;
 
             // Unreachable in any design the reference could load: CreateNewEvent reaches

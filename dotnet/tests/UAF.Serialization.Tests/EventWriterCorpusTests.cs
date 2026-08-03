@@ -211,15 +211,12 @@ public class EventWriterCorpusTests
             }
         }
 
+        // Every event in every shipped level, written, read back and written again to the same
+        // bytes. The types that remain unported appear zero times anywhere, so from here the
+        // corpus has nothing left to say about them.
         Assert.Equal(4705, total);
-
-        // What is left is the town-service tail, and naming the types rather than just the count
-        // is what makes this say which work remains.
-        Assert.Equal(4679, written);
-        Assert.Equal(
-            "Camp, GainExperience, NPCSays, RemoveNPCEvent, ShopEvent, Sounds, TavernEvent, " +
-            "TempleEvent, TrainingHallEvent, WhoPays",
-            string.Join(", ", unwritten.Keys));
+        Assert.Equal(total, written);
+        Assert.Empty(unwritten);
     }
 
     [Fact]
@@ -255,9 +252,11 @@ public class EventWriterCorpusTests
 
         var body = events[0].Body;
 
-        Assert.False(EventBodyWriter.CanWrite(EventType.ShopEvent));
+        // Vault is one of the fourteen types no shipped design contains, so it has no corpus to
+        // check a writer against and is deliberately still unported.
+        Assert.False(EventBodyWriter.CanWrite(EventType.Vault));
         var ex = Assert.Throws<NotSupportedException>(
-            () => Write(EventType.ShopEvent, body));
+            () => Write(EventType.Vault, body));
         Assert.Contains("no writer yet", ex.Message);
     }
 
