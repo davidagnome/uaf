@@ -43,7 +43,7 @@ public class EventHealTests
         var carried = new ItemList(items ?? [], new ReadyItems([]));
 
         return new CharacterRecord(
-            0, 0, "human", (int)Gender.Male, "fighter", 0, 0, (int)status, "", 0, name, "",
+            0, 0, 0, "human", (int)Gender.Male, "fighter", 0, 0, (int)status, "", 0, name, "",
             0, 0, 0, 0, 0, hitPoints, maxHitPoints, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, 0),
             0, 0, 0, 0, 0, 0, [new BaseclassStats("fighter", 0, 0, 0, 0)], [], [], 0, 0, 0,

@@ -22,8 +22,13 @@ public sealed record AbilityScores(
     int Dexterity, int Constitution, int Charisma);
 
 /// <summary>One complete <c>CHARACTER</c> record.</summary>
+/// <param name="PreSpellNamesKey">
+/// Read only when the opener held a character version, and written unconditionally — so it is kept
+/// rather than discarded, for the writer to put back.
+/// </param>
 public sealed record CharacterRecord(
-    int CharacterVersion, byte Type, string Race, int Gender, string ClassId, int Alignment,
+    int CharacterVersion, int PreSpellNamesKey,
+    byte Type, string Race, int Gender, string ClassId, int Alignment,
     int AllowInCombat, int Status, string UndeadType, int CreatureSize,
     string Name, string CharacterId,
     int Thac0, int Morale, int Encumbrance, int MaxEncumbrance, int ArmorClass,
@@ -85,12 +90,13 @@ public static class CharacterReader
         // The discriminated opener.
         uint first = ar.ReadUInt32();
         int characterVersion = 0;
+        int preSpellNamesKey = 0;
         if ((first & CharacterVersionFlag) != 0)
         {
             characterVersion = (int)first;
             if (version.Value >= 0.998917)
             {
-                ar.ReadInt32();                          // preSpellNamesKey
+                preSpellNamesKey = ar.ReadInt32();
             }
         }
 
@@ -106,8 +112,10 @@ public static class CharacterReader
         string undeadType;
         if (role == ArchiveRole.Editor && version.Value <= 0.998115)
         {
-            int index = ar.ReadInt32();
-            undeadType = index is > 0 and < 14 ? index.ToString() : string.Empty;
+            // The reference names the index from UndeadTypeText as it loads (Char.cpp:2727), the
+            // same as it does for a monster. Keeping the ordinal would put "1" into a modern file
+            // where the design means "Skeleton", and no turning table has a category called "1".
+            undeadType = MonsterRecordReader.UndeadTypeName(ar.ReadInt32());
         }
         else
         {
@@ -264,7 +272,8 @@ public static class CharacterReader
         var attributes = AslReader.Read(ar, version, AslMaps.Character);
 
         return new CharacterRecord(
-            characterVersion, type, race, gender, classId, alignment, allowInCombat, status,
+            characterVersion, preSpellNamesKey,
+            type, race, gender, classId, alignment, allowInCombat, status,
             undeadType, creatureSize, name, characterId,
             thac0, morale, encumbrance, maxEncumbrance, armorClass,
             hitPoints, maxHitPoints, numberOfHitDice, age, maxAge, birthday, maxCureDisease,

@@ -46,7 +46,7 @@ public class EventWhoPaysTests
 
     /// <summary>A member with only the fields this event reads — which is to say, none.</summary>
     private static CharacterRecord Member(string name = "Aramil") =>
-        new(0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, name, "",
+        new(0, 0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, name, "",
             0, 0, 0, 0, 0, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, 0),
             0, 0, 0, 0, 0, 0, [new BaseclassStats("fighter", 0, 0, 0, 0)], [], [], 0, 0, 0,

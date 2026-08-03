@@ -29,7 +29,7 @@ public class EventNpcTests
     /// </summary>
     private static CharacterRecord Member(string name = "Aramil", int charisma = 10,
                                           int morale = 50, bool npc = false) =>
-        new(0, npc ? EventNpc.NpcType : (byte)1, "human", 0, "fighter", 0, 0, 0, "", 0, name, name,
+        new(0, 0, npc ? EventNpc.NpcType : (byte)1, "human", 0, "fighter", 0, 0, 0, "", 0, name, name,
             0, 0, 0, 0, 0, 10, 10, 0, 0, 0, morale, 0, 0, 0, 0, 0, 0,
             0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, charisma),
             0, 0, 0, 0, 0, 0, [new BaseclassStats("fighter", 0, 0, 0, 0)], [], [], 0, 0, 0,

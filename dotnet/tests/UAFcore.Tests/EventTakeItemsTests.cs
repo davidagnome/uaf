@@ -22,7 +22,7 @@ public class EventTakeItemsTests
     private static readonly PicRecord NoPic = new(0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     private static CharacterRecord Member() =>
-        new(0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, "Aramil", "",
+        new(0, 0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, "Aramil", "",
             0, 0, 0, 0, 0, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, 0),
             0, 0, 0, 0, 0, 0, [new BaseclassStats("fighter", 0, 0, 0, 0)], [], [], 0, 0, 0,

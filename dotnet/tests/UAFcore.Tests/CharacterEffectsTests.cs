@@ -14,7 +14,7 @@ public class CharacterEffectsTests
         // class or hit points into the wrong slot produces a character that looks fine and reads
         // zero.
         var record = new CharacterRecord(
-            CharacterVersion: 0, Type: 0, Race: "human", Gender: 0, ClassId: "fighter",
+            CharacterVersion: 0, PreSpellNamesKey: 0, Type: 0, Race: "human", Gender: 0, ClassId: "fighter",
             Alignment: 0, AllowInCombat: 0, Status: 0, UndeadType: "", CreatureSize: 0,
             Name: "hero", CharacterId: "hero-1",
             Thac0: thac0, Morale: 50, Encumbrance: 0, MaxEncumbrance: 0, ArmorClass: armorClass,

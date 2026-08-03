@@ -154,7 +154,7 @@ public class CombatAftermathTests
     private static Character Member(CharacterStatus status = CharacterStatus.Okay)
     {
         var record = new CharacterRecord(
-            0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, "hero", "",
+            0, 0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, "hero", "",
             0, 0, 0, 0, 0, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, 0),
             0, 0, 0, 0, 0, 0, [new BaseclassStats("fighter", 0, 0, 0, 0)], [], [], 0, 0, 0,

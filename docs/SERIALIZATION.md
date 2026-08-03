@@ -606,36 +606,61 @@ Everything above describes reading. Writing is a different discipline, and §1's
 transcribe the *loading* branch — does not carry over: a writer must transcribe the **storing**
 branch, and the two are not mirror images.
 
-**The storing branch has no version gates.** Not in `MONSTER_DATA`, `ITEM_DATA`,
-`SPELL_EFFECTS_DATA`, `PIC_DATA`, `ITEM`, `ITEM_LIST`, `MONEY_SACK`, `ATTACK_DETAILS` or
-`READY_ITEMS`; `SPECIAL_ABILITIES` has one and it is explicitly `&& !ar.IsStoring()`, and
-`SPELL_DATA` has one — `ver >= _VERSION_0840_` around its cast art (`Spell.cpp:3844`) — that is
-open at every version anything writes. That is not an oversight. **A design is always saved at
+**The storing branch has no version gates.** Not in `MONSTER_DATA`, `ITEM_DATA`, `CHARACTER`,
+`SPELL_EFFECTS_DATA`, `PIC_DATA`, `ITEM`, `ITEM_LIST`, `MONEY_SACK`, `ATTACK_DETAILS`,
+`READY_ITEMS`, `BLOCKAGE_STATUS`, `spellBookType` or the three tagged adjustment lists;
+`SPECIAL_ABILITIES` has one and it is explicitly `&& !ar.IsStoring()`, and `SPELL_DATA` has one —
+`ver >= _VERSION_0840_` around its cast art (`Spell.cpp:3844`) — that is open at every version
+anything writes. That is not an oversight. **A design is always saved at
 the current version**, so on the way out every gate is open by construction, and the loading gates
 exist only to read what older builds left behind. It follows that:
 
 - **Write the modern shape unconditionally.** Mirroring the reader's forks emits an old shape into
   a file stamped new, which is the one combination nothing can read.
 - **Name the version whose reader the output matches**, because it is not the version the record
-  was read at. For `MONSTER_DATA` that is 5.24, bound by the icon's `RestartFrame`.
+  was read at. For all four record types written so far it is 5.24, bound by the embedded
+  `PIC_DATA`'s `RestartFrame` — but check the record body too: `CHARACTER`'s own highest gate is
+  0.999702, where its seven ability scores widen from `BYTE` to `int`, 21 bytes appearing in the
+  middle of the record.
+- **A storing branch can be almost empty.** `spellLimitsType` writes one `int` and has five
+  commented-out statements beneath it (`GameRules.cpp:3611`), against a loading branch holding a
+  whole pre-0.780 `BYTE` matrix. Reading the loading half gives no hint of how little goes out.
 - **Refuse a record still in a legacy shape** rather than writing it hollow. The reference converts
   as it loads, using databases and defaults the port may not have; where the conversion is not
   ported there is no honest modern form, and an empty block reads back cleanly with the content
   silently gone.
 
-**Loading is not always lossless, and where it is not, the writer inherits the loss.** Three cases
-found so far, all of them in `MONSTER_DATA`: an undead type below 0.998115 is an *ordinal* the
+**Loading is not always lossless, and where it is not, the writer inherits the loss.** Five cases
+found so far. Three are in `MONSTER_DATA`: an undead type below 0.998115 is an *ordinal* the
 reference names from `UndeadTypeText` as it loads; a monster that loads with no attacks is given
-one; and `readyLocation` ordinals 0‥16 are mapped to their base-38 constants on the way in. A port
+one; and `readyLocation` ordinals 0‥16 are mapped to their base-38 constants on the way in.
+`CHARACTER` adds the same undead-type conversion (`Char.cpp:2727`) and one of its own: a character
+whose opener was a legacy *index* rather than a version has its armour class reduced by the
+protection its readied items give (`Char.cpp:3015`), because old versions folded that in. A port
 that keeps the raw value writes byte-exact and diverges from the reference's in-memory state; a
 port that converts matches the reference and no longer round-trips its own input. Neither is wrong
 — but the choice has to be made deliberately, per field.
 
+**An absent member means two different things, and only the loading branch distinguishes them.**
+A `MONSTER_DATA` below 0.906 has no money sack because the field was not on the wire, so the
+reference writes its default-constructed one and an empty sack is *exact*. A `CHARACTER` below
+0.661 has no sack because the coins are **loose `int`s the reference folds into one as it loads** —
+so writing an empty sack there silently takes the character's money, and the record must be
+refused. Same missing member, opposite conclusion.
+
 **The one asymmetry to watch for in a record body**: a field the loading branch reads only in some
 version ranges but the storing branch always writes. `MONSTER_DATA::preSpellNameKey` is read when
-`ver < VersionSpellNames || ver >= VersionSaveIDs` and written always. Harmless in the reference,
-which only ever saves at the current version; a trap for a port tempted to write at an arbitrary
-one.
+`ver < VersionSpellNames || ver >= VersionSaveIDs` and written always;
+`CHARACTER::preSpellNamesKey` is read only when the opener carried a version *and* the design is at
+or past 0.998917, and written always. Harmless in the reference, which only ever saves at the
+current version; a trap for a port tempted to write at an arbitrary one — and a reason not to
+discard such a field on read, since the writer has to put something there.
+
+**`CHARACTER`'s opener is a discriminator, and the writer always writes the same value.** An `int`
+whose high bit set means "this is `CHARACTER_VERSION`, and a `preSpellNamesKey` follows"; clear
+means it is a legacy index, which the reference discards. Storing writes the constant
+`0x80000001` (`ProjectVersion.h:6`) whatever was read, so the index form can be read and never
+produced. Nothing else in the format self-identifies this way.
 
 **Byte-identity with a shipped file needs the `CAR` writer, and decompression is not enough.**
 Compressed `CAR` interns strings across the whole archive (§4.2), so the decompressed stream is not

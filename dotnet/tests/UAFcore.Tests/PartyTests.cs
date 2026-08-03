@@ -31,7 +31,7 @@ public class PartyTests
         var carried = items is null ? NoItems : new ItemList(items, new ReadyItems([]));
 
         return new CharacterRecord(
-            0, 0, race, (int)gender, classId, 0, 0, 0, "", 0, name, characterId,
+            0, 0, 0, race, (int)gender, classId, 0, 0, 0, "", 0, name, characterId,
             0, 0, 0, 0, 0, hitPoints, hitPoints, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, 0),
             0, 0, 0, 0, 0, 0, stats, [], [], 0, 0, 0, null, 0,
