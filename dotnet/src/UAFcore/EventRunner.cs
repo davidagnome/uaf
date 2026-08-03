@@ -140,10 +140,18 @@ public sealed class EventRunner
             DamageEvent damage => BeginPressEnter(damage.Base.Text, anchors),
             HealPartyEvent heal => BeginPressEnter(heal.Base.Text, anchors),
             WhoTriesEvent trial => BeginPressEnter(trial.Base.Text, anchors),
+            JournalEvent journal => BeginPressEnter(journal.Base.Text, anchors),
+            SoundEvent sound => BeginPressEnter(sound.Base.Text, anchors),
             WhoPaysEvent toll => BeginWhoPays(toll, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
+
+    /// <summary>Adds a journal entry; set by the host. See <see cref="EventJournal"/>.</summary>
+    public Action<JournalEvent>? ApplyJournal { get; set; }
+
+    /// <summary>Plays a sound event's queue; set by the host. See <see cref="EventSound"/>.</summary>
+    public Action<SoundEvent>? ApplySound { get; set; }
 
     /// <summary>Applies a damage event to the party; set by the host.</summary>
     /// <remarks>
@@ -662,6 +670,8 @@ public sealed class EventRunner
             DamageEvent damage => Applied(() => ApplyDamage?.Invoke(damage)),
             HealPartyEvent heal => Applied(() => ApplyHeal?.Invoke(heal)),
             WhoTriesEvent trial => FinishWhoTries(trial),
+            JournalEvent journal => Applied(() => ApplyJournal?.Invoke(journal)),
+            SoundEvent sound => Applied(() => ApplySound?.Invoke(sound)),
             WhoPaysEvent toll => FinishWhoPays(toll),
             _ => Complete(happened: true),
         };

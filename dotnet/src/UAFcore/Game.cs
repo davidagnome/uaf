@@ -163,6 +163,22 @@ public sealed class Game
             return outcome;
         };
 
+        // The journal accumulates on the party, not on World -- the reference serializes it inside
+        // PARTY::Serialize, above the quest and special-item records.
+        //
+        // The `^` token expander (FormattedText.cpp:823) is NOT ported, so identity is passed and
+        // a design using ^D or ^a-^z gets the raw token. That is a real difference, not a stub.
+        Runner.ApplyJournal = journal =>
+        {
+            var added = EventJournal.Apply(journal, design.Globals.Journal, Party, text => text);
+            Message = added.Added ? "The party records what they have learned." : string.Empty;
+        };
+
+        // No IAudioBackend is wired to the engine yet, so the queue is computed and discarded --
+        // which still lets the event chain instead of naming itself. An adapter onto
+        // StopQueue/QueueSound/PlayQueue is what turns this audible.
+        Runner.ApplySound = sound => EventSound.Play(sound, audio: null);
+
         Runner.ApplyHeal = heal =>
         {
             var healed = EventHeal.Apply(heal, Party, sides => Dice(sides));

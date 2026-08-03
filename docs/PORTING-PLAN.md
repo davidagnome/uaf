@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes twenty of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes twenty-two of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,358 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,390 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2937,6 +2937,33 @@ What that exercise established, beyond the code:
 > reader's own remarks. `HealDrain` is entirely dead, and `HealCurse` is the *item* flag rather
 > than a spell effect.
 
+**`JournalEvent` and `SoundEvent` execute but are both half-connected**, and the gaps are named
+rather than hidden:
+
+> **The `^` token expander is not ported.** `PreProcessText` (`FormattedText.cpp:823`) expands
+> `^D` and `^a`–`^z` in journal text; the port passes identity, so a design using them records the
+> raw token. `EventJournal.Apply` takes the expander as a *required* callback so the gap is at the
+> call site rather than buried. Note for whoever ports it: it looks `^a`–`^z` up in `global_asl`
+> while its own header comment says temp ASL, and `^10`–`^12` parse as two-digit slots where
+> `^13`+ does not.
+
+> **Nothing reads the journal back.** The reference renders it through
+> `DISPLAY_PARTY_JOURNAL_DATA` (`RunEvent.cpp:27604`); that screen is unported, so entries
+> accumulate and nothing shows them. And `HaveGlobalJournalEntryAlready` — which exists precisely
+> to answer "already collected?" — is **called from nowhere in the reference**, so a
+> non-once-only event appends the same text every pass. Reproduced.
+
+> **The journal lives on `Party`, not `WorldState`.** The reference serializes it *inside*
+> `PARTY::Serialize`, above the quest and special-item records — a line `SaveGameReader` already
+> draws. Putting it with the other accumulated global state would misfile it in the savegame.
+
+> **`SoundEvent` is computed and discarded**: `IAudioBackend` exists and carries the exact
+> `StopQueue`/`QueueSound`/`PlayQueue` triple, but nothing outside the media tests constructs one,
+> and there is no sound-file resolver to match `Art()`. Wiring it is a three-case adapter. Two
+> things to preserve when someone does: **an empty sound list is a silence command**, not a no-op —
+> the stop still runs — and these go to the *foreground* queue, so a design's `.mid` sounds layer
+> **over** the level music rather than replacing it.
+
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
@@ -4760,10 +4787,22 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and twenty execute. The other 24 draw
+   reads (§the event layer), and twenty-two execute. The other 22 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.
+   - **`TakePartyItems` and the NPC pair have unfinished drafts in git worktrees.** Two parallel
+     agents were cut off by a billing limit at the moment they finished reading and began writing,
+     so each left a source file and **no tests**:
+     `.claude/worktrees/agent-af3dab2ac349e94d9/` holds `EventTakeItems.cs` — 719 lines, heavily
+     documented, **compiles clean** and is a real starting point; write its tests against
+     `RunEvent.cpp` and `Party.cpp` before trusting a line of it, and check that the
+     `moneyType == 0` means Platinum trap landed.
+     `.claude/worktrees/agent-aed3dd0893ba3f842/` holds `EventNpc.cs` — 579 lines with **six
+     compile errors**, which usually means the design never settled; prefer redoing it to repairing
+     it blind. Neither was brought into the main tree, because source without tests is below the
+     bar the rest of this layer was held to. **The worktrees hold uncommitted files, so they
+     survive — but they are the only copy.**
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
