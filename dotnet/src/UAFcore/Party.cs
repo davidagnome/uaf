@@ -113,6 +113,30 @@ public sealed class Party
         }
     }
 
+    /// <summary>
+    /// Drops a member (<c>PARTY::removeCharacter</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The active character is pulled back if it would be left past the end.</b> Removing the
+    /// last member of a party whose active index pointed at it would otherwise leave
+    /// <see cref="Active"/> reading off the end — and the index is what TAB cycles and what every
+    /// "who tries"/"who pays" event reads.
+    /// </remarks>
+    public void RemoveAt(int index)
+    {
+        if (index < 0 || index >= members.Count)
+        {
+            return;
+        }
+
+        members.RemoveAt(index);
+
+        if (ActiveCharacter >= members.Count)
+        {
+            ActiveCharacter = Math.Max(members.Count - 1, 0);
+        }
+    }
+
     public void Clear()
     {
         members.Clear();

@@ -163,6 +163,39 @@ public sealed class Game
             return outcome;
         };
 
+        // Both NPC events gate on the record's kind, so a design character left at the
+        // player-character type is invisible to them.
+        Runner.ApplyAddNpc = add =>
+        {
+            var seated = EventNpc.Add(add, Party, FindDesignCharacter, Money,
+                                      EventNpc.MaxPartyMembers(design.Globals.MaxPartyMaxPcs));
+
+            Message = seated.Result switch
+            {
+                AddNpcResult.Joined => $"{seated.Joined!.Name} joins the party.",
+                AddNpcResult.PartyFull => "The party is already full.",
+                _ => string.Empty,
+            };
+        };
+
+        Runner.ApplyRemoveNpc = remove =>
+        {
+            var left = EventNpc.Remove(remove, Party);
+            Message = left.Removed ? $"{left.Member!.Name} leaves the party." : string.Empty;
+        };
+
+        // There is no vault in this port, so MoneyForVault is reported and discarded -- the goods
+        // are still taken either way, which is what the party notices.
+        Runner.ApplyTakeItems = take =>
+        {
+            var taken = EventTakeItems.Apply(take, Party, sides => Dice(sides));
+            int goods = taken.Items.Count + taken.Gems.Count + taken.Jewelry.Count;
+
+            Message = goods > 0 || taken.Money > 0
+                ? "The party is relieved of their goods."
+                : "The party has nothing worth taking.";
+        };
+
         // The journal accumulates on the party, not on World -- the reference serializes it inside
         // PARTY::Serialize, above the quest and special-item records.
         //
@@ -816,6 +849,20 @@ public sealed class Game
 
         return true;
     }
+
+    /// <summary>
+    /// A character from the design's own list, by id.
+    /// </summary>
+    /// <remarks>
+    /// Matched on <c>CharacterId</c> rather than <c>Name</c>, because that is what
+    /// <c>PARTY::isNPCinParty</c> compares — and case-sensitively, since <c>CString::operator==</c>
+    /// is <c>strcmp</c>. Both NPC events additionally require the record's kind to be
+    /// <see cref="EventNpc.NpcType"/>, which this does not check; <see cref="EventNpc.HaveNpc"/>
+    /// does.
+    /// </remarks>
+    private CharacterRecord? FindDesignCharacter(string characterId) =>
+        design.Globals.Characters.FirstOrDefault(
+            c => string.Equals(c.CharacterId, characterId, StringComparison.Ordinal));
 
     /// <summary>Puts anyone who ran back on their feet, as the results screen does.</summary>
     private void RestoreFled()

@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes twenty-two of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes twenty-five of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,390 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,434 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2964,6 +2964,35 @@ rather than hidden:
 > the stop still runs — and these go to the *foreground* queue, so a design's `.mid` sounds layer
 > **over** the level music rather than replacing it.
 
+**`TakePartyItems` and the NPC pair were salvaged from two agent runs cut off mid-write.** Both
+drafts were transcription-complete and test-free; their claims were spot-checked against the C++
+before the tests were written around them, and both checks held.
+
+> **`moneyType == 0` means the opposite here from what it means on `WHO_PAYS`.** The sibling toll
+> gated the field at 0.912 and so restores `PlatinumType` for a stored zero; **this event has no
+> gate on `moneyType` at all** — both serializers read it unconditionally and only `WhichVault`,
+> two lines later, is gated (`GameEvent.cpp:8368`). So a zero is `itemType`, which the reference
+> dies on, and inventing a platinum default would silently rewrite what the design authored.
+
+> **A percentage of money is a percentage of the *base-converted* amount.** `qty` is
+> `ConvertToBase(platinum, moneyType)` before any of the four quantity rules see it
+> (`Party.cpp:2393`), so "take 50%" authored in gold is multiplied by the exchange rate and empties
+> the purse. It behaves as authored only when `moneyType` *is* the base coin. Reproduced.
+
+> **"The whole party" charges each member in full, not a share** — six members and a 100-gold take
+> is 600 gold. The reference's own comment at `Party.cpp:2414` says "take equally from all party
+> members", describing something it does not do. And **two of the four quantity rules do nothing at
+> all for inventory**: random and percent fall into a commented "not used for items".
+
+> **The NPC morale table is indexed on discrete values, not ranges.** 3–8 are penalties, 14–18
+> bonuses, 9–13 a deliberate hole — and **19 or more scores zero**, the same as an average
+> charisma, so a score raised by a spell effect earns nothing. Both events additionally gate on the
+> record's *kind*, so a design character left at the player-character type is invisible to them.
+
+Two gaps in the port itself had to be filled for these: `Character.Morale` (settable, since a
+joining NPC is assigned one) and `Party.RemoveAt`, which pulls the active index back when the
+member it pointed at leaves — that index is what TAB cycles and what every "who tries" event reads.
+
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
@@ -4787,22 +4816,10 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and twenty-two execute. The other 22 draw
+   reads (§the event layer), and twenty-five execute. The other 19 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.
-   - **`TakePartyItems` and the NPC pair have unfinished drafts in git worktrees.** Two parallel
-     agents were cut off by a billing limit at the moment they finished reading and began writing,
-     so each left a source file and **no tests**:
-     `.claude/worktrees/agent-af3dab2ac349e94d9/` holds `EventTakeItems.cs` — 719 lines, heavily
-     documented, **compiles clean** and is a real starting point; write its tests against
-     `RunEvent.cpp` and `Party.cpp` before trusting a line of it, and check that the
-     `moneyType == 0` means Platinum trap landed.
-     `.claude/worktrees/agent-aed3dd0893ba3f842/` holds `EventNpc.cs` — 579 lines with **six
-     compile errors**, which usually means the design never settled; prefer redoing it to repairing
-     it blind. Neither was brought into the main tree, because source without tests is below the
-     bar the rest of this layer was held to. **The worktrees hold uncommitted files, so they
-     survive — but they are the only copy.**
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 

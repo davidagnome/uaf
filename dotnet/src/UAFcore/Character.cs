@@ -72,6 +72,7 @@ public sealed class Character
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
         Status = (CharacterStatus)record.Status;
+        Morale = record.Morale;
         Attributes.Load(record.Attributes);
 
         baseclasses =
@@ -217,6 +218,17 @@ public sealed class Character
     /// (<see cref="CombatAftermath.Distribute"/>).
     /// </remarks>
     public CharacterStatus Status { get; set; }
+
+    /// <summary>
+    /// The character's morale (<c>CHARACTER::morale</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Settable, unlike the other record-backed stats.</b> An NPC joining the party is assigned
+    /// a morale on the way in (<c>ADD_NPC_DATA</c>), so this is live state rather than a view of
+    /// the record — which is why it is seeded from the record and then owned here, exactly as
+    /// <see cref="Status"/> is.
+    /// </remarks>
+    public int Morale { get; set; }
 
     /// <summary>This character's own money, as distinct from the party's pooled purse.</summary>
     public Purse Purse { get; }

@@ -141,11 +141,23 @@ public sealed class EventRunner
             HealPartyEvent heal => BeginPressEnter(heal.Base.Text, anchors),
             WhoTriesEvent trial => BeginPressEnter(trial.Base.Text, anchors),
             JournalEvent journal => BeginPressEnter(journal.Base.Text, anchors),
+            TakePartyItemsEvent take => BeginPressEnter(take.Base.Text, anchors),
+            AddNpcEvent add => BeginPressEnter(add.Base.Text, anchors),
+            RemoveNpcEvent remove => BeginPressEnter(remove.Base.Text, anchors),
             SoundEvent sound => BeginPressEnter(sound.Base.Text, anchors),
             WhoPaysEvent toll => BeginWhoPays(toll, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
+
+    /// <summary>Seats an NPC; set by the host. See <see cref="EventNpc"/>.</summary>
+    public Action<AddNpcEvent>? ApplyAddNpc { get; set; }
+
+    /// <summary>Drops an NPC; set by the host. See <see cref="EventNpc"/>.</summary>
+    public Action<RemoveNpcEvent>? ApplyRemoveNpc { get; set; }
+
+    /// <summary>Confiscates goods; set by the host. See <see cref="EventTakeItems"/>.</summary>
+    public Action<TakePartyItemsEvent>? ApplyTakeItems { get; set; }
 
     /// <summary>Adds a journal entry; set by the host. See <see cref="EventJournal"/>.</summary>
     public Action<JournalEvent>? ApplyJournal { get; set; }
@@ -671,6 +683,9 @@ public sealed class EventRunner
             HealPartyEvent heal => Applied(() => ApplyHeal?.Invoke(heal)),
             WhoTriesEvent trial => FinishWhoTries(trial),
             JournalEvent journal => Applied(() => ApplyJournal?.Invoke(journal)),
+            TakePartyItemsEvent take => Applied(() => ApplyTakeItems?.Invoke(take)),
+            AddNpcEvent add => Applied(() => ApplyAddNpc?.Invoke(add)),
+            RemoveNpcEvent remove => Applied(() => ApplyRemoveNpc?.Invoke(remove)),
             SoundEvent sound => Applied(() => ApplySound?.Invoke(sound)),
             WhoPaysEvent toll => FinishWhoPays(toll),
             _ => Complete(happened: true),
