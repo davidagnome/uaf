@@ -63,6 +63,27 @@ public sealed class CharacterCreation
 
     public int Alignment { get; private set; }
 
+    /// <summary>What the character is called, once the name step has been through.</summary>
+    public string? CharacterName { get; private set; }
+
+    /// <summary>Takes the typed name and moves on (<c>GETCHARNAME_MENU_DATA</c>).</summary>
+    /// <remarks>
+    /// <b>An empty name is refused, not accepted.</b> The reference returns without popping —
+    /// "Need at least one character" — so Return on a blank line does nothing at all.
+    /// </remarks>
+    public void Name(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        if (Step is not CreationStep.Name)
+        {
+            return;
+        }
+
+        CharacterName = name;
+        Step = CreationStep.Icon;
+    }
+
     /// <summary>Records a choice and moves on.</summary>
     public void Choose(string id)
     {
@@ -91,6 +112,24 @@ public sealed class CharacterCreation
         }
 
         Step = Step is CreationStep.Done ? CreationStep.Done : Step + 1;
+    }
+
+    /// <summary>
+    /// Accepts the roll and moves past the re-roll screen.
+    /// </summary>
+    /// <remarks>
+    /// <b>The stats step does not make the stats.</b> <c>ALIGNMENT_MENU_DATA</c> calls
+    /// <c>generateNewCharacter</c> the moment the alignment is picked, so by the time
+    /// <c>CHOOSESTATS_MENU_DATA</c> appears the character exists — its item 2 is literally "don't
+    /// re-roll". Skipping it is therefore "keep the first roll", not "skip generating a
+    /// character".
+    /// </remarks>
+    public void SkipStats()
+    {
+        if (Step is CreationStep.Stats)
+        {
+            Step = CreationStep.Name;
+        }
     }
 
     /// <summary>Backs out of character creation entirely.</summary>

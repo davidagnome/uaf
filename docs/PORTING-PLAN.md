@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,018 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,043 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,57 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### Typed text — and `EnterPassword` running
+
+Three things were waiting on text entry. Two now have it: `ENTER_PASSWORD` runs, and the
+generator takes a name.
+
+> **Two screens share one behaviour and disagree about every rule.** Both accumulate characters,
+> both delete on **Backspace or Left**, both commit on Return — and they differ on punctuation,
+> leading spaces, refused characters and length. The behaviour is shared and the disagreements are
+> a `TextEntryRules`, rather than two nearly-identical screens that drift apart.
+
+> **The name screen refuses `?` and `/` with no comment.** A character is saved as
+> `<name>.chr`, so both would make a file name that cannot be written or that matches the wrong
+> things — the rule is filename safety and nothing in the reference says so.
+
+> **The two screens refuse a slash for different reasons**, which is the only way to tell them
+> apart: the name screen takes punctuation and then singles out those two by hand; the password
+> screen takes no punctuation at all, so a slash never reaches a refusal list. A hyphen
+> distinguishes them.
+
+> **Left deletes; it does not move a cursor.** There is no cursor — the reference draws the text
+> as menu items and has nowhere to put one — so a player expecting to move back and insert erases
+> instead.
+
+> **A password screen has no menu, so there is no way out but to answer.** Every other event
+> answers with one; this takes raw characters until Return, and Escape does nothing.
+
+> **An empty answer passes a `TypedInPswd` check.** `strstr(password, "")` returns the password
+> rather than null, so pressing Return without typing anything succeeds — for the very mode a
+> designer would reach for to accept a partial answer. The other two reject it.
+
+> **An unknown match mode is treated as exact.** The reference puts the exact case under
+> `default` rather than its own label, so a corrupt value falls into the strictest behaviour
+> rather than the loosest.
+
+> **`MtchCri` and `MtchCse` are ASL attributes, not fields** — written by `PreSerialize` and
+> deleted again after. A reader that took only the record's members would lose the match mode and
+> the case rule entirely. The port already had them, in the event's attribute list, for the same
+> reason the race's `AllowedClass` was already there.
+
+> **Only the try that exhausts `nbrTries` takes the failure chain**, so the screen is a retry loop
+> with a counter, not a single question. And a design asking for zero tries still gets one — the
+> count is compared *after* the first answer.
+
+**The generator now runs to the name step**, and skipping the one between is not the hole it
+looks like:
+
+> **`CHOOSESTATS_MENU_DATA` is a re-roll screen, not the thing that makes the stats.** The
+> character was already generated at the alignment step; that screen's item 2 is literally "don't
+> re-roll". Skipping it means the player keeps the first roll — a real divergence, and a small
+> one, where stopping at it would strand the wizard one step short of the name.
+
 ##### The character generator's spine, and four of its ten steps
 
 CREATE CHARACTER runs as far as alignment. **The first wizard in the port** — every screen before
@@ -6152,7 +6203,7 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and thirty-four execute. The other 10 draw
+   reads (§the event layer), and thirty-five execute. The other 9 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - ~~**`LogicBlock` (52)**~~ — **done, and running** (§a logic block, running). The gate
@@ -6188,9 +6239,12 @@ What is left, in order:
      **ADD, REMOVE, DELETE and CREATE run** (§ADD REMOVE and DELETE, §the character generator's
      spine), so seven of the party menu's twelve entries do. CREATE gets as far as alignment.
 
-     **Text entry is the next thing worth building**, because three separate things wait on it:
-     the generator's name step, MODIFY, and `EnterPassword` — one of the ten event types still
-     inert. After it, the generator's remaining steps want an ability roller and an art picker.
+     **Text entry is built** (§typed text), which turned `EnterPassword` on — **nine event types
+     inert, not ten** — and took the generator to its name step.
+
+     What the generator still wants is an **ability roller** (`generateNewCharacter`) and an **art
+     picker**; the roller is the bigger of the two and is rules work rather than screens. MODIFY
+     is the same wizard re-entered over an existing character, so it comes free once those land.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.

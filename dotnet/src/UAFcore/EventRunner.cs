@@ -144,6 +144,8 @@ public sealed class EventRunner
         Confirming = PartyConfirm.None;
         Creating = null;
         CreationOffered = [];
+        Typing = null;
+        TriesLeft = 0;
 
         return gameEvent switch
         {
@@ -172,9 +174,133 @@ public sealed class EventRunner
             ShopEvent shop => BeginTownMenu(ShopMenu, shop.Base.Text, anchors),
             VaultEvent vault => BeginTownMenu(VaultMenu, vault.Base.Text, anchors),
             TempleEvent temple => BeginTemple(temple, anchors),
+            PasswordEvent password => BeginPassword(password, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
+
+    // ---- typed text ----------------------------------------------------------------------------
+
+    /// <summary>The line being typed, or null when nothing is asking for one.</summary>
+    public TextEntry? Typing { get; private set; }
+
+    /// <summary>How many tries at a password are left.</summary>
+    public int TriesLeft { get; private set; }
+
+    /// <summary>
+    /// <c>PASSWORD_DATA</c>'s <c>TASK_PasswordGet</c> (<c>RunEvent.cpp:13072</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A password screen has no menu.</b> Every other event answers with one; this one takes
+    /// raw characters until Return, so the menu is empty and Escape does nothing — there is no
+    /// way out but to answer, right or wrong, as many times as the event allows.
+    /// </remarks>
+    private EventStep BeginPassword(PasswordEvent password, MenuAnchors anchors)
+    {
+        Typing = new TextEntry(TextEntryRules.Password);
+
+        // A design that asks for zero tries still gets one; nbrTries is compared after the first
+        // answer (currTry >= nbrTries), so a zero means "one attempt", not "none".
+        TriesLeft = Math.Max(password.NbrTries, 1);
+
+        Menu.Reset();
+        Menu.Orientation = MenuOrientation.Horizontal;
+        Menu.SetStartCoord(MenuAnchor.DefaultHorizontal, anchors);
+        escapeSelects = null;
+
+        ShowText(password.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>Feeds a typed character to whatever is asking for text.</summary>
+    /// <returns>Whether the key was taken.</returns>
+    private bool HandleTyping(InputEvent input)
+    {
+        if (Typing is null)
+        {
+            return false;
+        }
+
+        // The characters arrive as TextInput and the editing keys as KeyDown -- two kinds for one
+        // screen, because the platform decides what a keypress means as text and the engine
+        // decides what it means as a command.
+        if (input.Kind == InputEventKind.TextInput)
+        {
+            if (input.Character != '\0')
+            {
+                Typing.Type(input.Character);
+            }
+            return true;
+        }
+
+        if (input.Kind != InputEventKind.KeyDown)
+        {
+            return false;
+        }
+
+        // Backspace and Left both delete. There is no cursor to move, so Left cannot mean
+        // anything else -- see TextEntry.
+        if (input.Key is VirtualKey.Backspace or VirtualKey.Left)
+        {
+            Typing.Backspace();
+            return true;
+        }
+
+        // Return commits; everything else a password screen simply swallows, since it has no menu
+        // to give the key to.
+        return input.Key is not VirtualKey.Return;
+    }
+
+    /// <summary>
+    /// Answers a password (<c>PasswordMatches</c> and the two outcomes around it).
+    /// </summary>
+    /// <remarks>
+    /// <b>A wrong answer that is not the last says so and stays.</b> Only the try that exhausts
+    /// <c>nbrTries</c> takes the failure chain, so the screen is a retry loop with a counter and
+    /// not a single question.
+    /// </remarks>
+    private EventStep AnswerPassword(PasswordEvent password)
+    {
+        if (Typing is null)
+        {
+            return Complete(happened: true);
+        }
+
+        var mode = (PasswordMatch)AttributeInt(password.Base.Attributes,
+                                               Password.MatchCriteriaAttribute);
+        bool matchCase = AttributeInt(password.Base.Attributes,
+                                      Password.MatchCaseAttribute) != 0;
+
+        if (Password.Matches(Typing.Text, password.Password, mode, matchCase))
+        {
+            Typing = null;
+            return Chained(password.SuccessChain);
+        }
+
+        TriesLeft--;
+        if (TriesLeft > 0)
+        {
+            Typing.Clear();
+            ShowText("That is not the correct answer");
+            return EventStep.Running;
+        }
+
+        Typing = null;
+        return Chained(password.FailChain);
+    }
+
+    /// <summary>Follows a chain if the event names one, or finishes.</summary>
+    private EventStep Chained(uint chain) =>
+        chain != 0 && IsValidEvent?.Invoke(chain) != false
+            ? EventStep.To(chain)
+            : Complete(happened: true);
+
+    /// <summary>Reads an integer out of an event's attribute list.</summary>
+    private static int AttributeInt(IReadOnlyList<AslEntry> attributes, string key) =>
+        attributes.FirstOrDefault(a => a.Key == key) is { } entry
+        && int.TryParse(entry.Value, out int value)
+            ? value
+            : 0;
 
     /// <summary>The tavern's menu (<c>TavernMenu</c>, <c>GameMenu.cpp:743</c>).</summary>
     private static readonly (string Label, int Shortcut)[] TavernMenu =
@@ -1078,7 +1204,30 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
-        if (Creating.Aborted || Creating.Step > CreationStep.Alignment)
+        // CHOOSESTATS is a RE-ROLL screen, not the thing that makes the stats: the character was
+        // already generated at the alignment step, and item 2 there is "don't re-roll". Skipping
+        // it means the player keeps the first roll -- a real divergence, and a small one, where
+        // stopping here would strand the wizard one step short of the name.
+        if (!Creating.Aborted && Creating.Step is CreationStep.Stats)
+        {
+            Creating.SkipStats();
+        }
+
+        // The name step asks for typed text rather than offering a list -- the same entry the
+        // password screen uses, with the name rules.
+        if (!Creating.Aborted && Creating.Step is CreationStep.Name)
+        {
+            Typing = new TextEntry(TextEntryRules.Name);
+
+            Menu.Reset();
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ("EXIT", 1));
+            escapeSelects = 0;
+            ShowText("ENTER NEW CHARACTER NAME");
+
+            return EventStep.Running;
+        }
+
+        if (Creating.Aborted || Creating.Step > CreationStep.Name)
         {
             var reached = Creating.Step;
             bool aborted = Creating.Aborted;
@@ -1098,6 +1247,7 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        Typing = null;
         CreationOffered = CreationChoicesFor?.Invoke(Creating) ?? [];
         CreationIndex = 0;
         CreationPage = 0;
@@ -1125,6 +1275,26 @@ public sealed class EventRunner
         if (Creating is null)
         {
             return EventStep.Running;
+        }
+
+        // The name step has no picker menu -- Return commits whatever has been typed, and an
+        // empty name is refused rather than accepted (the reference needs "at least one
+        // character", RunEvent.cpp:3686).
+        if (Typing is { } typed)
+        {
+            if (Menu.ActiveItem == 0 && Menu.Count == 1 && typed.Text.Length == 0)
+            {
+                Creating.Abort();
+                return ShowCreationStep();
+            }
+
+            if (typed.Text.Length == 0)
+            {
+                return EventStep.Running;
+            }
+
+            Creating.Name(typed.Text);
+            return ShowCreationStep();
         }
 
         switch (Menu.ActiveItem)
@@ -1982,6 +2152,12 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // A screen asking for typed text takes every key but Return.
+        if (HandleTyping(input))
+        {
+            return EventStep.Running;
+        }
+
         // The character generator's pickers split the keys the inventory's way round: the list
         // takes up and down, the SELECT/NEXT/PREV/EXIT menu takes left and right.
         if (Creating is not null && input.Kind == InputEventKind.KeyDown
@@ -2083,6 +2259,7 @@ public sealed class EventRunner
             RemoveNpcEvent remove => Applied(() => ApplyRemoveNpc?.Invoke(remove)),
             SoundEvent sound => Applied(() => ApplySound?.Invoke(sound)),
             WhoPaysEvent toll => FinishWhoPays(toll),
+            PasswordEvent password => AnswerPassword(password),
             SmallTownEvent town => ChooseSmallTown(town),
             CampEvent camp => ChooseCamp(camp),
             TrainingHallEvent hall => ChooseTrainingHall(hall),
