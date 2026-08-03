@@ -54,6 +54,7 @@ public sealed record SaveGame(
     IReadOnlyList<JournalEntry> Journal, IReadOnlyList<AslEntry> Attributes,
     IReadOnlyList<Quest> Quests, IReadOnlyList<SpecialObject> SpecialItems,
     IReadOnlyList<SpecialObject> Keys, IReadOnlyList<Vault> Vaults,
+    SaveGameTail Tail,
     IArchiveCursor Body);
 
 /// <summary>One global vault's contents (<c>GLOBAL_VAULT_DATA</c>).</summary>
@@ -223,10 +224,11 @@ public static class SaveGameReader
         var specialItems = GlobalTailReaders.ReadSpecialObjects(cursor, version);
         var keys = GlobalTailReaders.ReadSpecialObjects(cursor, version);
         var vaults = ReadVaults(cursor, version, role);
+        var tail = SaveGameTailReaders.Read(cursor, version, role);
 
         return new SaveGame(version, party, eventFlags, visited, blockages,
                             characters, pool, journal, attributes,
-                            quests, specialItems, keys, vaults, cursor);
+                            quests, specialItems, keys, vaults, tail, cursor);
     }
 
     public static SaveGame Read(string path, ArchiveRole role = ArchiveRole.Engine)

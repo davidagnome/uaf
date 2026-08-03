@@ -128,6 +128,7 @@ public static class SaveGameWriter
         GlobalTailWriters.WriteSpecialObjects(ar, save.Keys);
 
         WriteVaults(ar, save.Vaults);
+        SaveGameTailWriters.Write(ar, save.Tail);
     }
 
     /// <summary>Writes <c>PARTY::Serialize</c>'s scalars (<c>Party.cpp:996</c>).</summary>

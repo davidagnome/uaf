@@ -150,6 +150,63 @@ public class SaveGameWriterTests
         Assert.Equal(2, written[8]);
     }
 
+    [Fact]
+    public void The_tail_carries_a_saved_attribute_list_per_database()
+    {
+        // The seven Save/Restore pairs. Each is a count, then a name and an attribute list per
+        // record -- the name being how the loader matches a saved record against the design it is
+        // loading into.
+        var saves = Saves();
+        if (saves.Count == 0)
+        {
+            return;
+        }
+
+        var tail = SaveGameReader.Read(saves[0]).Tail;
+
+        Assert.NotEmpty(tail.Spells);
+        Assert.NotEmpty(tail.Items);
+        Assert.NotEmpty(tail.Monsters);
+        Assert.All(tail.Spells, s => Assert.NotEmpty(s.Name));
+        Assert.Equal(SaveGameTailReaders.LevelSlots, tail.Levels.Count);
+    }
+
+    [Fact]
+    public void Neither_shipped_save_has_an_active_spell()
+    {
+        // Which is why the one place the format's storing and loading branches disagree cannot be
+        // checked against real data: ACTIVE_SPELL stores Lingers/casterLevel/lingerData and loads
+        // Lingers/lingerData/casterLevel. The writer follows the loading order deliberately -- see
+        // SaveGameTailWriters.WriteActiveSpell -- and no corpus file can tell the difference.
+        foreach (string path in Saves())
+        {
+            Assert.Empty(SaveGameReader.Read(path).Tail.ActiveSpells);
+        }
+    }
+
+    [Fact]
+    public void A_saved_level_carries_a_sparse_wall_override_table()
+    {
+        // The gap that had been documented as never mattering, mattering: a savegame's LEVEL_STATS
+        // really does carry a table whose entries are mostly absent -1 placeholders. Keeping only
+        // the present rows made it unwritable, which is what forced the entries list.
+        var saves = Saves();
+        if (saves.Count == 0)
+        {
+            return;
+        }
+
+        var tail = SaveGameReader.Read(saves[0]).Tail;
+
+        var sparse = tail.Levels
+            .Select(l => l.Overrides)
+            .FirstOrDefault(o => o is not null && o.Entries.Count != o.Rows.Count);
+
+        Assert.NotNull(sparse);
+        Assert.Contains(sparse!.Entries, e => e.Row is null);
+        Assert.Contains(sparse.Entries, e => e.Row is not null);
+    }
+
     private static void AssertSame(SaveGame expected, SaveGame actual)
     {
         Assert.Equal(expected.Party.TaskStack.Count, actual.Party.TaskStack.Count);

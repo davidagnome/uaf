@@ -215,7 +215,7 @@ public static class GlobalStatsTailWriters
             ar, level.Sounds ?? new BackgroundSoundData([], [], 0, 0, 0));
 
         CellContentsWriters.WriteWallOverrides(
-            ar, level.Overrides ?? new WallOverrides(new Dictionary<int, RowOverrides>(), 0));
+            ar, level.Overrides ?? new WallOverrides([]));
         CellContentsWriters.WriteCellContents(
             ar, level.Contents ?? new CellLevelContents([]));
 

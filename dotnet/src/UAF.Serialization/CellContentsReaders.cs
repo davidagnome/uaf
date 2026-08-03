@@ -51,13 +51,25 @@ public sealed record RowOverrides(int Column, IReadOnlyList<CellOverride> Cells)
 /// Sparse by row: the count is how many entries follow, and each is prefixed by its row number,
 /// with -1 meaning the row is absent and carries no payload.
 /// </remarks>
-/// <param name="EntryCount">
-/// How many entries the count field declared, which is <b>not</b> <c>Rows.Count</c> when any of
-/// them was an absent <c>-1</c>. Kept because a writer has to emit the same number, and because
-/// the position of an absent row among the present ones is the one thing this shape cannot
-/// recover — see <see cref="CellContentsWriters.CanWrite"/>.
+/// <param name="Entries">
+/// The table as it sits on the wire, in order and including the absent rows. <b>Absent rows have
+/// to keep their positions</b>: a savegame's <c>LEVEL_STATS</c> really does carry a table with
+/// sixteen entries of which three are present, so a model that kept only the present ones could
+/// not be written back. An entry whose <see cref="WallOverrideEntry.Row"/> is null is a bare
+/// <c>-1</c> and carries no payload.
 /// </param>
-public sealed record WallOverrides(IReadOnlyDictionary<int, RowOverrides> Rows, int EntryCount);
+public sealed record WallOverrides(IReadOnlyList<WallOverrideEntry> Entries)
+{
+    /// <summary>The present rows, by row number — the projection a consumer wants.</summary>
+    public IReadOnlyDictionary<int, RowOverrides> Rows { get; } =
+        (Entries ?? throw new ArgumentNullException(nameof(Entries)))
+            .Where(e => e.Row is not null)
+            .ToDictionary(e => e.RowNumber, e => e.Row!);
+}
+
+/// <summary>One entry of a <c>WALL_OVERRIDES</c> table: a row number, and its cells when present.</summary>
+/// <param name="RowNumber">The number on the wire; <c>-1</c> marks an absent row.</param>
+public sealed record WallOverrideEntry(int RowNumber, RowOverrides? Row);
 
 /// <summary>One item lying in a map cell (<c>CELL_ITEM</c>, <c>GlobalData.h:491</c>).</summary>
 public sealed record CellItem(
@@ -109,13 +121,15 @@ public static class CellContentsReaders
         ArgumentNullException.ThrowIfNull(ar);
 
         int rowCount = ar.ReadInt32();
-        var rows = new Dictionary<int, RowOverrides>();
+        var entries = new List<WallOverrideEntry>(Math.Max(rowCount, 0));
 
         for (int i = 0; i < rowCount; i++)
         {
             int rowNumber = ar.ReadInt32();
             if (rowNumber < 0)
             {
+                // A bare -1: no payload, but its four bytes and its place in the table are real.
+                entries.Add(new WallOverrideEntry(rowNumber, null));
                 continue;
             }
 
@@ -131,10 +145,10 @@ public static class CellContentsReaders
                                                ((c + 1) * CellOverride.Size)]));
             }
 
-            rows[rowNumber] = new RowOverrides(columnCount, cells);
+            entries.Add(new WallOverrideEntry(rowNumber, new RowOverrides(columnCount, cells)));
         }
 
-        return new WallOverrides(rows, rowCount);
+        return new WallOverrides(entries);
     }
 
     /// <summary>Reads <c>CELL_LEVEL_CONTENTS</c>.</summary>

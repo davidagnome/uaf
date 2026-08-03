@@ -4,15 +4,13 @@
 **Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
 **Date:** 2026-08-03
 
-**Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
-corpus parses, diffed against the oracle — and the writer is nearly there too: the byte layer,
-every shared leaf, both halves of the `CAR` write path, and **all six record types** — monsters,
-items, spells, characters, `GLOBAL_STATS` and levels — each round-tripping every record in the
-corpus. All three shipped databases are reproduced **byte for byte**; a saved character is written
-as a whole file; **30 of the 44 event types write, covering every one of the 4,705 events in every
-shipped level**; and both shipped savegames round-trip as far as the reader goes. What the
-round-trip exit criterion still needs is the **savegame tail**, and that is reader work: seven
-`Save`/`Restore` pairs and an `ACTIVE_SPELL_LIST` that have never been read.
+**Status.** Phase 0 complete. **Phase 1 complete** — for reading and for writing. Every design
+file in the fixture corpus parses, diffed against the oracle, and **every file kind the format has
+now round-trips**: the byte layer, every shared leaf, both halves of the `CAR` write path, and all
+six record types — monsters, items, spells, characters, `GLOBAL_STATS` and levels. All three
+shipped databases are reproduced **byte for byte**; `.chr`, `.lvl`, `game.dat` and `.pty` are all
+written whole; **30 of the 44 event types write, covering every one of the 4,705 events in every
+shipped level**. The remaining 14 event types appear in no shipped design at all.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
 event types and executes twenty-six of them, presents the treasure and character screens, and sets up a combat encounter with the
@@ -22,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,686 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,688 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3183,6 +3181,54 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The savegame tail, as ported — and Phase 1's exit criterion
+
+`SaveGameTailReaders` and `SaveGameTailWriters` — the `ACTIVE_SPELL_LIST` and the seven
+`Save`/`Restore` pairs a savegame ends with. **Both were unread when this began**, and porting the
+reader and the writer together is what closes the last gap: a whole `.pty` now reads and writes,
+and **Phase 1's round-trip exit criterion is met for every file kind the format has.**
+
+The pairs turned out to be as small as the storing branch suggested — a count, a name and an
+attribute list per record — but three things in them were not:
+
+> **`Save` writes attributes through the ASL's *save* path and `Restore` reads them with the
+> ordinary `Serialize`.** The save path skips read-only entries and counts the filtered set. So a
+> savegame's attribute lists are a **subset** of the design's *by construction*: the save carries
+> what gameplay changed and the design supplies the rest. That asymmetry is the point of the
+> format, not a defect in it.
+
+> **A `LEVEL_STATS`'s own length is decided by an attribute it carries.** `Save` inserts
+> `__LEVEL_STATS_VERSION` into the attribute list, writes the list, then deletes the entry again —
+> and the two trailing tables are gated on the value. Nothing else in this format decides how many
+> bytes follow from inside its own ASL, and a writer that simply wrote the attributes it was handed
+> would emit a version of 0 and then two tables the reader never looks for.
+
+> **`COMBAT_TREASURE_DATA` is items-then-money; the `COMBAT_TREASURE` *event* is
+> money-then-items.** Four lines apart in the same file, names one word different, layouts
+> transposed. This is §the event layer's "member names are not types" rule again, and it is what
+> the first draft got wrong — the tail read cleanly through the spell database and the global ASL
+> and then drifted, which is exactly where a missing money sack would put it.
+
+And one finding that is a defect, stated plainly:
+
+> **`ACTIVE_SPELL`'s two branches disagree about field order, and the reference cannot round-trip
+> its own output.** Storing writes `Lingers`, `casterLevel`, `lingerData` (`Spell.h:1288`); loading
+> reads `Lingers`, `lingerData`, `casterLevel` (`:1310`). A `SPELL_LINGER_DATA` is never
+> zero-length — a flag and two counts at minimum — so the orders cannot coincide, and a save the
+> reference wrote with any active spell in it does not read back correctly *in the reference*.
+> This port **writes the loading order**, deliberately setting aside the rule that a writer follows
+> the storing branch, for the reason the rule exists: what matters is that the file loads. Neither
+> shipped save has an active spell, so no corpus file can tell the difference — which is stated as
+> a test rather than left implied.
+
+One earlier claim had to be withdrawn:
+
+> **"Every shipped design's wall-override tables are empty" was true of designs and false of
+> saves.** A savegame's `LEVEL_STATS` carries one with sixteen entries of which three are present,
+> the rest bare `-1` placeholders. The reader kept only the present rows in a dictionary, so the
+> writer had to refuse such a table — and then met one. `WallOverrides` now holds the entries in
+> wire order, placeholders included, with the dictionary as a projection.
+
 ##### The savegame body, as ported
 
 `SaveGameWriter` — the whole `PARTY` record and the four structures after it, for both shipped
@@ -5448,28 +5494,25 @@ What is left, in order:
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
-2. **The rest of the archive writer.** The byte layer, every shared leaf, the `CAR` write path and
-   **all six record types** are done — monsters, items and spells each reproducing
+2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
+   port and it is closed.** All six record types write: monsters, items and spells each reproducing
    `ci-tier3`'s database byte for byte, characters round-tripping 29 records across two designs,
    `GLOBAL_STATS` round-tripping both designs whole, and every one of the 18 shipped levels
-   round-tripping with byte identity (§the archive writer's first layers, and the six record-type
-   sections). What is missing is a
-   writer per remaining record type, mirroring each reader. It is still the largest structural gap
-   in the port: it gates Phase 1's round-trip exit criterion, save games, and Phase 5 entirely.
-   The `.chr` half of the savegames is done (§the first whole file outside a database), the event
-   layer is done for everything the corpus contains (§the event storing branches), and
-   `GLOBAL_STATS` — which both of those were blocking — now writes whole (§the fifth record type).
-   What remains, in order:
-   - **The savegame tail — and it is reader work, not writer work.** The body writes and both
-     shipped saves round-trip (§the savegame body); what is missing is `ACTIVE_SPELL_LIST` and
-     seven `Save`/`Restore` pairs, none of which has ever been read. They turn out to be nearly
-     trivial — each pair is the object's ASL and a name — so this is the last gap in Phase 1 and
-     the smallest of the ones that remained.
+   round-tripping with byte identity. All four whole-file framings are written — `.chr`, `.lvl`,
+   `game.dat` and `.pty` — and **Phase 1's round-trip exit criterion is met**. See §the archive
+   writer's first layers and the six record-type sections.
 
-   Read the monster section's rule about the storing branch having no version gates before starting
-   it; six record types in, it has held every time, and the two apparent exceptions are gates that
-   cannot close — one written open by construction (§the third record type) and one whose condition
-   says `|| car.IsStoring()` out loud (§the fifth).
+   What is left of the writer is the **fourteen event types that appear in no shipped design**.
+   Nothing is blocked on them, and they want `Export(JWriter&)` read alongside `Serialize`, since
+   there is no corpus to check a guess against.
+
+   The rule the whole exercise turned on, for anyone extending it: the storing branch has **no
+   version gates**. Six record types in it held every time, and the two apparent exceptions are
+   gates that cannot close — one open by construction (§the third record type) and one whose
+   condition says `|| car.IsStoring()` out loud (§the fifth). The other rule earned here is that
+   **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
+   mis-named ones, two lists whose shape hid which entry was missing, and one place where the
+   reference's own two branches disagree.
 3. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
@@ -5518,7 +5561,7 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `GLOBAL_STATS`, `LEVEL`, `.chr` files, the savegame body, **30 of the 44 event bodies** (every event in all 18 shipped levels), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is the savegame tail, whose *readers* do not exist yet. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
+| ~~**`ArchiveWriter`**~~ | **Done.** All six record types, every shared leaf, both halves of the `CAR` write path, 30 of the 44 event bodies, and the four whole-file framings — `.chr`, `.lvl`, `game.dat`, `.pty`. Three shipped databases are reproduced byte for byte and everything else round-trips. **Phase 1's exit criterion is met**, and Phase 5 is unblocked | — |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |

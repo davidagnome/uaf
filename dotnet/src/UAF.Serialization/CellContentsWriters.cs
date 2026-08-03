@@ -11,56 +11,35 @@ namespace UAF.Serialization;
 /// </remarks>
 public static class CellContentsWriters
 {
-    /// <summary>
-    /// Whether a wall-override table can be written, and why not when it cannot.
-    /// </summary>
-    /// <remarks>
-    /// <b>An absent row loses its position.</b> The table is a count followed by that many
-    /// entries, each prefixed by a row number, and <c>-1</c> means "absent, no payload" — but the
-    /// reader keeps only the rows that were present, in a dictionary, so where the <c>-1</c>s sat
-    /// among them is gone. Writing them all at the end would produce a stream that reads back to
-    /// the same rows and not to the same bytes, so it is refused instead. No shipped design has a
-    /// non-empty table at all, which is why this has never had to be resolved.
-    /// </remarks>
-    public static bool CanWrite(WallOverrides overrides, out string reason)
-    {
-        ArgumentNullException.ThrowIfNull(overrides);
-
-        if (overrides.Rows.Count != overrides.EntryCount)
-        {
-            reason = $"a WALL_OVERRIDES table declared {overrides.EntryCount} entries but only " +
-                     $"{overrides.Rows.Count} were present; the absent ones are -1 placeholders " +
-                     "whose position among the rest this port does not record.";
-            return false;
-        }
-
-        reason = string.Empty;
-        return true;
-    }
-
     /// <summary>Writes a <c>WALL_OVERRIDES</c> (<c>GlobalData.cpp:2597</c>).</summary>
-    /// <exception cref="NotSupportedException">
-    /// When the table holds absent rows — see <see cref="CanWrite"/>.
-    /// </exception>
     /// <remarks>
+    /// <para>
+    /// <b>The table is sparse and the gaps are positional.</b> A count, then that many entries,
+    /// each prefixed by its row number — with <c>-1</c> meaning "absent, no payload". A savegame's
+    /// <c>LEVEL_STATS</c> really does carry one with sixteen entries of which three are present, so
+    /// the absent ones have to be written back where they were; an earlier revision kept only the
+    /// present rows and had to refuse such a table entirely.
+    /// </para>
+    /// <para>
     /// A row's cells go out as one blit of <c>columnCount × 20</c> bytes, matching how they are
     /// read — the reference writes the whole array in one call rather than per struct.
+    /// </para>
     /// </remarks>
     public static void WriteWallOverrides(IArchiveWriteCursor ar, WallOverrides overrides)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(overrides);
 
-        if (!CanWrite(overrides, out string reason))
-        {
-            throw new NotSupportedException(reason);
-        }
+        ar.WriteInt32(overrides.Entries.Count);
 
-        ar.WriteInt32(overrides.EntryCount);
-
-        foreach ((int rowNumber, var row) in overrides.Rows.OrderBy(r => r.Key))
+        foreach (var entry in overrides.Entries)
         {
-            ar.WriteInt32(rowNumber);
+            ar.WriteInt32(entry.RowNumber);
+            if (entry.Row is not { } row)
+            {
+                continue;                            // a bare -1
+            }
+
             ar.WriteInt32(row.Column);
 
             foreach (var cell in row.Cells)

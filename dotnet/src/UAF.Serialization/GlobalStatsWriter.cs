@@ -93,16 +93,6 @@ public static class GlobalStatsWriter
             }
         }
 
-        foreach (var level in global.Levels.Levels.Values)
-        {
-            if (level.Overrides is { } overrides &&
-                !CellContentsWriters.CanWrite(overrides, out string overrideReason))
-            {
-                reason = $"level '{level.Name}': {overrideReason}";
-                return false;
-            }
-        }
-
         reason = string.Empty;
         return true;
     }
