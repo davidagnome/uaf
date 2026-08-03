@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,688 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,716 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,43 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### A logic block's inputs, as ported
+
+`LogicBlockInputs` — `ProcessLBInput`'s sixteen terminal types (`RunEvent.cpp:13777`), the two
+string grammars under them, and an `ILogicBlockHost` naming exactly the state they read. This is
+the half `LogicBlock` was deliberately left without: the gate network was ported and tested first,
+*unwired*, because all-false inputs would have made every one of the corpus's 52 blocks take a
+branch rather than fail visibly.
+
+Fourteen of the sixteen run. `LBIT_RunTimeIf` needs the runtime keyword table (`GetDataSTRING` and
+its seven width-specific siblings) and the two GPDL terminals need a script runner passed in;
+both throw with a citation, as the sub-opcodes do.
+
+> **`LBsubst` hangs the reference on an ampersand that names no slot.** Its loop advances `col` in
+> the `else` of `if (p[col]=='&')` and in the substitution branch, and **nowhere else** — so an
+> `&` whose successor is outside `A`‥`L`, or a trailing one, spins forever on the same character.
+> A logic-block parameter containing ordinary prose — `"Bell & Dragon"` — locks the original up.
+> This port advances past it and keeps the character, which is the only non-hanging reading and
+> plainly what the code intends. **It is a deliberate divergence and the only one in the file**,
+> because reproducing the behaviour means reproducing a freeze.
+
+> **`SplitLevelKey` is `/<digits>/<key>` and falls back to the *current* level, not level 0.** A
+> first draft read it as "leading digits, then the key", which would have sent every unqualified
+> attribute to level 0 — and the citation is what caught it. Two quirks came with the correction:
+> a leading slash with no closing one falls through to the current level, and **non-digits inside
+> the number are skipped rather than terminal**, so `/1a2/key` reads as level 12.
+
+> **Truth is "not empty", and it reaches the inputs too.** `LBIT_partySize` renders through
+> `Format("%d")`, so an empty party yields `"0"` — which is **true**. A port that returned a
+> boolean, or that treated `"0"` as false, inverts the branch on every block that tests party
+> size.
+
+An unrecognised terminal type is **not** an error that stops the block: the reference logs
+"Bogus Logic Input-\<letter\> Type" and leaves the result empty, so the terminal reads false and
+the block still runs. Throwing there would make a design with one bad terminal unplayable where
+the original merely misbehaves — the same reasoning that keeps `EventBodyReader` returning null
+rather than guessing.
+
 ##### The savegame tail, as ported — and Phase 1's exit criterion
 
 `SaveGameTailReaders` and `SaveGameTailWriters` — the `ACTIVE_SPELL_LIST` and the seven
@@ -5488,9 +5525,11 @@ What is left, in order:
    reads (§the event layer), and twenty-six execute. The other 18 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
-   - **`LogicBlock` (52)** — the **gate network is ported and tested** (`LogicBlock.cs`, 36
-     tests); what remains is `ProcessLBInput`'s **sixteen input types** and `ProcessLBAction`,
-     the latter being the only part that reaches GPDL. **Deliberately not wired** — see below.
+   - **`LogicBlock` (52)** — the gate network and **now the inputs** are ported and tested
+     (`LogicBlock.cs` and `LogicBlockInputs.cs`, §a logic block's inputs). Fourteen of the sixteen
+     terminals run; `LBIT_RunTimeIf` wants the runtime keyword table and the two GPDL ones want a
+     script runner. What remains is **`ProcessLBAction`** — 174 lines, sixteen action types, the
+     only part that writes rather than reads — and wiring the whole thing into the event runner.
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
