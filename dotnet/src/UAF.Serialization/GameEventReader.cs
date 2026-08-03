@@ -5,6 +5,12 @@ namespace UAF.Serialization;
 /// <summary>
 /// The trigger and gating conditions shared by every event (<c>GameEvent.cpp:1532</c>).
 /// </summary>
+/// <param name="LegacyIds">
+/// <b>Not a wire field.</b> True when the four database references above were read as
+/// pre-0.998101 numeric keys and rendered as their digits, so <c>"12"</c> means "item 12" rather
+/// than an item named <c>"12"</c>. Nothing distinguishes the two once read, which is why the
+/// provenance is recorded — see <see cref="GameEventWriter.CanWrite"/>.
+/// </param>
 public sealed record EventControl(
     int EventStatusUnused, int EventResultUnused, int OnceOnly,
     int ChainTrigger, int EventTrigger,
@@ -13,7 +19,8 @@ public sealed record EventControl(
     IReadOnlyList<AslEntry> Attributes,
     string GpdlData, int GpdlIsBinary,
     int PartyX, int PartyY,
-    string MemorizedSpellId, uint MemorizedSpellClass, uint MemorizedSpellLevel);
+    string MemorizedSpellId, uint MemorizedSpellClass, uint MemorizedSpellLevel,
+    bool LegacyIds = false);
 
 /// <summary>The fields every event carries, regardless of its concrete type.</summary>
 public sealed record GameEventBase(
@@ -145,7 +152,7 @@ public static class GameEventReader
             eventStatusUnused, eventResultUnused, onceOnly, chainTrigger, eventTrigger,
             itemId, quest, chance, facing, raceId, classOrBaseclassId, characterId,
             attributes, gpdlData, gpdlIsBinary, partyX, partyY,
-            memorizedSpellId, memorizedSpellClass, memorizedSpellLevel);
+            memorizedSpellId, memorizedSpellClass, memorizedSpellLevel, legacyIds);
     }
 
     /// <summary>
