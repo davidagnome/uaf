@@ -102,10 +102,11 @@ public class SaveSlotTests
         // with an empty visited map reads back cleanly into a party that has forgotten where it
         // has been, which is the worst kind of wrong.
         Assert.NotEmpty(SaveGameProjection.Untracked);
-        Assert.Contains("visited squares", SaveGameProjection.Untracked);
+        Assert.Contains("the journal", SaveGameProjection.Untracked);
 
-        // Event trigger flags came off this list -- see EventTriggerFlagTests. The assertion is
-        // kept pointing at what remains rather than deleted: watching it shrink is the point.
+        // Trigger flags and visited squares have both come off this list. The assertions are kept
+        // pointing at what remains rather than deleted: watching it shrink is the point.
         Assert.DoesNotContain("event trigger flags", SaveGameProjection.Untracked);
+        Assert.DoesNotContain("visited squares", SaveGameProjection.Untracked);
     }
 }

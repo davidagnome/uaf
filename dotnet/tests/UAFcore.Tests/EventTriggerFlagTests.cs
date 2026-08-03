@@ -237,6 +237,6 @@ public class EventTriggerFlagTests
     public void Trigger_flags_are_no_longer_on_the_list_of_what_a_save_cannot_carry()
     {
         Assert.DoesNotContain("event trigger flags", SaveGameProjection.Untracked);
-        Assert.Contains("visited squares", SaveGameProjection.Untracked);
+        Assert.Contains("the journal", SaveGameProjection.Untracked);
     }
 }

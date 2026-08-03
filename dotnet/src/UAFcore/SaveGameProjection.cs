@@ -30,8 +30,8 @@ public static class SaveGameProjection
     /// <remarks>
     /// Each entry is a whole subsystem's worth of live state, not a field:
     /// <list type="bullet">
-    /// <item><b>Visited cells</b> — <c>VisitedLevel</c>'s per-level bitmap, one bit per square.
-    /// Nothing maps the party's movement onto it.</item>
+    /// <item><s><b>Visited cells</b></s> — <b>done</b>. <see cref="VisitedCells"/> tracks them
+    /// live and projects both ways.</item>
     /// <item><s><b>Event trigger flags</b></s> — <b>done</b>. <see cref="EventTriggerFlags"/>
     /// tracks them live and projects both ways.</item>
     /// <item><b>The journal</b> — the design's entries are read and shown, but which ones the
@@ -55,5 +55,5 @@ public static class SaveGameProjection
     /// built, and so this stops being the one place that has to be remembered.
     /// </remarks>
     public static readonly string[] Untracked =
-        ["visited squares", "the journal", "blockages", "vault contents"];
+        ["the journal", "blockages", "vault contents"];
 }

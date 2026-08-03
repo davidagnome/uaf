@@ -93,6 +93,10 @@ public sealed class Game
         Facing = (Facing)(design.Globals.StartFacing & 3);
         Minutes = design.Globals.StartTime;
 
+        // setPartyLevelState marks the square the party is placed on (Party.cpp:2974), so the
+        // starting square counts as seen before anyone has taken a step.
+        Visited.SetVisited(levelIndex, X, Y);
+
         World = WorldState.FromDesign(design.Globals.Quests, design.Globals.SpecialItems,
                                       design.Globals.Keys);
 
@@ -350,6 +354,9 @@ public sealed class Game
     /// </remarks>
     public EventTriggerFlags TriggerFlags { get; private set; } = new();
 
+    /// <summary>Which squares the party has stood on (<c>party.visitData</c>).</summary>
+    public VisitedCells Visited { get; private set; } = new();
+
     /// <summary>The design's currency.</summary>
     public MoneyRules Money { get; }
 
@@ -593,6 +600,10 @@ public sealed class Game
         X = nextX;
         Y = nextY;
         Steps++;
+
+        // UpdatePartyMovementData marks the square the party arrived on (RunEvent.cpp:1249) --
+        // the arrival, not the departure, so the starting square needs its own mark.
+        Visited.SetVisited(LevelIndex, X, Y);
 
         // One minute per step is this port's placeholder; the original derives it from the
         // party's speed and the zone, which is rules work rather than engine plumbing.
@@ -1420,6 +1431,7 @@ public sealed class Game
         X = x;
         Y = y;
         Facing = (Facing)(destination.Facing & 3);
+        Visited.SetVisited(LevelIndex, X, Y);
         Message = $"You are somewhere else: ({X}, {Y}) facing {Facing}.";
         return true;
     }

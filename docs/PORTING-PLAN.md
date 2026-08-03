@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,925 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,941 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,44 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### Visited squares
+
+The second of the five, and the one an automap will want the moment it exists: a bit per square, a
+bitmap per level, allocated only for levels the party has actually entered.
+
+> **The bitmap's bounds are the format's, not the level's.** Every one is 100 × 100
+> (`MAX_AREA_WIDTH` × `MAX_AREA_HEIGHT`) whatever size the level is, because `SetVisited`
+> allocates a fixed `TAG_LIST_2D` without asking the level how big it is. The row stride is
+> therefore always 100 — and getting that wrong wraps rows into each other, which looks like a
+> working automap with ghosts on it.
+
+> **A square off the edge of the map reads as *visited* — but only on a level that has been
+> entered.** `TAG_LIST_2D::Get` returns 1 outside its bounds ("outside boundaries is tagged"),
+> which is what keeps the border from drawing as unexplored. But `IsVisited` checks for a missing
+> bitmap *first* and returns false. So the identical query answers differently depending on
+> whether the level has ever been walked, and both answers are the reference's.
+
+> **`SetVisited` allocates before it range-checks.** A level whose only recorded step was off the
+> map still ends up in the savegame with an empty bitmap rather than no entry at all.
+
+> **Level 255 can hold trigger flags and can never hold a visited square.** `VISIT_DATA` is a
+> fixed `TAG_LIST_2D*[MAX_LEVELS]` tested with `level >= MAX_LEVELS`, while `EVENT_TRIGGER_DATA`
+> is a `CArray` that grows. That difference is exactly what lets global events record at
+> `GLOBAL_ART` — and it means the two structures disagree about how many levels exist.
+
+> **A bitmap is one byte longer than the squares need.** `(w*h >> 3) + 1` = 1251, and the `+1` is
+> unconditional, so a writer that computed a tight size would be one short of what the reader
+> expects.
+
+> **These records are sparse where the trigger flags are dense.** `VISIT_DATA` writes a
+> (level, count) pair per slot and a bitmap only where the count is non-zero, so the level number
+> travels with the record and nothing is positional. The opposite convention from
+> `EVENT_TRIGGER_DATA`, in the same file, written by the same function.
+
+Marked in three places, matching the reference: the starting square (`setPartyLevelState`), each
+square the party arrives on (`UpdatePartyMovementData` — the arrival, not the departure), and a
+teleport destination.
+
 ##### Event trigger flags — and `OnceOnly` finally meaning something
 
 The first of the five things a save could not carry, and the one that was doing visible damage
@@ -3245,10 +3283,10 @@ work makes it easy to assume otherwise:
 
 > **The file works; the projection does not.** `SaveGameReader` and `SaveGameWriter` round-trip a
 > `.pty` byte for byte — that was Phase 1's exit criterion and it is met. But turning a *game in
-> progress* into a `SaveGame` needs live state this engine does not keep: **visited squares** (the
-> per-level bitmap, one bit per cell), **the journal** (the design's entries are read and shown;
-> which ones the party has collected is not tracked), **blockages**, and **vault contents**.
-> ~~Event trigger flags~~ came off this list — see §event trigger flags.
+> progress* into a `SaveGame` needs live state this engine does not keep: **the journal** (the
+> design's entries are read and shown; which ones the party has collected is not tracked),
+> **blockages**, and **vault contents**. ~~Event trigger flags~~ and ~~visited squares~~ have both
+> come off this list — see §event trigger flags and §visited squares.
 
 > **A lossy save would be worse than none.** A `.pty` with an empty visited map and no trigger
 > flags is a perfectly valid file that reads back cleanly into a party that has forgotten where it
@@ -5961,11 +5999,12 @@ What is left, in order:
      live counterpart for **visited squares, event trigger flags, the journal, blockages or vault
      contents**, so saving is refused rather than done lossily.
 
-     **Event trigger flags are done** (§event trigger flags), which both shortens that list and
-     fixes a live bug: `OnceOnly` now works. **Visited squares are next** — the other piece the
-     walking-around engine should have been keeping anyway, and the one the automap will want the
-     moment it exists. Then the journal, blockages and vaults, and with those five in place the
-     projection can be written and saving turned on.
+     **Two of the five are done**: event trigger flags (§event trigger flags), which also fixed a
+     live bug — `OnceOnly` now works — and visited squares (§visited squares). The three left are
+     **the journal, blockages and vaults**, and none of them is a subsystem: each is a list the
+     engine needs somewhere to put. With those, the projection can be written and **saving turned
+     on**, which is the milestone worth aiming at — it is what makes the port playable across
+     sessions rather than only within one.
 
      After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
      subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,
