@@ -137,6 +137,8 @@ public sealed class EventRunner
         PartyMenuOpen = false;
         partyMenuHall = null;
         LastTraining = null;
+        Slots = null;
+        SlotMessage = null;
 
         return gameEvent switch
         {
@@ -800,6 +802,112 @@ public sealed class EventRunner
     /// <summary>What the last training session did, for the screen and for tests.</summary>
     public TrainingOutcome? LastTraining { get; private set; }
 
+    /// <summary>The save slots, while the save or load screen is showing.</summary>
+    public IReadOnlyList<SaveSlot>? Slots { get; private set; }
+
+    /// <summary>Whether the slot screen showing is the save one rather than the load one.</summary>
+    public bool SlotsForSaving { get; private set; }
+
+    /// <summary>Whether a slot screen is on top.</summary>
+    public bool SlotsOpen => Slots is not null;
+
+    /// <summary>Lists the save slots; set by the host, which knows where the design lives.</summary>
+    public Func<IReadOnlyList<SaveSlot>>? SaveSlotsAvailable { get; set; }
+
+    /// <summary>
+    /// Saves into a slot, or explains why not. Set by the host.
+    /// </summary>
+    /// <remarks>
+    /// Returning a message rather than a bool: this is the one screen where the reason a thing
+    /// cannot be done is worth more than the fact — see <see cref="SaveGameProjection"/>.
+    /// </remarks>
+    public Func<int, string?>? SaveToSlot { get; set; }
+
+    /// <summary>Loads from a slot, or explains why not. Set by the host.</summary>
+    public Func<int, string?>? LoadFromSlot { get; set; }
+
+    /// <summary>
+    /// <c>SAVEGAME_MENU_DATA</c> (<c>RunEvent.cpp:5500</c>) and <c>LOADGAME_MENU_DATA</c>
+    /// (<c>:5541</c>) — one screen with two titles.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Both screens are the same eleven-entry menu.</b> <c>SaveMenuData</c> and
+    /// <c>LoadMenuData</c> point at one shared array, so the two cannot drift apart.
+    /// </para>
+    /// <para>
+    /// <b>Only the load screen darkens anything.</b> Saving over an occupied slot is allowed and
+    /// unremarked — there is no "are you sure". Loading from an empty one is not, so
+    /// <c>LOADGAME_MENU_DATA::OnUpdateUI</c> turns each slot without a file off, and the wording
+    /// above the menu changes when none of them has one.
+    /// </para>
+    /// </remarks>
+    private EventStep OpenSlots(bool saving)
+    {
+        var slots = SaveSlotsAvailable?.Invoke() ?? SaveSlots.Under(null);
+
+        Slots = slots;
+        SlotsForSaving = saving;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, SaveSlots.Menu);
+
+        if (!saving)
+        {
+            for (int i = 0; i < slots.Count; i++)
+            {
+                Menu.SetItemEnabled(i, slots[i].Exists);
+            }
+        }
+
+        escapeSelects = SaveSlots.Exit;
+
+        ShowText(saving
+            ? "CHOOSE WHICH SLOT TO SAVE GAME INTO"
+            : SaveSlots.Any(slots)
+                ? "CHOOSE WHICH SLOT TO LOAD GAME FROM"
+                : "THERE ARE NO SAVED GAMES AVAILABLE");
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>SAVEGAME_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:5514</c>) and its load twin.
+    /// </summary>
+    /// <remarks>
+    /// <b>The screen closes either way.</b> Both pop unconditionally — a failed save leaves
+    /// <c>miscError</c> set and returns to the menu just the same, so there is no retry loop and a
+    /// player who picks a slot always lands back where they came from.
+    /// </remarks>
+    private EventStep ChooseSlots()
+    {
+        int chosen = Menu.ActiveItem;
+
+        if (chosen != SaveSlots.Exit)
+        {
+            SlotMessage = SlotsForSaving
+                ? SaveToSlot?.Invoke(chosen)
+                : LoadFromSlot?.Invoke(chosen);
+        }
+
+        Slots = null;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+        UpdatePartyMenu();
+        escapeSelects = PartyExit;
+
+        if (SlotMessage is { Length: > 0 } message)
+        {
+            ShowText(message);
+        }
+
+        return EventStep.Running;
+    }
+
+    /// <summary>Why the last save or load did not happen, or null if it did.</summary>
+    public string? SlotMessage { get; private set; }
+
     /// <summary>
     /// <c>MAIN_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:1968</c>).
     /// </summary>
@@ -815,6 +923,12 @@ public sealed class EventRunner
                 Stats = new CharStatsForm();
                 Stats.Populate(font, sheet);
                 return EventStep.Running;
+
+            case PartySave:
+                return OpenSlots(saving: true);
+
+            case PartyLoad:
+                return OpenSlots(saving: false);
 
             case PartyTrain when partyMenuHall is { } hall:
             {
@@ -1501,7 +1615,7 @@ public sealed class EventRunner
 
         // The party menu is the mirror image: VMenuHPartyKeyboardAction gives the menu the
         // vertical keys and the party the horizontal ones (RunEvent.cpp:1973).
-        if (PartyMenuOpen && input.Kind == InputEventKind.KeyDown
+        if (PartyMenuOpen && !SlotsOpen && input.Kind == InputEventKind.KeyDown
             && input.Key is VirtualKey.Left or VirtualKey.Right)
         {
             TabParty?.Invoke();
@@ -1543,6 +1657,12 @@ public sealed class EventRunner
         if (InventoryOpen)
         {
             return ChooseInventory();
+        }
+
+        // The slot screen sits over the party menu, so it answers first.
+        if (SlotsOpen)
+        {
+            return ChooseSlots();
         }
 
         // So does the party menu, which the training hall pushes over itself.

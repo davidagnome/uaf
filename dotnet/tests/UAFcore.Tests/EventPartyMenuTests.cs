@@ -314,4 +314,161 @@ public class EventPartyMenuTests
         Assert.False(runner.PartyMenuOpen);
         Assert.Null(runner.LastTraining);
     }
+
+    // ---- the save and load slot screens --------------------------------------------------------
+
+    private const int Load = 8;
+    private const int Save = 9;
+
+    private static IReadOnlyList<SaveSlot> Occupied(params int[] indices) =>
+        [.. Enumerable.Range(0, SaveSlots.Count).Select(
+            i => new SaveSlot(i, SaveSlots.Letter(i), SaveSlots.FileName(i),
+                              indices.Contains(i)))];
+
+    private static EventRunner AtSlots(bool saving, IReadOnlyList<SaveSlot>? slots = null,
+                                       Func<int, string?>? save = null,
+                                       Func<int, string?>? load = null)
+    {
+        var runner = Started();
+        runner.SaveSlotsAvailable = () => slots ?? Occupied();
+        runner.SaveToSlot = save ?? (_ => null);
+        runner.LoadFromSlot = load ?? (_ => null);
+
+        Choose(runner, HallYes);
+        Choose(runner, saving ? Save : Load);
+        return runner;
+    }
+
+    [Fact]
+    public void Both_slot_screens_show_the_same_eleven_entries()
+    {
+        // SaveMenuData and LoadMenuData point at one shared array, so they cannot drift apart.
+        var saving = AtSlots(saving: true);
+        var loading = AtSlots(saving: false, slots: Occupied(0));
+
+        Assert.Equal(Labels(saving), Labels(loading));
+        Assert.Equal(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "EXIT"], Labels(saving));
+    }
+
+    [Fact]
+    public void The_save_screen_says_which_way_round_it_is()
+    {
+        var runner = AtSlots(saving: true);
+
+        Assert.True(runner.SlotsOpen);
+        Assert.True(runner.SlotsForSaving);
+        Assert.Contains("SAVE GAME INTO", BitmapFont.Decode(runner.Text.Lines[0].Text));
+    }
+
+    [Fact]
+    public void The_load_screen_says_so_when_there_is_nothing_to_load()
+    {
+        var runner = AtSlots(saving: false, slots: Occupied());
+
+        Assert.Contains("NO SAVED GAMES", BitmapFont.Decode(runner.Text.Lines[0].Text));
+    }
+
+    [Fact]
+    public void The_load_screen_names_the_choice_when_there_is_one()
+    {
+        var runner = AtSlots(saving: false, slots: Occupied(3));
+
+        Assert.Contains("LOAD GAME FROM", BitmapFont.Decode(runner.Text.Lines[0].Text));
+    }
+
+    [Fact]
+    public void Loading_darkens_every_empty_slot()
+    {
+        var runner = AtSlots(saving: false, slots: Occupied(2, 5));
+
+        Assert.True(runner.Menu.Items[2].Enabled);
+        Assert.True(runner.Menu.Items[5].Enabled);
+        Assert.False(runner.Menu.Items[0].Enabled);
+        Assert.False(runner.Menu.Items[9].Enabled);
+        Assert.True(runner.Menu.Items[SaveSlots.Exit].Enabled);   // EXIT is always available
+    }
+
+    [Fact]
+    public void Saving_over_an_occupied_slot_is_offered_without_comment()
+    {
+        // No "are you sure": the save screen darkens nothing and asks nothing.
+        var runner = AtSlots(saving: true, slots: Occupied(0, 1, 2));
+
+        Assert.All(runner.Menu.Items, i => Assert.True(i.Enabled));
+    }
+
+    [Fact]
+    public void Choosing_a_slot_returns_to_the_party_menu()
+    {
+        // Both screens pop unconditionally -- a failed save returns just the same, so there is no
+        // retry loop and a player who picks a slot always lands back where they came from.
+        int? chosen = null;
+        var runner = AtSlots(saving: true, save: slot => { chosen = slot; return null; });
+
+        Choose(runner, 4);
+
+        Assert.Equal(4, chosen);
+        Assert.False(runner.SlotsOpen);
+        Assert.True(runner.PartyMenuOpen);
+        Assert.Equal("ADD CHARACTER", Labels(runner)[0]);
+    }
+
+    [Fact]
+    public void Leaving_the_slot_screen_saves_nothing()
+    {
+        bool asked = false;
+        var runner = AtSlots(saving: true, save: _ => { asked = true; return null; });
+
+        Choose(runner, SaveSlots.Exit);
+
+        Assert.False(asked);
+        Assert.False(runner.SlotsOpen);
+        Assert.True(runner.PartyMenuOpen);
+    }
+
+    [Fact]
+    public void Escape_leaves_the_slot_screen_rather_than_the_party_menu()
+    {
+        var runner = AtSlots(saving: true);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Escape));
+
+        Assert.False(runner.SlotsOpen);
+        Assert.True(runner.PartyMenuOpen);
+    }
+
+    [Fact]
+    public void A_refusal_is_shown_rather_than_swallowed()
+    {
+        var runner = AtSlots(saving: true, save: _ => "NOT YET");
+
+        Choose(runner, 0);
+
+        Assert.Equal("NOT YET", runner.SlotMessage);
+        Assert.Contains("NOT YET", BitmapFont.Decode(runner.Text.Lines[0].Text));
+    }
+
+    [Fact]
+    public void Loading_asks_the_host_for_the_slot_the_player_chose()
+    {
+        int? chosen = null;
+        var runner = AtSlots(saving: false, slots: Occupied(6),
+                             load: slot => { chosen = slot; return null; });
+
+        Choose(runner, 6);
+
+        Assert.Equal(6, chosen);
+    }
+
+    [Fact]
+    public void The_slot_screen_does_not_leak_into_the_next_event()
+    {
+        var runner = AtSlots(saving: true, save: _ => "NOT YET");
+        Choose(runner, 0);
+
+        runner.Begin(Hall(), Font(), Box, Anchors);
+
+        Assert.False(runner.SlotsOpen);
+        Assert.Null(runner.SlotMessage);
+    }
 }

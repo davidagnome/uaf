@@ -49,6 +49,7 @@ public sealed class Game
         this.design = design;
         screen = new Surface(width, height);
         LevelIndex = levelIndex;
+        SaveDirectory = Path.Combine(design.Root, "Saves");
 
         // A carried item names its m_uniqueName; the fuller m_idName is what a player should see,
         // so the treasure list cannot be built without the item database.
@@ -148,6 +149,20 @@ public sealed class Game
                 Party.ActiveCharacter = (Party.ActiveCharacter + 1) % Party.Count;
             }
         };
+
+        // Saves live beside the design (rte.SaveDir is m_designDir + "Saves\"), so the slot
+        // screens read the same folder the reference writes.
+        Runner.SaveSlotsAvailable = () => SaveSlots.Under(SaveDirectory);
+
+        // Reading and writing a .pty are both finished; turning a game in progress back into one
+        // is not. See SaveGameProjection for exactly what is missing and why this refuses rather
+        // than writing a file that has forgotten half the game.
+        Runner.SaveToSlot = _ =>
+            SaveGameProjection.CanSave(this, out string reason) ? null : reason;
+
+        Runner.LoadFromSlot = _ =>
+            "This port cannot load a saved game yet: it has nowhere to put the visited squares, " +
+            "trigger flags and journal a save carries.";
 
         // The party menu's TRAIN entry is dark unless all three conditions hold, and it is
         // recomputed on every pass because TAB can change who is standing at the counter.
@@ -318,6 +333,9 @@ public sealed class Game
     /// savegame carries — placed by a rule the original does not have.
     /// </remarks>
     public Party Party { get; }
+
+    /// <summary>Where saved games live — <c>Saves</c> beside the design (<c>rte.SaveDir</c>).</summary>
+    public string SaveDirectory { get; }
 
     /// <summary>The design's currency.</summary>
     public MoneyRules Money { get; }

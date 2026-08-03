@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,886 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,906 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,49 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The save and load screens — and the half of saving that is missing
+
+Both screens run: the ten slots, the wording, the disabling, and the way out. They are the first
+two of the party menu's remaining nine, and were taken first because their **file format is
+already finished** — which turned out to be the more interesting finding.
+
+> **Save and load are one menu, twice.** `SaveMenuData` and `LoadMenuData` are two
+> `MENU_DATA_TYPE`s pointing at a single `SaveGameMenu` array (`GameMenu.cpp:1113`), so the slot
+> letters cannot drift apart between the screens and neither can gain an entry without the other.
+
+> **How many saves a player may keep is a fact about a menu table.** `MAX_SAVE_GAME_SLOTS` is
+> `#define`d as `SaveGameMenuItems-1` (`GameMenu.h:296`) — the constant is derived from the array,
+> not the other way round.
+
+> **Only the load screen darkens anything.** Saving over an occupied slot is offered without
+> comment; there is no "are you sure". Loading from an empty one is refused, so `OnUpdateUI`
+> turns each fileless slot off and the line above the menu changes to "THERE ARE NO SAVED GAMES
+> AVAILABLE" when none of them has one.
+
+> **Both screens pop unconditionally.** A failed save returns to the menu exactly as a successful
+> one does — `miscError` is set and nothing looks at it here — so there is no retry loop and a
+> player who picks a slot always lands back where they came from.
+
+**Saving itself is refused, deliberately.** This is worth stating plainly because the surrounding
+work makes it easy to assume otherwise:
+
+> **The file works; the projection does not.** `SaveGameReader` and `SaveGameWriter` round-trip a
+> `.pty` byte for byte — that was Phase 1's exit criterion and it is met. But turning a *game in
+> progress* into a `SaveGame` needs live state this engine does not keep: **visited squares** (the
+> per-level bitmap, one bit per cell), **event trigger flags** (which events have already fired —
+> the reader keeps them, the runner never sets one), **the journal** (the design's entries are
+> read and shown; which ones the party has collected is not tracked), **blockages**, and **vault
+> contents**.
+
+> **A lossy save would be worse than none.** A `.pty` with an empty visited map and no trigger
+> flags is a perfectly valid file that reads back cleanly into a party that has forgotten where it
+> has been and will re-fire every event it already resolved. Invisible until much later, and
+> indistinguishable from a design bug when it surfaces. `SaveGameProjection` refuses and names
+> what would be lost, and keeps the list as data so a test can watch it shrink.
+
+The slot screens read the real folder — `Saves` beside the design, which is what `rte.SaveDir`
+resolves to — so the occupied slots a player sees are the ones the reference wrote.
+
 ##### The party menu, and training
 
 The training hall's YES now opens something. It turns out not to be a training screen at all:
@@ -3554,6 +3597,11 @@ rather than guessing.
 `Save`/`Restore` pairs a savegame ends with. **Both were unread when this began**, and porting the
 reader and the writer together is what closes the last gap: a whole `.pty` now reads and writes,
 and **Phase 1's round-trip exit criterion is met for every file kind the format has.**
+
+> **That is a claim about *files*, not about saving.** A `.pty` read from disk writes back
+> identically; turning a *game in progress* into one is a different problem and is not solved —
+> see §the save and load screens. The two are easy to conflate, and conflating them would make
+> "savegames are done" true of the format and false of the game.
 
 The pairs turned out to be as small as the storing branch suggested — a count, a name and an
 attribute list per record — but three things in them were not:
@@ -5873,12 +5921,18 @@ What is left, in order:
      and it was wrong: characters are chosen with TAB, and the shared screen is
      `MAIN_MENU_DATA`. Three of its twelve entries run.
 
-     **The next thing to take is the save and load screens**, which are two of that menu's
-     remaining nine and are the two whose *serialization* is already finished — `.pty` reads and
-     writes whole. They are also reachable from the camp, so they are the highest
-     callers-per-screen left. After those: the character-creation family (ADD, REMOVE, CREATE,
-     DELETE, MODIFY), which is one subsystem behind five entries, and the single-caller screens —
-     magic, rest, alter, journal, buy, appraise, heal, donate.
+     The **save and load screens** run (§the save and load screens), and taking them turned up
+     the real blocker behind saving: the `.pty` reads and writes whole, but the engine keeps no
+     live counterpart for **visited squares, event trigger flags, the journal, blockages or vault
+     contents**, so saving is refused rather than done lossily.
+
+     **That state is now the thing to take next**, and it is worth doing before more screens: it
+     is what makes saving possible at all, and two of its five — trigger flags and visited squares
+     — are things the walking-around engine should have been keeping anyway. Trigger flags are the
+     smallest and the most visible (without them an event re-fires every time the party steps on
+     it), so start there. After that: the character-creation family (ADD, REMOVE, CREATE, DELETE,
+     MODIFY), one subsystem behind five entries, and the single-caller screens — magic, rest,
+     alter, journal, buy, appraise, heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing
