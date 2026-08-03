@@ -2,7 +2,47 @@ using UAF.Common;
 
 namespace UAF.Serialization;
 
+/// <summary>
+/// One of a spell's GPDL scripts as it sits on the wire: the source, and the compiled form beside
+/// it.
+/// </summary>
+/// <remarks>
+/// <b>The binary is kept rather than discarded.</b> The reference empties every one of them as it
+/// loads (<c>Spell.cpp:4230</c> and around it) to force a recompile, so a file the reference wrote
+/// carries empty binaries throughout — but the field is on the wire either way and a writer has to
+/// put something back. <see cref="DicePlus.Binary"/> is kept for the same reason.
+/// </remarks>
+public sealed record SpellScript(string Source, string Binary)
+{
+    /// <summary>An unused slot: what the reference's default-constructed member writes as.</summary>
+    public static SpellScript Empty { get; } = new(string.Empty, string.Empty);
+}
+
+/// <summary>
+/// The seven script slots, in the order they sit on the wire — which is <b>not</b> version order.
+/// </summary>
+/// <remarks>
+/// See <see cref="SpellRecordReader"/>: the <c>&gt;= 2.6</c> group is written before the
+/// <c>&gt;= 1.0303</c> group, so a design between the two carries the last three and not the middle
+/// two. <see cref="SpellRecord.Scripts"/> is always all seven regardless, with the slots that
+/// version did not have left <see cref="SpellScript.Empty"/> — otherwise a slot's meaning would
+/// depend on the version the record was read at, and the writer could not tell which two to skip.
+/// </remarks>
+public enum SpellScriptSlot
+{
+    Begin,
+    End,
+    Initiation,
+    Termination,
+    SavingThrow,
+    SavingThrowSucceeded,
+    SavingThrowFailed,
+}
+
 /// <summary>One complete <c>SPELL_DATA</c> record.</summary>
+/// <param name="Scripts">
+/// Always seven entries, indexed by <see cref="SpellScriptSlot"/>.
+/// </param>
 public sealed record SpellRecord(
     int PreSpellNameKey, string Name, string CastSound, string SchoolId,
     IReadOnlyList<string> AllowedBaseclasses,
@@ -14,7 +54,7 @@ public sealed record SpellRecord(
     int CastCost, int CastPriority,
     IReadOnlyList<DicePlus> Parameters, IReadOnlyList<SpellEffect> Effects,
     PicRecord? CastArt, IReadOnlyList<PicRecord> Art,
-    IReadOnlyList<string> Sounds, string CastMessage, IReadOnlyList<string> Scripts,
+    IReadOnlyList<string> Sounds, string CastMessage, IReadOnlyList<SpellScript> Scripts,
     DicePlus? EffectDuration,
     SpecabBlock SpecialAbilities, IReadOnlyList<AslEntry> Attributes);
 
@@ -44,6 +84,9 @@ public static class SpellRecordReader
 {
     /// <summary>Below this, spell parameters are packed scalars rather than dice expressions.</summary>
     public static DesignVersion DiceParameterGate => DesignVersion.V0670;
+
+    /// <summary>How many <see cref="SpellScriptSlot"/>s a record carries.</summary>
+    public const int SpellScriptCount = 7;
 
     public static SpellRecord Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
     {
@@ -176,24 +219,27 @@ public static class SpellRecordReader
 
         string castMessage = version >= DesignVersion.V0841 ? ReadDas(ar) : string.Empty;
 
-        var scripts = new List<string>();
+        // Always seven slots. A version that has fewer leaves the rest empty rather than shortening
+        // the list, so an index always means the same script -- see SpellScriptSlot.
+        var scripts = new SpellScript[SpellScriptCount];
+        Array.Fill(scripts, SpellScript.Empty);
         if (version >= DesignVersion.V0904)
         {
-            ReadScriptPair(ar, scripts);                 // SpellBegin
-            ReadScriptPair(ar, scripts);                 // SpellEnd
+            scripts[(int)SpellScriptSlot.Begin] = ReadScriptPair(ar);
+            scripts[(int)SpellScriptSlot.End] = ReadScriptPair(ar);
 
             // NOTE the order: 2.6 is tested first even though it is the HIGHER version, so this
             // group precedes the 1.0303 group on the wire.
             if (version.Value >= 2.6)
             {
-                ReadScriptPair(ar, scripts);             // SpellInitiation
-                ReadScriptPair(ar, scripts);             // SpellTermination
+                scripts[(int)SpellScriptSlot.Initiation] = ReadScriptPair(ar);
+                scripts[(int)SpellScriptSlot.Termination] = ReadScriptPair(ar);
             }
             if (version.Value >= 1.0303)
             {
-                ReadScriptPair(ar, scripts);             // SavingThrow
-                ReadScriptPair(ar, scripts);             // SavingThrowSucceeded
-                ReadScriptPair(ar, scripts);             // SavingThrowFailed
+                scripts[(int)SpellScriptSlot.SavingThrow] = ReadScriptPair(ar);
+                scripts[(int)SpellScriptSlot.SavingThrowSucceeded] = ReadScriptPair(ar);
+                scripts[(int)SpellScriptSlot.SavingThrowFailed] = ReadScriptPair(ar);
             }
         }
 
@@ -262,12 +308,12 @@ public static class SpellRecordReader
         return names;
     }
 
-    /// <summary>Reads a source/binary script pair. The reference clears the binary after loading.</summary>
-    private static void ReadScriptPair(IArchiveCursor ar, List<string> scripts)
-    {
-        scripts.Add(ReadDas(ar));                        // source
-        ReadDas(ar);                                     // binary -- emptied to force a recompile
-    }
+    /// <summary>
+    /// Reads a source/binary script pair. The reference clears the binary after loading; this keeps
+    /// it — see <see cref="SpellScript"/>.
+    /// </summary>
+    private static SpellScript ReadScriptPair(IArchiveCursor ar) =>
+        new(ReadDas(ar), ReadDas(ar));
 
     private static void ReadRetiredScalars(IArchiveCursor ar, int count)
     {

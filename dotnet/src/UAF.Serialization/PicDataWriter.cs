@@ -20,6 +20,14 @@ namespace UAF.Serialization;
 /// </remarks>
 public static class PicDataWriter
 {
+    /// <summary>What the reference's default-constructed <c>PIC_DATA</c> writes as.</summary>
+    /// <remarks>
+    /// Written wherever a record's art is absent because the reader's version gate skipped it. The
+    /// reference has a default-constructed member to write there, so this is exact rather than a
+    /// guess — the distinction that separates it from the shapes <c>CanWrite</c> refuses.
+    /// </remarks>
+    public static PicRecord Empty { get; } = new(0, string.Empty, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
     public static void Write(IArchiveWriteCursor ar, PicRecord pic, PicArchiveVariant variant)
     {
         ArgumentNullException.ThrowIfNull(ar);

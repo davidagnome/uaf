@@ -312,6 +312,17 @@ Contained structures: `ADJUSTMENT` is `short[3]` then `char[3]` then a `GENERIC_
 bytes then three, not twelve then twelve. `GENERIC_REFERENCE` is a name, a one-byte `char` type,
 and an `int` key; it decodes `"*"` inline rather than calling `DAS`.
 
+**Only `DP2` can be written.** The storing branch writes the tag and the two strings, and the whole
+numeric path beneath it is *commented out* (`class.cpp:2505`) — so `DP0` and `DP1` are shapes the
+reference reads and has never been able to produce, and **`ADJUSTMENT` and `GENERIC_REFERENCE` have
+no reachable writer at all**. A `DP0` or `DP1` read by a port that has not ported
+`EncodeOldDicePlusText` therefore has no text to write, and must be refused rather than emitted as
+an empty `DP2` (§10a).
+
+`m_Bin` is cleared on load to force a recompile (`class.cpp:2589`), so a file the reference wrote
+carries an empty binary — but the field is on the wire either way and a writer has to put something
+back.
+
 ---
 
 ## 7b. Events
@@ -536,6 +547,13 @@ In `SPELL_DATA`'s script block the `>= 2.6` group is written **before** the `>= 
 Sorting version gates numerically when transcribing gets both the order and the count wrong for
 everything in between.
 
+**This is also the one case where a short list must not be modelled as a short list.** A reader
+that appends each script as its gate opens produces a five-entry list at 1.0303 whose entries 2 and
+3 are the saving-throw pair, and a seven-entry list at 2.6 whose entries 2 and 3 are the initiation
+pair — the same index meaning different things depending on the version read. Model the slots as a
+fixed-size set with the absent ones blank. Everywhere else the gates are cumulative, so a short
+list is a prefix and a writer can pad the tail; here it is not.
+
 ### Sentinels that look like corruption
 
 `SPELL_EFFECTS_DATA.changeResult` is a `double` whose "no change" value is
@@ -588,9 +606,11 @@ Everything above describes reading. Writing is a different discipline, and §1's
 transcribe the *loading* branch — does not carry over: a writer must transcribe the **storing**
 branch, and the two are not mirror images.
 
-**The storing branch has no version gates.** Not in `MONSTER_DATA`, not in `PIC_DATA`, not in
-`ITEM`, `ITEM_LIST`, `MONEY_SACK`, `ATTACK_DETAILS` or `READY_ITEMS`; `SPECIAL_ABILITIES` has one
-and it is explicitly `&& !ar.IsStoring()`. That is not an oversight. **A design is always saved at
+**The storing branch has no version gates.** Not in `MONSTER_DATA`, `ITEM_DATA`,
+`SPELL_EFFECTS_DATA`, `PIC_DATA`, `ITEM`, `ITEM_LIST`, `MONEY_SACK`, `ATTACK_DETAILS` or
+`READY_ITEMS`; `SPECIAL_ABILITIES` has one and it is explicitly `&& !ar.IsStoring()`, and
+`SPELL_DATA` has one — `ver >= _VERSION_0840_` around its cast art (`Spell.cpp:3844`) — that is
+open at every version anything writes. That is not an oversight. **A design is always saved at
 the current version**, so on the way out every gate is open by construction, and the loading gates
 exist only to read what older builds left behind. It follows that:
 
@@ -619,8 +639,12 @@ one.
 
 **Byte-identity with a shipped file needs the `CAR` writer, and decompression is not enough.**
 Compressed `CAR` interns strings across the whole archive (§4.2), so the decompressed stream is not
-the plain `CArchive` stream. Until both halves exist — the LZW encoder and the interning table — a
-writer can only be validated against the port's own reader.
+the plain `CArchive` stream. Both halves — the LZW encoder and the interning table — now exist, and
+`monsters.dat`, `items.dat` and `spells.dat` from a 5.29 design each come back byte for byte. It
+holds under two conditions: the design is at or above the writer's `WrittenVersion`, so no field is
+added on the way out, and no record needed repairing as it was read. A design below it is
+*upgraded*, which is what the reference does too — the divergence appearing early is the tell,
+where a repaired record diverges late.
 
 **Assertions worth writing, in descending order of value:**
 

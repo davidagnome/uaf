@@ -83,9 +83,8 @@ public static class ItemRecordWriter
         return true;
     }
 
-    /// <summary>What the reference's default-constructed <c>PIC_DATA</c> writes as.</summary>
-    public static PicRecord EmptyArt { get; } =
-        new(0, string.Empty, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    /// <inheritdoc cref="PicDataWriter.Empty"/>
+    public static PicRecord EmptyArt => PicDataWriter.Empty;
 
     /// <summary>Writes one record.</summary>
     /// <exception cref="NotSupportedException">
