@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,059 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,068 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3225,12 +3225,37 @@ The roll itself is `rollSkillDie`:
 > demands is given the minimum rather than re-rolled or refused, which makes picking a demanding
 > class a way to guarantee good scores.
 
-Still to come before CREATE finishes: `generateNewCharacter`'s remaining work — starting money and
-equipment, age and birthday, hit points — and the art picker.
+##### What a new character starts with
 
-> **One of its two paths is dead code that would crash.** `generateNewCharacter` handles
+The deterministic half of `generateNewCharacter`: money, equipment, baseclass rows and birthday.
+
+> **`StartPlatinum` is not platinum.** The amount goes in at `money.GetDefaultType()` — the
+> design's own base denomination — so a design whose currency is copper starts its characters with
+> that many copper pieces. The field name is a leftover from when the denominations were fixed,
+> and it is in the savegame under that name too.
+
+> **Starting equipment is copied off the class wholesale.** No per-baseclass contribution and no
+> merging: a fighter/mage gets its class record's list and nothing from either baseclass beneath
+> it.
+
+> **Every baseclass row starts at level 1 with no experience.** A character who begins above first
+> level does so by being awarded the design's starting experience and then *levelled*, not by
+> being created at that level — which is why `getNewCharLevel` runs immediately afterwards.
+
+> **The two age clamps never look at each other.** The race's roll is floored at the design's
+> `START_AGE` — but only when that is positive — and then capped at the character's maximum age,
+> so a race whose maximum is below the design's minimum produces a character born at its own
+> limit.
+
+> **One of `generateNewCharacter`'s two paths is dead code that would crash.** It handles
 > `START_EXP_VALUE` and then calls `die("Not Needed?")` for the "start experience is a minimum
-> level" case, so a design configured that way takes down the reference.
+> level" case, so a design configured that way takes down the reference. Only the live path is
+> ported.
+
+**What stands between here and a finished character is `DICEPLUS::Roll`** — and it is not a
+formula. It compiles the expression to a binary form and interprets it through `RDREXEC`, a small
+expression VM. Age, weight, height and the exceptional-strength dice all go through it, so it is
+one subsystem blocking four fields.
 
 ##### Typed text — and `EnterPassword` running
 
@@ -6293,11 +6318,15 @@ What is left, in order:
      **Text entry is built** (§typed text), which turned `EnterPassword` on — **nine event types
      inert, not ten** — and took the generator to its name step.
 
-     The **ability roll** is ported and `ability.dat` reads — **all seven databases now do**
-     (§ability.dat). What the generator still wants is the rest of `generateNewCharacter`:
-     starting money and equipment, age and birthday, and hit points. Then the **art picker**, and
-     MODIFY comes nearly free after that — it is the same wizard re-entered over an existing
-     character.
+     The **ability roll** is ported, `ability.dat` reads — **all seven databases now do**
+     (§ability.dat) — and the deterministic half of `generateNewCharacter` is done (§what a new
+     character starts with).
+
+     **`DICEPLUS::Roll` is the next thing, and it is a subsystem**: an expression compiler and the
+     `RDREXEC` interpreter that runs it. Age, weight, height and the exceptional-strength dice all
+     wait on it, and so does anything else a designer writes as an expression. After that: hit
+     points, the **art picker**, and MODIFY — which is the same wizard re-entered over an existing
+     character and comes nearly free.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.
