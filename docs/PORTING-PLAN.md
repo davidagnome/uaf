@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,906 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,925 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,42 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### Event trigger flags — and `OnceOnly` finally meaning something
+
+The first of the five things a save could not carry, and the one that was doing visible damage
+before anyone tried to save: **`OnceOnly` was read and never consulted**, so a once-only event
+re-fired every time the party stepped on its square. The reader has kept the flags since Phase 1;
+nothing ever set one.
+
+> **An event is marked the moment its trigger test passes — before it draws anything.**
+> `MakeSureEventIsReady` calls `markEventHappened` between `OnTestTrigger()` returning true and
+> `OnInitialEvent()` being called (`CProcinp.cpp:365`). Not on completion. So an event the player
+> escapes from, chains away from, or abandons mid-screen has still *happened*, and `OnceOnly`
+> means "offered once", not "completed once". That is the difference between a design that can
+> strand a player and one that cannot, and it is a one-line difference in where the call sits.
+
+> **A spent once-only event is not a *suppressed* one.** The reference drops out of
+> `OnTestTrigger` before `EventShouldTrigger` is reached, so it gets **no not-happened chain**
+> either — it is a cell with nothing on it. A port that folded this into the ordinary suppression
+> path would fire the not-happened chain every subsequent step, which is worse than the bug it
+> replaced.
+
+> **Global events are recorded one past the last level.** `GLOBAL_ART` is `MAX_LEVELS` (255), so
+> the global event list shares the per-level flag table rather than having one of its own, and
+> `CheckLevel` grows the array to reach it. A design with a level 255 would collide.
+
+> **`HasEventHappened` is an equality test, not a flag test.** It asks
+> `eventResult == HasHappenedAtLeastOnce`, so any other value reads as *not* happened. Treating
+> the field as "non-zero means yes" would agree on every file the engine wrote and disagree on
+> any it did not.
+
+> **The projection has to be dense.** `EVENT_TRIGGER_DATA` is a `CArray` indexed by level that
+> `CheckLevel` grows with empty entries, so a flag on level 3 writes four records. A sparse
+> projection reads back with every level shifted by the gaps.
+
+Zone step counters (`STEP_COUNTER`, sixteen per level) live in the same record and are tracked
+alongside, since they cost one array and would otherwise be a second visit to the same structure.
+
 ##### The save and load screens — and the half of saving that is missing
 
 Both screens run: the ten slots, the wording, the disabling, and the way out. They are the first
@@ -3210,10 +3246,9 @@ work makes it easy to assume otherwise:
 > **The file works; the projection does not.** `SaveGameReader` and `SaveGameWriter` round-trip a
 > `.pty` byte for byte — that was Phase 1's exit criterion and it is met. But turning a *game in
 > progress* into a `SaveGame` needs live state this engine does not keep: **visited squares** (the
-> per-level bitmap, one bit per cell), **event trigger flags** (which events have already fired —
-> the reader keeps them, the runner never sets one), **the journal** (the design's entries are
-> read and shown; which ones the party has collected is not tracked), **blockages**, and **vault
-> contents**.
+> per-level bitmap, one bit per cell), **the journal** (the design's entries are read and shown;
+> which ones the party has collected is not tracked), **blockages**, and **vault contents**.
+> ~~Event trigger flags~~ came off this list — see §event trigger flags.
 
 > **A lossy save would be worse than none.** A `.pty` with an empty visited map and no trigger
 > flags is a perfectly valid file that reads back cleanly into a party that has forgotten where it
@@ -5926,13 +5961,15 @@ What is left, in order:
      live counterpart for **visited squares, event trigger flags, the journal, blockages or vault
      contents**, so saving is refused rather than done lossily.
 
-     **That state is now the thing to take next**, and it is worth doing before more screens: it
-     is what makes saving possible at all, and two of its five — trigger flags and visited squares
-     — are things the walking-around engine should have been keeping anyway. Trigger flags are the
-     smallest and the most visible (without them an event re-fires every time the party steps on
-     it), so start there. After that: the character-creation family (ADD, REMOVE, CREATE, DELETE,
-     MODIFY), one subsystem behind five entries, and the single-caller screens — magic, rest,
-     alter, journal, buy, appraise, heal, donate.
+     **Event trigger flags are done** (§event trigger flags), which both shortens that list and
+     fixes a live bug: `OnceOnly` now works. **Visited squares are next** — the other piece the
+     walking-around engine should have been keeping anyway, and the one the automap will want the
+     moment it exists. Then the journal, blockages and vaults, and with those five in place the
+     projection can be written and saving turned on.
+
+     After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
+     subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,
+     buy, appraise, heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing

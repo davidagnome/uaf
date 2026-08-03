@@ -32,8 +32,8 @@ public static class SaveGameProjection
     /// <list type="bullet">
     /// <item><b>Visited cells</b> — <c>VisitedLevel</c>'s per-level bitmap, one bit per square.
     /// Nothing maps the party's movement onto it.</item>
-    /// <item><b>Event trigger flags</b> — which events have already fired. The reader keeps them
-    /// (<c>TriggerFlags</c>); the runner never sets one.</item>
+    /// <item><s><b>Event trigger flags</b></s> — <b>done</b>. <see cref="EventTriggerFlags"/>
+    /// tracks them live and projects both ways.</item>
     /// <item><b>The journal</b> — the design's entries are read and shown, but which ones the
     /// party has collected is not tracked.</item>
     /// <item><b>Blockages</b> — doors and walls opened during play.</item>
@@ -44,9 +44,8 @@ public static class SaveGameProjection
     {
         ArgumentNullException.ThrowIfNull(game);
 
-        reason = "This port cannot save yet: it does not track visited squares, which events " +
-                 "have fired, the journal, opened blockages or vault contents. Saving now would " +
-                 "lose all of it.";
+        reason = "This port cannot save yet: it does not track " + string.Join(", ", Untracked) +
+                 ". Saving now would lose all of it.";
         return false;
     }
 
@@ -56,5 +55,5 @@ public static class SaveGameProjection
     /// built, and so this stops being the one place that has to be remembered.
     /// </remarks>
     public static readonly string[] Untracked =
-        ["visited squares", "event trigger flags", "the journal", "blockages", "vault contents"];
+        ["visited squares", "the journal", "blockages", "vault contents"];
 }

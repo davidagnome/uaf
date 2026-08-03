@@ -337,6 +337,19 @@ public sealed class Game
     /// <summary>Where saved games live — <c>Saves</c> beside the design (<c>rte.SaveDir</c>).</summary>
     public string SaveDirectory { get; }
 
+    /// <summary>
+    /// The game as a logic block's terminals and actions see it — see
+    /// <see cref="GameLogicBlockHost"/>.
+    /// </summary>
+    public GameLogicBlockHost? LogicBlockHost { get; private set; }
+
+    /// <summary>Which events have already fired (<c>party.eventFlags</c>).</summary>
+    /// <remarks>
+    /// Lives on the game rather than the party because it survives the party being rearranged,
+    /// and because the savegame writes it beside the party rather than inside it.
+    /// </remarks>
+    public EventTriggerFlags TriggerFlags { get; private set; } = new();
+
     /// <summary>The design's currency.</summary>
     public MoneyRules Money { get; }
 
@@ -608,25 +621,26 @@ public sealed class Game
     /// </para>
     /// <para>
     /// A suppressed event still gets its not-happened chain — that is what
-    /// <summary>
-    /// The game as a logic block's terminals and actions see it — see
-    /// <see cref="GameLogicBlockHost"/>.
-    /// </summary>
-    public GameLogicBlockHost? LogicBlockHost { get; private set; }
-
     /// <see cref="EventChain"/> is for, and it is the mechanism a design uses for "if the party
     /// does not have the key, say so".
     /// </para>
     /// <para>
-    /// Not ported yet: the chain that lets several events share a <i>cell</i> (distinct from the
-    /// id-chaining here), and the happened/not-happened flags that <c>PARTY</c> carries and a
-    /// savegame persists — the latter is what makes <c>OnceOnly</c> work.
+    /// Not ported yet: the chain that lets several events share a <i>cell</i>, distinct from the
+    /// id-chaining here.
     /// </para>
     /// </remarks>
     private void TriggerEvent()
     {
         var candidate = events?.FirstAt(X, Y);
         if (candidate is null)
+        {
+            CurrentEvent = null;
+            return;
+        }
+
+        // A spent once-only event gets no chain either -- see EventTrigger.AlreadySpent.
+        if (EventTrigger.AlreadySpent(candidate.Base.Control, candidate.Base.Id, LevelIndex,
+                                      TriggerFlags))
         {
             CurrentEvent = null;
             return;
@@ -647,6 +661,10 @@ public sealed class Game
             FollowChain(EventChain.Next(candidate.Base, happened: false));
             return;
         }
+
+        // Marked the moment the test passes, before the event draws anything -- so escaping it,
+        // or chaining away from it, still counts as having happened (CProcinp.cpp:365).
+        TriggerFlags.MarkHappened(LevelIndex, candidate.Base.Id);
 
         CurrentEvent = candidate;
 

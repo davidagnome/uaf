@@ -115,6 +115,32 @@ public enum TriggerResult
 public static class EventTrigger
 {
     /// <summary>
+    /// Whether a once-only event has already had its turn (<c>GameEvent.cpp:2066</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Asked before <see cref="Evaluate"/>, and it is not a suppression.</b> The reference
+    /// writes a debug line and drops out of <c>OnTestTrigger</c> without reaching
+    /// <c>EventShouldTrigger</c> at all — so a spent once-only event gets **no not-happened
+    /// chain** either. It is a cell with nothing on it, which is a different thing from an event
+    /// that declined to fire.
+    /// </para>
+    /// <para>
+    /// <b>An event with <c>OnceOnly</c> clear is never asked.</b> The flag is still recorded for
+    /// it — every event that triggers is marked — but nothing reads the mark, so a design can
+    /// turn <c>OnceOnly</c> on mid-play and have the history already there.
+    /// </para>
+    /// </remarks>
+    public static bool AlreadySpent(EventControl control, uint eventId, int level,
+                                    EventTriggerFlags flags)
+    {
+        ArgumentNullException.ThrowIfNull(control);
+        ArgumentNullException.ThrowIfNull(flags);
+
+        return control.OnceOnly != 0 && flags.HasHappened(level, eventId);
+    }
+
+    /// <summary>
     /// Evaluates an event's trigger condition.
     /// </summary>
     /// <param name="roll">
