@@ -12,12 +12,17 @@ public sealed record MonsterEvent(
 /// <summary>
 /// A <c>COMBAT_EVENT_DATA</c> — the shared event base plus the encounter's own fields.
 /// </summary>
+/// <param name="TurningMod">
+/// <c>turningMod</c>, an <c>eventTurnUndeadModType</c> (<c>GameEvent.cpp:6973</c>) — how this
+/// encounter modifies turning. An earlier revision of this reader called it <c>Terrain</c>, which
+/// is the wrong field entirely; the width is the same so no byte moved, and nothing consumed it.
+/// </param>
 public sealed record CombatEvent(
     GameEventBase Base,
     string DeathSound, string MoveSound, string TurnUndeadSound,
     int Distance, int Direction, int Surprise, int AutoApproach,
     int Outdoors, int NoMonsterTreasure, int PartyNeverDies, int NoMagic,
-    int MonsterMorale, int Terrain, int RandomMonster, int PartyNoExperience,
+    int MonsterMorale, int TurningMod, int RandomMonster, int PartyNoExperience,
     BackgroundSoundData BackgroundSounds,
     IReadOnlyList<MonsterEvent> Monsters) : IGameEvent;
 
@@ -75,7 +80,7 @@ public static class CombatEventReader
         int partyNeverDies = ar.ReadInt32();
         int noMagic = ar.ReadInt32();
         int monsterMorale = ar.ReadInt32();
-        int terrain = ar.ReadInt32();
+        int turningMod = ar.ReadInt32();                 // eventTurnUndeadModType, not terrain
 
         int randomMonster = version >= DesignVersion.V0690 ? ar.ReadInt32() : 0;
         int partyNoExperience = version >= DesignVersion.V0860 ? ar.ReadInt32() : 0;
@@ -91,7 +96,7 @@ public static class CombatEventReader
             baseEvent, deathSound, moveSound, turnUndeadSound,
             distance, direction, surprise, autoApproach,
             outdoors, noMonsterTreasure, partyNeverDies, noMagic,
-            monsterMorale, terrain, randomMonster, partyNoExperience,
+            monsterMorale, turningMod, randomMonster, partyNoExperience,
             backgroundSounds, monsters);
     }
 

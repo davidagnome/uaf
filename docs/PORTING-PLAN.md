@@ -9,7 +9,7 @@ corpus parses, diffed against the oracle — and **the writer has started**: the
 shared leaf and **four whole record types**, monsters, items, spells and characters, which
 round-trip every record in the corpus — and **the `CAR` write path now exists**, both halves of it,
 so all three shipped databases are reproduced **byte for byte**, a saved character is written as a
-whole file, and **18 of the 44 event types write — 574 of the 575 events in a real level**. Its
+whole file, and **20 of the 44 event types write — 4,679 of the 4,705 events in every shipped level**. Its
 round-trip exit criterion still needs `GLOBAL_STATS`, levels and the rest of the save games.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,662 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,664 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1327,7 +1327,7 @@ suggests, because every reading claim is about parsing bytes the reference produ
 criterion is round-trip byte-identity, and the machinery it needs now exists — the LZW *encoder*,
 the string-interning table on the write side, and the storing branch of `MONSTER_DATA`,
 `ITEM_DATA`, `SPELL_DATA` and `CHARACTER`; the first three reproduce `ci-tier3`'s databases byte
-for byte, a `.chr` file is written whole, and 18 of the 44 event bodies write. What is left is the
+for byte, a `.chr` file is written whole, and 20 of the 44 event bodies write. What is left is the
 event tail, then `GLOBAL_STATS` and `LEVEL` — which both need it — and the rest of the savegames.
 Phase 5's exit (the editor saves a design the C++ editor can load) depends entirely on those.
 
@@ -3188,8 +3188,9 @@ is an easy mistake to make and a hang tells the author nothing.
 with the design's global event list (`GlobalData.cpp:4556`) and a `LEVEL` is mostly events, so
 neither could be written until these could.
 
-**18 of the 44 types write, and they cover 574 of the 575 events in a real level.** That ratio is
-the point, and it came from measuring rather than guessing:
+**20 of the 44 types write, and they cover 4,679 of the 4,705 events in every shipped level** —
+all 18 files of the two designs that have any, each event written, read back and written again to
+the same bytes. That ratio is the point, and it came from measuring rather than guessing:
 
 > **The distribution is extremely skewed, and the first tranche was chosen from the wrong end of
 > it.** The eight small subclasses grouped in `SimpleEventReaders` looked like the obvious start —
@@ -3200,11 +3201,28 @@ the point, and it came from measuring rather than guessing:
 > similar items, count them before choosing an order, because "small and self-contained" and
 > "frequent" are unrelated properties.
 
-The remaining 26 types are the tail: `Combat` (57 occurrences), the town services — shop, temple,
-tavern, training hall, camp, small town, vault — at one to four each, and eleven types that appear
-**zero** times in any shipped design. `EventBodyWriter.CanWrite` reports what is covered so a
-caller can check a whole list before starting a file, and the dispatch throws a citation for the
-rest rather than writing a truncated body.
+The remaining 24 types are the tail, and the corpus reaches only ten of them — **26 events in
+total**: `Sounds` (7), `Camp`, `GainExperience` and `TrainingHallEvent` (4 each), `TempleEvent`
+(2), and `ShopEvent`, `TavernEvent`, `WhoPays`, `RemoveNPCEvent` and `NPCSays` once apiece. The
+other fourteen appear **zero** times anywhere, so they have no corpus to check them and want
+`Export(JWriter&)` read alongside `Serialize` instead. `EventBodyWriter.CanWrite` reports what is
+covered so a caller can check a whole list before starting a file, and the dispatch throws a
+citation for the rest rather than writing a truncated body — a body has no length prefix, so
+writing nothing would corrupt every event after it.
+
+> **`COMBAT_EVENT_DATA` was the one type standing between the port and a complete level**, and the
+> reason it took a section of its own is that three of its lists sit *outside* the storing branch:
+> `monsters` after the encounter's fields, and inside each monster its `items` after the money —
+> the second past where a grep window usually stops. Two refusals came with it, both familiar: a
+> monster entry from below 0.740 has no money sack in this port's model at all (unlike a monster
+> *record*, where the reference has a default-constructed one to write), and one carrying an item
+> by its pre-0.998101 numeric id cannot be named.
+
+> **A field was named for the wrong thing.** The reader called `turningMod` — an
+> `eventTurnUndeadModType` — `Terrain`. Same width, so no byte ever moved and no test could have
+> caught it; nothing consumed it either. Writing the inverse is what surfaced it, because the
+> writer cites `GameEvent.cpp:6973` and the citation contradicted the name. That is the third time
+> transcribing the storing branch has found a reader defect invisible to the reader's own tests.
 
 > **The event's ASL blocks are not named `…_ATTRIBUTES`.** They are `EVENT_DATA_ATTR` and
 > `EVENTCONT_ATTR`. Writing the wrong name produces a file that reads back with the attributes
@@ -5313,10 +5331,12 @@ What is left, in order:
    in the port: it gates Phase 1's round-trip exit criterion, save games, and Phase 5 entirely.
    The `.chr` half of the savegames is done (§the first whole file outside a database), and so is
    the bulk of the event layer (§the event storing branches). What remains, in order:
-   - **The event tail — 26 types, but only ~2% of a real level.** `Combat` first, at 57 occurrences
-     and the only one blocking a complete level; then the town services at one to four each; then
-     the eleven types that appear in no shipped design at all, which have no corpus to check them
-     and want `Export(JWriter&)` read alongside `Serialize` instead.
+   - **The event tail — ten types the corpus reaches, 26 events in all.** The town services and
+     their neighbours: `Sounds`, `Camp`, `GainExperience`, `TrainingHallEvent`, `TempleEvent`,
+     `ShopEvent`, `TavernEvent`, `WhoPays`, `RemoveNPCEvent`, `NPCSays` — all of them in
+     `MoreEventReaders`. Small individually, and finishing them makes **every event in every
+     shipped level writable**, which is what `LEVEL` needs. The fourteen types with no corpus
+     example can wait; they want `Export(JWriter&)` read alongside `Serialize`.
    - **`GLOBAL_STATS`**, the record a character list sits inside — and therefore the thing that
      turns the character writer into a `game.dat` the reference can open. Beyond the events it
      wants a `LOGFONT` blit, ~20 named art slots, the sound queues, and three record lists.
@@ -5380,7 +5400,7 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `.chr` files, **18 of the 44 event bodies** (574 of 575 events in a real level), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is the event tail, then `GLOBAL_STATS`, `LEVEL` and the savegames. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
+| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `.chr` files, **20 of the 44 event bodies** (4,679 of 4,705 events across all 18 shipped levels), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is the event tail, then `GLOBAL_STATS`, `LEVEL` and the savegames. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |

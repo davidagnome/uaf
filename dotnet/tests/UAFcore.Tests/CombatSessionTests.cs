@@ -30,7 +30,7 @@ public class CombatSessionTests
         new(Base: null!, string.Empty, string.Empty, string.Empty,
             distance, Direction: 0, Surprise: 0, AutoApproach: 0,
             Outdoors: 0, NoMonsterTreasure: 0, PartyNeverDies: 0, NoMagic: 0,
-            MonsterMorale: 50, Terrain: 0, RandomMonster: 0, PartyNoExperience: 0,
+            MonsterMorale: 50, TurningMod: 0, RandomMonster: 0, PartyNoExperience: 0,
             BackgroundSounds: null!, [Entry("orc", monsters)]);
 
     private static MonsterRecord Orc() =>

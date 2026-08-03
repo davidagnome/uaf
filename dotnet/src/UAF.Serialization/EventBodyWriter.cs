@@ -37,7 +37,8 @@ public static class EventBodyWriter
         EventType.AddNpc or EventType.Stairs or EventType.Teleporter or
         EventType.TransferModule or EventType.TextStatement or EventType.QuestStage or
         EventType.GuidedTour or EventType.SpecialItem or EventType.Utilities or
-        EventType.GiveTreasure or EventType.CombatTreasure or EventType.LogicBlock => true,
+        EventType.GiveTreasure or EventType.CombatTreasure or EventType.LogicBlock or
+        EventType.Combat or EventType.PickOneCombat => true,
         _ => false,
     };
 
@@ -102,6 +103,11 @@ public static class EventBodyWriter
                 return;
             case EventType.LogicBlock:
                 ContentEventWriters.WriteLogicBlock(ar, Expect<LogicBlockEvent>(body, type));
+                return;
+
+            case EventType.Combat:
+            case EventType.PickOneCombat:
+                CombatEventWriter.Write(ar, Expect<CombatEvent>(body, type));
                 return;
 
             // Unreachable in any design the reference could load: CreateNewEvent reaches

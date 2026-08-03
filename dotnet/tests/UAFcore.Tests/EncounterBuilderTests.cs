@@ -19,7 +19,7 @@ public class EncounterBuilderTests
         new(Base: null!, string.Empty, string.Empty, string.Empty,
             Distance: 2, Direction: 0, Surprise: 0, AutoApproach: 0,
             Outdoors: 0, NoMonsterTreasure: 0, PartyNeverDies: 0, NoMagic: 0,
-            MonsterMorale: 50, Terrain: 0, RandomMonster: random, PartyNoExperience: 0,
+            MonsterMorale: 50, TurningMod: 0, RandomMonster: random, PartyNoExperience: 0,
             BackgroundSounds: null!, monsters);
 
     private static MonsterRecord Monster(string name, int movement = 9, int attacks = 1,

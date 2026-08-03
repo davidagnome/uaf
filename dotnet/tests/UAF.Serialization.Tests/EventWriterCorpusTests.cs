@@ -33,13 +33,42 @@ public class EventWriterCorpusTests
 
     private const string Level = "reference/Case.dsn/Data/Level001.lvl";
 
+    /// <summary>Every level file the two design directories that ship them hold.</summary>
+    private static List<string> AllLevels()
+    {
+        var root = RepoRoot();
+        if (root is null)
+        {
+            return [];
+        }
+
+        var paths = new List<string>();
+        foreach (string design in (string[])["Case.dsn/Data", "SomethingWild.dsn/Data"])
+        {
+            string dir = Path.Combine(root.FullName, "reference",
+                                      Path.Combine(design.Split('/')));
+            if (Directory.Exists(dir))
+            {
+                paths.AddRange(Directory.EnumerateFiles(dir, "*.lvl"));
+            }
+        }
+        paths.Sort(StringComparer.Ordinal);
+        return paths;
+    }
+
     /// <summary>Reads every event of a level, paired with the ordinal that tagged it.</summary>
     private static List<(EventType Type, IGameEvent Body)>? ReadEvents(out DesignVersion version)
     {
-        version = default;
-
         var root = RepoRoot();
         string? path = root is null ? null : Path.Combine(root.FullName, Level);
+        return ReadEvents(path, out version);
+    }
+
+    private static List<(EventType Type, IGameEvent Body)>? ReadEvents(
+        string? path, out DesignVersion version)
+    {
+        version = default;
+
         if (path is null || !File.Exists(path))
         {
             return null;
@@ -138,11 +167,59 @@ public class EventWriterCorpusTests
 
         int writable = events.Count(e => EventBodyWriter.CanWrite(e.Type));
 
-        // A floor, not an equality: this rises as bodies land, and naming the number is what makes
-        // a regression say how much ground was lost. 574 of 575 -- the single holdout is a Combat
-        // event, whose body carries a monster list and is the next one to port.
-        Assert.True(writable >= 574,
-                    $"{writable} of {events.Count} events are writable; it was 574");
+        // Every event in a real 575-event level now writes. Kept as an equality rather than a
+        // floor now that it is complete: from here a regression is a lost type, not lost ground.
+        Assert.Equal(events.Count, writable);
+    }
+
+    [Fact]
+    public void Every_writable_event_in_every_shipped_level_round_trips()
+    {
+        // The whole corpus rather than one level: 18 files across two designs. A type that only
+        // ever appears once -- a shop, a tavern, an NPC conversation -- is invisible to the
+        // single-level test above, and those are exactly the ones with no second example to
+        // check a guess against.
+        var levels = AllLevels();
+        if (levels.Count == 0)
+        {
+            return;
+        }
+
+        Assert.Equal(18, levels.Count);
+
+        int total = 0, written = 0;
+        var unwritten = new SortedDictionary<EventType, int>();
+
+        foreach (string path in levels)
+        {
+            var events = ReadEvents(path, out _);
+            Assert.NotNull(events);
+
+            foreach (var (type, body) in events!)
+            {
+                total++;
+                if (!EventBodyWriter.CanWrite(type))
+                {
+                    unwritten[type] = unwritten.GetValueOrDefault(type) + 1;
+                    continue;
+                }
+
+                byte[] first = Write(type, body);
+                AssertSameBase(body.Base, ReadBack(first, type).Base, type);
+                Assert.Equal(first, Write(type, ReadBack(first, type)));
+                written++;
+            }
+        }
+
+        Assert.Equal(4705, total);
+
+        // What is left is the town-service tail, and naming the types rather than just the count
+        // is what makes this say which work remains.
+        Assert.Equal(4679, written);
+        Assert.Equal(
+            "Camp, GainExperience, NPCSays, RemoveNPCEvent, ShopEvent, Sounds, TavernEvent, " +
+            "TempleEvent, TrainingHallEvent, WhoPays",
+            string.Join(", ", unwritten.Keys));
     }
 
     [Fact]
@@ -166,21 +243,43 @@ public class EventWriterCorpusTests
     [Fact]
     public void A_type_with_no_writer_yet_says_so_rather_than_writing_nothing()
     {
+        // No longer reachable through this level -- every type in it writes -- so the throw is
+        // exercised directly. It has to stay exercised: a body of unknown length cannot be
+        // stepped over, so a dispatcher that silently wrote nothing would leave a level whose
+        // every later event is read out of the middle of this one.
         var events = ReadEvents(out _);
         if (events is null)
         {
             return;
         }
 
-        var unwritable = events.FirstOrDefault(e => !EventBodyWriter.CanWrite(e.Type));
-        if (unwritable.Body is null)
+        var body = events[0].Body;
+
+        Assert.False(EventBodyWriter.CanWrite(EventType.ShopEvent));
+        var ex = Assert.Throws<NotSupportedException>(
+            () => Write(EventType.ShopEvent, body));
+        Assert.Contains("no writer yet", ex.Message);
+    }
+
+    [Fact]
+    public void A_type_that_has_no_shape_at_all_says_something_different()
+    {
+        // InnEvent and GPDLEvent are not "not ported": CreateNewEvent cannot construct either
+        // (GameEvent.cpp:3888), so no design the reference loads can contain one. Saying "no
+        // writer yet" would imply there is something to port.
+        var events = ReadEvents(out _);
+        if (events is null)
         {
-            return;                                      // every type in this level is written
+            return;
         }
 
-        var ex = Assert.Throws<NotSupportedException>(
-            () => Write(unwritable.Type, unwritable.Body));
-        Assert.Contains("no writer yet", ex.Message);
+        foreach (var type in (EventType[])[EventType.InnEvent, EventType.GPDLEvent])
+        {
+            Assert.False(EventBodyWriter.CanWrite(type));
+            var ex = Assert.Throws<NotSupportedException>(
+                () => Write(type, events[0].Body));
+            Assert.Contains("no serialized shape", ex.Message);
+        }
     }
 
     [Fact]
