@@ -135,6 +135,35 @@ public static class ReadiedLocation
     /// </summary>
     public static uint Convert(uint stored) =>
         IsLegacyOrdinal(stored) ? Base38(LegacyWords[stored]) : stored;
+
+    /// <summary>
+    /// The slot word a stored <c>readyLocation</c> names, trimmed — or empty for one that names
+    /// no slot.
+    /// </summary>
+    /// <remarks>
+    /// <b>Matched rather than decoded.</b> <see cref="Base38"/> is not invertible in general — it
+    /// folds six characters into a <c>DWORD</c> and nothing constrains the input to the eleven
+    /// words that exist — so this packs each known word and compares, which is exact and needs no
+    /// second encoder to keep in step with the first. Both the legacy ordinal and the packed form
+    /// are accepted, because a savegame can hold either.
+    /// </remarks>
+    public static string WordFor(uint stored)
+    {
+        if (IsLegacyOrdinal(stored))
+        {
+            return LegacyWords[stored].TrimEnd();
+        }
+
+        for (int i = 0; i < LegacyWords.Length; i++)
+        {
+            if (Base38(LegacyWords[i]) == stored)
+            {
+                return LegacyWords[i].TrimEnd();
+            }
+        }
+
+        return string.Empty;
+    }
 }
 
 /// <summary>

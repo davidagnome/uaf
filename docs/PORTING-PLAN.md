@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,799 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,815 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,35 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The shared inventory, as ported
+
+`Inventory` — the data behind `ITEMS_MENU_DATA` (`RunEvent.cpp:7843`), which **the vault, the shop
+and the camp all push, and so does combat**. Taken first among the inner screens for that reason:
+it is the one with the most callers per screen built.
+
+Four of its fourteen commands run — READY, NEXT, PREV, EXIT. The other ten each want machinery
+this port does not have (a trade partner picker, the shop's price list, the scribe rules) and are
+named.
+
+> **The screen shows a *word*, not a tick.** `readyLocation` names one of eleven slots — WEAPON,
+> SHIELD, ARMOR, HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER — so an inventory line says
+> where a thing is worn rather than whether it is.
+
+> **Decoding that field needed a matcher, not a decoder.** `Base38` folds six characters into a
+> `DWORD` and is **not invertible in general** — nothing constrains a stored value to the eleven
+> words that exist. `ReadiedLocation.WordFor` therefore packs each known word and compares, which
+> is exact and keeps one encoder rather than two that can drift. A value naming no slot honestly
+> shows nothing. Both the packed form and the legacy ordinal are accepted, because a savegame can
+> hold either.
+
+> **Cursing only blocks taking a thing off.** `ToggleReady` refuses to unready a cursed item, and
+> never refuses to ready one — which is rather the point of a cursed item, and is the same rule
+> that stops one being dropped (`CanUnReady`, `Items.cpp:1631`).
+
+> **Two menu entries are both called `EXAMINE`** — one for ordinary items, one for special items
+> and keys, which are different lists behind the same screen. Only the reference's comment beside
+> the table says which is which.
+
 ##### The town-service shells, complete
 
 `TAVERN`, `SHOP`, `VAULT` and `TEMPLE` — **all seven town services now present their menus and run
@@ -5672,10 +5701,11 @@ What is left, in order:
      four GPDL terminals and actions want a script runner; everything else runs. This was the most
      frequent inert type in the corpus.
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
-     shells, complete); what remains is what they push — save, load, magic, rest, alter, journal,
-     character-picking, items, buy, appraise, heal, donate. Several are shared between services,
-     so the items menu and the character picker are worth taking first: they unblock the most
-     entries per screen built.
+     shells, complete). The **inventory** is the most-shared of them and its data layer is done
+     (§the shared inventory) — what is left there is wiring it into the three services that push
+     it and the ten commands it still names. Then the **character picker**, which the training
+     hall and several others want, and after that the single-caller screens: save, load, magic,
+     rest, alter, journal, buy, appraise, heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing
