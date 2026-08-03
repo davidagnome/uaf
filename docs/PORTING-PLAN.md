@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,043 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,059 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,57 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### `ability.dat` — the seventh database, and the ability roll
+
+> **A database was named and never opened.** `TaggedDatabaseReader.FileName` has listed
+> `ability.dat` since the tagged framing was ported, and `TaggedDatabaseCorpusTests` even asserts
+> its container tag and record count — but nothing read a record out of it. The framing was
+> tested, the contents were not, and the gap stayed invisible until the character generator needed
+> the dice a strength score is rolled from. **All seven databases now read.**
+
+`ABILITY_DATA` is small — one tag, a name, an abbreviation, a `DICEPLUS` and a specab block — and
+the reader was right first time. **The test was wrong**: it fed the reader a made-up
+`DesignVersion` instead of the design's own, and the stream desynced on the second record. A
+tagged header carries a record tag and a count and *no version*, so the version has to come off
+`game.dat` beside the database — and it decides both the specab gate and whether an editor stream
+carries the pre-`VersionSpellNames` numeric key.
+
+> **Removing the specab read made it worse, which is what identified the cause.** Without it the
+> second record's *tag* came back as a space rather than `Abd0`; with it, the tag was fine and the
+> name desynced. Two different wrong answers from one wrong version, and neither was a defect in
+> the transcription.
+
+The roll itself is `rollSkillDie`:
+
+> **Best of three, always.** Every score is rolled three times and the largest kept — which is why
+> new characters come out so uniformly good, and why lowering an ability's dice moves the average
+> far less than it looks like it should.
+
+> **Two eras, both live.** Below 0.870 the dice are a hard-coded 3d6 and the ability database is
+> not consulted at all; from 0.870 each ability carries its own `DICEPLUS`. A design old enough
+> gets 3d6 whatever its `ability.dat` says.
+
+> **An attempt that does not roll counts as zero, not as a skip.** `RollAbility` answering false
+> leaves that try at 0 and it still competes for the maximum — so an ability whose dice never roll
+> produces a score of 0 rather than a refusal.
+
+> **Exceptional strength needs *exactly* 18.** The test is equality, so racial or magical strength
+> above 18 skips the percentile rather than maximising it. And the dice come from the **class**,
+> not the rules: the commented-out predecessor restricted the bonus to fighters, rangers and
+> paladins, while the live code rolls whatever `strengthBonusDice` the class carries — so the
+> restriction is data now, and a class with no dice gets nothing.
+
+> **A class minimum only ever raises a score.** A character who rolls below what their class
+> demands is given the minimum rather than re-rolled or refused, which makes picking a demanding
+> class a way to guarantee good scores.
+
+Still to come before CREATE finishes: `generateNewCharacter`'s remaining work — starting money and
+equipment, age and birthday, hit points — and the art picker.
+
+> **One of its two paths is dead code that would crash.** `generateNewCharacter` handles
+> `START_EXP_VALUE` and then calls `die("Not Needed?")` for the "start experience is a minimum
+> level" case, so a design configured that way takes down the reference.
+
 ##### Typed text — and `EnterPassword` running
 
 Three things were waiting on text entry. Two now have it: `ENTER_PASSWORD` runs, and the
@@ -6242,9 +6293,11 @@ What is left, in order:
      **Text entry is built** (§typed text), which turned `EnterPassword` on — **nine event types
      inert, not ten** — and took the generator to its name step.
 
-     What the generator still wants is an **ability roller** (`generateNewCharacter`) and an **art
-     picker**; the roller is the bigger of the two and is rules work rather than screens. MODIFY
-     is the same wizard re-entered over an existing character, so it comes free once those land.
+     The **ability roll** is ported and `ability.dat` reads — **all seven databases now do**
+     (§ability.dat). What the generator still wants is the rest of `generateNewCharacter`:
+     starting money and equipment, age and birthday, and hit points. Then the **art picker**, and
+     MODIFY comes nearly free after that — it is the same wizard re-entered over an existing
+     character.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.
