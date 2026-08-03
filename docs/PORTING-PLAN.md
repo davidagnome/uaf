@@ -7,7 +7,8 @@
 **Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
 corpus parses, diffed against the oracle — and **the writer has started**: the byte layer, both
 shared leaves and the first whole record type, monsters, which round-trips all 570 records in the
-corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
+corpus — and **the `CAR` write path now exists**, both halves of it. Its round-trip exit
+criterion still needs the other record types and a writer cursor to target them through.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
 event types and executes twenty-six of them, presents the treasure and character screens, and sets up a combat encounter with the
@@ -17,7 +18,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,518 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,566 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3126,9 +3127,99 @@ One deliberate divergence: when no script matches, the reference logs "Cannot fi
 TeleporterDestination" and then **transfers using the unresolved fields anyway** — to a square the
 design never named. This port refuses and says so.
 
+**The second caller is `WHO_TRIES`'s attempt veto**, and unlike the teleporter it is exercised by
+real data — `SomethingWild` authors `$EVENT_WhoTries_Attempt`.
+
+> **It can take a success away and never give one.** The whole block sits inside `if (!failed)`,
+> so a check the character already failed never reaches a script. A design cannot use it to
+> implement an ability the engine does not know about.
+
+> **The scripts are not independent votes.** They share one `HOOK_PARAMETERS` block, constructed
+> outside the loop, and slot 0 is read once afterwards — so a later script writing anything other
+> than `"N"` **clears an earlier script's veto**. The last writer wins.
+
+> **The hook is named by the *event*, not the design.** The event's own ASL carries an `Attempt`
+> entry listing which scripts to run; the ability they live in is always
+> `$EVENT_WhoTries_Attempt`. Two such events in one design can therefore run different subsets of
+> the same library.
+
+**The third caller is combat placement**, which closes the "global script hooks" gap for
+`CombatPlacement`: `$GET_PARTY_FACING` and `$MonsterPlacement` are implemented, a design's own
+script runs once per side, and without one the built-in program is used directly.
+
+> **Three hooks, one per encounter distance — and only `PlaceMonsterFar` has a built-in default.**
+> `PlaceMonsterClose` and `PlaceMonsterNear` exist solely in the `CombatPlacement` ability shipped
+> designs carry, so a design with no `specialAbilities.txt` has *no* script for an up-close
+> encounter and the reference places nothing at all. This port falls back on
+> `TurtlePlacement.Default` for all three — the same programs the shipped ability produces —
+> because an empty battlefield is a worse answer than the right one arrived at differently. That
+> is a deliberate divergence, not an oversight.
+
+> **The script runs once per side, not once per fight.** The reference resets the turtle and calls
+> the hook inside its direction loop, so a design's script sees a freshly-reset arrangement each
+> time and `$MonsterPlacement` plants monsters as it goes.
+
+> **`$MonsterPlacement` outside a placement answers `"0"`** rather than refusing — the reference
+> guards on `monsterArrangement.active` and logs. A script calling it at the wrong time is a
+> design error, not a port gap.
+
+Reading the `WHO_TRIES` entry needed the **self-delimiting list convention** (`SUBSTRINGS`, `ASL.cpp:242`),
+now `UAF.Common.Substrings`:
+
+> **The first character of the value is the delimiter** — there is no fixed separator and no
+> escaping. That is what lets one list nest inside another, the outer picking a character the
+> inner does not use, and it is why these look like paths without being paths. `HeadAndTail`
+> strips the head's delimiter and **leaves the tail's**, so a tail can be split again with no
+> bookkeeping — and a caller wanting the tail's text has to drop the character by hand, which is
+> what the reference's `Right(len - 1)` is doing.
+
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
+
+##### The `CAR` write path, as ported
+
+`CarLzwCompressor` and `CarArchiveWriter` — **the last wholly unexplored part of the format**.
+Nothing could produce a compressed archive until these existed, which is why byte-identity with a
+shipped design was out of reach and why Phase 5 could not start.
+
+The encoder is tested by round-tripping through the decoder, which is the strongest specification
+available: that decoder walks every compressed design in the corpus to exact end-of-file. A
+120,000-byte pseudo-random stream is included deliberately, because it is long enough to **fill the
+dictionary and force a reset** — with a guard test beside it asserting the input really is large
+enough, so the reset path cannot look verified when it is not.
+
+> **The bit packing is an OR into a zeroed buffer, not a write.** The reference does an unaligned
+> 32-bit `|=` at `buffer + (index >> 3)` and relies on the buffer being zeroed after every flush,
+> so a code spills into the following bytes and the next code ORs on top. Writing instead would
+> clear the low bits of any code that straddles a byte boundary — which is most of them, since 13
+> does not divide 8.
+
+> **Filling the dictionary emits the pending code *before* the reset code.** Emitting the reset
+> first would leave the decoder holding a code that only made sense against the table it had just
+> cleared.
+
+> **Flushing an untouched compressor still writes a full block of terminators.** The pending code
+> starts at `0xFFFF` and thirteen bits of that *is* 8191, so the "nothing was written" case
+> produces terminators rather than an empty file — which is what the decoder expects to find.
+
+> **A string with an embedded NUL is written every time and never interned.** The reference takes
+> a separate path that skips the table (`class.cpp:11927`), and the reader has the matching
+> exclusion — so the two agree only if both skip it. Interning it would shift every later index by
+> one and desynchronise the whole table.
+
+> **A count is a flat `DWORD` here.** `CAR::WriteCount` delegates to MFC's two-tier escaping form
+> only when `compressType` is 0, and this writer is always type 2. This is §4.3's trap from the
+> writing side.
+
+One observation worth recording: `CAR::Compress` always writes **2**, and every tagged database on
+disk carries **1**. No code path in the reference produces a 1, so those files came from something
+else or from a build that differed. Reading honours both; writing has only ever produced 2.
+
+**What this still cannot do** is write a record through it: `MonsterRecordWriter` and its leaves
+target `MfcArchiveWriter` concretely, where the readers go through `IArchiveCursor`. The next step
+is that cursor's counterpart — after which byte-identity against a shipped `monsters.dat` becomes
+an achievable test rather than a stated impossibility.
 
 ##### The first whole record the port can write, as ported
 
@@ -5019,12 +5110,12 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | The byte layer, both shared leaves and `MONSTER_DATA` are written; the other record types and the whole `CAR` write path are not. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** — an editor that cannot save is not an editor. The last wholly unexplored part of the format: the LZW *encoder* and the write side of string interning | Large |
+| **`ArchiveWriter`** | The byte layer, both shared leaves, `MONSTER_DATA` and **the whole `CAR` write path** are written — the LZW encoder and the string-interning half both. What is missing is a writer cursor (the counterpart of `IArchiveCursor`) so record writers can target either encoding, and then a writer per remaining record type. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **28 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. `LogicBlock` (52) needs GPDL wired to events; the rest are town-service screens — see §the event layer | Large |
+| **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
-| **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. **The `specialAbilities.txt` parser now exists** (`UAF.Data.SpecialAbilitiesFile`); what remains is `RunGlobalScript` itself — compile-and-cache, the one built-in default script, and the `HOOK_PARAMETERS` block — plus two sub-opcodes | Small |
+| **Global script hooks** | **`CombatPlacement` is done** — the parser, `RunGlobalScript`, both sub-opcodes and the call site. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes now that the bridge exists | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |

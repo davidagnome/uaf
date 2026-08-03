@@ -839,6 +839,12 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_Wiggle:
                 PushSp(_host.Wiggle(PopInteger()));
                 break;
+            case SubOp.SUBOP_GET_PARTY_FACING:
+                PushSp(_host.PartyFacing.ToString());
+                break;
+            case SubOp.SUBOP_MonsterPlacement:
+                PushSp(_host.MonsterPlacement(PopSp()));
+                break;
             case SubOp.SUBOP_GET_HOOK_PARAM:
                 PushSp(_host.GetHookParam(PopInteger()));
                 break;

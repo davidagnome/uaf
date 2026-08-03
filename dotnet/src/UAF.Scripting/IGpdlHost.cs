@@ -148,6 +148,27 @@ public interface IGpdlHost
     string GetHookParam(int index);
 
     /// <summary>
+    /// <c>$GET_PARTY_FACING()</c> — the party's facing as a bare number
+    /// (<c>GPDLexec.cpp:5550</c>).
+    /// </summary>
+    /// <remarks>
+    /// Zero through three, north-clockwise. The one built-in placement script branches on
+    /// <c>&gt;=# 2</c>, which is south or west.
+    /// </remarks>
+    int PartyFacing { get; }
+
+    /// <summary>
+    /// <c>$MonsterPlacement(turtleCode)</c> — runs a turtle program against the arrangement now
+    /// being placed (<c>MonsterPlacementCallback</c>, <c>UAFWin/Combatants.cpp:2680</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Only meaningful while a placement hook is running.</b> The reference guards on
+    /// <c>monsterArrangement.active</c> and returns <c>"0"</c> with a debug complaint when a
+    /// script calls it at any other time, rather than refusing outright.
+    /// </remarks>
+    string MonsterPlacement(string turtleCode);
+
+    /// <summary>
     /// <c>$SET_HOOK_PARAM(n, value)</c> — <b>a swap, not a setter</b>.
     /// </summary>
     /// <returns>
@@ -331,6 +352,19 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     /// discipline should use <c>UAFcore</c>'s <c>HookParameters</c>, which pushes and pops.
     /// </remarks>
     public string[] HookParameters { get; } = new string[GpdlHookParameters.Count];
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Zero unless a host overrides it, which is what an unhosted script sees.
+    /// </remarks>
+    public virtual int PartyFacing => 0;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>"0" rather than a refusal</b>, matching the reference's answer when no arrangement is
+    /// active — a script calling this outside a placement hook is a design error, not a port gap.
+    /// </remarks>
+    public virtual string MonsterPlacement(string turtleCode) => "0";
 
     /// <inheritdoc/>
     /// <remarks>

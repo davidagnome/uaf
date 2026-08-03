@@ -139,9 +139,13 @@ public sealed class Game
                 ? EventWhoTries.Attempt(trial, who, sides => Dice(sides))
                 : default;
 
-            Message = attempt.Succeeded ? "Success." : "It does not work.";
-            return EventWhoTries.Resolve(trial, attempt.Succeeded,
-                                         id => events?.ById(id) is not null);
+            // The design gets to take a success away, but never to grant one -- the hook runs
+            // only when the checks already passed.
+            bool succeeded = attempt.Succeeded
+                             && !WhoTriesVeto.Vetoes(trial, attempt.Succeeded, Scripts, ScriptHost);
+
+            Message = succeeded ? "Success." : "It does not work.";
+            return EventWhoTries.Resolve(trial, succeeded, id => events?.ById(id) is not null);
         };
 
         Runner.ResolveWhoPays = (toll, chose) =>

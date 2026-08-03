@@ -51,7 +51,8 @@ public static class CombatSetup
                                           EncounterDirection direction = EncounterDirection.Any,
                                           EncounterDistance distance = EncounterDistance.FarAway,
                                           bool outdoor = false,
-                                          string? program = null)
+                                          string? program = null,
+                                          CombatPlacementScript? placement = null)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(combatants);
@@ -62,14 +63,14 @@ public static class CombatSetup
         // somewhere the party cannot reach, and the reference would rather fight up close than
         // present an encounter with nobody in it.
         var result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
-                             distance, outdoor, program);
+                             distance, outdoor, program, placement);
 
         if (wantsMonsters && program is null && !AnyMonsterPlaced(result, combatants))
         {
             foreach (var closer in Closer(distance))
             {
                 result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
-                                 closer, outdoor, program);
+                                 closer, outdoor, program, placement);
                 if (AnyMonsterPlaced(result, combatants))
                 {
                     break;
@@ -106,7 +107,8 @@ public static class CombatSetup
                                              IReadOnlyList<Combatant> combatants,
                                              EncounterDirection direction,
                                              EncounterDistance distance, bool outdoor,
-                                             string? program)
+                                             string? program,
+                                             CombatPlacementScript? placement)
     {
         var generator = new CombatMapGenerator(level, wallSets);
         var (map, partyX, partyY) = generator.Generate(levelX, levelY);
@@ -171,6 +173,16 @@ public static class CombatSetup
             if (arrangement.CountByDirection[dir] == 0) { continue; }
 
             arrangement.BeginDirection(dir);
+
+            // A design that authors its own CombatPlacement runs it here, once per side, and its
+            // $MonsterPlacement calls drive the turtle. Without one, the built-in program for this
+            // distance and facing is run directly -- which is what the shipped script would have
+            // produced anyway.
+            if (placement is not null && placement.Run(distance, arrangement, map, icons, facing))
+            {
+                continue;
+            }
+
             TurtlePlacement.Run(program ?? TurtlePlacement.Default(distance, facing),
                                 arrangement, map, icons);
         }
