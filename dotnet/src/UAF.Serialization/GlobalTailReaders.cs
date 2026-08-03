@@ -32,6 +32,27 @@ public static class GlobalTailReaders
         "CombatWallArt", "CombatCursorArt", "CombatDeathIconArt",
     ];
 
+    /// <summary>
+    /// Every art slot the block can hold, in wire order — the eight unconditional ones and the
+    /// three that follow.
+    /// </summary>
+    /// <remarks>
+    /// <b>The last three are gated on the way in and not on the way out.</b>
+    /// <c>CharViewFrameVPArt</c> needs 5.26, <c>CombatPetrifiedIconArt</c> 0.930204, and
+    /// <c>CombatDeathArt</c> nothing. A design below either gate is short a slot, so the block is
+    /// always returned at full length with the absent ones defaulted — otherwise an index would
+    /// mean a different slot depending on the version, and the writer could not tell which to
+    /// leave out. The same shape as <see cref="SpellScriptSlot"/>.
+    /// </remarks>
+    public static readonly string[] ArtSlotNames =
+    [
+        .. AlwaysPresentArt,
+        "CharViewFrameVPArt", "CombatPetrifiedIconArt", "CombatDeathArt",
+    ];
+
+    /// <summary>What an absent art slot reads and writes as: a zeroed type and an empty name.</summary>
+    public static PicDataSlot EmptySlot { get; } = new(0, string.Empty);
+
     /// <summary>Reads a <c>PicDataType</c> (<c>PicSlot.cpp:900</c>): a type and a name.</summary>
     /// <remarks>
     /// Not to be confused with <c>PIC_DATA</c> — that is the ten-field animation record read by
@@ -52,26 +73,31 @@ public static class GlobalTailReaders
     /// IsStoring()</c> — the storing side is unconditional, so a design written by this code and
     /// read back below 5.26 loses alignment.
     /// </remarks>
-    public static List<PicDataSlot> ReadArtBlock(IArchiveCursor ar, DesignVersion version)
+    public static GlobalArt ReadArtBlock(IArchiveCursor ar, DesignVersion version)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
-        var art = new List<PicDataSlot>(AlwaysPresentArt.Length + 3);
+        // Always ArtSlotNames.Length entries, in that order, with the slots this version predates
+        // left empty -- see ArtSlotNames.
+        var art = new PicDataSlot[ArtSlotNames.Length];
+        Array.Fill(art, EmptySlot);
+
         for (int i = 0; i < AlwaysPresentArt.Length; i++)
         {
-            art.Add(ReadPicSlot(ar));
+            art[i] = ReadPicSlot(ar);
         }
 
-        if (version >= DesignVersion.V526) art.Add(ReadPicSlot(ar));       // CharViewFrameVPArt
-        if (version.Value >= 0.930204) art.Add(ReadPicSlot(ar));           // CombatPetrifiedIconArt
-        art.Add(ReadPicSlot(ar));                                          // CombatDeathArt
+        if (version >= DesignVersion.V526) art[8] = ReadPicSlot(ar);       // CharViewFrameVPArt
+        if (version.Value >= 0.930204) art[9] = ReadPicSlot(ar);           // CombatPetrifiedIconArt
+        art[10] = ReadPicSlot(ar);                                         // CombatDeathArt
 
-        if (version >= DesignVersion.V0575)
-        {
-            PicDataReader.Read(ar, version, PicArchiveVariant.Car);        // CursorArt
-        }
+        // A whole PIC_DATA rather than a slot, and kept rather than discarded: the storing branch
+        // writes it and a writer has to put something back.
+        PicRecord? cursor = version >= DesignVersion.V0575
+            ? PicDataReader.Read(ar, version, PicArchiveVariant.Car)
+            : null;
 
-        return art;
+        return new GlobalArt(art, cursor);
     }
 
     /// <summary>

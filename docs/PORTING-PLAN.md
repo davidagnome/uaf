@@ -6,8 +6,8 @@
 
 **Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
 corpus parses, diffed against the oracle — and **the writer has started**: the byte layer, every
-shared leaf and **four whole record types**, monsters, items, spells and characters, which
-round-trip every record in the corpus — and **the `CAR` write path now exists**, both halves of it,
+shared leaf and **five whole record types**, monsters, items, spells, characters and
+`GLOBAL_STATS`, which round-trip every record in the corpus — and **the `CAR` write path now exists**, both halves of it,
 so all three shipped databases are reproduced **byte for byte**, a saved character is written as a
 whole file, and **30 of the 44 event types write — every one of the 4,705 events in every shipped level**. Its
 round-trip exit criterion still needs `GLOBAL_STATS`, levels and the rest of the save games.
@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,665 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,675 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,52 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The fifth record type, as ported
+
+`GLOBAL_STATS` (`GlobalStatsWriter`) — **the record a design's `game.dat` is**, and the thing that
+turns the character writer into a file rather than a fragment. Five of the six record types now
+write. It is the *widest* record rather than the deepest: a run of scalars, a `LOGFONT` blit, two
+picture-import lists, two title sequences, an ASL, eleven art slots, the sound queues, three record
+lists, the characters, the level table with its cell contents, the currency and difficulty
+configuration, the global event list, the journal and a spellbook. `GlobalTailWriters`,
+`GlobalStatsTailWriters` and `CellContentsWriters` arrived with it.
+
+> **It writes its own version as its first field.** No other record does, and it is what lets the
+> loading branch tell one framing from another: it reads eight bytes and decides — the magic means
+> "a version follows, then turn compression on, then the version again", anything else means those
+> eight bytes *were* the version as a `double` (`GlobalData.cpp:4336`).
+
+> **`WrittenVersion` is 5.26 — the first record whose own gates push past the embedded
+> `PIC_DATA`'s 5.24.** Two fields force it. `creditsData` is written unconditionally and read only
+> at **5.25** and above, so a file stamped 5.24 would have a whole title sequence read as one
+> string. And `CharViewFrameVPArt` is gated `version >= _VERSION_526 || car.IsStoring()`
+> (`:4500`) — **the storing side spelled out as unconditional inside the condition itself**, which
+> is the plainest statement of the no-version-gates rule anywhere in the codebase.
+
+**Three reader gaps surfaced writing the inverse**, all of them the same kind now:
+
+> **Nine fields were read and discarded** — the retired `startEquip` slot (a literal zero in the
+> reference), the four time deltas, `StartDarken`/`EndDarken`, and the whole `CursorArt`
+> `PIC_DATA`. Every one is written unconditionally, so every one had to be kept.
+
+> **The art block had to become positional.** The reader appended slots as their gates opened, so a
+> ten-entry list from a 2.53 design and an eleven-entry one from 5.28 had *different slots at the
+> same index*, and the writer could not tell which was missing. It now always returns all eleven
+> with the absent ones empty — the same fix `SpellRecord.Scripts` needed, and for the same reason.
+
+> **`WALL_OVERRIDES` loses where an absent row sat.** The table is a count then that many entries,
+> each prefixed by a row number, with `-1` meaning "absent, no payload" — but the reader keeps only
+> the present rows, in a dictionary. `EntryCount` is now kept so the writer emits the same number,
+> and a table where the two disagree is refused rather than written with the placeholders bunched
+> at the end. No shipped design has a non-empty table at all, which is why it has never mattered.
+
+One divergence is stated rather than fixed. The reference normalises every picture import before
+writing — forcing `picType` and running `SetDefaults()` — and for a file it produced those are
+no-ops, which the corpus confirms. The exception: `SetDefaults` also sets a small pic's
+`RestartFrame` to 1, and **that field only reaches the wire at 5.24**. A 2.53 or 3.55 design never
+had one to read, so this writer emits the 0 it saw where the reference would emit 1. Reproducing it
+faithfully needs the runtime viewport dimensions, which this layer does not have.
+
 ##### The event storing branches, as ported
 
 `GameEventWriter`, `SimpleEventWriters`, `ContentEventWriters` and the `EventBodyWriter` dispatch —
@@ -5335,31 +5381,26 @@ What is left, in order:
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
 2. **The rest of the archive writer.** The byte layer, every shared leaf, the `CAR` write path and
-   **four of the six record types** are done — monsters, items and spells each reproducing
-   `ci-tier3`'s database byte for byte, and characters round-tripping 29 records across two designs
-   (§the archive writer's first layers, and the four record-type sections). What is missing is a
+   **five of the six record types** are done — monsters, items and spells each reproducing
+   `ci-tier3`'s database byte for byte, characters round-tripping 29 records across two designs, and
+   `GLOBAL_STATS` round-tripping both designs whole
+   (§the archive writer's first layers, and the five record-type sections). What is missing is a
    writer per remaining record type, mirroring each reader. It is still the largest structural gap
    in the port: it gates Phase 1's round-trip exit criterion, save games, and Phase 5 entirely.
-   The `.chr` half of the savegames is done (§the first whole file outside a database), and the
-   event layer is done for everything the corpus contains (§the event storing branches). What
-   remains, in order:
-   - **`GLOBAL_STATS`**, the record a character list sits inside — and therefore the thing that
-     turns the character writer into a `game.dat` the reference can open. **The event layer no
-     longer blocks it**: every event in every shipped level writes, so its trailing global event
-     list is no longer the obstacle. Beyond that it wants a `LOGFONT` blit, ~20 named art slots,
-     the sound queues, and three record lists.
-     Two traps already visible in its storing branch: it writes the **version** itself as its first
-     field, and its `WrittenVersion` cannot be 5.24 like every other record's — `creditsData` is
-     read only at **5.25 and above** while the storing branch writes it unconditionally, and a
-     further slot is gated `version >= _VERSION_526 || car.IsStoring()`. It is the first record
-     whose own gates push past the embedded `PIC_DATA`'s.
+   The `.chr` half of the savegames is done (§the first whole file outside a database), the event
+   layer is done for everything the corpus contains (§the event storing branches), and
+   `GLOBAL_STATS` — which both of those were blocking — now writes whole (§the fifth record type).
+   What remains, in order:
    - **`LEVEL` / `ZONE`**, which is what an editor actually edits: the grid, the events, the zones
-     and the wall/background sets.
-   - **The rest of the savegames** — `PARTY` and cell contents. Phase 1's stated exit criterion.
+     and the wall/background sets. Nothing blocks it — the event bodies it is mostly made of all
+     write, and `LevelReader` / `LevelStructureReaders` are the shape to mirror.
+   - **The rest of the savegames** — `PARTY` and cell contents. Phase 1's stated exit criterion,
+     and the last thing between the port and a design it can save whole.
 
    Read the monster section's rule about the storing branch having no version gates before starting
-   any of them; three record types in, it has held every time, and the one apparent exception
-   (§the third record type) is a gate that cannot close.
+   either; five record types in, it has held every time, and the two apparent exceptions are gates
+   that cannot close — one written open by construction (§the third record type) and one whose
+   condition says `|| car.IsStoring()` out loud (§the fifth).
 3. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
@@ -5408,7 +5449,7 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `.chr` files, **30 of the 44 event bodies** (every event in all 18 shipped levels), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is the event tail, then `GLOBAL_STATS`, `LEVEL` and the savegames. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
+| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `GLOBAL_STATS`, `.chr` files, **30 of the 44 event bodies** (every event in all 18 shipped levels), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is `LEVEL` and the savegames. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |

@@ -143,7 +143,7 @@ public class GlobalStatsCompressedTests
         Assert.All(g.Attributes, e => Assert.Equal("3.56", e.Value));
     }
 
-    /// <summary>folder, art slot count, special items, quests.</summary>
+    /// <summary>folder, art slots actually on the wire, special items, quests.</summary>
     public static TheoryData<string, int, int, int> Tails => new()
     {
         { "dc-default/data-files", 11, 0, 0 },
@@ -161,10 +161,14 @@ public class GlobalStatsCompressedTests
 
         var g = Read(path);
 
-        // The art slot count is version-dependent: eight unconditional slots, plus
+        // How many slots are on the wire IS version-dependent: eight unconditional ones, plus
         // CharViewFrameVPArt at 5.26 and CombatPetrifiedIconArt at 0.930204, plus CombatDeathArt.
-        // Only the 5.28 design gets the first of those, which is why the counts differ by one.
-        Assert.Equal(expectedArt, g.Art.Count);
+        // Only the 5.28 design gets the first of those. What the reader returns is no longer
+        // version-dependent, though -- it is always the full set, with the slots a design predates
+        // left empty, so that an index means the same slot whatever version it came from. So the
+        // count is checked as "how many are non-empty" rather than "how many came back".
+        Assert.Equal(GlobalTailReaders.ArtSlotNames.Length, g.Art.Count);
+        Assert.Equal(expectedArt, g.Art.Count(a => a != GlobalTailReaders.EmptySlot));
         Assert.All(g.Art, a => Assert.All(a.Name, ch => Assert.InRange(ch, ' ', '~')));
 
         // Real sound filenames this deep into the record mean the whole ASL and art block landed.

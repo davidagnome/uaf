@@ -51,7 +51,13 @@ public sealed record RowOverrides(int Column, IReadOnlyList<CellOverride> Cells)
 /// Sparse by row: the count is how many entries follow, and each is prefixed by its row number,
 /// with -1 meaning the row is absent and carries no payload.
 /// </remarks>
-public sealed record WallOverrides(IReadOnlyDictionary<int, RowOverrides> Rows);
+/// <param name="EntryCount">
+/// How many entries the count field declared, which is <b>not</b> <c>Rows.Count</c> when any of
+/// them was an absent <c>-1</c>. Kept because a writer has to emit the same number, and because
+/// the position of an absent row among the present ones is the one thing this shape cannot
+/// recover — see <see cref="CellContentsWriters.CanWrite"/>.
+/// </param>
+public sealed record WallOverrides(IReadOnlyDictionary<int, RowOverrides> Rows, int EntryCount);
 
 /// <summary>One item lying in a map cell (<c>CELL_ITEM</c>, <c>GlobalData.h:491</c>).</summary>
 public sealed record CellItem(
@@ -128,7 +134,7 @@ public static class CellContentsReaders
             rows[rowNumber] = new RowOverrides(columnCount, cells);
         }
 
-        return new WallOverrides(rows);
+        return new WallOverrides(rows, rowCount);
     }
 
     /// <summary>Reads <c>CELL_LEVEL_CONTENTS</c>.</summary>

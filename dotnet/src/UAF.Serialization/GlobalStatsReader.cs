@@ -15,23 +15,39 @@ public sealed record TitleScreenData(uint Timeout, IReadOnlyList<TitleScreen> Ti
 /// Stops at <c>charData</c> — the pre-generated character database — which needs
 /// <c>CHARACTER</c>.
 /// </remarks>
+/// <param name="RetiredStartEquip">
+/// A slot the reference fills with a literal zero — <c>long int junk = 0</c>
+/// (<c>GlobalData.cpp:4262</c>) — where <c>UNUSED_startEquip</c> used to be. It is on the wire at
+/// every version and written unconditionally, so it is kept rather than dropped even though
+/// nothing reads it.
+/// </param>
+/// <param name="StartDarken">
+/// With <paramref name="EndDarken"/>, the pair that follows the auto-darken flags. Read since
+/// 0.620 and written always; nothing in the port consumes either, but a writer has to put them
+/// back.
+/// </param>
 public sealed record GlobalStatsPrefix(
     DesignVersion Version, string DesignName,
     int StartLevel, byte StartX, byte StartY, byte StartFacing,
-    int StartTime, int StartExp, int StartExpType,
+    int StartTime, int StartExp, int StartExpType, int RetiredStartEquip,
     int StartPlatinum, int StartGem, int StartJewelry,
-    int AutoDarkenViewport, int AutoDarkenAmount,
+    int DungeonTimeDelta, int DungeonSearchTimeDelta,
+    int WildernessTimeDelta, int WildernessSearchTimeDelta,
+    int AutoDarkenViewport, int AutoDarkenAmount, int StartDarken, int EndDarken,
     int MinPcs, int MaxPartyMaxPcs, int Flags,
     string MapArt, string IconBackgroundArt, string BackgroundArt,
     LogFont Font,
     IReadOnlyList<PicRecord> SmallPicImports, IReadOnlyList<PicRecord> IconPicImports,
     TitleScreenData? TitleData, TitleScreenData? CreditsData,
     IReadOnlyList<AslEntry> Attributes,
-    IReadOnlyList<PicDataSlot> Art, GlobalSounds? Sounds,
+    IReadOnlyList<PicDataSlot> Art, PicRecord? CursorArt, GlobalSounds? Sounds,
     IReadOnlyList<SpecialObject> Keys, IReadOnlyList<SpecialObject> SpecialItems,
     IReadOnlyList<Quest> Quests, IReadOnlyList<CharacterRecord> Characters,
     LevelInfo? Levels, MoneyData? Money, DifficultyData? Difficulty,
     int GlobalEventCount, IReadOnlyList<JournalEntry> Journal, SpellBook? FixSpellBook);
+
+/// <summary>The art block that follows the global ASL: named slots, then the cursor's PIC_DATA.</summary>
+public sealed record GlobalArt(IReadOnlyList<PicDataSlot> Slots, PicRecord? Cursor);
 
 /// <summary>
 /// Reads <c>GLOBAL_STATS::Serialize(CAR&amp;)</c> (<c>GlobalData.cpp:4244</c>) as far as the
@@ -110,30 +126,35 @@ public static class GlobalStatsReader
 
         int startExpType = version >= DesignVersion.V0770 ? ar.ReadInt32() : 0;
 
-        ar.ReadInt32();                          // retired startEquip slot, always written
+        // A literal zero in the reference; kept because the storing branch writes it always.
+        int retiredStartEquip = ar.ReadInt32();
 
         int startPlatinum = ar.ReadInt32();
         int startGem = ar.ReadInt32();
         int startJewelry = ar.ReadInt32();
 
+        int dungeonTimeDelta = 0, dungeonSearchTimeDelta = 0;
+        int wildernessTimeDelta = 0, wildernessSearchTimeDelta = 0;
         if (version >= DesignVersion.V0574)
         {
-            ar.ReadInt32();                      // DungeonTimeDelta
-            ar.ReadInt32();                      // DungeonSearchTimeDelta
-            ar.ReadInt32();                      // WildernessTimeDelta
-            ar.ReadInt32();                      // WildernessSearchTimeDelta
+            dungeonTimeDelta = ar.ReadInt32();
+            dungeonSearchTimeDelta = ar.ReadInt32();
+            wildernessTimeDelta = ar.ReadInt32();
+            wildernessSearchTimeDelta = ar.ReadInt32();
         }
 
         int autoDarkenViewport = 0;
         int autoDarkenAmount = 0;
+        int startDarken = 0;
+        int endDarken = 0;
         if (version >= DesignVersion.V0620)
         {
             // Both declared BOOL, but AutoDarkenAmount holds a magnitude, not a flag -- kept as
             // int rather than narrowed to bool.
             autoDarkenViewport = ar.ReadInt32();
             autoDarkenAmount = ar.ReadInt32();
-            ar.ReadInt32();                      // StartDarken
-            ar.ReadInt32();                      // EndDarken
+            startDarken = ar.ReadInt32();
+            endDarken = ar.ReadInt32();
         }
 
         int minPcs = 0;
@@ -214,7 +235,8 @@ public static class GlobalStatsReader
 
         // Everything past the ASL: the art slots, then the global sound queues, then three
         // record lists. Stops before charData, which needs CHARACTER.
-        var art = GlobalTailReaders.ReadArtBlock(ar, version);
+        var artBlock = GlobalTailReaders.ReadArtBlock(ar, version);
+        var art = artBlock.Slots;
         var sounds = GlobalTailReaders.ReadSounds(ar, version);
         var keys = GlobalTailReaders.ReadSpecialObjects(ar, version);
         var specialItems = GlobalTailReaders.ReadSpecialObjects(ar, version);
@@ -225,11 +247,15 @@ public static class GlobalStatsReader
         {
             return new GlobalStatsPrefix(
                 version, designName, startLevel, startX, startY, startFacing,
-                startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
-                autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
+                startTime, startExp, startExpType, retiredStartEquip,
+                startPlatinum, startGem, startJewelry,
+                dungeonTimeDelta, dungeonSearchTimeDelta,
+                wildernessTimeDelta, wildernessSearchTimeDelta,
+                autoDarkenViewport, autoDarkenAmount, startDarken, endDarken,
+                minPcs, maxPartyMaxPcs, flags,
                 mapArt, iconBackgroundArt, backgroundArt, font, smallPics, iconPics,
                 titleData, creditsData, attributes,
-                art, sounds, keys, specialItems, quests, characters,
+                art, artBlock.Cursor, sounds, keys, specialItems, quests, characters,
                 null, null, null, 0, [], null);
         }
 
@@ -282,11 +308,15 @@ public static class GlobalStatsReader
 
         GlobalStatsPrefix Build(int events, IReadOnlyList<JournalEntry> j, SpellBook? fix) =>
             new(version, designName, startLevel, startX, startY, startFacing,
-                startTime, startExp, startExpType, startPlatinum, startGem, startJewelry,
-                autoDarkenViewport, autoDarkenAmount, minPcs, maxPartyMaxPcs, flags,
+                startTime, startExp, startExpType, retiredStartEquip,
+                startPlatinum, startGem, startJewelry,
+                dungeonTimeDelta, dungeonSearchTimeDelta,
+                wildernessTimeDelta, wildernessSearchTimeDelta,
+                autoDarkenViewport, autoDarkenAmount, startDarken, endDarken,
+                minPcs, maxPartyMaxPcs, flags,
                 mapArt, iconBackgroundArt, backgroundArt, font, smallPics, iconPics,
                 titleData, creditsData, attributes,
-                art, sounds, keys, specialItems, quests, characters,
+                art, artBlock.Cursor, sounds, keys, specialItems, quests, characters,
                 levels, money, difficulty, events, j, fix);
     }
 

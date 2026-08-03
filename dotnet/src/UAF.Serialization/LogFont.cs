@@ -89,6 +89,45 @@ public sealed record LogFont(
         return faceName.Length == 0 ? Default : result;
     }
 
+    /// <summary>Renders the 60-byte blit — the inverse of <see cref="Parse"/>.</summary>
+    /// <remarks>
+    /// <b>The face name is NUL-padded to the full <c>LF_FACESIZE</c>, not truncated to its
+    /// length.</b> The struct goes onto the wire as a raw <c>sizeof(logfont)</c> copy, so every one
+    /// of the 32 bytes is on it whatever the name is; writing a counted string here would shorten
+    /// the record and desynchronise everything after it. A name too long to fit is refused rather
+    /// than silently cut, because a cut name is a different font.
+    /// </remarks>
+    public byte[] ToBytes()
+    {
+        var bytes = new byte[Size];
+
+        BinaryPrimitives.WriteInt32LittleEndian(bytes, Height);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4), Width);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(8), Escapement);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(12), Orientation);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(16), Weight);
+
+        bytes[20] = (byte)(Italic ? 1 : 0);
+        bytes[21] = (byte)(Underline ? 1 : 0);
+        bytes[22] = (byte)(StrikeOut ? 1 : 0);
+        bytes[23] = CharSet;
+        bytes[24] = OutPrecision;
+        bytes[25] = ClipPrecision;
+        bytes[26] = Quality;
+        bytes[27] = PitchAndFamily;
+
+        byte[] face = MfcArchiveReader.DefaultEncoding.GetBytes(FaceName);
+        if (face.Length >= FaceNameLength)
+        {
+            throw new InvalidOperationException(
+                $"face name '{FaceName}' is {face.Length} bytes; LF_FACESIZE leaves room for " +
+                $"{FaceNameLength - 1} plus a NUL.");
+        }
+        face.CopyTo(bytes, FaceNameOffset);
+
+        return bytes;
+    }
+
     public override string ToString() =>
         $"{FaceName} {PointSizeHint}{(IsBold ? " bold" : string.Empty)}" +
         $"{(Italic ? " italic" : string.Empty)}";
