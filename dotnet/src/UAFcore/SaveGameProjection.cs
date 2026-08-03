@@ -34,18 +34,28 @@ public static class SaveGameProjection
     /// live and projects both ways.</item>
     /// <item><s><b>Event trigger flags</b></s> — <b>done</b>. <see cref="EventTriggerFlags"/>
     /// tracks them live and projects both ways.</item>
-    /// <item><b>The journal</b> — the design's entries are read and shown, but which ones the
-    /// party has collected is not tracked.</item>
-    /// <item><b>Blockages</b> — doors and walls opened during play.</item>
-    /// <item><b>Global vaults</b> — what has been left in one.</item>
+    /// <item><s><b>Blockages</b></s> — <b>done</b>. <see cref="BlockageClearances"/>.</item>
+    /// <item><s><b>Global vaults</b></s> — <b>done</b>. <see cref="GlobalVaults"/>.</item>
+    /// <item><s><b>The journal</b></s> — <b>it was never missing</b>. <c>Party.Journal</c> has
+    /// been live since the journal event was ported; this list was wrong to name it.</item>
     /// </list>
+    /// <para>
+    /// With all five tracked, what is left is the projection itself — assembling a
+    /// <c>SaveGame</c> from live state, which is a different job from keeping the state.
+    /// </para>
     /// </remarks>
     public static bool CanSave(Game game, out string reason)
     {
         ArgumentNullException.ThrowIfNull(game);
 
-        reason = "This port cannot save yet: it does not track " + string.Join(", ", Untracked) +
-                 ". Saving now would lose all of it.";
+        // Every piece of live state a savegame carries is now tracked (Untracked is empty). What
+        // is missing is the assembly: turning the party, the world and the flags back into a
+        // SaveGame record. Until that exists this still refuses -- but for a different reason,
+        // and one that costs no gameplay to fix.
+        reason = Untracked.Length > 0
+            ? "This port cannot save yet: it does not track " + string.Join(", ", Untracked) + "."
+            : "This port cannot save yet: it tracks everything a save needs but cannot yet "
+              + "assemble the file.";
         return false;
     }
 
@@ -55,5 +65,5 @@ public static class SaveGameProjection
     /// built, and so this stops being the one place that has to be remembered.
     /// </remarks>
     public static readonly string[] Untracked =
-        ["the journal", "blockages", "vault contents"];
+        [];
 }

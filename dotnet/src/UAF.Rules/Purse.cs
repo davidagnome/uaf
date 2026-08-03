@@ -74,6 +74,14 @@ public sealed class Purse(MoneyRules rules)
         return purse;
     }
 
+    /// <summary>The record shape, for writing a purse back out.</summary>
+    /// <remarks>
+    /// <b>All ten coin slots, whatever the design uses.</b> <c>MONEY_SACK</c> blits a fixed array
+    /// (<c>MAX_MONEY_TYPES</c>), so an inactive denomination still occupies its slot and a writer
+    /// that emitted only the active ones would shift everything after it.
+    /// </remarks>
+    public MoneySack ToRecord() => new([.. coins], [.. gems], [.. jewelry]);
+
     public void Clear()
     {
         Array.Clear(coins);

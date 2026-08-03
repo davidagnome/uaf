@@ -101,12 +101,9 @@ public class SaveSlotTests
         // The reader and writer are both finished; the projection from live state is not. A .pty
         // with an empty visited map reads back cleanly into a party that has forgotten where it
         // has been, which is the worst kind of wrong.
-        Assert.NotEmpty(SaveGameProjection.Untracked);
-        Assert.Contains("the journal", SaveGameProjection.Untracked);
-
-        // Trigger flags and visited squares have both come off this list. The assertions are kept
-        // pointing at what remains rather than deleted: watching it shrink is the point.
-        Assert.DoesNotContain("event trigger flags", SaveGameProjection.Untracked);
-        Assert.DoesNotContain("visited squares", SaveGameProjection.Untracked);
+        // The list is empty now -- every piece of state a save carries is tracked. Saving is
+        // still refused, but for assembling the file rather than for having lost the contents,
+        // and the message says which.
+        Assert.Empty(SaveGameProjection.Untracked);
     }
 }

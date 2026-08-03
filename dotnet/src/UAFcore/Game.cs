@@ -127,6 +127,7 @@ public sealed class Game
             ? MoneyRules.FromDesign(currency)
             : MoneyRules.Default;
         Party = new Party { Pooled = new Purse(Money) };
+        Vaults = new GlobalVaults(Money);
 
         // A stand-in party -- see the remarks on the property.
         foreach (var member in design.Globals.Characters.Take(6))
@@ -356,6 +357,12 @@ public sealed class Game
 
     /// <summary>Which squares the party has stood on (<c>party.visitData</c>).</summary>
     public VisitedCells Visited { get; private set; } = new();
+
+    /// <summary>Which blockages the party has got past (<c>party.blockageData</c>).</summary>
+    public BlockageClearances Clearances { get; private set; } = new();
+
+    /// <summary>The fifteen global vaults (<c>globalData.vault</c>).</summary>
+    public GlobalVaults Vaults { get; private set; }
 
     /// <summary>The design's currency.</summary>
     public MoneyRules Money { get; }

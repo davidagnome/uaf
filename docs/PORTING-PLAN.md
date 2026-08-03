@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,941 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,960 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,45 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### Blockages and vaults — the last two, and one that was never missing
+
+**The journal was never missing.** `Party.Journal` has been live since the journal event was
+ported, filled by `EventJournal.Apply`, and is already the type the savegame's field takes. Naming
+it on the untracked list two rounds ago was an error, corrected here rather than quietly dropped —
+the list was written from the savegame record's field names without checking each against the
+engine, which is exactly the shortcut it was created to prevent.
+
+> **`BLOCKAGE_STATUS` is a list of *clearances*, not of blockages.** The class name says otherwise
+> and so does the comment beside the struct — "1 of these saved for each blockage removed" is the
+> only line that gets it right. Every accessor reads the other way: `IsSecret` returns **TRUE**
+> for a cell that is not in the list, because "not found means party has not cleared secret bit
+> for this spot yet" (`Char.cpp:574`). An empty list is a dungeon where nothing has been opened. A
+> port that read it as "these are the walls in the way" would have the entire map inverted and
+> every secret door already found.
+
+> **Every bit starts at 1 and is zeroed on clearing.** A new entry is created as `0xFFFF` and then
+> one bit is cleared, so a record's presence means only that *something* about that cell has been
+> dealt with — not that the cell is open.
+
+> **The bit groups are ordered North, South, East, West. The facings are North, East, South,
+> West.** `Char.h:53` against `Externs.h:1039`: transposed for East and South, and nothing in
+> either declaration hints at the other. Indexing the flags by the facing value means a secret
+> door found to the east opens one to the south and stays shut — a bug that would look like a
+> design error for as long as anyone cared to look.
+
+> **A vault is global and numbered, not per-level.** A `VAULT_EVENT_DATA` carries only a
+> `WhichVault` index, so two vault events naming the same number are two doors onto one store —
+> which is how a design hands a party its belongings back in a different town. Fifteen of them,
+> and the savegame writes every slot, so an empty vault is a record rather than an absence.
+
+`Purse.ToRecord` was added as the inverse of `Purse.FromRecord` — the projection needs it for
+characters and vaults alike, and **it writes all ten coin slots** because `MONEY_SACK` blits a
+fixed array; emitting only the active denominations would shift everything after them.
+
+**With these, every piece of live state a savegame carries is tracked.** `SaveGameProjection`
+still refuses, but the reason has changed from "the state is not kept" to "the file cannot yet be
+assembled" — and the second costs no gameplay work to fix.
+
 ##### Visited squares
 
 The second of the five, and the one an automap will want the moment it exists: a bit per square, a
@@ -3283,10 +3322,9 @@ work makes it easy to assume otherwise:
 
 > **The file works; the projection does not.** `SaveGameReader` and `SaveGameWriter` round-trip a
 > `.pty` byte for byte — that was Phase 1's exit criterion and it is met. But turning a *game in
-> progress* into a `SaveGame` needs live state this engine does not keep: **the journal** (the
-> design's entries are read and shown; which ones the party has collected is not tracked),
-> **blockages**, and **vault contents**. ~~Event trigger flags~~ and ~~visited squares~~ have both
-> come off this list — see §event trigger flags and §visited squares.
+> progress* into a `SaveGame` needed live state this engine did not keep. **That list is now
+> empty** — see §event trigger flags, §visited squares and §blockages and vaults. What remains is
+> the assembly itself, so saving is still refused, but for a reason that costs no gameplay work.
 
 > **A lossy save would be worse than none.** A `.pty` with an empty visited map and no trigger
 > flags is a perfectly valid file that reads back cleanly into a party that has forgotten where it
@@ -5999,12 +6037,17 @@ What is left, in order:
      live counterpart for **visited squares, event trigger flags, the journal, blockages or vault
      contents**, so saving is refused rather than done lossily.
 
-     **Two of the five are done**: event trigger flags (§event trigger flags), which also fixed a
-     live bug — `OnceOnly` now works — and visited squares (§visited squares). The three left are
-     **the journal, blockages and vaults**, and none of them is a subsystem: each is a list the
-     engine needs somewhere to put. With those, the projection can be written and **saving turned
-     on**, which is the milestone worth aiming at — it is what makes the port playable across
-     sessions rather than only within one.
+     **All of that state is now tracked** — trigger flags (which also fixed a live bug:
+     `OnceOnly` now works), visited squares, blockages and vaults; the journal turned out never to
+     have been missing. See §event trigger flags, §visited squares, §blockages and vaults.
+
+     **What is left is `SaveGameProjection` itself**: assembling a `SaveGame` from the live party,
+     world and flags, and applying one back on load. The pieces all exist and the file format is
+     finished at both ends, so this is transcription rather than discovery — the largest part is
+     projecting a live `Character` back onto its `CharacterRecord`, which means deciding, field by
+     field, which of the record's values the engine now owns. **That turns saving on**, and it is
+     the milestone worth aiming at: it makes the port playable across sessions rather than only
+     within one.
 
      After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
      subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,
