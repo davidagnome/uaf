@@ -17,7 +17,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,505 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,518 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3105,6 +3105,26 @@ Compilation is cached, failures included, matching the reference's `SPECAB_SCRIP
 broken script pays the error once rather than once per invocation. **The reference caches by
 overwriting the source with the bytecode**; this port caches beside it, which keeps the source
 readable and behaves identically.
+
+**The first caller is wired: scripted teleporter destinations.** `LoadedDesign.SpecialAbilities`
+loads the file, `Game.Scripts` compiles from it, and a transfer whose `destEP` is −3 now asks the
+design where it goes.
+
+> **The script *name* carries the arguments.** There is no parameter passing — the name is
+> `/level+1/x/y` and a design authors one script per source square, so fifty scripted teleporters
+> means fifty named scripts inside one ability and the lookup is an exact string match.
+
+> **The level is one-based in both directions.** The reference formats `destLevel + 1` into the
+> name and subtracts one from what it parses back, so a script written against the level number a
+> designer sees is correct.
+
+> **The answer must parse completely or nothing happens.** `sscanf(...) == 3` is the test, so a
+> two-number answer changes nothing rather than partially applying — though trailing text after
+> the third number is ignored, because `sscanf` stops once it has its three.
+
+One deliberate divergence: when no script matches, the reference logs "Cannot find
+TeleporterDestination" and then **transfers using the unresolved fields anyway** — to a square the
+design never named. This port refuses and says so.
 
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle

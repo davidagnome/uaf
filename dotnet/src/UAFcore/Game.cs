@@ -290,6 +290,20 @@ public sealed class Game
     /// <summary>Quest, special-item and key state.</summary>
     public WorldState World { get; }
 
+    private GlobalScripts? scripts;
+
+    /// <summary>The design's global scripts, compiled on demand.</summary>
+    public GlobalScripts Scripts => scripts ??= new GlobalScripts(design.SpecialAbilities);
+
+    private GameScriptHost? scriptHost;
+
+    /// <summary>The host those scripts talk to.</summary>
+    /// <remarks>
+    /// One per game rather than per call, because the hook-parameter block lives on it and a
+    /// caller leaves arguments there for the script to read.
+    /// </remarks>
+    public GameScriptHost ScriptHost => scriptHost ??= new GameScriptHost(this);
+
     /// <summary>
     /// Treasure staged by <c>COMBAT_TREASURE</c> events for the end of the fight
     /// (<c>globalData.combatTreasure</c>).
@@ -1289,11 +1303,19 @@ public sealed class Game
 
         if (destination.DestEntryPoint == ScriptedDestination)
         {
-            // The port has no run-a-global-script-by-name bridge, so the real destination cannot
-            // be found. Refusing beats arriving somewhere the design never named.
-            Message = "[teleporter destination comes from the TeleporterDestinations script, "
-                      + "which this port cannot run]";
-            return false;
+            // The three fields are arguments to a script named after them. A design that does not
+            // author one gets nothing -- the reference logs and then transfers to whatever the
+            // fields held, which is a square it never named; refusing is the safer half of that.
+            if (TeleporterDestinations.Resolve(destination, Scripts, ScriptHost) is not { } resolved)
+            {
+                Message = "[no TeleporterDestinations script for "
+                          + TeleporterDestinations.ScriptName(destination.DestLevel,
+                                                              destination.DestX, destination.DestY)
+                          + "]";
+                return false;
+            }
+
+            destination = resolved;
         }
 
         if (destination.DestLevel != LevelIndex)

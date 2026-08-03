@@ -40,6 +40,19 @@ public sealed class LoadedDesign : IDisposable
 
     public string Root { get; }
 
+    private List<SpecialAbility>? specialAbilities;
+
+    /// <summary>
+    /// The design's special abilities — where its GPDL scripts live.
+    /// </summary>
+    /// <remarks>
+    /// A design without a <c>specialAbilities.txt</c> is ordinary: it overrides no hook and every
+    /// one falls back on the built-in defaults. See <see cref="SpecialAbilitiesFile"/>.
+    /// </remarks>
+    public IReadOnlyList<SpecialAbility> SpecialAbilities =>
+        specialAbilities ??= SpecialAbilitiesFile.Load(
+            Path.Combine(Root, "Data", "specialAbilities.txt"));
+
     public GlobalStatsPrefix Globals { get; }
 
     public DesignConfig Config { get; }
