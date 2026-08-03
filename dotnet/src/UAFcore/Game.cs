@@ -162,6 +162,13 @@ public sealed class Game
         Runner.SaveToSlot = SaveToSlot;
         Runner.LoadFromSlot = LoadFromSlot;
 
+        Runner.AvailableCharacters = () => CharacterRoster.Build(
+            SaveDirectory, design.Globals.Characters, Party.Members.Select(m => m.Name));
+
+        Runner.ApplyRoster = ApplyRoster;
+        Runner.ActiveCharacterName = () => Party.Active?.Name ?? "THIS CHARACTER";
+        Runner.ApplyPartyConfirm = ApplyPartyConfirm;
+
         // The party menu's TRAIN entry is dark unless all three conditions hold, and it is
         // recomputed on every pass because TAB can change who is standing at the counter.
         TrainingRules RulesFor(Character who) =>
@@ -376,6 +383,116 @@ public sealed class Game
     /// is the one that can open a level.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Applies the roster's marks: marked characters join, unmarked ones leave.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both directions, in one pass over the roster.</b> The reference walks the whole list on
+    /// EXIT and adds or removes each entry according to its mark, so unstarring someone already in
+    /// the party is how you drop them from this screen — REMOVE CHARACTER is a second way to do
+    /// the same thing, not the only one.
+    /// </remarks>
+    private void ApplyRoster(CharacterRoster roster)
+    {
+        ArgumentNullException.ThrowIfNull(roster);
+
+        foreach (var entry in roster.Entries)
+        {
+            int seated = IndexOfMember(entry.Name);
+
+            if (entry.InParty && seated < 0)
+            {
+                if (Party.Count < Party.MaxMembers && RecordFor(entry) is { } record)
+                {
+                    Party.Add(new Character(record, Money));
+                }
+            }
+            else if (!entry.InParty && seated >= 0)
+            {
+                Party.RemoveAt(seated);
+            }
+        }
+
+        Party.ActiveCharacter = Math.Clamp(Party.ActiveCharacter, 0, Math.Max(Party.Count - 1, 0));
+    }
+
+    /// <summary>The record behind a roster entry, or null when its file cannot be read.</summary>
+    private CharacterRecord? RecordFor(RosterEntry entry)
+    {
+        if (entry.Source is RosterSource.PreGenerated)
+        {
+            return entry.DesignIndex >= 0 && entry.DesignIndex < design.Globals.Characters.Count
+                ? design.Globals.Characters[entry.DesignIndex]
+                : null;
+        }
+
+        try
+        {
+            return entry.Path is not null ? CharacterFileReader.Read(entry.Path).Character : null;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or EndOfStreamException)
+        {
+            Message = $"[{entry.Name} could not be read: {e.Message}]";
+            return null;
+        }
+    }
+
+    private int IndexOfMember(string name)
+    {
+        for (int i = 0; i < Party.Count; i++)
+        {
+            if (string.Equals(Party.Members[i].Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Answers REMOVE or DELETE (<c>RunEvent.cpp:2407</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>DELETE removes the file as well as the seat</b> (<c>purgeCharacter</c>,
+    /// <c>Party.cpp:2099</c>) — and it is the only irreversible thing on the party menu, which is
+    /// why it is the only one that asks twice over. A character with no name is left alone, as the
+    /// reference leaves it: there is no file to name.
+    /// </remarks>
+    private void ApplyPartyConfirm(EventRunner.PartyConfirm what)
+    {
+        if (Party.Active is not { } who)
+        {
+            return;
+        }
+
+        int index = Party.ActiveCharacter;
+
+        if (what is EventRunner.PartyConfirm.Delete && !string.IsNullOrEmpty(who.Name))
+        {
+            string prefix = who.Record.Type == NpcType ? CharacterRoster.NpcFilePrefix : "";
+            string path = Path.Combine(SaveDirectory, $"{prefix}{who.Name}.chr");
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Message = $"[{who.Name}'s file could not be deleted: {e.Message}]";
+            }
+        }
+
+        if (what is EventRunner.PartyConfirm.Remove or EventRunner.PartyConfirm.Delete)
+        {
+            Party.RemoveAt(index);
+            Party.ActiveCharacter = Math.Clamp(Party.ActiveCharacter, 0,
+                                               Math.Max(Party.Count - 1, 0));
+        }
+    }
+
+    /// <summary><c>NPC_TYPE</c> — whose saved file carries the <c>DCNPC_</c> prefix.</summary>
+    private const byte NpcType = 1;
+
     /// <summary>Writes the game into a slot; returns null on success or the reason it did not.</summary>
     /// <remarks>
     /// <b>The directory is created here rather than assumed.</b> A design that has never been
@@ -608,6 +725,14 @@ public sealed class Game
             Anchors = MenuAnchors.FromConfig(key =>
                 config.TryGetPoint(key, out int x, out int y, consume: false) ? (x, y) : null);
         }
+
+        // ITEMS_PER_PAGE, defaulting to 14 (Globals.cpp:2778). No shipped design sets it, so this
+        // is the default in practice -- but it is design configuration, and was a hardcoded 8.
+        Runner.PageSize = config.TryGetInts("ITEMS_PER_PAGE", out int[] perPage, count: 1,
+                                            consume: false)
+                          && perPage.Length > 0 && perPage[0] > 0
+            ? perPage[0]
+            : EventRunner.DefaultPageSize;
     }
 
     /// <summary>Handles one input event.</summary>

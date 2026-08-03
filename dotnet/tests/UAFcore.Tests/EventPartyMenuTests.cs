@@ -460,6 +460,233 @@ public class EventPartyMenuTests
         Assert.Equal(6, chosen);
     }
 
+    // ---- ADD, REMOVE and DELETE ----------------------------------------------------------------
+
+    private const int Add = 0;
+    private const int Remove = 1;
+    private const int Delete = 7;
+
+    private static readonly PicRecord NoIcon = new(0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    private static CharacterRecord Person(string name) =>
+        new(0, 0, 0, "human", 0, "fighter", 0, 0, 0, "", 0, name, "",
+            0, 0, 0, 0, 0, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, new AbilityScores(0, 0, 0, 0, 0, 0, 0),
+            0, 0, 0, 0, 0, 0, [], [], [], 1, 0, 0, null, 0,
+            null, 0, 0, 0, 0, 0, "", 0, "",
+            new SpellBook(0, []), 0, 0, [], [], NoIcon,
+            new ItemList([], ReadyItems.Empty), new SpecabBlock([], [], []), []);
+
+    private static EventRunner AtRoster(CharacterRoster roster,
+                                        Action<CharacterRoster>? applied = null)
+    {
+        var runner = Started();
+        runner.AvailableCharacters = () => roster;
+        runner.ApplyRoster = applied ?? (_ => { });
+
+        Choose(runner, HallYes);
+        Choose(runner, Add);
+        return runner;
+    }
+
+    [Fact]
+    public void Add_character_lists_who_can_join()
+    {
+        var roster = CharacterRoster.Build(null, [Person("Aramil"), Person("Cattie")]);
+        var runner = AtRoster(roster);
+
+        Assert.True(runner.RosterOpen);
+        Assert.Equal(["Aramil", "Cattie", "EXIT"], Labels(runner));
+    }
+
+    [Fact]
+    public void Choosing_a_name_stars_it_without_leaving()
+    {
+        var roster = CharacterRoster.Build(null, [Person("Aramil"), Person("Cattie")]);
+        var runner = AtRoster(roster);
+
+        Choose(runner, 1);
+
+        Assert.True(runner.RosterOpen);
+        Assert.Equal(["Aramil", "* Cattie", "EXIT"], Labels(runner));
+        Assert.True(roster.Entries[1].InParty);
+    }
+
+    [Fact]
+    public void Nothing_is_applied_until_EXIT()
+    {
+        // The whole point of the star: a player can browse and change their mind, and a mis-click
+        // costs nothing.
+        CharacterRoster? applied = null;
+        var roster = CharacterRoster.Build(null, [Person("Aramil")]);
+        var runner = AtRoster(roster, r => applied = r);
+
+        Choose(runner, 0);
+        Assert.Null(applied);
+
+        Choose(runner, 1);                       // EXIT
+
+        Assert.Same(roster, applied);
+        Assert.False(runner.RosterOpen);
+        Assert.True(runner.PartyMenuOpen);
+    }
+
+    [Fact]
+    public void Escape_leaves_the_roster_and_applies_it()
+    {
+        CharacterRoster? applied = null;
+        var roster = CharacterRoster.Build(null, [Person("Aramil")]);
+        var runner = AtRoster(roster, r => applied = r);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Escape));
+
+        Assert.Same(roster, applied);
+        Assert.False(runner.RosterOpen);
+    }
+
+    [Fact]
+    public void The_roster_pages_and_comes_back()
+    {
+        var roster = CharacterRoster.Build(
+            null, [.. Enumerable.Range(0, 10).Select(i => Person($"c{i:00}"))]);
+
+        var runner = Started();
+        runner.PageSize = 5;
+        runner.AvailableCharacters = () => roster;
+        runner.ApplyRoster = _ => { };
+        Choose(runner, HallYes);
+        Choose(runner, Add);
+
+        Assert.Equal(["c00", "c01", "c02", "NEXT --->", "EXIT"], Labels(runner));
+
+        Choose(runner, 3);                       // NEXT
+        Assert.Equal(["<--- PREV", "c03", "c04", "NEXT --->", "EXIT"], Labels(runner));
+
+        Choose(runner, 0);                       // PREV
+        Assert.Equal(["c00", "c01", "c02", "NEXT --->", "EXIT"], Labels(runner));
+    }
+
+    [Fact]
+    public void A_star_on_a_later_page_lands_on_the_right_character()
+    {
+        // A line's position is not the entry's index once the list pages.
+        var roster = CharacterRoster.Build(
+            null, [.. Enumerable.Range(0, 10).Select(i => Person($"c{i:00}"))]);
+
+        var runner = Started();
+        runner.PageSize = 5;
+        runner.AvailableCharacters = () => roster;
+        runner.ApplyRoster = _ => { };
+        Choose(runner, HallYes);
+        Choose(runner, Add);
+
+        Choose(runner, 3);                       // NEXT
+        Choose(runner, 1);                       // the first name on page two
+
+        Assert.True(roster.Entries[3].InParty);
+        Assert.All(roster.Entries.Where((_, i) => i != 3), e => Assert.False(e.InParty));
+    }
+
+    [Fact]
+    public void A_host_with_no_roster_leaves_add_named()
+    {
+        var runner = Started();
+        Choose(runner, HallYes);
+
+        Choose(runner, Add);
+
+        Assert.False(runner.RosterOpen);
+        Assert.Contains("ADD CHARACTER", runner.Unimplemented);
+    }
+
+    [Fact]
+    public void Remove_asks_before_it_acts_and_starts_on_no()
+    {
+        var runner = Started();
+        runner.ActiveCharacterName = () => "ARAMIL";
+        Choose(runner, HallYes);
+
+        Choose(runner, Remove);
+
+        Assert.Equal(EventRunner.PartyConfirm.Remove, runner.Confirming);
+        Assert.Equal(["YES", "NO"], Labels(runner));
+        Assert.Equal(1, runner.Menu.ActiveItem);
+        Assert.Contains("ARAMIL", BitmapFont.Decode(runner.Text.Lines[0].Text));
+    }
+
+    [Fact]
+    public void Saying_no_to_remove_does_nothing()
+    {
+        EventRunner.PartyConfirm? answered = null;
+        var runner = Started();
+        runner.ApplyPartyConfirm = what => answered = what;
+        Choose(runner, HallYes);
+        Choose(runner, Remove);
+
+        Choose(runner, 1);                       // NO
+
+        Assert.Null(answered);
+        Assert.Equal(EventRunner.PartyConfirm.None, runner.Confirming);
+        Assert.True(runner.PartyMenuOpen);
+    }
+
+    [Fact]
+    public void Saying_yes_to_remove_acts()
+    {
+        EventRunner.PartyConfirm? answered = null;
+        var runner = Started();
+        runner.ApplyPartyConfirm = what => answered = what;
+        Choose(runner, HallYes);
+        Choose(runner, Remove);
+
+        Choose(runner, 0);                       // YES
+
+        Assert.Equal(EventRunner.PartyConfirm.Remove, answered);
+        Assert.True(runner.PartyMenuOpen);
+    }
+
+    [Fact]
+    public void Delete_warns_that_it_is_permanent()
+    {
+        var runner = Started();
+        runner.ActiveCharacterName = () => "ARAMIL";
+        Choose(runner, HallYes);
+
+        Choose(runner, Delete);
+
+        Assert.Equal(EventRunner.PartyConfirm.Delete, runner.Confirming);
+        Assert.Contains("PERMANENTLY", BitmapFont.Decode(runner.Text.Lines[0].Text));
+    }
+
+    [Fact]
+    public void Escape_on_a_confirmation_is_no()
+    {
+        EventRunner.PartyConfirm? answered = null;
+        var runner = Started();
+        runner.ApplyPartyConfirm = what => answered = what;
+        Choose(runner, HallYes);
+        Choose(runner, Delete);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Escape));
+
+        Assert.Null(answered);
+        Assert.True(runner.PartyMenuOpen);
+    }
+
+    [Fact]
+    public void The_roster_and_the_question_do_not_leak_into_the_next_event()
+    {
+        var runner = Started();
+        Choose(runner, HallYes);
+        Choose(runner, Remove);
+        Assert.NotEqual(EventRunner.PartyConfirm.None, runner.Confirming);
+
+        runner.Begin(Hall(), Font(), Box, Anchors);
+
+        Assert.Equal(EventRunner.PartyConfirm.None, runner.Confirming);
+        Assert.False(runner.RosterOpen);
+    }
+
     [Fact]
     public void The_slot_screen_does_not_leak_into_the_next_event()
     {

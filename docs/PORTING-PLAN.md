@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,973 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,003 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,45 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### ADD, REMOVE and DELETE — and a page size that was never a constant
+
+Three of the party menu's five character entries run. Six of its twelve now do.
+
+> **`ITEMS_PER_PAGE` is design configuration, and the port had it as a hardcoded 8.** The reference
+> reads it from `config.txt` and falls back to **14** (`Globals.cpp:2778`). Every paged list in the
+> port — treasure, inventory, and now the roster — was six rows short, and the comment beside the
+> constant named the very token it was not reading. No shipped design sets it, so nothing in the
+> corpus would ever have contradicted the 8; what caught it was needing the same value for a third
+> screen and going to look up what it meant.
+
+> **The paging entries are part of the roster, not a control strip beside it.** `<--- PREV` takes
+> the first line when there is a page behind, `NEXT --->` the last-but-one when there is a page
+> ahead, and `EXIT` is always last — so how many characters fit depends on which of those are
+> showing. That is the exact opposite of the inventory, where paging is a fixed menu of commands
+> next to a fixed list. Two screens, two conventions, one page size.
+
+> **Stepping back never leaves a single character behind.** `first -= Items_Per_Page - 2` can land
+> on exactly 1, which would draw a `PREV` line for one character; the reference special-cases it
+> to zero rather than allow it.
+
+> **Nothing is applied until EXIT.** Selecting a name toggles a `*` and redraws; leaving adds every
+> marked character and removes every unmarked one, in one pass. So unstarring someone already in
+> the party is a second way to drop them — REMOVE CHARACTER is not the only one.
+
+> **The roster is sorted, and the reason is in the comment.** A bubble sort by name, case
+> insensitive, "so that their order will not depend on the operating system that supplied the file
+> names". Directory enumeration order is not stable across platforms, and a roster that reorders
+> itself between machines is one a player cannot learn.
+
+> **A saved NPC's file is `DCNPC_<name>.chr`.** The roster shows the character's name, not the
+> file's — and `purgeCharacter` reassembles the same prefix when deleting, which is why DELETE has
+> to know the character's type.
+
+> **The yes/no answer comes back through the trade slot.** `party.tradeItem == 1` means yes
+> (`RunEvent.cpp:2408`) — the item-trading register doubles as the answer register, which is why
+> `tradeItem` is in the saved `PARTY` record at all. The port keeps the question as state on the
+> runner instead, and the confirmation opens on **NO**.
+
 ##### Saving works
 
 A game in progress writes to a slot and loads back. `SaveGameProjection` assembles the record,
@@ -6091,11 +6130,13 @@ What is left, in order:
      ~~**What is left is `SaveGameProjection` itself.**~~ **Done — saving works** (§saving works).
      A game writes to a slot and loads back, and the port is playable across sessions.
 
-     **What that leaves on this menu is the character-creation family** — ADD, REMOVE, CREATE,
-     DELETE and MODIFY, five entries over one subsystem, and the largest single piece of the event
-     layer still unbuilt. After it: the single-caller screens — magic, rest, alter, journal, buy,
-     appraise, heal, donate — and **reloading the level on load**, which is the one loose end
-     saving left behind.
+     **ADD, REMOVE and DELETE run** (§ADD, REMOVE and DELETE), so six of the party menu's twelve
+     entries do. What is left there is **CREATE and MODIFY — the character generator**: race,
+     gender, class, ability rolls, name and icon, one subsystem behind two entries and the largest
+     single piece of the event layer still unbuilt.
+
+     After it: the single-caller screens — magic, rest, alter, journal, buy, appraise, heal,
+     donate — and **reloading the level on load**, the one loose end saving left behind.
 
      After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
      subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,

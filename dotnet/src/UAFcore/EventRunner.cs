@@ -139,6 +139,9 @@ public sealed class EventRunner
         LastTraining = null;
         Slots = null;
         SlotMessage = null;
+        Roster = null;
+        rosterLines = [];
+        Confirming = PartyConfirm.None;
 
         return gameEvent switch
         {
@@ -376,7 +379,7 @@ public sealed class EventRunner
     public IReadOnlyList<InventoryRow> InventoryPageRows =>
         InventoryRows is null
             ? []
-            : [.. InventoryRows.Skip(InventoryPage * TreasurePageSize).Take(TreasurePageSize)];
+            : [.. InventoryRows.Skip(InventoryPage * PageSize).Take(PageSize)];
 
     /// <summary>
     /// Which row of the page the cursor is on (<c>party.activeItem</c>).
@@ -403,7 +406,7 @@ public sealed class EventRunner
             InventoryRowIndex = Math.Max(page.Count - 1, 0);
         }
 
-        Items = new ItemsForm(TreasurePageSize);
+        Items = new ItemsForm(PageSize);
         if (font is not null)
         {
             // READY on and COST off: this is a pack, not a shop's shelf. A shop turns the price
@@ -449,7 +452,7 @@ public sealed class EventRunner
     {
         int count = InventoryRows?.Count ?? 0;
 
-        if (delta > 0 && (InventoryPage + 1) * TreasurePageSize >= count)
+        if (delta > 0 && (InventoryPage + 1) * PageSize >= count)
         {
             return;
         }
@@ -908,6 +911,168 @@ public sealed class EventRunner
     /// <summary>Why the last save or load did not happen, or null if it did.</summary>
     public string? SlotMessage { get; private set; }
 
+    // ---- ADD, REMOVE and DELETE ----------------------------------------------------------------
+
+    /// <summary>The roster, while ADD CHARACTER is showing it.</summary>
+    public CharacterRoster? Roster { get; private set; }
+
+    /// <summary>Whether the roster is the screen on top.</summary>
+    public bool RosterOpen => Roster is not null;
+
+    /// <summary>Which roster entry each menu line stands for.</summary>
+    private List<RosterMenuLine> rosterLines = [];
+
+    /// <summary>Which entry the page starts at.</summary>
+    private int rosterFirst;
+
+    /// <summary>Builds the roster; set by the host, which knows the design and the save folder.</summary>
+    public Func<CharacterRoster>? AvailableCharacters { get; set; }
+
+    /// <summary>Applies the roster's marks; set by the host.</summary>
+    public Action<CharacterRoster>? ApplyRoster { get; set; }
+
+    /// <summary>
+    /// <c>ADD_CHARACTER_DATA</c> (<c>RunEvent.cpp:3192</c>) — every character available to join.
+    /// </summary>
+    private EventStep OpenRoster()
+    {
+        if (AvailableCharacters?.Invoke() is not { } roster)
+        {
+            Unimplemented = "[ADD CHARACTER here -- not implemented]";
+            return EventStep.Running;
+        }
+
+        Roster = roster;
+        rosterFirst = 0;
+        FillRosterMenu();
+        return EventStep.Running;
+    }
+
+    private void FillRosterMenu()
+    {
+        if (Roster is null)
+        {
+            return;
+        }
+
+        rosterLines = RosterMenu.Lines(Roster, rosterFirst, PageSize);
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical,
+                       [.. rosterLines.Select(l => (l.Label, l.Kind is RosterLine.Exit ? 1 : 0))]);
+
+        escapeSelects = rosterLines.Count - 1;   // EXIT is always last
+    }
+
+    /// <summary>
+    /// <c>ADD_CHARACTER_DATA::OnKeypress</c> (<c>RunEvent.cpp:3003</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Nothing is applied until EXIT.</b> Selecting a name toggles a mark and redraws; leaving
+    /// adds every marked character and removes every unmarked one. A player can browse the whole
+    /// roster and change their mind, and a mis-click costs nothing.
+    /// </remarks>
+    private EventStep ChooseRoster()
+    {
+        if (Roster is null || Menu.ActiveItem < 0 || Menu.ActiveItem >= rosterLines.Count)
+        {
+            return EventStep.Running;
+        }
+
+        var line = rosterLines[Menu.ActiveItem];
+
+        switch (line.Kind)
+        {
+            case RosterLine.Previous:
+                rosterFirst = RosterMenu.PreviousPage(rosterFirst, PageSize);
+                FillRosterMenu();
+                return EventStep.Running;
+
+            case RosterLine.Next:
+                rosterFirst += rosterLines.Count(l => l.Kind is RosterLine.Character);
+                FillRosterMenu();
+                return EventStep.Running;
+
+            case RosterLine.Character:
+                Roster.Toggle(line.Index);
+                FillRosterMenu();
+                return EventStep.Running;
+
+            default:
+            {
+                ApplyRoster?.Invoke(Roster);
+                Roster = null;
+                rosterLines = [];
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+                UpdatePartyMenu();
+                escapeSelects = PartyExit;
+                return EventStep.Running;
+            }
+        }
+    }
+
+    /// <summary>Which confirmation the yes/no screen is asking.</summary>
+    public enum PartyConfirm
+    {
+        None = 0,
+
+        /// <summary>Drop the active character from the party.</summary>
+        Remove,
+
+        /// <summary>Drop them and delete their saved file.</summary>
+        Delete,
+    }
+
+    /// <summary>What the yes/no screen on top is asking, or <see cref="PartyConfirm.None"/>.</summary>
+    public PartyConfirm Confirming { get; private set; }
+
+    /// <summary>Answers a confirmation; set by the host, which owns the party and the files.</summary>
+    public Action<PartyConfirm>? ApplyPartyConfirm { get; set; }
+
+    /// <summary>The active character's name, for the question; set by the host.</summary>
+    public Func<string>? ActiveCharacterName { get; set; }
+
+    /// <summary>
+    /// Puts a yes/no question over the party menu (<c>ASK_YES_NO_MENU_DATA</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The answer comes back through the trade slot.</b> The reference reads
+    /// <c>party.tradeItem == 1</c> to mean yes (<c>RunEvent.cpp:2408</c>) — the item-trading
+    /// register doubles as the yes/no answer, which is why <c>tradeItem</c> is in the saved
+    /// <c>PARTY</c> record at all. Here the question is state on the runner instead.
+    /// </remarks>
+    private EventStep AskAbout(PartyConfirm what, string question)
+    {
+        Confirming = what;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+
+        escapeSelects = 1;                       // NO
+        Menu.SetCurrentItem(1);                  // ...and it starts there
+        ShowText(string.Format(question, ActiveCharacterName?.Invoke() ?? "THIS CHARACTER"));
+
+        return EventStep.Running;
+    }
+
+    private EventStep AnswerConfirm()
+    {
+        if (Menu.ActiveItem == 0)
+        {
+            ApplyPartyConfirm?.Invoke(Confirming);
+        }
+
+        Confirming = PartyConfirm.None;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+        UpdatePartyMenu();
+        escapeSelects = PartyExit;
+        return EventStep.Running;
+    }
+
     /// <summary>
     /// <c>MAIN_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:1968</c>).
     /// </summary>
@@ -929,6 +1094,16 @@ public sealed class EventRunner
 
             case PartyLoad:
                 return OpenSlots(saving: false);
+
+            case PartyAdd:
+                return OpenRoster();
+
+            case PartyRemove:
+                return AskAbout(PartyConfirm.Remove, "REMOVE {0} FROM PARTY?");
+
+            case PartyDelete:
+                return AskAbout(PartyConfirm.Delete,
+                                "{0} WILL BE PERMANENTLY REMOVED. CONTINUE?");
 
             case PartyTrain when partyMenuHall is { } hall:
             {
@@ -1361,8 +1536,28 @@ public sealed class EventRunner
     /// <summary>The character sheet, while VIEW is showing it.</summary>
     public CharStatsForm? Stats { get; private set; }
 
-    /// <summary>How many rows the treasure list shows at once (<c>Items_Per_Page</c>).</summary>
-    public const int TreasurePageSize = 8;
+    /// <summary>
+    /// How many rows a paged list shows at once (<c>Items_Per_Page</c>, <c>Globals.cpp:141</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It is design configuration, not a constant.</b> The reference reads
+    /// <c>ITEMS_PER_PAGE</c> out of <c>config.txt</c> and falls back to 14
+    /// (<c>Globals.cpp:2778</c>). This was a hardcoded 8 for as long as there was a treasure
+    /// screen, which is neither the default nor anything a design asked for — every paged list in
+    /// the port was six rows short, and the comment beside it named the very constant it was not
+    /// using.
+    /// </para>
+    /// <para>
+    /// No shipped design in the corpus sets the token, so in practice this is always 14; the
+    /// plumbing exists because the reference's does and because the value reaching the form is
+    /// what makes it visible when it is wrong.
+    /// </para>
+    /// </remarks>
+    public int PageSize { get; set; } = DefaultPageSize;
+
+    /// <summary>What <c>ITEMS_PER_PAGE</c> falls back to when a design does not set it.</summary>
+    public const int DefaultPageSize = 14;
 
     /// <summary>
     /// The six entries, zero-based. The reference's <c>setItemInactive</c> takes these one-based,
@@ -1399,7 +1594,7 @@ public sealed class EventRunner
         string message = ArchiveStringConventions.Decode(treasure.Base.Text ?? string.Empty);
         ShowText(message.Length > 0 ? message : "You Have Found Treasure!");
 
-        Items = new ItemsForm(TreasurePageSize);
+        Items = new ItemsForm(PageSize);
         var rows = new List<ItemsFormRow>();
         foreach (var carried in treasure.Items.Items)
         {
@@ -1615,7 +1810,8 @@ public sealed class EventRunner
 
         // The party menu is the mirror image: VMenuHPartyKeyboardAction gives the menu the
         // vertical keys and the party the horizontal ones (RunEvent.cpp:1973).
-        if (PartyMenuOpen && !SlotsOpen && input.Kind == InputEventKind.KeyDown
+        if (PartyMenuOpen && !SlotsOpen && !RosterOpen && Confirming is PartyConfirm.None
+            && input.Kind == InputEventKind.KeyDown
             && input.Key is VirtualKey.Left or VirtualKey.Right)
         {
             TabParty?.Invoke();
@@ -1659,10 +1855,21 @@ public sealed class EventRunner
             return ChooseInventory();
         }
 
-        // The slot screen sits over the party menu, so it answers first.
+        // The slot screen sits over the party menu, so it answers first. So do the roster and
+        // the two confirmations, which are the party menu's other pushed screens.
         if (SlotsOpen)
         {
             return ChooseSlots();
+        }
+
+        if (RosterOpen)
+        {
+            return ChooseRoster();
+        }
+
+        if (Confirming is not PartyConfirm.None)
+        {
+            return AnswerConfirm();
         }
 
         // So does the party menu, which the training hall pushes over itself.

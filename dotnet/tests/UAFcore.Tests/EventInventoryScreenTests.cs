@@ -68,11 +68,20 @@ public class EventInventoryScreenTests
 
     private const int VaultItems = 4;
 
+    /// <summary>How many rows these tests give the screen.</summary>
+    /// <remarks>
+    /// Stated rather than inherited: the page size is design configuration (<c>ITEMS_PER_PAGE</c>),
+    /// so a test that assumes the default silently changes meaning when the default does. Eight
+    /// keeps the arithmetic below small enough to read.
+    /// </remarks>
+    private const int Page = 8;
+
     private static EventRunner Started(ItemList? carried, Action<ItemList>? onChange = null)
     {
         ItemList? held = carried;
         var runner = new EventRunner
         {
+            PageSize = Page,
             IsValidEvent = _ => true,
             ItemDatabase = Database,
             ActiveCharacterItems = () => held,
@@ -205,18 +214,18 @@ public class EventInventoryScreenTests
         Assert.Equal("FINGER", runner.InventoryRows![0].Ready);
     }
 
-    /// <summary>Ten items: a full page of eight and a short one of two.</summary>
-    private static ItemList TenItems() =>
-        Carrying([.. Enumerable.Range(0, 10).Select(i => Item($"item{i}"))]);
+    /// <summary>A full page and two over, so there is a short second page.</summary>
+    private static ItemList TwoPages() =>
+        Carrying([.. Enumerable.Range(0, Page + 2).Select(i => Item($"item{i}"))]);
 
     [Fact]
     public void The_list_pages_and_stops_at_both_ends()
     {
-        var runner = Started(TenItems());
+        var runner = Started(TwoPages());
         Choose(runner, VaultItems);
 
         Assert.Equal(0, runner.InventoryPage);
-        Assert.Equal(EventRunner.TreasurePageSize, runner.InventoryPageRows.Count);
+        Assert.Equal(Page, runner.InventoryPageRows.Count);
 
         Choose(runner, (int)InventoryCommand.Next);
         Assert.Equal(1, runner.InventoryPage);
@@ -237,7 +246,7 @@ public class EventInventoryScreenTests
     [Fact]
     public void The_page_keys_turn_the_page_as_the_menu_entries_do()
     {
-        var runner = Started(TenItems());
+        var runner = Started(TwoPages());
         Choose(runner, VaultItems);
 
         runner.Handle(InputEvent.KeyDown(VirtualKey.PageDown));
@@ -251,7 +260,7 @@ public class EventInventoryScreenTests
     public void Up_and_down_move_the_row_while_the_menu_keeps_the_horizontal_ones()
     {
         // The one screen where the arrow keys are split between two things at once.
-        var runner = Started(TenItems());
+        var runner = Started(TwoPages());
         Choose(runner, VaultItems);
 
         int menuBefore = runner.Menu.ActiveItem;
@@ -269,12 +278,12 @@ public class EventInventoryScreenTests
     [Fact]
     public void The_row_cursor_wraps_within_the_page_rather_than_onto_the_next()
     {
-        var runner = Started(TenItems());
+        var runner = Started(TwoPages());
         Choose(runner, VaultItems);
 
         runner.Handle(InputEvent.KeyDown(VirtualKey.Up));
 
-        Assert.Equal(EventRunner.TreasurePageSize - 1, runner.InventoryRowIndex);
+        Assert.Equal(Page - 1, runner.InventoryRowIndex);
         Assert.Equal(0, runner.InventoryPage);
     }
 
@@ -283,7 +292,7 @@ public class EventInventoryScreenTests
     {
         // Eight rows on the first page, two on the second: a cursor left on row 7 has nowhere to
         // stand once the page turns.
-        var runner = Started(TenItems());
+        var runner = Started(TwoPages());
         Choose(runner, VaultItems);
 
         runner.Handle(InputEvent.KeyDown(VirtualKey.Up));       // row 7, the last of the page
@@ -296,7 +305,7 @@ public class EventInventoryScreenTests
     public void The_row_the_cursor_is_on_is_the_one_that_is_readied()
     {
         ItemList? applied = null;
-        var runner = Started(TenItems(), changed => applied = changed);
+        var runner = Started(TwoPages(), changed => applied = changed);
         Choose(runner, VaultItems);
 
         runner.Handle(InputEvent.KeyDown(VirtualKey.Down));
@@ -313,7 +322,7 @@ public class EventInventoryScreenTests
     {
         // The row index is not the item index once the list pages -- which is why a row carries
         // the item's own index rather than relying on its position.
-        var many = Carrying([.. Enumerable.Range(0, 10).Select(i => Item($"item{i}"))]);
+        var many = TwoPages();
         ItemList? applied = null;
         var runner = Started(many, changed => applied = changed);
         Choose(runner, VaultItems);
@@ -323,8 +332,8 @@ public class EventInventoryScreenTests
 
         // The ninth item -- the first on the second page -- and nothing on the first page.
         Assert.NotNull(applied);
-        Assert.Equal(Ring, applied!.Items[EventRunner.TreasurePageSize].ReadyLocation);
-        Assert.All(applied.Items.Take(EventRunner.TreasurePageSize),
+        Assert.Equal(Ring, applied!.Items[Page].ReadyLocation);
+        Assert.All(applied.Items.Take(Page),
                    i => Assert.Equal(Inventory.NotReady, i.ReadyLocation));
     }
 
