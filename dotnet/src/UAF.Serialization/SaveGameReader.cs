@@ -23,12 +23,21 @@ public sealed record PartyState(
     byte TradeItem, byte TradeGiver, int TradeQuantity,
     byte SkillLevel, byte CharacterCount, int MoneyPooled);
 
+/// <summary>
+/// One event's trigger record (<c>TRIGGER_FLAGS</c>) — two <c>int</c>s under its key.
+/// </summary>
+/// <param name="StatusUnused">
+/// The first of the two, which the engine itself calls <c>eventStatusUnused</c>. Nothing reads it;
+/// it is kept because it is written, and a writer has to put something back.
+/// </param>
+public sealed record TriggerFlags(uint Key, int StatusUnused, int Result);
+
 /// <summary>One level's event-trigger flags (<c>LEVEL_FLAG_DATA</c>, <c>Party.cpp:4400</c>).</summary>
 /// <remarks>
 /// <c>StepCounts</c> is a raw blit of <c>STEP_COUNTER</c> — 16 <c>unsigned long</c>s, one per zone
 /// (<c>Externs.h:858</c>) — not a serialized field list, so it is 64 bytes regardless of content.
 /// </remarks>
-public sealed record LevelFlags(uint[] StepCounts, IReadOnlyDictionary<uint, int> EventResults);
+public sealed record LevelFlags(uint[] StepCounts, IReadOnlyList<TriggerFlags> EventResults);
 
 /// <summary>Which cells of a level the party has seen (<c>VISIT_DATA</c>).</summary>
 /// <remarks>
@@ -340,15 +349,15 @@ public static class SaveGameReader
             }
 
             int flagCount = ar.ReadInt32();
-            var results = new Dictionary<uint, int>(Math.Max(flagCount, 0));
+            var results = new List<TriggerFlags>(Math.Max(flagCount, 0));
             for (int f = 0; f < flagCount; f++)
             {
                 uint key = ar.ReadUInt32();
 
                 // TRIGGER_FLAGS is two ints, the first of which the engine itself calls
-                // eventStatusUnused (Party.cpp:TRIGGER_FLAGS::Serialize).
-                ar.ReadInt32();
-                results[key] = ar.ReadInt32();
+                // eventStatusUnused (Party.cpp:TRIGGER_FLAGS::Serialize). Both are kept -- the
+                // unused one is still on the wire.
+                results.Add(new TriggerFlags(key, ar.ReadInt32(), ar.ReadInt32()));
             }
 
             levels.Add(new LevelFlags(stepCounts, results));
