@@ -126,6 +126,7 @@ public sealed class EventRunner
         Items = null;
         Stats = null;
         TakeRequested = false;
+        escapeSelects = null;
 
         return gameEvent switch
         {
@@ -147,9 +148,93 @@ public sealed class EventRunner
             SoundEvent sound => BeginPressEnter(sound.Base.Text, anchors),
             WhoPaysEvent toll => BeginWhoPays(toll, anchors),
             LogicBlockEvent logic => BeginLogicBlock(logic),
+            SmallTownEvent town => BeginSmallTown(town, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
+
+    /// <summary>
+    /// <c>SMALL_TOWN_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:10709</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The hub the other town services hang off, and the cheapest of them: a horizontal menu of
+    /// six destinations and an exit, with the event's own text above it. Nothing about the party
+    /// changes here — every entry is a chain.
+    /// </para>
+    /// <para>
+    /// <b>The menu is <i>horizontal</i></b> (<c>menu.setHorzOrient()</c>), which no other event
+    /// this runner presents is. The shortcut indices are the table's own and are not first
+    /// letters: <c>TRAINING HALL</c> uses index 9, the <c>H</c> of "HALL", because <c>T</c> is
+    /// already <c>TEMPLE</c>'s.
+    /// </para>
+    /// <para>
+    /// <b>Escape maps to EXIT</b> (<c>MapKeyCodeToMenuItem(KC_ESCAPE, 7)</c>) rather than
+    /// cancelling the event, so a player who backs out of a town still runs its chain.
+    /// </para>
+    /// </remarks>
+    private EventStep BeginSmallTown(SmallTownEvent town, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal,
+                       ("TEMPLE", 0), ("TRAINING HALL", 9), ("SHOP", 0), ("INN", 0),
+                       ("PUB", 0), ("VAULT", 0), ("EXIT", 1));
+
+        escapeSelects = SmallTownExit;
+        ShowText(town.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>The six destinations, in menu order (<c>SmallTownMenu</c>, <c>GameMenu.cpp:211</c>).</summary>
+    private static uint DestinationOf(SmallTownEvent town, int item) => item switch
+    {
+        0 => town.TempleChain,
+        1 => town.TrainingHallChain,
+        2 => town.ShopChain,
+        3 => town.InnChain,
+        4 => town.TavernChain,           // the menu says PUB
+        5 => town.VaultChain,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// <c>SMALL_TOWN_DATA::OnKeypress</c> (<c>RunEvent.cpp:10721</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A destination that names no event does not fall back on the town's own chain.</b> The
+    /// reference pushes a <c>DO_NOTHING_EVENT</c>, which returns to the town screen — so choosing
+    /// SHOP in a town with no shop leaves the player exactly where they were. Only EXIT chains.
+    /// </remarks>
+    private EventStep ChooseSmallTown(SmallTownEvent town)
+    {
+        int chosen = Menu.ActiveItem;
+
+        if (chosen == SmallTownExit)
+        {
+            return Complete(happened: true);
+        }
+
+        uint destination = DestinationOf(town, chosen);
+        if (destination == 0 || IsValidEvent?.Invoke(destination) == false)
+        {
+            // DO_NOTHING_EVENT: the screen stays up.
+            return EventStep.Running;
+        }
+
+        Current = null;
+        return EventStep.To(destination);
+    }
+
+    /// <summary>The EXIT item's index in the small-town menu.</summary>
+    public const int SmallTownExit = 6;
+
+    /// <summary>
+    /// Whether an id names an event this level holds; set by the host, which owns the level.
+    /// </summary>
+    /// <remarks>
+    /// Without it every destination is taken at face value, which is the right default for a
+    /// caller that has already checked.
+    /// </remarks>
+    public Func<uint, bool>? IsValidEvent { get; set; }
 
     /// <summary>
     /// Runs a logic block; set by the host, which owns the state its terminals read and write.
@@ -694,17 +779,30 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // menu.MapKeyCodeToMenuItem: a key that selects an item and commits it in one press,
+        // rather than moving the selection. Only the town screens use it, and only for Escape.
+        if (escapeSelects is int escapeItem
+            && input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Escape)
+        {
+            Menu.SetCurrentItem(escapeItem);
+            return Commit();
+        }
+
         // Anything that is not a commit goes to the menu, exactly as every OnKeypress does.
         var result = MenuInput.Handle(Menu, input);
         bool committed = result == MenuInputResult.Accepted
                          || (input.Kind == InputEventKind.KeyDown
                              && input.Key == VirtualKey.Return);
 
-        if (!committed)
-        {
-            return EventStep.Running;
-        }
+        return committed ? Commit() : EventStep.Running;
+    }
 
+    /// <summary>Set by an event whose Escape selects a menu item instead of doing nothing.</summary>
+    private int? escapeSelects;
+
+    /// <summary>Acts on the selected menu item, once something has committed it.</summary>
+    private EventStep Commit()
+    {
         // Long text pages before the event finishes -- Return advances the box first.
         if (!Text.IsLastBox())
         {
@@ -737,6 +835,7 @@ public sealed class EventRunner
             RemoveNpcEvent remove => Applied(() => ApplyRemoveNpc?.Invoke(remove)),
             SoundEvent sound => Applied(() => ApplySound?.Invoke(sound)),
             WhoPaysEvent toll => FinishWhoPays(toll),
+            SmallTownEvent town => ChooseSmallTown(town),
             _ => Complete(happened: true),
         };
     }
