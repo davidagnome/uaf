@@ -13,14 +13,14 @@ written whole; **30 of the 44 event types write, covering every one of the 4,705
 shipped level**. The remaining 14 event types appear in no shipped design at all.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes twenty-six of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes twenty-seven of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,739 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,752 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,38 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### A logic block, running, as ported
+
+`LogicBlockRun`, `GameLogicBlockHost` and the `EventRunner` case — **`LogicBlock` now executes**,
+which takes the event layer from 26 of 44 types to 27 and closes the most frequent inert one: 52
+occurrences, more than any other unimplemented type.
+
+The three halves were built separately and unwired on purpose — gates, then inputs, then actions —
+because a gate network fed all-false inputs takes a branch rather than failing visibly. This joins
+them, and two details only became testable once it did:
+
+> **The working slots are filled as the network reads them.** A terminal's parameter can name an
+> earlier terminal's result through `&A`‥`&L`, so the slot array has to be updated *during*
+> evaluation rather than after it. The actions then see the whole array, which is how a design
+> writes a computed value into an attribute.
+
+> **A logic block is the only event type that draws nothing at all.** No text, no menu, no
+> keypress — it finishes inside `Begin` and never reaches `Handle`, the same shape as a question
+> whose options are all empty. And its chaining is not the ordinary chain: only
+> `LogicBlockChaining.Always` defers to `chainEventHappen`; `OnResult` replaces the block with its
+> own target and `Never` ends the run.
+
+Two seams the host had to invent, both recorded rather than hidden:
+
+> **A logic block names a quest; everything else in the engine uses its id.** `questData.GetStage`
+> takes the name, where a `QUEST_EVENT_DATA` carries a packed id and `WorldState` is keyed by it.
+> `GameLogicBlockHost` takes the design's name→id map at construction — the only place the two
+> meet.
+
+> **`global_asl` and `temp_asl` are two lists in the reference and one store here.** They are kept
+> apart by a key prefix that a design cannot write, rather than merged, because a design that
+> writes a temporary and reads a global expects to see nothing.
+
 ##### A logic block's actions, as ported
 
 `LogicBlockActions` — `ProcessLBAction`'s twelve action types (`RunEvent.cpp:14157`), the result
@@ -5551,15 +5583,14 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and twenty-six execute. The other 18 draw
+   reads (§the event layer), and twenty-seven execute. The other 17 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
-   - **`LogicBlock` (52)** — **all three parts are ported and tested**: the gate network, the
-     sixteen input terminals and the twelve actions (`LogicBlock.cs`, `LogicBlockInputs.cs`,
-     `LogicBlockActions.cs`; §a logic block's inputs and §its actions). What remains is **wiring
-     it into the event runner** — an `ILogicBlockActionHost` over `Game`, and the call site that
-     evaluates a block and follows its chain. `LBIT_RunTimeIf` wants the runtime keyword table and
-     the four GPDL terminals and actions want a script runner; everything else runs.
+   - ~~**`LogicBlock` (52)**~~ — **done, and running** (§a logic block, running). The gate
+     network, the sixteen terminals, the twelve actions and the runner wiring, with a
+     `GameLogicBlockHost` over `Game`. `LBIT_RunTimeIf` wants the runtime keyword table and the
+     four GPDL terminals and actions want a script runner; everything else runs. This was the most
+     frequent inert type in the corpus.
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
@@ -5632,7 +5663,7 @@ the round both call and neither has.
 |---|---|---|
 | ~~**`ArchiveWriter`**~~ | **Done.** All six record types, every shared leaf, both halves of the `CAR` write path, 30 of the 44 event bodies, and the four whole-file framings — `.chr`, `.lvl`, `game.dat`, `.pty`. Three shipped databases are reproduced byte for byte and everything else round-trips. **Phase 1's exit criterion is met**, and Phase 5 is unblocked | — |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
+| **17 event types are read but not executed** | Every type now has a reader and 27 execute. `LogicBlock` — the most frequent of them at 52 — now runs; what is left is the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
 | **Global script hooks** | **`CombatPlacement` is done** — the parser, `RunGlobalScript`, both sub-opcodes and the call site. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes now that the bridge exists | Small |

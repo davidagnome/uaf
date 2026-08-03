@@ -146,9 +146,58 @@ public sealed class EventRunner
             RemoveNpcEvent remove => BeginPressEnter(remove.Base.Text, anchors),
             SoundEvent sound => BeginPressEnter(sound.Base.Text, anchors),
             WhoPaysEvent toll => BeginWhoPays(toll, anchors),
+            LogicBlockEvent logic => BeginLogicBlock(logic),
             _ => BeginUnsupported(gameEvent),
         };
     }
+
+    /// <summary>
+    /// Runs a logic block; set by the host, which owns the state its terminals read and write.
+    /// </summary>
+    public Func<LogicBlockEvent, LogicBlockOutcome>? ResolveLogicBlock { get; set; }
+
+    /// <summary>
+    /// <c>LOGIC_BLOCK_DATA</c> (<c>ProcessLogicBlock</c>, <c>RunEvent.cpp:14360</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The only event type that draws nothing at all.</b> It has no text, no menu and no
+    /// keypress — it evaluates, writes what its actions write, and decides where the run goes
+    /// next. So it finishes inside <see cref="Begin"/> and never reaches
+    /// <see cref="Handle"/>, which is the same shape as a question whose options are all empty.
+    /// </para>
+    /// <para>
+    /// <b>Its chaining is not the ordinary chain.</b> Under
+    /// <see cref="LogicBlockChaining.OnResult"/> the block replaces itself with its own true or
+    /// false target and <c>chainEventHappen</c> is never consulted; under
+    /// <see cref="LogicBlockChaining.Never"/> the run simply ends. Only
+    /// <see cref="LogicBlockChaining.Always"/> defers to <see cref="Complete"/>.
+    /// </para>
+    /// </remarks>
+    private EventStep BeginLogicBlock(LogicBlockEvent logic)
+    {
+        if (ResolveLogicBlock is null)
+        {
+            return BeginUnsupported(logic);
+        }
+
+        var outcome = ResolveLogicBlock(logic);
+        LastLogicBlock = outcome;
+
+        if (outcome.ChainsNormally)
+        {
+            return Complete(happened: true);
+        }
+
+        Current = null;
+        return outcome.ChainTo is uint id ? EventStep.To(id) : EventStep.Finished;
+    }
+
+    /// <summary>
+    /// What the last logic block produced, for a design that asked to record its terminals
+    /// (<c>LBF_RECORD_VALUES</c>) and for tests.
+    /// </summary>
+    public LogicBlockOutcome? LastLogicBlock { get; private set; }
 
     /// <summary>Seats an NPC; set by the host. See <see cref="EventNpc"/>.</summary>
     public Action<AddNpcEvent>? ApplyAddNpc { get; set; }

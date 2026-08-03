@@ -100,6 +100,19 @@ public sealed class Game
         Runner.ResolveQuest = (quest, accepted) =>
             Quests.Resolve(quest, accepted, World, id => events?.ById(id) is not null);
 
+        // A logic block reads and writes more of the game than any other event -- attributes in
+        // four scopes, the quest table, the party roster -- so it gets an adapter rather than a
+        // callback each. The quest map is here because a block names a quest where the rest of the
+        // engine uses its id.
+        LogicBlockHost = new GameLogicBlockHost(
+            this,
+            design.Globals.Quests
+                .GroupBy(q => q.Name, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.Ordinal));
+
+        Runner.ResolveLogicBlock = block =>
+            LogicBlockRun.Run(block, LogicBlockHost, id => events?.ById(id) is not null);
+
         Globals.Load(design.Globals.Attributes);
 
         Money = design.Globals.Money is { } currency
@@ -559,6 +572,12 @@ public sealed class Game
     /// </para>
     /// <para>
     /// A suppressed event still gets its not-happened chain — that is what
+    /// <summary>
+    /// The game as a logic block's terminals and actions see it — see
+    /// <see cref="GameLogicBlockHost"/>.
+    /// </summary>
+    public GameLogicBlockHost? LogicBlockHost { get; private set; }
+
     /// <see cref="EventChain"/> is for, and it is the mechanism a design uses for "if the party
     /// does not have the key, say so".
     /// </para>
