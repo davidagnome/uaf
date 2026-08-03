@@ -62,8 +62,109 @@ public class MonsterWriterCorpusTests
     private static byte[] WriteDatabase(IReadOnlyList<MonsterRecord> monsters)
     {
         var stream = new MemoryStream();
-        MonsterRecordWriter.WriteDatabase(new MfcArchiveWriter(stream), monsters);
+        MonsterRecordWriter.WriteDatabase(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)), monsters);
         return stream.ToArray();
+    }
+
+    /// <summary>Writes a database as a compressed <c>CAR</c>, as a shipped design is.</summary>
+    private static byte[] WriteCompressed(IReadOnlyList<MonsterRecord> monsters)
+    {
+        var stream = new MemoryStream();
+        using (var car = CarArchiveWriter.Open(stream))
+        {
+            MonsterRecordWriter.WriteDatabase(ArchiveWriteCursor.For(car), monsters);
+        }
+
+        return stream.ToArray();
+    }
+
+    /// <summary>The raw payload of a shipped file, from the compression byte onward.</summary>
+    private static byte[]? CompressedPayload(string relativeDataDir)
+    {
+        var root = RepoRoot();
+        string? path = root is null
+            ? null
+            : Path.Combine(root.FullName, Path.Combine(relativeDataDir.Split('/')), "monsters.dat");
+        if (path is null || !File.Exists(path))
+        {
+            return null;
+        }
+
+        using var stream = File.OpenRead(path);
+        var header = DesignFileHeader.Read(stream, DesignFileKind.Database);
+        if (header.Tier != ArchiveTier.CompressedCar)
+        {
+            return null;
+        }
+
+        stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
+        var payload = new MemoryStream();
+        stream.CopyTo(payload);
+        return payload.ToArray();
+    }
+
+    [Theory]
+    [MemberData(nameof(ModernDesigns))]
+    public void A_compressed_database_round_trips_through_the_car_writer(string dataDir,
+                                                                        int expectedCount)
+    {
+        // The claim the port could not make until the CAR write path existed: a design written
+        // back in the encoding it shipped in, read again through the compressed reader.
+        var monsters = Read(dataDir, ArchiveRole.Engine);
+        if (monsters.Count == 0)
+        {
+            return;
+        }
+
+        Assert.Equal(expectedCount, monsters.Count);
+
+        var stream = new MemoryStream(WriteCompressed(monsters));
+        var read = MonsterRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
+                                                    MonsterRecordWriter.WrittenVersion,
+                                                    ArchiveRole.Engine);
+
+        Assert.Equal(monsters.Count, read.Count);
+        for (int i = 0; i < monsters.Count; i++)
+        {
+            AssertSameMonster(monsters[i], read[i]);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ModernDesigns))]
+    public void Compressing_is_worth_doing(string dataDir, int expectedCount)
+    {
+        // Otherwise the round trip above would pass on a writer that compressed nothing.
+        var monsters = Read(dataDir, ArchiveRole.Engine);
+        if (monsters.Count == 0)
+        {
+            return;
+        }
+
+        Assert.True(WriteCompressed(monsters).Length < WriteDatabase(monsters).Length);
+        _ = expectedCount;
+    }
+
+    [Fact]
+    public void The_shipped_payload_is_a_stream_this_port_can_now_produce_the_shape_of()
+    {
+        // Not byte-identity: the reference's own writer interned strings in the order ITS record
+        // walk produced them, and re-deriving that needs the writer to be byte-compatible field
+        // for field -- which is what the rest of this class establishes separately. What this
+        // pins is that both are whole 52-byte-block LZW streams of the same kind, so the two are
+        // now comparable at all.
+        byte[]? shipped = CompressedPayload("reference/ci-tier3/Data");
+        if (shipped is null)
+        {
+            return;
+        }
+
+        var monsters = Read("reference/ci-tier3/Data", ArchiveRole.Engine);
+        byte[] ours = WriteCompressed(monsters);
+
+        Assert.Equal(0, (shipped.Length - 1) % 52);      // minus the compression-type byte
+        Assert.Equal(0, (ours.Length - 1) % 52);
+        Assert.Equal(shipped[0], ours[0]);               // both compressType 2
     }
 
     private static List<MonsterRecord> ReadDatabase(byte[] bytes)

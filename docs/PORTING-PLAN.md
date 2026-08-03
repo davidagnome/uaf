@@ -18,7 +18,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,566 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,575 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3216,10 +3216,22 @@ One observation worth recording: `CAR::Compress` always writes **2**, and every 
 disk carries **1**. No code path in the reference produces a 1, so those files came from something
 else or from a build that differed. Reading honours both; writing has only ever produced 2.
 
-**What this still cannot do** is write a record through it: `MonsterRecordWriter` and its leaves
-target `MfcArchiveWriter` concretely, where the readers go through `IArchiveCursor`. The next step
-is that cursor's counterpart — after which byte-identity against a shipped `monsters.dat` becomes
-an achievable test rather than a stated impossibility.
+**`IArchiveWriteCursor` is that cursor's counterpart**, and the record writers now go through it —
+so a whole `monsters.dat` can be written in the encoding it shipped in. All four modern designs
+round-trip through the compressed path: read, write as `CAR`, read back, compare field by field.
+A guard test beside it asserts the compressed form really is smaller than the plain one, so the
+round trip cannot pass on a writer that compressed nothing.
+
+Three of the cursor's methods are genuinely different between the encodings rather than merely
+dispatched: **a string is length-prefixed in one and interned in the other**, a count is MFC's
+escaping scheme against a flat `DWORD`, and there is no compressed equivalent of writing raw
+string bytes. Everything else is the same bytes down a different pipe.
+
+**Byte-identity with a shipped file is still not claimed.** The reference's writer interned strings
+in the order *its* record walk produced them; matching that needs this writer to be byte-compatible
+field for field, which the rest of the corpus tests establish separately but which nothing yet
+proves end to end. What is pinned is that both files are whole 52-byte-block LZW streams of the
+same compression type — the two are now comparable at all, which they were not before.
 
 ##### The first whole record the port can write, as ported
 

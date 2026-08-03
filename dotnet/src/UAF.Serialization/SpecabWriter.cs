@@ -46,7 +46,7 @@ public static class SpecabWriter
     /// back cleanly with every special ability silently gone.
     /// </para>
     /// </remarks>
-    public static void Write(MfcArchiveWriter ar, SpecabBlock block)
+    public static void Write(IArchiveWriteCursor ar, SpecabBlock block)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(block);
@@ -64,7 +64,7 @@ public static class SpecabWriter
     }
 
     /// <summary>Writes an <c>A_CStringPAIR_L</c> (<c>ASL.cpp:1848</c>).</summary>
-    public static void WritePairs(MfcArchiveWriter ar, IEnumerable<SpecabPair> pairs)
+    public static void WritePairs(IArchiveWriteCursor ar, IEnumerable<SpecabPair> pairs)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(pairs);

@@ -16,10 +16,10 @@ public class SpecabWriterTests
     /// </remarks>
     private static readonly DesignVersion Modern = DesignVersion.SpecialAbilities;
 
-    private static MemoryStream Written(Action<MfcArchiveWriter> write)
+    private static MemoryStream Written(Action<IArchiveWriteCursor> write)
     {
         var stream = new MemoryStream();
-        write(new MfcArchiveWriter(stream));
+        write(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)));
         stream.Position = 0;
         return stream;
     }
@@ -100,7 +100,7 @@ public class SpecabWriterTests
 
         Assert.False(SpecabWriter.CanWrite(legacy));
         Assert.Throws<NotSupportedException>(
-            () => SpecabWriter.Write(new MfcArchiveWriter(new MemoryStream()), legacy));
+            () => SpecabWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), legacy));
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class SpecabWriterTests
 
         Assert.False(SpecabWriter.CanWrite(ordinals));
         Assert.Throws<NotSupportedException>(
-            () => SpecabWriter.Write(new MfcArchiveWriter(new MemoryStream()), ordinals));
+            () => SpecabWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), ordinals));
     }
 
     [Fact]

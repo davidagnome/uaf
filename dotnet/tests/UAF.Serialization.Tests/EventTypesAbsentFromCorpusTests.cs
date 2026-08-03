@@ -68,7 +68,7 @@ public class EventTypesAbsentFromCorpusTests
         w.WriteString("Human");                          // raceID
         w.WriteString("fighter");                        // classID / baseclassID
         w.WriteString("Aramil");                         // characterID, >= 0.820
-        AslWriter.Write(w, Version, AslMaps.EventControl, []);
+        AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.EventControl, []);
         w.WriteString("$Script");                        // gpdlData, >= 0.880
         w.WriteInt32(0);                                 // gpdlIsBinary
         w.WriteInt32(4);                                 // partyX, >= 0.911
@@ -78,8 +78,8 @@ public class EventTypesAbsentFromCorpusTests
         w.WriteInt32(2);
 
         var pic = new PicRecord(0, "art.png", 0, 1, 8, 8, 0, 0, 0, 0, 0, 0);
-        PicDataWriter.Write(w, pic, PicArchiveVariant.Car);
-        PicDataWriter.Write(w, pic, PicArchiveVariant.Car);
+        PicDataWriter.Write(ArchiveWriteCursor.For(w), pic, PicArchiveVariant.Car);
+        PicDataWriter.Write(ArchiveWriteCursor.For(w), pic, PicArchiveVariant.Car);
 
         w.WriteInt32((int)type);
         w.WriteUInt32(11);                               // id
@@ -90,7 +90,7 @@ public class EventTypesAbsentFromCorpusTests
         w.WriteString("*");                              // text, DAS-blank
         w.WriteString("*");
         w.WriteString("*");
-        AslWriter.Write(w, Version, AslMaps.EventData, []);
+        AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.EventData, []);
     }
 
     /// <summary>Reads through the real dispatcher, and insists the stream ends where it should.</summary>
@@ -195,7 +195,7 @@ public class EventTypesAbsentFromCorpusTests
         w.WriteString("Human");
         w.WriteString("fighter");
         w.WriteString("Aramil");                         // >= 0.820
-        AslWriter.Write(w, version, AslMaps.EventControl, []);
+        AslWriter.Write(ArchiveWriteCursor.For(w), version, AslMaps.EventControl, []);
         w.WriteString("$Script");                        // >= 0.880
         w.WriteInt32(0);
 
@@ -216,7 +216,7 @@ public class EventTypesAbsentFromCorpusTests
         w.WriteString("*");
         w.WriteString("*");
         w.WriteString("*");
-        AslWriter.Write(w, version, AslMaps.EventData, []);
+        AslWriter.Write(ArchiveWriteCursor.For(w), version, AslMaps.EventData, []);
     }
 
     private static void WriteOldPic(MfcArchiveWriter w, PicRecord pic)
@@ -252,7 +252,7 @@ public class EventTypesAbsentFromCorpusTests
             w.WriteByte(3);                              // WhichVault -- BYTE, >= 0.910
 
             MonsterLeafWriters.WriteItemList(
-                w, new ItemList([], new ReadyItems(new int[MonsterLeafReaders.ReadySlotCount])));
+                ArchiveWriteCursor.For(w), new ItemList([], new ReadyItems(new int[MonsterLeafReaders.ReadySlotCount])));
         });
 
         var take = Read<TakePartyItemsEvent>(EventType.TakePartyItems, data);
@@ -451,13 +451,13 @@ public class EventTypesAbsentFromCorpusTests
 
             w.WriteString("They say the well is cursed.");    // verbatim, NOT through DAS
             w.WriteUInt32(1);
-            AslWriter.Write(w, Version, AslMaps.Tale, [new AslEntry("seen", 0, "no")]);
+            AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.Tale, [new AslEntry("seen", 0, "no")]);
 
             w.WriteString("*");                          // a tale that really is an asterisk
             w.WriteUInt32(2);
-            AslWriter.Write(w, Version, AslMaps.Tale, []);
+            AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.Tale, []);
 
-            AslWriter.Write(w, Version, AslMaps.TavernTale, [new AslEntry("mood", 1, "dour")]);
+            AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.TavernTale, [new AslEntry("mood", 1, "dour")]);
         });
 
         var tales = Read<TavernTalesEvent>(EventType.TavernTales, data);
@@ -484,8 +484,8 @@ public class EventTypesAbsentFromCorpusTests
             w.WriteInt32(1);
             w.WriteString("tale");
             w.WriteUInt32(0);
-            AslWriter.Write(w, Version, AslMaps.TavernTale, []);      // wrong name here
-            AslWriter.Write(w, Version, AslMaps.Tale, []);
+            AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.TavernTale, []);      // wrong name here
+            AslWriter.Write(ArchiveWriteCursor.For(w), Version, AslMaps.Tale, []);
         });
 
         var stream = new MemoryStream(data);

@@ -11,10 +11,10 @@ public class PicDataWriterTests
         FrameWidth: 64, FrameHeight: 48, Flags: 0x11, MaxLoops: 7,
         Style: 2, UseAlpha: 1, AlphaValue: 0xBEEF, RestartFrame: 2);
 
-    private static MemoryStream Written(Action<MfcArchiveWriter> write)
+    private static MemoryStream Written(Action<IArchiveWriteCursor> write)
     {
         var stream = new MemoryStream();
-        write(new MfcArchiveWriter(stream));
+        write(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)));
         stream.Position = 0;
         return stream;
     }

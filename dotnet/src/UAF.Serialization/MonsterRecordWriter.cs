@@ -28,9 +28,10 @@ namespace UAF.Serialization;
 /// back clean with the content quietly gone. See its remarks for the four cases.
 /// </para>
 /// <para>
-/// <b>Uncompressed only.</b> There is no <c>CAR</c> writer, so this cannot yet reproduce a shipped
-/// <c>monsters.dat</c> byte for byte — every one in the corpus is LZW-compressed. What it does
-/// produce is a stream the port's own reader and the reference's both accept.
+/// <b>Either encoding.</b> This writes through <see cref="IArchiveWriteCursor"/>, so the same
+/// record walk produces a plain stream or a compressed <c>CAR</c> depending on what it is handed —
+/// which is how a shipped <c>monsters.dat</c>, every one of which is LZW-compressed, can be written
+/// back in the form it arrived in.
 /// </para>
 /// </remarks>
 public static class MonsterRecordWriter
@@ -143,7 +144,7 @@ public static class MonsterRecordWriter
     /// reference produced, and unaltered for any it did not.
     /// </para>
     /// </remarks>
-    public static void Write(MfcArchiveWriter ar, MonsterRecord monster)
+    public static void Write(IArchiveWriteCursor ar, MonsterRecord monster)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(monster);
@@ -204,7 +205,7 @@ public static class MonsterRecordWriter
     /// half-way leaves a truncated file whose count promises records that are not there — and the
     /// reader will read past the end of it into whatever follows.
     /// </remarks>
-    public static void WriteDatabase(MfcArchiveWriter ar, IReadOnlyList<MonsterRecord> monsters)
+    public static void WriteDatabase(IArchiveWriteCursor ar, IReadOnlyList<MonsterRecord> monsters)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(monsters);
@@ -232,6 +233,6 @@ public static class MonsterRecordWriter
     private static MoneySack EmptyMoneySack { get; } =
         new(new int[MonsterLeafReaders.MaxCoinTypes], [], []);
 
-    private static void WriteDas(MfcArchiveWriter ar, string value) =>
+    private static void WriteDas(IArchiveWriteCursor ar, string value) =>
         ar.WriteString(ArchiveStringConventions.Encode(value));
 }

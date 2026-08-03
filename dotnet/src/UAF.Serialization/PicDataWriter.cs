@@ -20,7 +20,7 @@ namespace UAF.Serialization;
 /// </remarks>
 public static class PicDataWriter
 {
-    public static void Write(MfcArchiveWriter ar, PicRecord pic, PicArchiveVariant variant)
+    public static void Write(IArchiveWriteCursor ar, PicRecord pic, PicArchiveVariant variant)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(pic);

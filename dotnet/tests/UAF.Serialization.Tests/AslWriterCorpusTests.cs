@@ -83,7 +83,7 @@ public class AslWriterCorpusTests
         foreach (var block in blocks)
         {
             var stream = new MemoryStream();
-            AslWriter.Write(new MfcArchiveWriter(stream), DesignVersion.V0670,
+            AslWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)), DesignVersion.V0670,
                             AslMaps.MonsterData, block);
             stream.Position = 0;
 
@@ -122,7 +122,7 @@ public class AslWriterCorpusTests
         var expected = block.Where(AslReader.IsSavedInSavegame).ToList();
 
         var stream = new MemoryStream();
-        AslWriter.Save(new MfcArchiveWriter(stream), DesignVersion.V0670,
+        AslWriter.Save(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)), DesignVersion.V0670,
                        AslMaps.MonsterData, block);
         stream.Position = 0;
 

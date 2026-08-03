@@ -34,7 +34,7 @@ public static class AslWriter
     /// <remarks>
     /// This is what a <b>design file</b> contains. For a savegame use <see cref="Save"/>.
     /// </remarks>
-    public static void Write(MfcArchiveWriter ar, DesignVersion version, string mapName,
+    public static void Write(IArchiveWriteCursor ar, DesignVersion version, string mapName,
                              IEnumerable<AslEntry> entries)
     {
         ArgumentNullException.ThrowIfNull(ar);
@@ -54,7 +54,7 @@ public static class AslWriter
     /// file that reads back cleanly with silently missing attributes — the failure mode that
     /// prompted the assert.
     /// </remarks>
-    public static void Save(MfcArchiveWriter ar, DesignVersion version, string mapName,
+    public static void Save(IArchiveWriteCursor ar, DesignVersion version, string mapName,
                             IEnumerable<AslEntry> entries)
     {
         ArgumentNullException.ThrowIfNull(ar);
@@ -74,7 +74,7 @@ public static class AslWriter
     /// and it is what <c>races.dat</c> uses. Writing the wrong width desynchronises everything
     /// after the block by two bytes.
     /// </remarks>
-    public static void WriteDeSerialized(MfcArchiveWriter ar, DesignVersion version,
+    public static void WriteDeSerialized(IArchiveWriteCursor ar, DesignVersion version,
                                          string mapName, IEnumerable<AslEntry> entries)
     {
         ArgumentNullException.ThrowIfNull(ar);
@@ -83,7 +83,7 @@ public static class AslWriter
         WriteBlock(ar, version, mapName, [.. entries], wideCount: true);
     }
 
-    private static void WriteBlock(MfcArchiveWriter ar, DesignVersion version, string mapName,
+    private static void WriteBlock(IArchiveWriteCursor ar, DesignVersion version, string mapName,
                                    IReadOnlyList<AslEntry> entries, bool wideCount)
     {
         if (!AslReader.IsPresent(version))

@@ -71,10 +71,10 @@ public class MonsterRecordWriterTests
             Items: items ?? Carrying(Item()),
             Money: money ?? Purse());
 
-    private static MemoryStream Written(Action<MfcArchiveWriter> write)
+    private static MemoryStream Written(Action<IArchiveWriteCursor> write)
     {
         var stream = new MemoryStream();
-        write(new MfcArchiveWriter(stream));
+        write(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)));
         stream.Position = 0;
         return stream;
     }
@@ -244,7 +244,7 @@ public class MonsterRecordWriterTests
         Assert.False(MonsterRecordWriter.CanWrite(monster, out string reason));
         Assert.Contains("SetDefaults", reason);
         Assert.Throws<NotSupportedException>(
-            () => MonsterRecordWriter.Write(new MfcArchiveWriter(new MemoryStream()), monster));
+            () => MonsterRecordWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), monster));
     }
 
     [Fact]
@@ -255,7 +255,7 @@ public class MonsterRecordWriterTests
         Assert.False(MonsterRecordWriter.CanWrite(monster, out string reason));
         Assert.Contains("spell", reason, StringComparison.OrdinalIgnoreCase);
         Assert.Throws<NotSupportedException>(
-            () => MonsterRecordWriter.Write(new MfcArchiveWriter(new MemoryStream()), monster));
+            () => MonsterRecordWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), monster));
     }
 
     [Fact]
@@ -265,7 +265,7 @@ public class MonsterRecordWriterTests
 
         Assert.False(MonsterRecordWriter.CanWrite(monster, out _));
         Assert.Throws<NotSupportedException>(
-            () => MonsterRecordWriter.Write(new MfcArchiveWriter(new MemoryStream()), monster));
+            () => MonsterRecordWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), monster));
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class MonsterRecordWriterTests
         var monster = Monster(items: new ItemList([], new ReadyItems([1, 2, 3])));
 
         Assert.Throws<ArgumentException>(
-            () => MonsterRecordWriter.Write(new MfcArchiveWriter(new MemoryStream()), monster));
+            () => MonsterRecordWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), monster));
     }
 
     [Fact]
@@ -302,7 +302,7 @@ public class MonsterRecordWriterTests
         var monster = Monster(money: new MoneySack([1, 2, 3], [], []));
 
         Assert.Throws<ArgumentException>(
-            () => MonsterRecordWriter.Write(new MfcArchiveWriter(new MemoryStream()), monster));
+            () => MonsterRecordWriter.Write(ArchiveWriteCursor.For(new MfcArchiveWriter(new MemoryStream())), monster));
     }
 
     // ---- the database ----------------------------------------------------------------------------
@@ -340,7 +340,7 @@ public class MonsterRecordWriterTests
 
         var stream = new MemoryStream();
         Assert.Throws<NotSupportedException>(
-            () => MonsterRecordWriter.WriteDatabase(new MfcArchiveWriter(stream), monsters));
+            () => MonsterRecordWriter.WriteDatabase(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)), monsters));
         Assert.Equal(0, stream.Length);
     }
 }

@@ -32,7 +32,7 @@ public static class MonsterLeafWriters
     /// through <see cref="ReadiedLocation"/> for a caller that wants it.
     /// </para>
     /// </remarks>
-    public static void WriteItem(MfcArchiveWriter ar, ItemInstance item)
+    public static void WriteItem(IArchiveWriteCursor ar, ItemInstance item)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(item);
@@ -53,7 +53,7 @@ public static class MonsterLeafWriters
     /// labels a slot, so a permuted list produces a file that reads back with the armour on the
     /// wrong limb and no error anywhere.
     /// </remarks>
-    public static void WriteReadyItems(MfcArchiveWriter ar, ReadyItems ready)
+    public static void WriteReadyItems(IArchiveWriteCursor ar, ReadyItems ready)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(ready);
@@ -80,7 +80,7 @@ public static class MonsterLeafWriters
     /// The trailing <c>READY_ITEMS</c> is outside the loop. A writer that stops after the items
     /// leaves the reader 48 bytes short and it consumes the start of the money sack instead.
     /// </remarks>
-    public static void WriteItemList(MfcArchiveWriter ar, ItemList list)
+    public static void WriteItemList(IArchiveWriteCursor ar, ItemList list)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(list);
@@ -95,7 +95,7 @@ public static class MonsterLeafWriters
     }
 
     /// <summary>Writes a <c>GEM_TYPE</c>: an id and a value.</summary>
-    public static void WriteGem(MfcArchiveWriter ar, GemType gem)
+    public static void WriteGem(IArchiveWriteCursor ar, GemType gem)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(gem);
@@ -111,7 +111,7 @@ public static class MonsterLeafWriters
     /// The pre-0.911 gem encoding the reader refuses is a <i>loading</i> branch, so there is
     /// nothing to refuse here — the storing half writes plain <c>int</c> counts at every version.
     /// </remarks>
-    public static void WriteMoneySack(MfcArchiveWriter ar, MoneySack money)
+    public static void WriteMoneySack(IArchiveWriteCursor ar, MoneySack money)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(money);
@@ -134,7 +134,7 @@ public static class MonsterLeafWriters
         WriteGemList(ar, money.Jewelry);
     }
 
-    private static void WriteGemList(MfcArchiveWriter ar, IReadOnlyList<GemType> gems)
+    private static void WriteGemList(IArchiveWriteCursor ar, IReadOnlyList<GemType> gems)
     {
         ar.WriteInt32(gems.Count);
         foreach (var gem in gems)
@@ -150,7 +150,7 @@ public static class MonsterLeafWriters
     /// zeroes — which is what the reference writes too, since those members are simply whatever
     /// the load left in them.
     /// </remarks>
-    public static void WriteAttackDetails(MfcArchiveWriter ar, AttackDetails attack)
+    public static void WriteAttackDetails(IArchiveWriteCursor ar, AttackDetails attack)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(attack);
@@ -165,7 +165,7 @@ public static class MonsterLeafWriters
     }
 
     /// <summary>Writes an <c>ATTACK_DATA</c> (<c>Monster.h:267</c>): a count then the attacks.</summary>
-    public static void WriteAttackData(MfcArchiveWriter ar, IReadOnlyList<AttackDetails> attacks)
+    public static void WriteAttackData(IArchiveWriteCursor ar, IReadOnlyList<AttackDetails> attacks)
     {
         ArgumentNullException.ThrowIfNull(ar);
         ArgumentNullException.ThrowIfNull(attacks);

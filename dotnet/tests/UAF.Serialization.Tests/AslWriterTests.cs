@@ -13,10 +13,10 @@ public class AslWriterTests
     private static AslEntry Entry(string key, string value, AslFlags flags = AslFlags.None) =>
         new(key, (byte)flags, value);
 
-    private static MemoryStream Written(Action<MfcArchiveWriter> write)
+    private static MemoryStream Written(Action<IArchiveWriteCursor> write)
     {
         var stream = new MemoryStream();
-        write(new MfcArchiveWriter(stream));
+        write(ArchiveWriteCursor.For(new MfcArchiveWriter(stream)));
         stream.Position = 0;
         return stream;
     }
