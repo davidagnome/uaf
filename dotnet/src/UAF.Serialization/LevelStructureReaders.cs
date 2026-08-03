@@ -258,11 +258,34 @@ public static class LevelStructureReaders
         ArchiveStringConventions.Decode(ar.ReadString());
 }
 
+/// <summary>
+/// One entry of a level's event chain: its ordinal tag, and the body when it has one.
+/// </summary>
+/// <remarks>
+/// <b>An entry with no body is still four bytes on the wire.</b> Some ordinals are ones
+/// <c>CreateNewEvent</c> does not recognise (<c>GameEvent.cpp:3833</c>), and the tag is the whole
+/// event — so the chain has to keep them, in place, or a writer cannot reproduce it.
+/// </remarks>
+public sealed record LevelEventEntry(EventType Type, IGameEvent? Body);
+
 /// <summary>A complete level file.</summary>
+/// <param name="Level">
+/// <c>m_level</c>, the index the level knows itself by. Read and discarded until the writer needed
+/// it back.
+/// </param>
+/// <param name="Events">
+/// The bodies alone, in order — what the engine's <c>EventLookup</c> wants.
+/// </param>
+/// <param name="Entries">
+/// The chain as it sits on the wire, bodyless tags included. This is what a writer needs;
+/// <paramref name="Events"/> is the projection of it that drops them.
+/// </param>
 public sealed record LevelFile(
     DesignVersion Version, byte Width, byte Height,
     IReadOnlyList<AreaMapCell> Cells,
+    int Level,
     int EventCount, IReadOnlyList<IGameEvent> Events,
+    IReadOnlyList<LevelEventEntry> Entries,
     ZoneData Zones, IReadOnlyList<AslEntry> Attributes,
     IReadOnlyList<StepEvent> StepEvents,
     IReadOnlyList<WallSetSlot> WallSets, IReadOnlyList<BackgroundSlot> BackgroundSets,
@@ -334,17 +357,19 @@ public static class LevelFileReader
 
         var ar = ArchiveCursor.For(plain);
 
-        ar.ReadInt32();                                  // m_level
+        int level = ar.ReadInt32();                      // m_level
         int eventCount = ar.ReadInt32();
         var events = new List<IGameEvent>(Math.Max(eventCount, 0));
+        var entries = new List<LevelEventEntry>(Math.Max(eventCount, 0));
         for (int i = 0; i < eventCount; i++)
         {
             var type = (EventType)ar.ReadInt32();
 
             // Some types carry no body at all -- the tag is the whole event -- so there is nothing
-            // to retain and nothing to read.
+            // to read. The entry is kept in place regardless, because its four bytes are.
             if (EventDispatch.ReadsNothing(type))
             {
+                entries.Add(new LevelEventEntry(type, null));
                 continue;
             }
 
@@ -353,6 +378,7 @@ public static class LevelFileReader
                     $"Event {i} of {eventCount} has type {type}, which the caller cannot read.");
 
             events.Add(parsed);
+            entries.Add(new LevelEventEntry(type, parsed));
         }
 
         var zones = LevelStructureReaders.ReadZoneData(ar, version, role);
@@ -394,7 +420,7 @@ public static class LevelFileReader
             ? LevelStructureReaders.ReadBlockageKeys(ar)
             : [];
 
-        return new LevelFile(version, width, height, cells, eventCount, events, zones, attributes,
-                             stepEvents, wallSets, backgroundSets, blockageKeys);
+        return new LevelFile(version, width, height, cells, level, eventCount, events, entries,
+                             zones, attributes, stepEvents, wallSets, backgroundSets, blockageKeys);
     }
 }

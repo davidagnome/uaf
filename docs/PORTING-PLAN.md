@@ -6,8 +6,8 @@
 
 **Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
 corpus parses, diffed against the oracle — and **the writer has started**: the byte layer, every
-shared leaf and **five whole record types**, monsters, items, spells, characters and
-`GLOBAL_STATS`, which round-trip every record in the corpus — and **the `CAR` write path now exists**, both halves of it,
+shared leaf and **all six record types** — monsters, items, spells, characters,
+`GLOBAL_STATS` and levels, which round-trip every record in the corpus — and **the `CAR` write path now exists**, both halves of it,
 so all three shipped databases are reproduced **byte for byte**, a saved character is written as a
 whole file, and **30 of the 44 event types write — every one of the 4,705 events in every shipped level**. Its
 round-trip exit criterion still needs `GLOBAL_STATS`, levels and the rest of the save games.
@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,675 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,681 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,36 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The sixth record type, as ported
+
+`LEVEL` (`LevelFileWriter`) — **the last of the six**, and the one an editor actually edits. All
+eighteen shipped levels round-trip whole, with write-read-write byte identity, which makes this
+also the widest test the event writers get: 4,705 events written in place in a chain that has no
+length prefixes anywhere.
+
+> **A level file is never compressed, even in a design whose databases are.** `LoadLevel`
+> constructs a `CAR` and leaves `ar.Compress(true)` commented out (`Level.cpp:2186`), so the
+> payload is plain archive primitives at every version. The compression decision is per file
+> *kind*, not per design — the same "constructed a `CAR` does not mean `CAR` bytes" distinction a
+> `.chr` file turns on, arriving from a third direction.
+
+> **The dimensions go out width-then-height while being declared height-then-width**
+> (`Level.h:58`), and both are `BYTE`. Writing them in declaration order transposes every
+> non-square level *silently* — the grid still reads back, with the wrong shape. Most of the corpus
+> is square, so the test has to seek out the one level that is not.
+
+Two reader gaps closed with it, both the shape this port keeps finding: `m_level` was read and
+discarded, and the event chain kept only the bodies. An unrecognised ordinal is **four bytes and no
+body**, so dropping one shortens the chain and every later event's position with it —
+`LevelFile.Entries` now holds the chain as it sits on the wire, tags included, with `Events` left
+as the body-only projection the engine's `EventLookup` wants.
+
+**Two coverage gaps stated rather than papered over.** No cell in any of the eighteen levels sets
+either of the background byte's two display flags, so the bit-packing has a fixture and no real
+example. And no level's step-event table is in the pre-1.0210 shape, which is refused rather than
+written — its slots are 8 where the modern table's are 255, and the reference's own table is a
+fixed array of the full size.
+
 ##### The fifth record type, as ported
 
 `GLOBAL_STATS` (`GlobalStatsWriter`) — **the record a design's `game.dat` is**, and the thing that
@@ -5381,26 +5411,25 @@ What is left, in order:
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
 2. **The rest of the archive writer.** The byte layer, every shared leaf, the `CAR` write path and
-   **five of the six record types** are done — monsters, items and spells each reproducing
-   `ci-tier3`'s database byte for byte, characters round-tripping 29 records across two designs, and
-   `GLOBAL_STATS` round-tripping both designs whole
-   (§the archive writer's first layers, and the five record-type sections). What is missing is a
+   **all six record types** are done — monsters, items and spells each reproducing
+   `ci-tier3`'s database byte for byte, characters round-tripping 29 records across two designs,
+   `GLOBAL_STATS` round-tripping both designs whole, and every one of the 18 shipped levels
+   round-tripping with byte identity (§the archive writer's first layers, and the six record-type
+   sections). What is missing is a
    writer per remaining record type, mirroring each reader. It is still the largest structural gap
    in the port: it gates Phase 1's round-trip exit criterion, save games, and Phase 5 entirely.
    The `.chr` half of the savegames is done (§the first whole file outside a database), the event
    layer is done for everything the corpus contains (§the event storing branches), and
    `GLOBAL_STATS` — which both of those were blocking — now writes whole (§the fifth record type).
    What remains, in order:
-   - **`LEVEL` / `ZONE`**, which is what an editor actually edits: the grid, the events, the zones
-     and the wall/background sets. Nothing blocks it — the event bodies it is mostly made of all
-     write, and `LevelReader` / `LevelStructureReaders` are the shape to mirror.
-   - **The rest of the savegames** — `PARTY` and cell contents. Phase 1's stated exit criterion,
-     and the last thing between the port and a design it can save whole.
+   - **The savegames** — `PARTY` and cell contents, and the `.sav` framing around them. The
+     `.chr` half is done. This is the last thing between the port and Phase 1's exit criterion,
+     and nothing blocks it: `SaveGameReader` is 461 lines and every record it embeds now writes.
 
    Read the monster section's rule about the storing branch having no version gates before starting
-   either; five record types in, it has held every time, and the two apparent exceptions are gates
-   that cannot close — one written open by construction (§the third record type) and one whose
-   condition says `|| car.IsStoring()` out loud (§the fifth).
+   it; six record types in, it has held every time, and the two apparent exceptions are gates that
+   cannot close — one written open by construction (§the third record type) and one whose condition
+   says `|| car.IsStoring()` out loud (§the fifth).
 3. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
    (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
    character stats, party queries, combat state — still throw with a citation. They are individually
@@ -5449,7 +5478,7 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `GLOBAL_STATS`, `.chr` files, **30 of the 44 event bodies** (every event in all 18 shipped levels), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is `LEVEL` and the savegames. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
+| **`ArchiveWriter`** | The byte layer, every shared leaf, `MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA`, `CHARACTER`, `GLOBAL_STATS`, `LEVEL`, `.chr` files, **30 of the 44 event bodies** (every event in all 18 shipped levels), the whole `CAR` write path and the writer cursor are done — and **three shipped databases are reproduced byte for byte**. What remains is the savegames. Phase 1's round-trip exit criterion is met for the three databases; **Phase 5 cannot begin** until an editor can save a whole design | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
