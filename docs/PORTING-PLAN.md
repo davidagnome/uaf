@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,003 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,018 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,61 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The character generator's spine, and four of its ten steps
+
+CREATE CHARACTER runs as far as alignment. **The first wizard in the port** — every screen before
+this answered a question and finished; this pushes ten in sequence, each writing into one shared
+character.
+
+> **The step order is a dependency chain, not a preference.** Race narrows the classes on offer,
+> and so does gender — `ALLOWED_CLASSES::Restrictions` takes both — so class cannot come first.
+> Nothing here is reorderable, which is why the steps are an enum driven from one place rather
+> than a chain of calls.
+
+> **There is no going back.** Every picker's EXIT sets `m_AbortCharCreation` and unwinds the whole
+> thing; none of them steps back one. A player who picks the wrong race starts again.
+
+> **All four pickers are one screen with four sources**: a horizontal `SELECT / NEXT / PREV / EXIT`
+> menu over a vertical list, `HMenuVItemsKeyboardAction` — the inventory's key split, third
+> appearance.
+
+> **The character is rolled at *alignment*, not at the stats step.** `ALIGNMENT_MENU_DATA` calls
+> `generateNewCharacter` the moment the alignment is chosen, and **aborts the whole creation if
+> the result has zero hit points**. The step named for stats comes after the character already
+> exists.
+
+The class filter is the substance, and it is two gates in a specific order:
+
+> **The first gate is usually wide open.** `RACE_DATA::IsAllowedClass` returns true outright when
+> the race carries no `AllowedClass` attribute — or one that is not a legal delimited string — and
+> that is the *first* test. Most designs write no such attribute, so for most races the second
+> gate never runs and every class is offered, multi-classes included.
+
+> **An empty list is the opposite of an absent one.** Empty is legal and contains nothing, so
+> every class falls through to the second gate — which is the only way the baseclass table ever
+> gets a say. Absent and empty are opposite answers from adjacent lines, and it is the *empty*
+> case that turns the filter on.
+
+> **The second gate never admits a multi-class.** "Allowed if we have a single Base Class and the
+> Base Class allows this race, *or* the race explicitly allows this class". So once a race writes
+> a list, a multi-class needs naming — both its baseclasses permitting the race counts for
+> nothing. And naming one class does not hide the others: they still pass on their own
+> baseclasses, so a designer writing the list to mean "only these" would be surprised.
+
+I had this backwards while writing it — the doc comment said an empty list allowed nothing and an
+absent one allowed everything, which reversed which case does the filtering. Three tests failed on
+the first run and the reference settled it.
+
+> **`AllowedClass` is a `DELIMITED_STRING`, which is length-prefixed rather than separated.**
+> `5.Dwarf3.Elf` is two elements — so an element may contain a full stop or a digit, which is the
+> point when it holds names a designer typed. Ported as `DelimitedString`; nothing in the port had
+> needed the format before.
+
+Six of the ten steps do not run: stats, name, icon, small picture and the two spell screens each
+want machinery the port has not built — an ability roller, **text entry** (which `EnterPassword`
+also waits on), and an art picker. The generator stops and names the step it reached rather than
+producing half a character.
+
 ##### ADD, REMOVE and DELETE — and a page size that was never a constant
 
 Three of the party menu's five character entries run. Six of its twelve now do.
@@ -6130,13 +6185,15 @@ What is left, in order:
      ~~**What is left is `SaveGameProjection` itself.**~~ **Done — saving works** (§saving works).
      A game writes to a slot and loads back, and the port is playable across sessions.
 
-     **ADD, REMOVE and DELETE run** (§ADD, REMOVE and DELETE), so six of the party menu's twelve
-     entries do. What is left there is **CREATE and MODIFY — the character generator**: race,
-     gender, class, ability rolls, name and icon, one subsystem behind two entries and the largest
-     single piece of the event layer still unbuilt.
+     **ADD, REMOVE, DELETE and CREATE run** (§ADD REMOVE and DELETE, §the character generator's
+     spine), so seven of the party menu's twelve entries do. CREATE gets as far as alignment.
 
-     After it: the single-caller screens — magic, rest, alter, journal, buy, appraise, heal,
-     donate — and **reloading the level on load**, the one loose end saving left behind.
+     **Text entry is the next thing worth building**, because three separate things wait on it:
+     the generator's name step, MODIFY, and `EnterPassword` — one of the ten event types still
+     inert. After it, the generator's remaining steps want an ability roller and an art picker.
+
+     Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
+     and **reloading the level on load**, the one loose end saving left behind.
 
      After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
      subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,

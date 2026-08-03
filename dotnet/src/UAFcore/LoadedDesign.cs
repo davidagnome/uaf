@@ -495,6 +495,61 @@ public sealed class LoadedDesign : IDisposable
         }
     }
 
+    private Dictionary<string, ClassRecord>? classes;
+    private bool classesLoaded;
+
+    /// <summary>The design's classes, by name — or null when the database cannot be read.</summary>
+    /// <remarks>
+    /// A <i>class</i> is a bundle of one or more baseclasses; the character generator offers
+    /// these, and the rules elsewhere work in baseclasses. Both tables are needed to answer which
+    /// classes a race may take.
+    /// </remarks>
+    public IReadOnlyDictionary<string, ClassRecord>? Classes
+    {
+        get
+        {
+            if (classesLoaded)
+            {
+                return classes;
+            }
+
+            classesLoaded = true;
+            classes = LoadClasses();
+            return classes;
+        }
+    }
+
+    private Dictionary<string, ClassRecord>? LoadClasses()
+    {
+        string path = Path.Combine(Root, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Class));
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Class, out var body,
+                                                   out var stream);
+            using (stream)
+            {
+                var map = new Dictionary<string, ClassRecord>(StringComparer.OrdinalIgnoreCase);
+                foreach (var record in ClassRecordReader.ReadAll(body, header.Count,
+                                                                 Globals.Version))
+                {
+                    map[record.Name] = record;
+                }
+                return map;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// The level ceiling a character faces in one baseclass, from its baseclass and its race.
     /// </summary>

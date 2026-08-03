@@ -166,6 +166,18 @@ public sealed class Game
             SaveDirectory, design.Globals.Characters, Party.Members.Select(m => m.Name));
 
         Runner.ApplyRoster = ApplyRoster;
+
+        // Each step's offers come off the design's own tables, and class depends on the two
+        // choices before it -- which is why the wizard's order is what it is.
+        Runner.CreationChoicesFor = making => making.Step switch
+        {
+            CreationStep.Race => CreationChoices.Races(design.Races),
+            CreationStep.Gender => CreationChoices.Genders,
+            CreationStep.Class => CreationChoices.ClassesFor(making.RaceId, design.Classes,
+                                                             design.Races, design.Baseclasses),
+            CreationStep.Alignment => CreationChoices.Alignments,
+            _ => [],
+        };
         Runner.ActiveCharacterName = () => Party.Active?.Name ?? "THIS CHARACTER";
         Runner.ApplyPartyConfirm = ApplyPartyConfirm;
 

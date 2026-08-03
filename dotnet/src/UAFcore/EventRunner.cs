@@ -142,6 +142,8 @@ public sealed class EventRunner
         Roster = null;
         rosterLines = [];
         Confirming = PartyConfirm.None;
+        Creating = null;
+        CreationOffered = [];
 
         return gameEvent switch
         {
@@ -1013,6 +1015,175 @@ public sealed class EventRunner
         }
     }
 
+    // ---- CREATE CHARACTER ----------------------------------------------------------------------
+
+    /// <summary>The character being made, or null when the generator is not running.</summary>
+    public CharacterCreation? Creating { get; private set; }
+
+    /// <summary>What is on offer at the current step.</summary>
+    public IReadOnlyList<CreationChoice> CreationOffered { get; private set; } = [];
+
+    /// <summary>Which offer the cursor is on.</summary>
+    public int CreationIndex { get; private set; }
+
+    /// <summary>Which page of the offers is showing.</summary>
+    public int CreationPage { get; private set; }
+
+    /// <summary>What a step may pick; set by the host, which owns the design's tables.</summary>
+    public Func<CharacterCreation, IReadOnlyList<CreationChoice>>? CreationChoicesFor { get; set; }
+
+    /// <summary>
+    /// The picker's own menu — <c>SelectMenuData</c>, shared by all four
+    /// (<c>RunEvent.cpp:3280</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>EXIT abandons the whole character, not the step.</b> Every picker sets
+    /// <c>m_AbortCharCreation</c> and unwinds; none of them steps back one, so a player who picks
+    /// the wrong race starts again.
+    /// </remarks>
+    public static readonly (string Label, int Shortcut)[] CreationMenu =
+        [("SELECT", 0), ("NEXT", 0), ("PREV", 0), ("EXIT", 1)];
+
+    private const int CreationSelect = 0;
+    private const int CreationNext = 1;
+    private const int CreationPrev = 2;
+    private const int CreationExit = 3;
+
+    /// <summary>Starts the character generator (<c>CREATE_CHARACTER_DATA</c>).</summary>
+    private EventStep BeginCreation()
+    {
+        if (CreationChoicesFor is null)
+        {
+            Unimplemented = "[CREATE CHARACTER here -- not implemented]";
+            return EventStep.Running;
+        }
+
+        Creating = new CharacterCreation();
+        return ShowCreationStep();
+    }
+
+    /// <summary>
+    /// Puts the current step on screen, or ends the generator when it runs out of ported ones.
+    /// </summary>
+    /// <remarks>
+    /// <b>Four of the ten steps run.</b> Race, gender, class and alignment are one screen with
+    /// four sources; stats, name, icon, small picture and the two spell screens each need
+    /// machinery the port does not have — an ability roller, text entry, an art picker — and the
+    /// generator stops and says which rather than producing half a character.
+    /// </remarks>
+    private EventStep ShowCreationStep()
+    {
+        if (Creating is null)
+        {
+            return EventStep.Running;
+        }
+
+        if (Creating.Aborted || Creating.Step > CreationStep.Alignment)
+        {
+            var reached = Creating.Step;
+            bool aborted = Creating.Aborted;
+
+            Creating = null;
+            CreationOffered = [];
+
+            Menu.Reset();
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+            UpdatePartyMenu();
+            escapeSelects = PartyExit;
+
+            if (!aborted)
+            {
+                Unimplemented = $"[{reached} and the steps after it -- not implemented]";
+            }
+            return EventStep.Running;
+        }
+
+        CreationOffered = CreationChoicesFor?.Invoke(Creating) ?? [];
+        CreationIndex = 0;
+        CreationPage = 0;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CreationMenu);
+        escapeSelects = CreationExit;
+        ShowText($"SELECT {Creating.Step.ToString().ToUpperInvariant()}");
+
+        return EventStep.Running;
+    }
+
+    /// <summary>The offers on the page showing.</summary>
+    public IReadOnlyList<CreationChoice> CreationPageOffers =>
+        [.. CreationOffered.Skip(CreationPage * PageSize).Take(PageSize)];
+
+    private int CreationPageCount =>
+        Math.Max(1, ((CreationOffered.Count + PageSize - 1) / PageSize));
+
+    /// <summary>
+    /// <c>RACE_MENU_DATA::OnKeypress</c> and its three twins (<c>RunEvent.cpp:3227</c>).
+    /// </summary>
+    private EventStep ChooseCreation()
+    {
+        if (Creating is null)
+        {
+            return EventStep.Running;
+        }
+
+        switch (Menu.ActiveItem)
+        {
+            case CreationSelect:
+            {
+                var page = CreationPageOffers;
+                if (CreationIndex < 0 || CreationIndex >= page.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                Creating.Choose(page[CreationIndex].Id);
+                return ShowCreationStep();
+            }
+
+            case CreationNext:
+                CreationPage = (CreationPage + 1) % CreationPageCount;
+                CreationIndex = 0;
+                return EventStep.Running;
+
+            case CreationPrev:
+                CreationPage = (CreationPage + CreationPageCount - 1) % CreationPageCount;
+                CreationIndex = 0;
+                return EventStep.Running;
+
+            default:
+                Creating.Abort();
+                return ShowCreationStep();
+        }
+    }
+
+    /// <summary>
+    /// The picker's vertical keys — the same split the inventory has
+    /// (<c>HMenuVItemsKeyboardAction</c>).
+    /// </summary>
+    private bool HandleCreationKey(VirtualKey key)
+    {
+        int onPage = CreationPageOffers.Count;
+        if (onPage <= 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                CreationIndex = ((CreationIndex - 1) % onPage + onPage) % onPage;
+                return true;
+
+            case VirtualKey.Down:
+                CreationIndex = (CreationIndex + 1) % onPage;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
     /// <summary>Which confirmation the yes/no screen is asking.</summary>
     public enum PartyConfirm
     {
@@ -1097,6 +1268,9 @@ public sealed class EventRunner
 
             case PartyAdd:
                 return OpenRoster();
+
+            case PartyCreate:
+                return BeginCreation();
 
             case PartyRemove:
                 return AskAbout(PartyConfirm.Remove, "REMOVE {0} FROM PARTY?");
@@ -1808,9 +1982,18 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The character generator's pickers split the keys the inventory's way round: the list
+        // takes up and down, the SELECT/NEXT/PREV/EXIT menu takes left and right.
+        if (Creating is not null && input.Kind == InputEventKind.KeyDown
+            && HandleCreationKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // The party menu is the mirror image: VMenuHPartyKeyboardAction gives the menu the
         // vertical keys and the party the horizontal ones (RunEvent.cpp:1973).
-        if (PartyMenuOpen && !SlotsOpen && !RosterOpen && Confirming is PartyConfirm.None
+        if (PartyMenuOpen && !SlotsOpen && !RosterOpen && Creating is null
+            && Confirming is PartyConfirm.None
             && input.Kind == InputEventKind.KeyDown
             && input.Key is VirtualKey.Left or VirtualKey.Right)
         {
@@ -1865,6 +2048,11 @@ public sealed class EventRunner
         if (RosterOpen)
         {
             return ChooseRoster();
+        }
+
+        if (Creating is not null)
+        {
+            return ChooseCreation();
         }
 
         if (Confirming is not PartyConfirm.None)
