@@ -325,12 +325,14 @@ public class EventRunnerTests
     [Fact]
     public void An_event_this_port_does_not_run_is_named_rather_than_silently_skipped()
     {
+        // Vault, which no shipped design contains and which is a treasure screen over the party's
+        // stored goods. This test used to name Camp; Camp now runs.
         var runner = new EventRunner();
-        var step = Begin(runner, new CampEvent(Base(EventType.Camp), 0));
+        var step = Begin(runner, new VaultEvent(Base(EventType.Vault), 0, 0));
 
         Assert.Equal(EventStepKind.Running, step.Kind);
         Assert.NotNull(runner.Unimplemented);
-        Assert.Contains("Camp", runner.Unimplemented, StringComparison.Ordinal);
+        Assert.Contains("Vault", runner.Unimplemented, StringComparison.Ordinal);
     }
 
     // ---- treasure ------------------------------------------------------------------------------

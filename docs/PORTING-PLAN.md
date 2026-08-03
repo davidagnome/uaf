@@ -13,14 +13,14 @@ written whole; **30 of the 44 event types write, covering every one of the 4,705
 shipped level**. The remaining 14 event types appear in no shipped design at all.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes twenty-eight of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes thirty of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,764 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,783 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,34 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### Camp and the training hall, as ported — and what the town services actually are
+
+`CAMP_EVENT_DATA` and `TRAININGHALL`. **30 of the 44 event types now execute.** More useful than
+either screen is what reading all seven together established, because it changes how the rest
+should be estimated:
+
+> **Every town service is an outer screen over inner screens, and the inner ones are the work.**
+> `CAMP_EVENT_DATA` has no screen at all — it pushes `ENCAMP_MENU_DATA` and, on return, backs the
+> party up and chains. That menu's twelve entries push **six separate event classes** (save, load,
+> magic, rest, alter, journal). `TRAININGHALL` is a two-item yes/no whose YES pushes the
+> character-picking menu that does the actual training. `VAULT_EVENT_DATA` is a treasure screen
+> over an items menu. So "port the town services" is not seven screens; it is seven shells and
+> perhaps a dozen inner ones, and the shells are cheap while the inner ones are not.
+
+What is running: camp's menu with VIEW, TALK, ZAP and EXIT live and the other eight named; the
+training hall's welcome with NO live and YES named.
+
+> **`forceExit` does not mean "leave immediately".** It is `ForcePartyBackup()`, and it sends
+> `TASKMSG_MovePartyBackward` when the screen closes — "step the party off the square on the way
+> out", so walking into a shop does not leave them in the doorway re-triggering it. **Four event
+> types spell the field three different ways** — `ForceExit`, `ForceBackup`, `forceExit` — behind
+> the one virtual, which is why it reads like four unrelated flags in the readers.
+
+> **A camp's TALK chains to a *global* event, not a level one.** It reads the active character's
+> `TalkEvent` and pushes it through `PushGlobalEvent` after checking
+> `AllowedAsGlobalEvent` (`RunEvent.cpp:9302`) — and below 0.681 it refuses outright, with the
+> comment "not safe, didn't work properly in old versions".
+
 ##### The first town service, as ported
 
 `SMALL_TOWN_DATA` — the hub the other six hang off, and the cheapest of them: a horizontal menu of
@@ -5607,7 +5635,7 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and twenty-eight execute. The other 16 draw
+   reads (§the event layer), and thirty execute. The other 14 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - ~~**`LogicBlock` (52)**~~ — **done, and running** (§a logic block, running). The gate
@@ -5615,11 +5643,10 @@ What is left, in order:
      `GameLogicBlockHost` over `Game`. `LBIT_RunTimeIf` wants the runtime keyword table and the
      four GPDL terminals and actions want a script runner; everything else runs. This was the most
      frequent inert type in the corpus.
-   - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`
-     and `Vault` — are whole screens each and are the expensive tail. `SmallTown`, the hub they
-     hang off, is done (§the first town service) and establishes the shape: a fixed menu whose
-     entries are chains, an Escape that selects, and a missing target that is a no-op rather than
-     a fallback.
+   - The town services. `SmallTown`, `Camp` and `TrainingHallEvent` run; `Shop`, `Temple`,
+     `Tavern` and `Vault` remain. **Estimate them by their inner screens, not their outer ones**
+     (§camp and the training hall): each shell is an afternoon and the dozen inner screens behind
+     them — save, load, magic, rest, alter, journal, character-picking, items — are the tail.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing
@@ -5690,7 +5717,7 @@ the round both call and neither has.
 |---|---|---|
 | ~~**`ArchiveWriter`**~~ | **Done.** All six record types, every shared leaf, both halves of the `CAR` write path, 30 of the 44 event bodies, and the four whole-file framings — `.chr`, `.lvl`, `game.dat`, `.pty`. Three shipped databases are reproduced byte for byte and everything else round-trips. **Phase 1's exit criterion is met**, and Phase 5 is unblocked | — |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **16 event types are read but not executed** | Every type now has a reader and 28 execute. `LogicBlock` (52) and `SmallTown` run; what is left is the six remaining town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
+| **14 event types are read but not executed** | Every type now has a reader and 30 execute. `LogicBlock` (52), `SmallTown`, `Camp` and `TrainingHallEvent` run. What is left is `Shop`, `Temple`, `Tavern` and `Vault` — plus, behind all four town shells, roughly a dozen **inner** screens (save, load, magic, rest, alter, journal, character-picking, items) that are the real cost — and `EnterPassword`, `EncounterEvent`, `PlayMovieEvent` | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
 | **Global script hooks** | **`CombatPlacement` is done** — the parser, `RunGlobalScript`, both sub-opcodes and the call site. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes now that the bridge exists | Small |

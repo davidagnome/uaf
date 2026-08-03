@@ -126,6 +126,7 @@ public sealed class EventRunner
         Items = null;
         Stats = null;
         TakeRequested = false;
+        BackupRequested = false;
         escapeSelects = null;
 
         return gameEvent switch
@@ -149,8 +150,134 @@ public sealed class EventRunner
             WhoPaysEvent toll => BeginWhoPays(toll, anchors),
             LogicBlockEvent logic => BeginLogicBlock(logic),
             SmallTownEvent town => BeginSmallTown(town, anchors),
+            CampEvent camp => BeginCamp(camp, anchors),
+            TrainingHallEvent hall => BeginTrainingHall(hall, anchors),
             _ => BeginUnsupported(gameEvent),
         };
+    }
+
+    /// <summary>
+    /// Set when a town screen closed and the party owes a step backwards
+    /// (<c>ForcePartyBackup</c> → <c>TASKMSG_MovePartyBackward</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>This is what a town service's <c>forceExit</c> field means</b> — not "leave immediately"
+    /// as the name suggests, but "step the party off the square on the way out", so walking into a
+    /// shop does not leave them standing in its doorway re-triggering it. Four event types spell it
+    /// four different ways (<c>ForceExit</c>, <c>ForceBackup</c>, <c>forceExit</c>) behind the one
+    /// virtual <c>ForcePartyBackup</c>.
+    /// </remarks>
+    public bool BackupRequested { get; private set; }
+
+    /// <summary>
+    /// <c>ENCAMP_MENU_DATA</c> (<c>RunEvent.cpp:9108</c>), which <c>CAMP_EVENT_DATA</c> pushes
+    /// immediately (<c>:11182</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The camp event itself is a wrapper with no screen of its own.</b> It pushes the encamp
+    /// menu and, when that returns, backs the party up and chains — so what the player sees is
+    /// entirely the inner menu, and the two are collapsed here.
+    /// </para>
+    /// <para>
+    /// <b>Most of its twelve entries push whole screens this port does not have</b> — save, load,
+    /// magic, rest, alter and the journal are each their own event class. They are named rather
+    /// than run, which is what <see cref="Unimplemented"/> is for. VIEW, TALK, ZAP and EXIT work.
+    /// </para>
+    /// </remarks>
+    private EventStep BeginCamp(CampEvent camp, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal,
+                       ("SAVE", 0), ("LOAD", 0), ("VIEW", 0), ("MAGIC", 0), ("REST", 0),
+                       ("ALTER", 0), ("FIX", 0), ("TALK", 0), ("JOURNAL", 0), ("ZAP", 0),
+                       ("EXIT", 1), ("QUIT", 0));
+
+        escapeSelects = CampExit;
+        ShowText(camp.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>The EXIT item's index in the encamp menu.</summary>
+    public const int CampExit = 10;
+
+    /// <summary>The ZAP item's text (<c>RunEvent.cpp:9323</c>).</summary>
+    /// <remarks>
+    /// A debug hook that pushes a text event saying <c>**SHAZAM**</c> and calls <c>ZapCmd()</c>.
+    /// The text is on the wire in no design — the event class builds it inline — so it is a
+    /// literal here too.
+    /// </remarks>
+    public const string ZapText = "**SHAZAM**ZapCmd()";
+
+    /// <summary><c>ENCAMP_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:9252</c>).</summary>
+    private EventStep ChooseCamp(CampEvent camp)
+    {
+        switch (Menu.ActiveItem)
+        {
+            case 2 when ActiveCharacterSheet?.Invoke() is { } sheet && font is not null:
+                Stats = new CharStatsForm();
+                Stats.Populate(font, sheet);
+                return EventStep.Running;
+
+            case 7:
+                // The active character's TALK event, which is a GLOBAL event rather than a level
+                // one -- and a character with none pushes DO_NOTHING, so the screen stays up.
+                uint talk = TalkEventOfActive?.Invoke() ?? 0;
+                if (talk == 0 || IsValidEvent?.Invoke(talk) == false)
+                {
+                    return EventStep.Running;
+                }
+                Current = null;
+                return EventStep.To(talk);
+
+            case 9:
+                ShowText(ZapText);
+                return EventStep.Running;
+
+            case CampExit:
+                BackupRequested = camp.ForceExit != 0;
+                return Complete(happened: true);
+
+            default:
+                // SAVE, LOAD, MAGIC, REST, ALTER, FIX, JOURNAL and QUIT each push a screen this
+                // port has not built.
+                Unimplemented = $"[{LabelOf(Menu.ActiveItem)} here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>The active character's TALK event id; set by the host, which owns the party.</summary>
+    public Func<uint>? TalkEventOfActive { get; set; }
+
+    private string LabelOf(int item) =>
+        item >= 0 && item < Menu.Count ? BitmapFont.Decode(Menu.Items[item].Text) : "option";
+
+    /// <summary>
+    /// <c>TRAININGHALL::OnInitialEvent</c> (<c>RunEvent.cpp:12040</c>) — the welcome screen.
+    /// </summary>
+    /// <remarks>
+    /// <b>A yes/no, and nothing more.</b> YES pushes the character-picking menu that does the
+    /// actual training; NO backs the party up and chains. The training itself is a separate event
+    /// class this port has not built, so YES names it.
+    /// </remarks>
+    private EventStep BeginTrainingHall(TrainingHallEvent hall, MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+
+        ShowText(hall.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary><c>TRAININGHALL::OnKeypress</c> (<c>RunEvent.cpp:12065</c>).</summary>
+    private EventStep ChooseTrainingHall(TrainingHallEvent hall)
+    {
+        if (Menu.ActiveItem == 0)
+        {
+            Unimplemented = "[TRAINING here -- not implemented]";
+            return EventStep.Running;
+        }
+
+        BackupRequested = hall.ForceExit != 0;
+        return Complete(happened: true);
     }
 
     /// <summary>
@@ -836,6 +963,8 @@ public sealed class EventRunner
             SoundEvent sound => Applied(() => ApplySound?.Invoke(sound)),
             WhoPaysEvent toll => FinishWhoPays(toll),
             SmallTownEvent town => ChooseSmallTown(town),
+            CampEvent camp => ChooseCamp(camp),
+            TrainingHallEvent hall => ChooseTrainingHall(hall),
             _ => Complete(happened: true),
         };
     }
