@@ -6,8 +6,8 @@
 
 **Status.** Phase 0 complete. Phase 1 complete **for reading** — every design file in the fixture
 corpus parses, diffed against the oracle — and **the writer has started**: the byte layer, both
-shared leaves and the first whole record type, monsters, which round-trips all 570 records in the
-corpus — and **the `CAR` write path now exists**, both halves of it. Its round-trip exit
+shared leaves and **two whole record types**, monsters and items, which round-trip every record in
+the corpus — and **the `CAR` write path now exists**, both halves of it. Its round-trip exit
 criterion still needs the other record types and a writer cursor to target them through.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
@@ -18,7 +18,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,575 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,589 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3177,6 +3177,37 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The second record type, as ported
+
+`ITEM_DATA` (`ItemRecordWriter`) — and **`ci-tier3`'s `items.dat` came back byte for byte on the
+first attempt**, which is what a second record type is really for: the first proves the format is
+understood, the second proves the *method* is.
+
+It shares three of the monster's four leaves and the same rule about the storing branch carrying no
+version gates. Three things are its own:
+
+> **Transcribe the `CAR` overload, not the `CArchive` one.** The latter's storing branch opens with
+> `die("We should not be serializing itemdata with CArchive")` (`Items.cpp:2348`) — code that
+> cannot run, describing a format that is never produced. §1's warning about the storing branch
+> being the newer of the two has a sharper form here: one of them is a corpse.
+
+> **`HitArt` is written twice and `MissileArt` once.** The pair goes out early, then `HitArt` alone
+> again near the end (`:2698` and `:2744`). Both are on the wire and the reader consumes both. The
+> trailing comment explains the asymmetry — the second copy is `HitArt`'s combat-directory form,
+> and missile art keeps its place in the ASL rather than being repeated.
+
+> **`ROF_Per_Round` is a `double` among `int`s** — eight bytes where its neighbours are four. Worse
+> than the monster's `float` hit dice, because there the width matched and only the interpretation
+> was wrong; here writing it narrower shifts the whole rest of the record.
+
+**The record ends at its ASL, but the database does not**: an ammo-type list follows the records,
+the same shape as the item list that follows a monster's attributes. A writer that stops at the
+records leaves the reader taking that list's count from whatever comes next.
+
+One record shape is refused: a pre-0.998101 `Usable_by_Class` bitmask, whose conversion to a
+baseclass list needs `baseclass.dat` — still unread. Writing an empty list would make the item
+usable by nobody.
+
 ##### The `CAR` write path, as ported
 
 `CarLzwCompressor` and `CarArchiveWriter` — **the last wholly unexplored part of the format**.
@@ -3227,11 +3258,26 @@ dispatched: **a string is length-prefixed in one and interned in the other**, a 
 escaping scheme against a flat `DWORD`, and there is no compressed equivalent of writing raw
 string bytes. Everything else is the same bytes down a different pipe.
 
-**Byte-identity with a shipped file is still not claimed.** The reference's writer interned strings
-in the order *its* record walk produced them; matching that needs this writer to be byte-compatible
-field for field, which the rest of the corpus tests establish separately but which nothing yet
-proves end to end. What is pinned is that both files are whole 52-byte-block LZW streams of the
-same compression type — the two are now comparable at all, which they were not before.
+> **`ci-tier3`'s `monsters.dat` is reproduced byte for byte** — all 4,265 bytes of it, LZW and
+> string interning included. That is Phase 1's round-trip exit criterion demonstrated for one
+> record type against a real shipped file, and it holds under two conditions: the design is at or
+> above `WrittenVersion`, so no field is added on the way out, and no record needed repairing as it
+> was read.
+
+The other two designs differ, and **both differences were predicted by things already documented**,
+which is the useful part:
+
+- **`SomethingWild` (3.55)** is below the 5.24 that adds the icon's `RestartFrame`, so writing it
+  back *upgrades* it — four bytes per monster, from the first record's icon onward. The reference
+  upgrades too when it saves an old design. The divergence appearing **early** is the tell.
+- **`dc-default` (5.28)** adds nothing on the way out, but one of its 171 monsters has an **empty
+  attack list on disk** and the reader forces such a monster to one attack (`Monster.cpp:764`). So
+  the file is reproduced exactly up to that record and diverges from it on. The divergence
+  appearing **late** is the tell.
+
+Both are pinned as tests asserting *where* they diverge, not merely that they do — an early
+divergence in the dc-default case, or a late one in SomethingWild's, would mean something other
+than the cause claimed here.
 
 ##### The first whole record the port can write, as ported
 
@@ -5122,7 +5168,7 @@ the round both call and neither has.
 
 | Gap | Why it matters | Size |
 |---|---|---|
-| **`ArchiveWriter`** | The byte layer, both shared leaves, `MONSTER_DATA` and **the whole `CAR` write path** are written — the LZW encoder and the string-interning half both. What is missing is a writer cursor (the counterpart of `IArchiveCursor`) so record writers can target either encoding, and then a writer per remaining record type. Phase 1's round-trip exit criterion is unmet and **Phase 5 cannot begin** | Large |
+| **`ArchiveWriter`** | The byte layer, both shared leaves, `MONSTER_DATA`, `ITEM_DATA`, the whole `CAR` write path and the writer cursor are done — and **two shipped databases are reproduced byte for byte**. What remains is spells, characters, levels and save games. Phase 1's round-trip exit criterion is met for monsters and items; **Phase 5 cannot begin** until an editor can save a whole design | Large |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **18 event types are read but not executed** | Every type now has a reader and 26 execute. `LogicBlock` (52) needs `ProcessLBInput`'s sixteen input types; the rest are the town-service screens plus `EnterPassword`, `EncounterEvent` and `PlayMovieEvent` — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |

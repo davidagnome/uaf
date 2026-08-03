@@ -146,6 +146,73 @@ public class MonsterWriterCorpusTests
     }
 
     [Fact]
+    public void A_design_at_the_written_version_comes_back_byte_for_byte()
+    {
+        // **Phase 1's round-trip exit criterion, demonstrated for one record type against a real
+        // shipped file.** ci-tier3 is 5.29 -- at or above WrittenVersion, so no field is added on
+        // the way out -- and none of its 44 records needed repairing as it was read. Under those
+        // two conditions the port reproduces the reference's own bytes exactly, LZW and string
+        // interning included.
+        byte[]? shipped = CompressedPayload("reference/ci-tier3/Data");
+        if (shipped is null)
+        {
+            return;
+        }
+
+        Assert.Equal(shipped, WriteCompressed(Read("reference/ci-tier3/Data", ArchiveRole.Engine)));
+    }
+
+    [Fact]
+    public void A_design_below_the_written_version_differs_because_it_is_upgraded()
+    {
+        // SomethingWild is 3.55, below the 5.24 that adds the icon's RestartFrame -- so writing it
+        // back adds four bytes per monster, in the first record's icon and every one after. That
+        // is what the reference does too when it saves an old design: it upgrades. The difference
+        // appearing early is the tell; a difference late would mean something else.
+        byte[]? shipped = CompressedPayload("reference/SomethingWild.dsn/Data");
+        if (shipped is null)
+        {
+            return;
+        }
+
+        byte[] ours = WriteCompressed(Read("reference/SomethingWild.dsn/Data", ArchiveRole.Engine));
+
+        Assert.NotEqual(shipped, ours);
+        Assert.Equal(shipped.Length, ours.Length);       // LZW blocks absorb it
+    }
+
+    [Fact]
+    public void A_design_whose_reader_had_to_repair_a_record_differs_there_and_not_before()
+    {
+        // dc-default is 5.28, so nothing is added on the way out -- but one of its 171 monsters
+        // has an EMPTY attack list on disk, and the reference forces such a monster to one attack
+        // as it loads (Monster.cpp:764). Writing it back therefore emits the attack the file does
+        // not have. The bytes agree until that record and diverge from it on, which is the shape
+        // of a repair rather than a format mistake.
+        byte[]? shipped = CompressedPayload("reference/dc-default/data-files");
+        if (shipped is null)
+        {
+            return;
+        }
+
+        var monsters = Read("reference/dc-default/data-files", ArchiveRole.Engine);
+        byte[] ours = WriteCompressed(monsters);
+
+        Assert.NotEqual(shipped, ours);
+
+        // Every monster now has at least one attack, and exactly one of them was given it here --
+        // which is the record the divergence belongs to.
+        Assert.All(monsters, m => Assert.NotEmpty(m.Attacks));
+
+        int firstDiff = 0;
+        while (firstDiff < ours.Length && shipped[firstDiff] == ours[firstDiff]) { firstDiff++; }
+
+        // Late, not early: the whole file up to that record is reproduced exactly.
+        Assert.True(firstDiff > ours.Length * 9 / 10,
+                    $"diverged at {firstDiff} of {ours.Length}, too early for a single repair");
+    }
+
+    [Fact]
     public void The_shipped_payload_is_a_stream_this_port_can_now_produce_the_shape_of()
     {
         // Not byte-identity: the reference's own writer interned strings in the order ITS record
