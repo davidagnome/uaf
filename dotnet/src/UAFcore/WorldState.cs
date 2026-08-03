@@ -35,6 +35,20 @@ public sealed class WorldState
     private readonly Dictionary<int, int> specialItems = [];
     private readonly Dictionary<int, int> keys = [];
 
+    /// <summary>
+    /// The design's own records, kept so play's changes can be written back over them.
+    /// </summary>
+    /// <remarks>
+    /// <b>The live state is a subset of the record.</b> A quest is a name, an examine event, a
+    /// label and an attribute list as well as a state and a stage, and only the last two ever
+    /// move — so the way to write one back is to overwrite those two on the record it came from,
+    /// exactly as a <see cref="Character"/> writes back over its <c>CharacterRecord</c>.
+    /// Rebuilding from the live dictionary alone would save a quest with no name.
+    /// </remarks>
+    private IReadOnlyList<Quest> designQuests = [];
+    private IReadOnlyList<SpecialObject> designSpecialItems = [];
+    private IReadOnlyList<SpecialObject> designKeys = [];
+
     /// <summary>Builds the starting world from a design's <c>GLOBAL_STATS</c>.</summary>
     public static WorldState FromDesign(IReadOnlyList<Quest> designQuests,
                                         IReadOnlyList<SpecialObject> designSpecialItems,
@@ -44,7 +58,12 @@ public sealed class WorldState
         ArgumentNullException.ThrowIfNull(designSpecialItems);
         ArgumentNullException.ThrowIfNull(designKeys);
 
-        var world = new WorldState();
+        var world = new WorldState
+        {
+            designQuests = designQuests,
+            designSpecialItems = designSpecialItems,
+            designKeys = designKeys,
+        };
 
         foreach (var quest in designQuests)
         {
@@ -62,6 +81,61 @@ public sealed class WorldState
         }
 
         return world;
+    }
+
+    /// <summary>
+    /// The quests as a savegame writes them: the design's records with play's state over them.
+    /// </summary>
+    /// <remarks>
+    /// A quest the design does not define cannot be written, because there is no record to write
+    /// it onto — nothing in the engine can create one, so this cannot lose anything.
+    /// </remarks>
+    public List<Quest> QuestRecords() =>
+        [.. designQuests.Select(q => quests.TryGetValue(q.Id, out var live)
+            ? q with { State = (int)live.State, Stage = (ushort)live.Stage }
+            : q)];
+
+    /// <summary>The special items as a savegame writes them.</summary>
+    public List<SpecialObject> SpecialItemRecords() =>
+        [.. designSpecialItems.Select(i => specialItems.TryGetValue(i.Id, out int stage)
+            ? i with { Stage = (ushort)stage }
+            : i)];
+
+    /// <summary>The keys as a savegame writes them.</summary>
+    public List<SpecialObject> KeyRecords() =>
+        [.. designKeys.Select(k => keys.TryGetValue(k.Id, out int stage)
+            ? k with { Stage = (ushort)stage }
+            : k)];
+
+    /// <summary>Replaces the live state from a savegame's lists.</summary>
+    /// <remarks>
+    /// <b>The design's records are kept, not replaced.</b> A save carries the whole record, but
+    /// the design is the authority on a quest's name and events — the save is only the authority
+    /// on how far along it is. Taking the save's records wholesale would let an old save
+    /// resurrect text its design has since rewritten.
+    /// </remarks>
+    public void Restore(IReadOnlyList<Quest> savedQuests,
+                        IReadOnlyList<SpecialObject> savedSpecialItems,
+                        IReadOnlyList<SpecialObject> savedKeys)
+    {
+        ArgumentNullException.ThrowIfNull(savedQuests);
+        ArgumentNullException.ThrowIfNull(savedSpecialItems);
+        ArgumentNullException.ThrowIfNull(savedKeys);
+
+        foreach (var quest in savedQuests)
+        {
+            quests[quest.Id] = ((QuestState)quest.State, quest.Stage);
+        }
+
+        foreach (var item in savedSpecialItems)
+        {
+            specialItems[item.Id] = item.Stage;
+        }
+
+        foreach (var key in savedKeys)
+        {
+            keys[key.Id] = key.Stage;
+        }
     }
 
     /// <summary>

@@ -10,6 +10,18 @@ public sealed record ItemInstance(
 /// <summary>Which item occupies each equipment slot. Twelve slots, all <c>int</c>.</summary>
 public sealed record ReadyItems(IReadOnlyList<int> Slots)
 {
+    /// <summary>
+    /// Twelve empty slots — what a list nobody has equipped from looks like.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not an empty list.</b> The count is compile-time in the reference and never written, so
+    /// a shorter one truncates the record; <c>WriteReadyItems</c> refuses rather than letting that
+    /// happen, which is how a projection built with <c>[]</c> gets caught at the writer instead of
+    /// in a file nobody can read back.
+    /// </remarks>
+    public static ReadyItems Empty { get; } =
+        new(new int[MonsterLeafReaders.ReadySlotCount]);
+
     public static readonly string[] SlotNames =
     [
         "WeaponHand", "ShieldHand", "MissileAmmo", "Armor", "Gauntlets", "Helmet",

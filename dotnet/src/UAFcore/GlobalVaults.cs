@@ -72,7 +72,7 @@ public sealed class GlobalVaults
     /// <summary>The savegame's shape: all fifteen, in order.</summary>
     public List<Vault> ToRecords() =>
         [.. Enumerable.Range(0, Count).Select(
-            v => new Vault(money[v].ToRecord(), new ItemList([.. items[v]], new ReadyItems([]))))];
+            v => new Vault(money[v].ToRecord(), new ItemList([.. items[v]], ReadyItems.Empty)))];
 
     /// <summary>Rebuilds from a savegame's records.</summary>
     /// <remarks>

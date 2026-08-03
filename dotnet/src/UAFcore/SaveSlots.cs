@@ -32,6 +32,9 @@ public static class SaveSlots
     /// <summary>The entry that leaves, which is also what Escape selects.</summary>
     public const int Exit = Count;
 
+    /// <summary>Whether a number names one of the ten slots.</summary>
+    public static bool IsValidIndex(int index) => index >= 0 && index < Count;
+
     /// <summary>A slot's letter: 0 is A (<c>'A' + num</c>, <c>Dgngame.cpp:103</c>).</summary>
     public static string Letter(int index) => ((char)('A' + index)).ToString();
 

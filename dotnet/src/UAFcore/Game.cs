@@ -159,15 +159,8 @@ public sealed class Game
         // screens read the same folder the reference writes.
         Runner.SaveSlotsAvailable = () => SaveSlots.Under(SaveDirectory);
 
-        // Reading and writing a .pty are both finished; turning a game in progress back into one
-        // is not. See SaveGameProjection for exactly what is missing and why this refuses rather
-        // than writing a file that has forgotten half the game.
-        Runner.SaveToSlot = _ =>
-            SaveGameProjection.CanSave(this, out string reason) ? null : reason;
-
-        Runner.LoadFromSlot = _ =>
-            "This port cannot load a saved game yet: it has nowhere to put the visited squares, " +
-            "trigger flags and journal a save carries.";
+        Runner.SaveToSlot = SaveToSlot;
+        Runner.LoadFromSlot = LoadFromSlot;
 
         // The party menu's TRAIN entry is dark unless all three conditions hold, and it is
         // recomputed on every pass because TAB can change who is standing at the counter.
@@ -340,7 +333,7 @@ public sealed class Game
     public Party Party { get; }
 
     /// <summary>Where saved games live — <c>Saves</c> beside the design (<c>rte.SaveDir</c>).</summary>
-    public string SaveDirectory { get; }
+    public string SaveDirectory { get; set; }
 
     /// <summary>
     /// The game as a logic block's terminals and actions see it — see
@@ -363,6 +356,127 @@ public sealed class Game
 
     /// <summary>The fifteen global vaults (<c>globalData.vault</c>).</summary>
     public GlobalVaults Vaults { get; private set; }
+
+    /// <summary>
+    /// Puts a saved game back over this one (<c>serializeGame(FALSE, …)</c>'s tail,
+    /// <c>RunEvent.cpp:5591</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The party is replaced, not merged.</b> A loaded save's characters are the party, and
+    /// the members standing here are dropped — which is what makes loading from inside a game
+    /// behave the same as loading from the start menu.
+    /// </para>
+    /// <para>
+    /// <b>The level is not reloaded.</b> The reference calls <c>LoadLevel</c> and rebuilds the
+    /// map, the event list and the music; this restores the party's position and the world's
+    /// state onto whatever level is already open. A save from a different level therefore lands
+    /// the party at the right coordinates on the wrong map, which is why
+    /// <see cref="Game.LevelIndex"/> is reported back rather than silently ignored — the caller
+    /// is the one that can open a level.
+    /// </para>
+    /// </remarks>
+    /// <summary>Writes the game into a slot; returns null on success or the reason it did not.</summary>
+    /// <remarks>
+    /// <b>The directory is created here rather than assumed.</b> A design that has never been
+    /// played has no <c>Saves</c> folder, and the reference's own <c>CreateSaveDirectory</c> runs
+    /// on the same path for the same reason.
+    /// </remarks>
+    public string? SaveToSlot(int slot)
+    {
+        if (!SaveSlots.IsValidIndex(slot))
+        {
+            return "There is no such save slot.";
+        }
+
+        if (!SaveGameProjection.CanSave(this, out string reason))
+        {
+            return reason;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(SaveDirectory);
+            string path = Path.Combine(SaveDirectory, SaveSlots.FileName(slot));
+
+            using var file = File.Create(path);
+            SaveGameWriter.Write(file, SaveGameProjection.From(this));
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return $"The game could not be saved: {e.Message}";
+        }
+    }
+
+    /// <summary>Reads a slot back over this game; returns null on success or the reason it did not.</summary>
+    public string? LoadFromSlot(int slot)
+    {
+        if (!SaveSlots.IsValidIndex(slot))
+        {
+            return "There is no such save slot.";
+        }
+
+        string path = Path.Combine(SaveDirectory, SaveSlots.FileName(slot));
+        if (!File.Exists(path))
+        {
+            return "There is no saved game in that slot.";
+        }
+
+        try
+        {
+            int level = LoadFrom(SaveGameReader.Read(path));
+
+            // The map is not reloaded -- see LoadFrom. Saying so is better than landing the party
+            // on the wrong level's map without comment.
+            return level == LevelIndex
+                ? null
+                : $"The saved game is on level {level}; this port cannot switch levels on load, "
+                  + "so the party has been placed on the current one.";
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                    or EndOfStreamException or NotSupportedException)
+        {
+            return $"That saved game could not be read: {e.Message}";
+        }
+    }
+
+    /// <returns>The level the save was taken on, for a caller that can load it.</returns>
+    public int LoadFrom(SaveGame save)
+    {
+        ArgumentNullException.ThrowIfNull(save);
+
+        X = save.Party.PosX;
+        Y = save.Party.PosY;
+        Facing = (Facing)(save.Party.Facing & 3);
+        Minutes = SaveGameProjection.MinutesOf(save.Party);
+
+        Party.Clear();
+        foreach (var record in save.Characters)
+        {
+            Party.Add(new Character(record, Money));
+        }
+        Party.ActiveCharacter = Math.Clamp(save.Party.ActiveCharacter, 0,
+                                           Math.Max(Party.Count - 1, 0));
+        Party.MoneyPooled = save.Party.MoneyPooled;
+        Party.Searching = save.Party.Searching != 0;
+        Party.Pooled.Clear();
+        Party.Pooled.Add(Purse.FromRecord(save.Pool, Money));
+        Party.Attributes.CommitRestore(save.Attributes);
+
+        World.Restore(save.Quests, save.SpecialItems, save.Keys);
+
+        TriggerFlags = EventTriggerFlags.FromRecords(save.EventFlags);
+        Visited = VisitedCells.FromRecords(save.Visited);
+        Clearances = BlockageClearances.FromRecords(save.Blockages);
+        Vaults = GlobalVaults.FromRecords(save.Vaults, Money);
+
+        // Nothing is on screen after a load: the event stack is not saved, so there is nothing to
+        // resume into. See SaveGameProjection.From.
+        CurrentEvent = null;
+
+        return save.Party.Level;
+    }
 
     /// <summary>The design's currency.</summary>
     public MoneyRules Money { get; }

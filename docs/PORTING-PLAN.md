@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,960 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,973 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,54 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### Saving works
+
+A game in progress writes to a slot and loads back. `SaveGameProjection` assembles the record,
+`Game.LoadFrom` applies one, and the slot screens are wired to real files — so the port is
+playable across sessions rather than only within one.
+
+> **A field the engine does not model is carried through, not zeroed.** Every `Character` wraps
+> the `CharacterRecord` it was built from, so writing one back means overwriting the eight fields
+> play can change and keeping the other forty exactly as read. The alignment, ability scores, icon
+> and spell book survive because nothing touched them — not because anything projected them. The
+> same trick was needed for quests: `WorldState` keeps only id → state, so it now holds the
+> design's records too and writes state and stage over them. Building a quest from live state
+> alone would have saved one with no name.
+
+> **Three "empty" values are not absences, and the writer caught all three.** A `LEVEL_STATS` list
+> is exactly 255 entries, a `READY_ITEMS` exactly 12 slots, a `MONEY_SACK` exactly 10 coins —
+> compile-time counts the reference never writes, so a short list silently truncates the record.
+> Phase 1's writers refuse rather than allow it, and each of these surfaced as a clear exception
+> at the writer rather than as a file that reads back wrong. That is the guard rails paying for
+> themselves a year after they were built.
+
+> **`LEVEL_STATS_VERSION` is stamped on every level, touched or not.** The reference always writes
+> 2 and always writes both trailing tables, empty. Writing 0 would be a smaller file that the
+> reference reads as a much older save.
+
+Two deliberate divergences, both documented at the call site:
+
+> **The event stack is not saved.** The reference records it, so a game saved inside a shop
+> resumes inside the shop; this resumes standing on the square with nothing on screen. Deliberate,
+> because SAVE is reachable only from the party menu, which is reachable only from a training hall
+> event — refusing to save inside an event would mean never saving at all.
+
+> **Six `PARTY` scalars have no live counterpart and go out as zero** — the party's name, its
+> speed, the selected inventory item, the two trade slots and the difficulty. Nothing this port
+> runs reads them; the reference reads all six, so a save written here and loaded there arrives on
+> the lowest difficulty with an unnamed party. Listed rather than glossed.
+
+**The tail is written empty, and empty is correct.** Its seven `Save`/`Restore` pairs carry the
+attributes gameplay *changed*, with the design supplying the rest on load — so a port that has not
+yet mutated a spell's or a monster's attributes writes nothing and loses nothing. The one place
+where "not ported" and "correct" coincide, and it holds only until something starts changing
+those lists.
+
+**Not done: loading does not reload the level.** The reference calls `LoadLevel` and rebuilds the
+map, events and music; `LoadFrom` restores the party onto whatever level is open and *returns the
+level the save was taken on* so the caller can act. A cross-level load says so on screen rather
+than placing the party silently on the wrong map.
+
 ##### Blockages and vaults — the last two, and one that was never missing
 
 **The journal was never missing.** `Party.Journal` has been live since the journal event was
@@ -3320,17 +3368,16 @@ already finished** — which turned out to be the more interesting finding.
 **Saving itself is refused, deliberately.** This is worth stating plainly because the surrounding
 work makes it easy to assume otherwise:
 
-> **The file works; the projection does not.** `SaveGameReader` and `SaveGameWriter` round-trip a
-> `.pty` byte for byte — that was Phase 1's exit criterion and it is met. But turning a *game in
-> progress* into a `SaveGame` needed live state this engine did not keep. **That list is now
-> empty** — see §event trigger flags, §visited squares and §blockages and vaults. What remains is
-> the assembly itself, so saving is still refused, but for a reason that costs no gameplay work.
+> **Both ends now meet in the middle.** `SaveGameReader` and `SaveGameWriter` round-trip a `.pty`
+> byte for byte — Phase 1's exit criterion — and `SaveGameProjection` turns a *game in progress*
+> into one. **Saving works**; see §saving works.
 
-> **A lossy save would be worse than none.** A `.pty` with an empty visited map and no trigger
-> flags is a perfectly valid file that reads back cleanly into a party that has forgotten where it
-> has been and will re-fire every event it already resolved. Invisible until much later, and
-> indistinguishable from a design bug when it surfaces. `SaveGameProjection` refuses and names
-> what would be lost, and keeps the list as data so a test can watch it shrink.
+> **A lossy save would have been worse than none**, which is why this refused for four rounds
+> while the missing state was built: a `.pty` with an empty visited map is a perfectly valid file
+> that reads back into a party that has forgotten where it has been and will re-fire every event
+> it resolved. Invisible until much later, and indistinguishable from a design bug. The
+> `Untracked` list is kept — now empty — so a future gap has a declared place rather than being
+> found in a diff.
 
 The slot screens read the real folder — `Saves` beside the design, which is what `rte.SaveDir`
 resolves to — so the occupied slots a player sees are the ones the reference wrote.
@@ -6041,13 +6088,14 @@ What is left, in order:
      `OnceOnly` now works), visited squares, blockages and vaults; the journal turned out never to
      have been missing. See §event trigger flags, §visited squares, §blockages and vaults.
 
-     **What is left is `SaveGameProjection` itself**: assembling a `SaveGame` from the live party,
-     world and flags, and applying one back on load. The pieces all exist and the file format is
-     finished at both ends, so this is transcription rather than discovery — the largest part is
-     projecting a live `Character` back onto its `CharacterRecord`, which means deciding, field by
-     field, which of the record's values the engine now owns. **That turns saving on**, and it is
-     the milestone worth aiming at: it makes the port playable across sessions rather than only
-     within one.
+     ~~**What is left is `SaveGameProjection` itself.**~~ **Done — saving works** (§saving works).
+     A game writes to a slot and loads back, and the port is playable across sessions.
+
+     **What that leaves on this menu is the character-creation family** — ADD, REMOVE, CREATE,
+     DELETE and MODIFY, five entries over one subsystem, and the largest single piece of the event
+     layer still unbuilt. After it: the single-caller screens — magic, rest, alter, journal, buy,
+     appraise, heal, donate — and **reloading the level on load**, which is the one loose end
+     saving left behind.
 
      After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
      subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,
