@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,852 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,886 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,70 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The party menu, and training
+
+The training hall's YES now opens something. It turns out not to be a training screen at all:
+
+> **The training hall has no inner screen of its own — it pushes the game's top-level menu.**
+> `TRAININGHALL::OnKeypress` case 1 is `PushEvent(new MAIN_MENU_DATA(this))`, the same twelve-entry
+> screen the game opens at startup, with the hall as its parent. The entire difference is what
+> lights up: TRAIN and CHANGE CLASS are dark unless a training hall pushed it, and BEGIN
+> ADVENTURING pops back to the hall instead of loading the starting level. So the screen behind
+> the hall is a *shared* one — which changes its priority, since save, load and the character
+> screens all hang off the same menu.
+
+> **Two twelve-entry tables sit side by side in the source and only one is live.** One is
+> commented "original order" and leads with CREATE and DELETE; the live one leads with ADD and
+> REMOVE. The branch numbers in `OnKeypress` happen to agree for the four entries that matter,
+> so reading the wrong list looks fine right up until it does not.
+
+> **The keys are split the opposite way from the inventory.** `VMenuHPartyKeyboardAction` gives
+> the menu the vertical keys and the party the horizontal ones; the inventory's
+> `HMenuVInventoryKeyboardAction` does exactly the reverse. Two screens, two conventions, named
+> almost identically.
+
+Three of the twelve run — VIEW, TRAIN, and the two exits. The rest are character creation, the
+save and load screens and the class change, each a screen rather than a command. **CHANGE CLASS
+is dark** rather than guessed at: it depends on `CreateChangeClassList`, which is not ported.
+
+The enable rules are the substance of the screen, and TRAIN's is three conditions rather than one:
+ready to train, able to pay, **and** holding a baseclass this particular hall teaches. They are
+recomputed on every pass, because TAB changes who is standing at the counter.
+
+> **The player gets no reason, ever.** The reference shows the same dark entry for "you lack the
+> experience" and "this hall does not teach your class". The port keeps a
+> <code>TrainingRefusal</code> so the two are distinguishable in code and in tests, and still shows
+> what the reference shows.
+
+**Training itself** (`CHARACTER::TrainCharacter`) is ported: the fee, the levelling, the hit
+points and the announcement.
+
+> **One level per visit, however much experience is banked.** `TrainCharacter` passes a
+> `maxLevelGain` of literally 1, so a character sitting on four levels' worth must visit four
+> times and pay four times. The entitlement is deferred, not lost.
+
+> **Hit points are rolled, not tabled — one roll per level crossed.** The gain comes from the
+> baseclass's own per-level dice, so training twice from the same save gives different results,
+> and a two-level jump rolls twice at each level's own dice rather than once. That is why the
+> roller is a parameter rather than a static call, and it is what makes the rule testable at all.
+
+> **The hall's advertised level range is decoration.** `LocateTrainableBaseclass` matches on the
+> baseclass id alone and no caller looks further, so a hall listing "levels 1 to 3" trains a level
+> 9 character just the same. The fields are read, written and never consulted.
+
+> **Training heals.** `hitPoints` is set to the new maximum outright — not topped up by the gain,
+> set. A character who walks in on 3 of 10 walks out on the full new total.
+
+Not ported, and named: the **constitution bonus** on each roll (`DetermineHitDiceBonus` needs the
+adjusted ability scores, so a tough fighter is currently short by it), the thief-skill and
+spell-ability recalculations, and the initial magic-user spell pick — which the reference itself
+disables with a hard `PickSpells = FALSE` two lines after computing it.
+
+> **`Training` takes two functions, not a `LoadedDesign`.** The rules need a baseclass table and a
+> level cap; `LoadedDesign` needs a design on disk to exist at all. A rule that cannot run without
+> loading a game is a rule nobody checks, so the dependency is inverted and the eighteen tests
+> here run on fixtures.
+
 ##### The ready rules, and two conversion tables that are not the same table
 
 READY now puts an item where its own database record says, and refuses what the reference
@@ -5802,9 +5866,19 @@ What is left, in order:
      §the ready rules); what is left there is its ten unbuilt commands — of which **DROP is the
      one to take next**, and it is not small: it drops the item into the level's
      `CELL_LEVEL_CONTENTS`, so it needs the level's mutable cell-contents table before it can do
-     anything. Then the **character picker**, which the training hall and several others want, and
-     after that the single-caller screens: save, load, magic, rest, alter, journal, buy, appraise,
-     heal, donate.
+     anything.
+
+     The **party menu** behind the training hall runs, and with it **training** (§the party menu,
+     and training). There is no separate character picker — an earlier note here said there was,
+     and it was wrong: characters are chosen with TAB, and the shared screen is
+     `MAIN_MENU_DATA`. Three of its twelve entries run.
+
+     **The next thing to take is the save and load screens**, which are two of that menu's
+     remaining nine and are the two whose *serialization* is already finished — `.pty` reads and
+     writes whole. They are also reachable from the camp, so they are the highest
+     callers-per-screen left. After those: the character-creation family (ADD, REMOVE, CREATE,
+     DELETE, MODIFY), which is one subsystem behind five entries, and the single-caller screens —
+     magic, rest, alter, journal, buy, appraise, heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing

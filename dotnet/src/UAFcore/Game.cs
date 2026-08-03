@@ -149,6 +149,21 @@ public sealed class Game
             }
         };
 
+        // The party menu's TRAIN entry is dark unless all three conditions hold, and it is
+        // recomputed on every pass because TAB can change who is standing at the counter.
+        TrainingRules RulesFor(Character who) =>
+            new(id => design.Baseclasses?.GetValueOrDefault(id),
+                baseclass => design.LevelCap(who, baseclass));
+
+        Runner.CanTrainHere = hall =>
+            Party.Active is { } who && Training.CanTrain(hall, who, RulesFor(who));
+
+        Runner.ApplyTraining = hall =>
+            Party.Active is { } who
+                ? Training.Train(hall, who, RulesFor(who),
+                                 (count, sides) => DiceExpression.Roll(count, sides, Dice))
+                : TrainingOutcome.Refused(TrainingRefusal.NotReady);
+
         Runner.ResolveWhoTries = trial =>
         {
             var attempt = Party.Active is { } who

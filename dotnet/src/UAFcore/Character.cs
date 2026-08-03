@@ -69,6 +69,7 @@ public sealed class Character
 
         Record = record;
         HitPoints = record.HitPoints;
+        MaxHitPoints = record.MaxHitPoints;
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
         Status = (CharacterStatus)record.Status;
@@ -96,7 +97,15 @@ public sealed class Character
 
     public Gender Gender => (Gender)Record.Gender;
 
-    public int MaxHitPoints => Record.MaxHitPoints;
+    /// <summary>
+    /// The character's hit-point maximum, which training raises.
+    /// </summary>
+    /// <remarks>
+    /// <b>Loaded from the record but not tied to it</b>, unlike the identity fields above: a level
+    /// gained during play adds a fresh roll of the baseclass's dice to it
+    /// (<see cref="Training.HitPointsFor"/>), and the record is never rewritten.
+    /// </remarks>
+    public int MaxHitPoints { get; set; }
 
     public int ArmorClass => Record.ArmorClass;
 

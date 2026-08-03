@@ -134,6 +134,9 @@ public sealed class EventRunner
         InventoryPage = 0;
         InventoryRowIndex = 0;
         LastRefusal = ReadyRefusal.None;
+        PartyMenuOpen = false;
+        partyMenuHall = null;
+        LastTraining = null;
 
         return gameEvent switch
         {
@@ -682,12 +685,169 @@ public sealed class EventRunner
     {
         if (Menu.ActiveItem == 0)
         {
-            Unimplemented = "[TRAINING here -- not implemented]";
-            return EventStep.Running;
+            return OpenPartyMenu(hall);
         }
 
         BackupRequested = hall.ForceExit != 0;
         return Complete(happened: true);
+    }
+
+    /// <summary>
+    /// The party menu's twelve entries, in the live table's order (<c>MainMenu</c>,
+    /// <c>GameMenu.cpp:570</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The order beside it in the source is not the order it runs in.</b> Two twelve-entry
+    /// lists sit in the file, one commented "original order" and one "new order"; the commented
+    /// one leads with CREATE and DELETE, the live one with ADD and REMOVE. The branch numbers in
+    /// <c>OnKeypress</c> happen to agree for the four entries that matter, which is exactly the
+    /// kind of coincidence that makes reading the wrong list look fine.
+    /// </remarks>
+    public static readonly (string Label, int Shortcut)[] PartyMenu =
+        [("ADD CHARACTER", 0), ("REMOVE CHARACTER", 0), ("MODIFY CHARACTER", 0),
+         ("TRAIN CHARACTER", 0), ("CHANGE CLASS", 0), ("VIEW CHARACTER", 0),
+         ("CREATE CHARACTER", 0), ("DELETE CHARACTER", 0), ("LOAD SAVED GAME", 0),
+         ("SAVE CURRENT GAME", 0), ("BEGIN ADVENTURING", 0), ("EXIT FROM GAME", 1)];
+
+    /// <summary>The entries, zero-based. The reference's <c>setItemInactive</c> takes them one-based.</summary>
+    private const int PartyAdd = 0;
+    private const int PartyRemove = 1;
+    private const int PartyModify = 2;
+    private const int PartyTrain = 3;
+    private const int PartyChangeClass = 4;
+    private const int PartyView = 5;
+    private const int PartyCreate = 6;
+    private const int PartyDelete = 7;
+    private const int PartyLoad = 8;
+    private const int PartySave = 9;
+    private const int PartyBegin = 10;
+    private const int PartyExit = 11;
+
+    /// <summary>The training hall the party menu was opened from, or null.</summary>
+    private TrainingHallEvent? partyMenuHall;
+
+    /// <summary>Whether the party menu is the screen on top.</summary>
+    public bool PartyMenuOpen { get; private set; }
+
+    /// <summary>
+    /// Opens the party menu over a training hall (<c>PushEvent(new MAIN_MENU_DATA(this))</c>,
+    /// <c>RunEvent.cpp:12082</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the game's own top-level menu, borrowed.</b> The same screen runs at startup
+    /// with no parent, and the difference is entirely in what lights up: TRAIN and CHANGE CLASS
+    /// are dark unless a training hall pushed it, and BEGIN ADVENTURING pops back to the hall
+    /// rather than loading the starting level.
+    /// </remarks>
+    private EventStep OpenPartyMenu(TrainingHallEvent hall)
+    {
+        partyMenuHall = hall;
+        PartyMenuOpen = true;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+        UpdatePartyMenu();
+        escapeSelects = PartyExit;
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// Which entries are selectable (<c>MAIN_MENU_DATA::OnUpdateUI</c>, <c>RunEvent.cpp:2477</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Recomputed after every command, not once on open.</b> Training the active character —
+    /// or tabbing to a different one — changes whether TRAIN is lit, so the reference calls this
+    /// on each pass and so does this.
+    /// </para>
+    /// <para>
+    /// <b>TRAIN's rule is three conditions, not one.</b> Ready to train, able to pay, and holding
+    /// a baseclass this particular hall teaches — see <see cref="Training.CanTrain"/>. A character
+    /// ready to advance in a baseclass the hall does not teach leaves the entry dark, which is the
+    /// only feedback the player gets that they are in the wrong hall.
+    /// </para>
+    /// </remarks>
+    private void UpdatePartyMenu()
+    {
+        if (!PartyMenuOpen)
+        {
+            return;
+        }
+
+        bool canTrain = partyMenuHall is { } hall && CanTrainHere?.Invoke(hall) == true;
+
+        Menu.SetItemEnabled(PartyTrain, canTrain);
+
+        // CreateChangeClassList is not ported, so this is dark rather than guessed at.
+        Menu.SetItemEnabled(PartyChangeClass, false);
+
+        // The reference darkens SAVE inside a global event or a fight. Reached only from a
+        // training hall so far, where neither holds -- but the screen has no other owner yet.
+        Menu.SetItemEnabled(PartySave, true);
+    }
+
+    /// <summary>Whether the active character can train at this hall; set by the host.</summary>
+    /// <remarks>
+    /// The runner has no party and no design, so it cannot answer this any more than it can hand
+    /// over a treasure. <c>Game</c> wires it to <see cref="Training.CanTrain"/>.
+    /// </remarks>
+    public Func<TrainingHallEvent, bool>? CanTrainHere { get; set; }
+
+    /// <summary>Trains the active character and returns what happened; set by the host.</summary>
+    public Func<TrainingHallEvent, TrainingOutcome>? ApplyTraining { get; set; }
+
+    /// <summary>What the last training session did, for the screen and for tests.</summary>
+    public TrainingOutcome? LastTraining { get; private set; }
+
+    /// <summary>
+    /// <c>MAIN_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:1968</c>).
+    /// </summary>
+    /// <remarks>
+    /// Three of the twelve run. The other nine are character creation, the save and load screens,
+    /// and the class change — each a screen of its own rather than a command.
+    /// </remarks>
+    private EventStep ChoosePartyMenu()
+    {
+        switch (Menu.ActiveItem)
+        {
+            case PartyView when ActiveCharacterSheet?.Invoke() is { } sheet && font is not null:
+                Stats = new CharStatsForm();
+                Stats.Populate(font, sheet);
+                return EventStep.Running;
+
+            case PartyTrain when partyMenuHall is { } hall:
+            {
+                LastTraining = ApplyTraining?.Invoke(hall);
+                if (LastTraining is { Trained: true, Announcements.Count: > 0 })
+                {
+                    ShowText(string.Join("  ", LastTraining.Announcements));
+                }
+                UpdatePartyMenu();
+                return EventStep.Running;
+            }
+
+            // Both leave. BEGIN pops back to whatever pushed the menu -- and the hall's
+            // OnReturnToTopOfQueue immediately backs the party up and chains, so popping back to
+            // it and finishing it are the same thing from here. EXIT is the game's own quit,
+            // which reached from a hall amounts to the same.
+            case PartyBegin:
+            case PartyExit:
+            {
+                bool backup = partyMenuHall?.ForceExit != 0;
+                PartyMenuOpen = false;
+                partyMenuHall = null;
+
+                BackupRequested = backup;
+                return Complete(happened: true);
+            }
+
+            default:
+                Unimplemented =
+                    $"[{PartyMenu[Math.Clamp(Menu.ActiveItem, 0, PartyMenu.Length - 1)].Label}" +
+                    " here -- not implemented]";
+                return EventStep.Running;
+        }
     }
 
     /// <summary>
@@ -1339,6 +1499,16 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The party menu is the mirror image: VMenuHPartyKeyboardAction gives the menu the
+        // vertical keys and the party the horizontal ones (RunEvent.cpp:1973).
+        if (PartyMenuOpen && input.Kind == InputEventKind.KeyDown
+            && input.Key is VirtualKey.Left or VirtualKey.Right)
+        {
+            TabParty?.Invoke();
+            UpdatePartyMenu();
+            return EventStep.Running;
+        }
+
         // Anything that is not a commit goes to the menu, exactly as every OnKeypress does.
         var result = MenuInput.Handle(Menu, input);
         bool committed = result == MenuInputResult.Accepted
@@ -1373,6 +1543,12 @@ public sealed class EventRunner
         if (InventoryOpen)
         {
             return ChooseInventory();
+        }
+
+        // So does the party menu, which the training hall pushes over itself.
+        if (PartyMenuOpen)
+        {
+            return ChoosePartyMenu();
         }
 
         return Current switch

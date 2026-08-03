@@ -197,15 +197,17 @@ public class EventCampTests
     }
 
     [Fact]
-    public void Yes_names_the_training_menu_this_port_has_not_built()
+    public void Yes_opens_the_party_menu()
     {
+        // The hall has no screen of its own past the question: YES pushes MAIN_MENU_DATA, the
+        // game's own top-level menu, with the hall as its parent. See EventPartyMenuTests.
         var runner = new EventRunner();
         runner.Begin(Hall(), Font(), Box, Anchors);
 
         var step = Choose(runner, 0);
 
         Assert.Equal(EventStepKind.Running, step.Kind);
-        Assert.Contains("TRAINING", runner.Unimplemented);
+        Assert.True(runner.PartyMenuOpen);
     }
 
     [Fact]
