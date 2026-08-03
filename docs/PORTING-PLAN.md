@@ -17,7 +17,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,434 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,470 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -2993,6 +2993,37 @@ Two gaps in the port itself had to be filled for these: `Character.Morale` (sett
 joining NPC is assigned one) and `Party.RemoveAt`, which pulls the active index back when the
 member it pointed at leaves — that index is what TAB cycles and what every "who tries" event reads.
 
+**`LOGIC_BLOCK_DATA`'s gate network is ported and deliberately left unwired.** A logic block is a
+design's circuit diagram: five inputs (A, B, D, F, G) feed seven gates (C, E, H, I, J, K, L)
+through six optional inverters, and the last gate decides the branch and which of two actions run.
+
+> **Truth is emptiness, and this is the load-bearing fact.** There is no boolean anywhere in the
+> network — a gate yields `"1"` or `""`, arithmetic gates yield their digits, and the result is
+> `w[11] == "" ? 0 : 1`. So an arithmetic gate that computes **`"0"` is true**. A port that
+> reached for `bool` would invert every design that does arithmetic.
+
+> **Transcribe the calls, not the diagram.** `ProcessLogicBlock` carries an ASCII schematic in its
+> comments that does **not** agree with the calls beneath it: gate C takes (B, A) where gate H
+> takes (F, A), and gate L combines the two *inverted* outputs `w15`/`w17` rather than the gates
+> themselves. Gate L is also the one gate with no inverter, which is why the serialized negation
+> run is six bytes and not seven.
+
+> **The arithmetic gates call GPDL's own `LongAdd`/`LongSubtract`/`LongMultiply`/`LongDivide`**,
+> already ported as `GpdlLongArithmetic` — so they are arbitrary precision, not `int`. And
+> `LBagreater` is `LongSubtract(side, top)` tested for a leading `-`, so its operands read the
+> opposite way from what it computes.
+
+> **An unreachable conditional target stops the run**, and so does a conditional branch whose own
+> flag is clear — neither falls back on the ordinary chain, unlike `WHO_TRIES`. Only
+> `m_NoChain == 1` uses the event's own chain at all.
+
+**Why it is not wired.** `ProcessLBInput` (220 lines, sixteen input types — ASLs at four scopes,
+character info, quest stages, item lists, `$RunTimeIf`, and both GPDL forms) is not ported, so
+every input would read empty. A block whose inputs all read false does not fail visibly: it
+computes a result and **takes a branch**, sending the design down a route its author did not write.
+That is worse than drawing `[LogicBlock here -- not implemented]`, which is what it still does.
+Wiring it needs the input layer first; the network beneath is finished and tested.
+
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
@@ -4819,7 +4850,9 @@ What is left, in order:
    reads (§the event layer), and twenty-five execute. The other 19 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
-   - **`LogicBlock` (52)** — needs GPDL wired to events, not just to combat.
+   - **`LogicBlock` (52)** — the **gate network is ported and tested** (`LogicBlock.cs`, 36
+     tests); what remains is `ProcessLBInput`'s **sixteen input types** and `ProcessLBAction`,
+     the latter being the only part that reaches GPDL. **Deliberately not wired** — see below.
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
