@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,716 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,739 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,35 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### A logic block's actions, as ported
+
+`LogicBlockActions` — `ProcessLBAction`'s twelve action types (`RunEvent.cpp:14157`), the result
+gate in front of them, and an `ILogicBlockActionHost` extending the input one with the six things
+an action writes. **All three parts of `LOGIC_BLOCK_DATA` are now ported**: the gate network, the
+inputs and the actions. What is left is wiring the event into the runner.
+
+The write half is the smaller one — mostly "insert or delete an attribute" — and what makes it
+worth its own file is that **every parameter is a packed string**, a key and a value around an
+`=`, sometimes with a level or a character selector in front, each layer a separate grammar.
+
+> **`LBAT_setIconIndexByName` does not substitute its parameter.** Every other action calls
+> `LBsubst` first; this one reads `*param` raw (`:14262`). Almost certainly an oversight, and
+> reproduced — a design that worked around it by not using `&` there would break if it were
+> "fixed". It also matches its character **case-sensitively**, where the selector grammar three
+> cases above uses `CompareNoCase`.
+
+> **A GPDL *action* runs with no arguments.** `ExecuteScript(*param, 1, NULL, 0)` against the input
+> side's `(*param, 1, w, 6)` — so an action script cannot see the terminals an input script can.
+> Two lines apart in behaviour, two hundred apart in the file.
+
+> **The two sides check the character index differently.** The input side tests
+> `(n < 0) || (n >= party.numCharacters)`; the action side tests only `n < 0` (`:14237` against
+> `:13807`), so an index past the party would index out of bounds there. No selector form can
+> produce one, which is presumably why it has never been noticed — this port bounds-checks both.
+
+There is **no `removeTempASL`**: the enum has ten attribute actions and only three removals, so a
+design can write the temporary store and never clear a single key from it.
+
 ##### A logic block's inputs, as ported
 
 `LogicBlockInputs` — `ProcessLBInput`'s sixteen terminal types (`RunEvent.cpp:13777`), the two
@@ -5525,11 +5554,12 @@ What is left, in order:
    reads (§the event layer), and twenty-six execute. The other 18 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
-   - **`LogicBlock` (52)** — the gate network and **now the inputs** are ported and tested
-     (`LogicBlock.cs` and `LogicBlockInputs.cs`, §a logic block's inputs). Fourteen of the sixteen
-     terminals run; `LBIT_RunTimeIf` wants the runtime keyword table and the two GPDL ones want a
-     script runner. What remains is **`ProcessLBAction`** — 174 lines, sixteen action types, the
-     only part that writes rather than reads — and wiring the whole thing into the event runner.
+   - **`LogicBlock` (52)** — **all three parts are ported and tested**: the gate network, the
+     sixteen input terminals and the twelve actions (`LogicBlock.cs`, `LogicBlockInputs.cs`,
+     `LogicBlockActions.cs`; §a logic block's inputs and §its actions). What remains is **wiring
+     it into the event runner** — an `ILogicBlockActionHost` over `Game`, and the call site that
+     evaluates a block and follows its chain. `LBIT_RunTimeIf` wants the runtime keyword table and
+     the four GPDL terminals and actions want a script runner; everything else runs.
    - The town services — `ShopEvent`, `TempleEvent`, `TavernEvent`, `TrainingHallEvent`, `Camp`,
      `SmallTown`, `Vault` — are whole screens each and are the expensive tail.
 
