@@ -10,14 +10,14 @@ shared leaves and the first whole record type, monsters, which round-trips all 5
 corpus. Its round-trip exit criterion still needs the other record types and the `CAR` write path.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes twenty-five of them, presents the treasure and character screens, and sets up a combat encounter with the
+event types and executes twenty-six of them, presents the treasure and character screens, and sets up a combat encounter with the
 party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
 pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
 stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,470 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,492 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3024,6 +3024,66 @@ computes a result and **takes a branch**, sending the design down a route its au
 That is worse than drawing `[LogicBlock here -- not implemented]`, which is what it still does.
 Wiring it needs the input layer first; the network beneath is finished and tested.
 
+**`COMBAT_TREASURE` was executing wrongly, and finding out was worth more than the fix.** It reads
+into the same `TreasureEvent` record as `GIVE_TREASURE_DATA`, so the runner matched it on type and
+opened the pickup screen — in the middle of setting up a fight.
+
+> **The two events behave nothing alike.** `COMBAT_TREASURE::OnInitialEvent`
+> (`RunEvent.cpp:9591`) presents *nothing*: it resets the menu and **appends** its items and money
+> to `globalData.combatTreasure`, a pile the combat results screen later hands over, adding each
+> item's `Experience` to the party's share before clearing it (`:19688`, `:19842`). It appends
+> rather than replaces, which is how a design gives a multi-stage encounter one shared reward.
+
+The staging is ported as `Game.StagedCombatTreasure`; **nothing consumes it**, because the results
+screen is not ported — a missing reader rather than a defect in what is staged, and said so in the
+remarks. The lesson generalised, and **the audit it prompted found a second bug**.
+
+Both other shared-record pairings came back clean: `PickOneCombat` is one of four ordinals
+`GameEvent.cpp:4180` marks `used = FALSE` — "these events cannot be created or used" — so it cannot
+occur in a design at all; and `TRANSFER_EVENT_DATA`'s runner never branches on whether it is a
+stair, a teleporter or a module transfer. But reading that runner to prove it turned up this:
+
+> **`destEP` has three meanings and only one of them is "use destX and destY".** At **zero or
+> above** it is an index into the destination level's *entry-point table* and the stored
+> coordinates are ignored entirely (`Party.cpp:3495`). At **−3** the three fields are *arguments*
+> to `RunGlobalScript("TeleporterDestinations", …)`, which resolves the real destination at
+> runtime (`RunEvent.cpp:975`). Only otherwise are they the square to arrive on. This port read
+> them literally in all three cases, so a design using entry points teleported the party to
+> whatever those fields happened to hold — silently, and to the wrong square.
+
+Entry points are now resolved from `GLOBAL_STATS`'s per-level table, which the port already read
+and nothing consulted; the scripted form is **refused with a message**, since the port has no
+run-a-global-script-by-name bridge — the same gap `WHO_TRIES`'s `Attempt` hook needs.
+
+**`specialAbilities.txt` now parses, which is the file the port kept wanting.** Every hook this
+session has had to decline — `WHO_TRIES`'s `Attempt` veto, scripted teleporter destinations,
+combat placement, and two of the logic block's sixteen input types — resolves through
+`RunGlobalScript` (`Specab.cpp:2097`), which looks its GPDL source up here by ability name and then
+by script name. Shipped designs carry a great deal of it: **1,131 abilities across three files**,
+and `SomethingWild` defines `$EVENT_WhoTries_Attempt` outright.
+
+> **The comment marker is `\\`, not `//`.** `IsComment` (`ItemDB.cpp:3116`) tests for two
+> backslashes. The file's own header block uses `//` and survives only because it sits before the
+> first `\(BEGIN)` and the loader enumerates objects from 1. A `//` line *inside* an object is
+> data, not a comment.
+
+> **An object missing its `\(END)` is still loaded.** Every `\(BEGIN)` starts a new object number
+> and each object's lines are decoded on their own, so the closer is optional in practice — and
+> the editor's own `DefaultDesign` relies on it, shipping **182 openers against 181 closers**.
+> Requiring the closer silently loses one of its abilities, which is how this was found.
+
+> **Continuation lines join with CRLF and lose their leading `-`.** What comes out is GPDL source
+> the compiler sees with real newlines in it, so joining with spaces would merge a trailing `//`
+> comment into the statement after it.
+
+The bracketing of a name gives its kind — `[script]`, `(variable)`, `<table>`, or a bare constant —
+and the split is a plain `Find('=')` with no escape handling, unlike the general config splitter.
+
+**What is still missing for `RunGlobalScript`**: compile-and-cache of the source into bytecode, the
+single built-in default script (`CombatPlacement`/`PlaceMonsterFar` — and note
+`TeleporterDestinations` is *not* among the defaults, so only a design that authors it has one),
+and the `HOOK_PARAMETERS` block the result lands in.
+
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
@@ -4847,7 +4907,7 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and twenty-five execute. The other 19 draw
+   reads (§the event layer), and twenty-six execute. The other 18 draw
    `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
    In corpus frequency order, and with what each is actually waiting on:
    - **`LogicBlock` (52)** — the **gate network is ported and tested** (`LogicBlock.cs`, 36
@@ -4922,7 +4982,7 @@ the round both call and neither has.
 | **28 event types are read but not executed** | Every type now has a reader; what is missing is the engine half. `LogicBlock` (52) needs GPDL wired to events; the rest are town-service screens — see §the event layer | Large |
 | **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
 | **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
-| **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. None is wired up; all three have faithful built-in defaults and are call-site changes once GPDL runs global scripts. Needs a `specialAbilities.txt` parser plus two sub-opcodes | Small |
+| **Global script hooks** | `PartyArrangement`, `PartyOrigin<direction>` and `CombatPlacement` can override the party formation, the party origin and the monster turtle program. **The `specialAbilities.txt` parser now exists** (`UAF.Data.SpecialAbilitiesFile`); what remains is `RunGlobalScript` itself — compile-and-cache, the one built-in default script, and the `HOOK_PARAMETERS` block — plus two sub-opcodes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |

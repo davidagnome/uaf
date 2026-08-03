@@ -1374,6 +1374,112 @@ public class GameTests
             .Where(l => l is not null)
             .SelectMany(l => l!.Events.OfType<T>())];
 
+    private static TransferEvent Transfer(int entryPoint, int level, int x, int y) =>
+        new(new GameEventBase(NoControl, NoPicRecord, NoPicRecord, (int)EventType.Teleporter,
+                              1, 0, 0, 0, 0, "", "", "", []),
+            AskYesNo: 0, TransferOnYes: 0, DestroyDrow: 0, ActivateBeforeEntry: 0,
+            new TransferData(0, entryPoint, level, x, y, 0));
+
+    [Fact]
+    public void A_scripted_teleport_destination_is_refused_rather_than_taken_literally()
+    {
+        // destEP == -3 means destLevel/destX/destY are ARGUMENTS to the TeleporterDestinations
+        // script, not coordinates. Reading them literally sends the party somewhere the design
+        // never named -- silently, which is the worst kind of wrong.
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+        (int x, int y) = (game.X, game.Y);
+
+        game.StartEvent(Transfer(Game.ScriptedDestination, game.LevelIndex, 99, 99));
+
+        Assert.Equal((x, y), (game.X, game.Y));
+        Assert.Contains("TeleporterDestinations", game.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_entry_point_destination_ignores_the_stored_coordinates()
+    {
+        // destEP >= 0 indexes the destination level's entry-point table and destX/destY are not
+        // consulted at all (Party.cpp:3495). The port read them regardless.
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        game.StartEvent(Transfer(entryPoint: 0, game.LevelIndex, x: 99, y: 99));
+
+        // Either the level defines entry point 0 and the party is there rather than at (99, 99),
+        // or it does not and the transfer is refused. Arriving at the stored pair is the one
+        // outcome that would mean the sentinel was ignored.
+        Assert.False(game.X == 99 && game.Y == 99);
+    }
+
+    [Fact]
+    public void A_plain_destination_still_uses_the_stored_coordinates()
+    {
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        game.StartEvent(Transfer(entryPoint: -1, game.LevelIndex, x: 5, y: 6));
+
+        Assert.Equal((5, 6), (game.X, game.Y));
+    }
+
+    [Fact]
+    public void A_combat_treasure_stages_silently_instead_of_opening_the_pickup_screen()
+    {
+        // COMBAT_TREASURE reads into the same record as GIVE_TREASURE_DATA and behaves nothing
+        // like it: OnInitialEvent appends to globalData.combatTreasure and shows nothing. This
+        // port treated the two alike until the difference was noticed, which popped a treasure
+        // screen in the middle of setting up a fight.
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        var staged = new TreasureEvent(
+            new GameEventBase(NoControl, NoPicRecord, NoPicRecord,
+                              (int)EventType.CombatTreasure, 1, 0, 0, 0, 0, "", "", "", []),
+            new MoneySack([0, 5, 0, 0, 0, 0, 0, 0, 0, 0], [new GemType(1, 50)], []),
+            new ItemList([new ItemInstance(0, "Long Sword", 0, 0, 1, 0, 0, 0, 0)],
+                         new ReadyItems(new int[12])),
+            SilentGiveToActiveChar: 0);
+
+        game.StartEvent(staged);
+
+        // No screen, and the goods are on the pile rather than in anyone's hands.
+        Assert.Null(game.CurrentEvent);
+        Assert.DoesNotContain("not implemented", game.Message, StringComparison.Ordinal);
+        Assert.Equal(["Long Sword"], game.StagedCombatTreasure.Select(i => i.ItemId));
+        Assert.Single(game.StagedCombatMoney.Gems);
+    }
+
+    private static readonly PicRecord NoPicRecord = new(0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    private static readonly EventControl NoControl =
+        new(0, 0, 0, (int)ChainTrigger.Always, (int)EventTriggerType.Always, "", 0, 0, 0,
+            "", "", "", [], "", 0, 0, 0, "", 0, 0);
+
     [Fact]
     public void Real_flow_control_events_run_rather_than_naming_themselves()
     {

@@ -291,6 +291,31 @@ public sealed class Game
     public WorldState World { get; }
 
     /// <summary>
+    /// Treasure staged by <c>COMBAT_TREASURE</c> events for the end of the fight
+    /// (<c>globalData.combatTreasure</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A <c>COMBAT_TREASURE</c> is not a <c>GIVE_TREASURE_DATA</c>, despite reading into the
+    /// same record.</b> It presents nothing at all — its <c>OnInitialEvent</c> resets the menu and
+    /// then <i>appends</i> its items and money to this pile (<c>RunEvent.cpp:9591</c>) — where a
+    /// give-treasure event opens the pickup screen. Treating the two alike, which this port did
+    /// until the difference was noticed, pops a treasure screen in the middle of setting up a
+    /// fight.
+    /// </para>
+    /// <para>
+    /// <b>Nothing consumes this yet.</b> The reference hands the pile to the combat results screen,
+    /// which adds each item's <c>Experience</c> into the party's share and then clears it
+    /// (<c>RunEvent.cpp:19688</c> and <c>:19842</c>). That screen is not ported, so the pile
+    /// accumulates and is only observable here — a missing reader, not a defect in what is staged.
+    /// </para>
+    /// </remarks>
+    public List<ItemInstance> StagedCombatTreasure { get; } = [];
+
+    /// <summary>Money staged alongside <see cref="StagedCombatTreasure"/>.</summary>
+    public Purse StagedCombatMoney { get; } = new(MoneyRules.Default);
+
+    /// <summary>
     /// The design's global attributes, which its scripts read and write
     /// (<c>globalData.global_asl</c>).
     /// </summary>
@@ -864,6 +889,40 @@ public sealed class Game
         design.Globals.Characters.FirstOrDefault(
             c => string.Equals(c.CharacterId, characterId, StringComparison.Ordinal));
 
+    /// <summary>
+    /// Adds a <c>COMBAT_TREASURE</c>'s contents to the pile for the end of the fight
+    /// (<c>COMBAT_TREASURE::OnInitialEvent</c>, <c>RunEvent.cpp:9591</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Appends rather than replaces</b>, so several such events before one fight accumulate —
+    /// which is how a design gives a multi-stage encounter one shared reward. Nothing clears the
+    /// pile here, because the screen that would is not ported.
+    /// </remarks>
+    private void StageCombatTreasure(TreasureEvent staged)
+    {
+        StagedCombatTreasure.AddRange(staged.Items.Items);
+
+        for (int i = 0; i < staged.Money.Coins.Count; i++)
+        {
+            if (staged.Money.Coins[i] != 0)
+            {
+                StagedCombatMoney.Add((ItemClass)(i + 1), staged.Money.Coins[i]);
+            }
+        }
+
+        foreach (var gem in staged.Money.Gems)
+        {
+            StagedCombatMoney.AddGem(gem);
+        }
+
+        foreach (var piece in staged.Money.Jewelry)
+        {
+            StagedCombatMoney.AddJewelry(piece);
+        }
+
+        Message = string.Empty;
+    }
+
     /// <summary>Puts anyone who ran back on their feet, as the results screen does.</summary>
     private void RestoreFled()
     {
@@ -1000,6 +1059,15 @@ public sealed class Game
 
             case TransferEvent transfer:
                 return Teleport(transfer);
+
+            // COMBAT_TREASURE reads into the same record as GIVE_TREASURE_DATA and behaves
+            // nothing like it: no screen, no pickup -- it stages for the end of the fight. This
+            // case must come first, because a combat treasure has SilentGiveToActiveChar of 0 and
+            // would otherwise fall through to the presenter.
+            case TreasureEvent staged
+                when staged.Base.EventType == (int)EventType.CombatTreasure:
+                StageCombatTreasure(staged);
+                return true;
 
             // Only the silent form runs without input; the other opens a screen, so it falls
             // through to the presenter and names itself there rather than being consumed here.
@@ -1187,9 +1255,46 @@ public sealed class Game
     /// it is reported rather than silently landing the party at the right coordinates on the wrong
     /// map, which would look like it worked.
     /// </remarks>
+    /// <summary><c>destEP</c> for a destination resolved by a global script.</summary>
+    /// <remarks>
+    /// <c>HandleTransfer</c> (<c>RunEvent.cpp:975</c>) formats <c>/level+1/x/y</c> into a name and
+    /// asks <c>RunGlobalScript("TeleporterDestinations", …)</c> for the real one, so the three
+    /// stored fields are <b>arguments, not coordinates</b>.
+    /// </remarks>
+    public const int ScriptedDestination = -3;
+
+    /// <summary>
+    /// Carries out a transfer (<c>GameEvent::HandleTransfer</c>, <c>RunEvent.cpp:959</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>destEP</c> has three meanings and only one of them is "use destX and destY".</b> At
+    /// zero or above it is an <i>index into the destination level's entry-point table</i> and the
+    /// stored coordinates are ignored entirely (<c>Party.cpp:3495</c>); at
+    /// <see cref="ScriptedDestination"/> the fields are script arguments; only otherwise are they
+    /// the square to arrive on. This port read them literally in all three cases, which sent a
+    /// design using entry points to whatever those fields happened to hold — silently, and to the
+    /// wrong square.
+    /// </para>
+    /// <para>
+    /// <b>Stairs, teleporters and module transfers are the same operation.</b>
+    /// <c>TRANSFER_EVENT_DATA</c>'s runner never branches on which of the three it is; the
+    /// destination decides, and the only fork is whether <c>destLevel</c> is the level already
+    /// loaded.
+    /// </para>
+    /// </remarks>
     private bool Teleport(TransferEvent transfer)
     {
         var destination = transfer.Destination;
+
+        if (destination.DestEntryPoint == ScriptedDestination)
+        {
+            // The port has no run-a-global-script-by-name bridge, so the real destination cannot
+            // be found. Refusing beats arriving somewhere the design never named.
+            Message = "[teleporter destination comes from the TeleporterDestinations script, "
+                      + "which this port cannot run]";
+            return false;
+        }
 
         if (destination.DestLevel != LevelIndex)
         {
@@ -1198,11 +1303,41 @@ public sealed class Game
             return false;
         }
 
-        X = destination.DestX;
-        Y = destination.DestY;
+        int x = destination.DestX;
+        int y = destination.DestY;
+
+        if (destination.DestEntryPoint >= 0)
+        {
+            if (EntryPoint(destination.DestEntryPoint) is not { } arrival)
+            {
+                Message = $"[teleporter names entry point {destination.DestEntryPoint}, "
+                          + "which this level does not define]";
+                return false;
+            }
+
+            (x, y) = (arrival.X, arrival.Y);
+        }
+
+        X = x;
+        Y = y;
         Facing = (Facing)(destination.Facing & 3);
         Message = $"You are somewhere else: ({X}, {Y}) facing {Facing}.";
         return true;
+    }
+
+    /// <summary>An entry point on the current level, or null when there is no such slot.</summary>
+    /// <remarks>
+    /// The reference reads these from the level it has just loaded. Only same-level transfers get
+    /// this far, so the current level's table is the right one.
+    /// </remarks>
+    private EntryPoint? EntryPoint(int index)
+    {
+        if (design.Globals.Levels?.Levels.TryGetValue((uint)LevelIndex, out var stats) != true)
+        {
+            return null;
+        }
+
+        return index >= 0 && index < stats!.EntryPoints.Count ? stats.EntryPoints[index] : null;
     }
 
     private readonly ZoneData? zones;
