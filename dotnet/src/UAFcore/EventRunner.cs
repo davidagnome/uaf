@@ -129,6 +129,9 @@ public sealed class EventRunner
         BackupRequested = false;
         escapeSelects = null;
         lastAnchors = anchors;
+        InventoryRows = null;
+        inventoryParent = null;
+        InventoryPage = 0;
 
         return gameEvent switch
         {
@@ -279,6 +282,11 @@ public sealed class EventRunner
             return Complete(happened: true);
         }
 
+        if (label == "ITEMS")
+        {
+            return OpenInventory(entries);
+        }
+
         if (label == "VIEW" && ActiveCharacterSheet?.Invoke() is { } sheet && font is not null)
         {
             Stats = new CharStatsForm();
@@ -294,6 +302,173 @@ public sealed class EventRunner
 
     /// <summary>The anchors the current event was begun with, for a screen that rebuilds its menu.</summary>
     private MenuAnchors lastAnchors = new((0, 0), (0, 0), (0, 0), (0, 0));
+
+    /// <summary>
+    /// The active character's carried goods; set by the host, which owns the party.
+    /// </summary>
+    /// <remarks>
+    /// Returning null means the inventory cannot be opened at all — which is what a caller with no
+    /// party looks like, and is why ITEMS stays named in that case rather than opening an empty
+    /// screen.
+    /// </remarks>
+    public Func<ItemList?>? ActiveCharacterItems { get; set; }
+
+    /// <summary>Applies a change the inventory screen made; set by the host.</summary>
+    public Action<ItemList>? ApplyItemChange { get; set; }
+
+    /// <summary>The rows on the inventory screen, or null when it is not open.</summary>
+    public IReadOnlyList<InventoryRow>? InventoryRows { get; private set; }
+
+    /// <summary>Which town menu to rebuild when the inventory closes.</summary>
+    private (string Label, int Shortcut)[]? inventoryParent;
+
+    /// <summary>Whether the inventory is the screen on top.</summary>
+    public bool InventoryOpen => InventoryRows is not null;
+
+    /// <summary>
+    /// Opens the shared inventory over the current service (<c>ITEMS_MENU_DATA</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The inventory replaces the service's menu rather than drawing over it</b>, unlike the
+    /// character sheet — so closing it has to rebuild what was underneath, which is what
+    /// <see cref="inventoryParent"/> remembers. The reference gets this for free by pushing an
+    /// event and popping it; this runner presents one event at a time and has to put the parent
+    /// back by hand.
+    /// </remarks>
+    private EventStep OpenInventory((string Label, int Shortcut)[] parent)
+    {
+        if (ActiveCharacterItems?.Invoke() is not { } carried)
+        {
+            Unimplemented = "[ITEMS here -- not implemented]";
+            return EventStep.Running;
+        }
+
+        inventoryParent = parent;
+        InventoryPage = 0;
+        InventoryRows = Inventory.Rows(carried, ItemNames);
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, Inventory.Menu);
+        escapeSelects = (int)InventoryCommand.Exit;
+
+        PopulateInventoryForm();
+        return EventStep.Running;
+    }
+
+    /// <summary>Which page of the inventory is showing.</summary>
+    /// <remarks>
+    /// <b>The page lives here rather than in <see cref="ItemsForm"/></b>, which lays out a fixed
+    /// number of rows and has no notion of a page. NEXT and PREV therefore re-populate the form
+    /// with a slice rather than scrolling it — the same bytes on screen either way, and it avoids
+    /// inventing a paging model in a class the treasure screen already shares.
+    /// </remarks>
+    public int InventoryPage { get; private set; }
+
+    /// <summary>The rows on the page currently showing.</summary>
+    public IReadOnlyList<InventoryRow> InventoryPageRows =>
+        InventoryRows is null
+            ? []
+            : [.. InventoryRows.Skip(InventoryPage * TreasurePageSize).Take(TreasurePageSize)];
+
+    private void PopulateInventoryForm()
+    {
+        if (InventoryRows is null)
+        {
+            return;
+        }
+
+        Items = new ItemsForm(TreasurePageSize);
+        if (font is not null)
+        {
+            // READY on and COST off: this is a pack, not a shop's shelf. A shop turns the price
+            // column on, which is the only thing that differs between the two presentations.
+            Items.Populate(font,
+                           [.. InventoryPageRows.Select(r => new ItemsFormRow(
+                               r.Ready, r.Quantity.ToString(), string.Empty, r.Name))],
+                           useReady: true, useCost: false);
+        }
+    }
+
+    /// <summary>How many pages the inventory has, at least one.</summary>
+    private int InventoryPageCount =>
+        Math.Max(1, ((InventoryRows?.Count ?? 0) + TreasurePageSize - 1) / TreasurePageSize);
+
+    /// <summary>
+    /// <c>ITEMS_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:7883</c>).
+    /// </summary>
+    /// <remarks>
+    /// Four of the fourteen run; the rest are named. See <see cref="Inventory"/> for which and why.
+    /// </remarks>
+    private EventStep ChooseInventory()
+    {
+        var command = (InventoryCommand)Menu.ActiveItem;
+
+        switch (command)
+        {
+            case InventoryCommand.Exit:
+            {
+                var parent = inventoryParent;
+                InventoryRows = null;
+                inventoryParent = null;
+                Items = null;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                               parent ?? Inventory.Menu);
+                escapeSelects = (parent?.Length ?? 1) - 1;
+                return EventStep.Running;
+            }
+
+            case InventoryCommand.Next:
+                InventoryPage = (InventoryPage + 1) % InventoryPageCount;
+                PopulateInventoryForm();
+                return EventStep.Running;
+
+            case InventoryCommand.Prev:
+                InventoryPage = (InventoryPage + InventoryPageCount - 1) % InventoryPageCount;
+                PopulateInventoryForm();
+                return EventStep.Running;
+
+            case InventoryCommand.Ready:
+            {
+                if (ActiveCharacterItems?.Invoke() is not { } carried)
+                {
+                    return EventStep.Running;
+                }
+
+                var page = InventoryPageRows;
+                int row = Math.Max(Items?.Selection ?? 0, 0);
+                if (row >= page.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                var changed = Inventory.ToggleReady(carried, page[row].Index, DefaultReadySlot);
+                ApplyItemChange?.Invoke(changed);
+
+                InventoryRows = Inventory.Rows(changed, ItemNames);
+                PopulateInventoryForm();
+                return EventStep.Running;
+            }
+
+            default:
+                Unimplemented =
+                    $"[{Inventory.Menu[Math.Clamp(Menu.ActiveItem, 0, Inventory.Menu.Length - 1)].Label}" +
+                    " here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>
+    /// Where READY puts an item this port cannot place properly.
+    /// </summary>
+    /// <remarks>
+    /// The reference picks the slot from the item's own <c>Location_Readied</c>, which needs the
+    /// item database in hand at the call site. Until that is threaded through, everything goes to
+    /// the weapon hand — visible and wrong in the same way for every item, rather than invisible
+    /// and wrong for some.
+    /// </remarks>
+    public static uint DefaultReadySlot { get; } = ReadiedLocation.Convert(0);
 
     /// <summary>
     /// Set when a town screen closed and the party owes a step backwards
@@ -1082,6 +1257,12 @@ public sealed class EventRunner
         {
             Stats = null;
             return EventStep.Running;
+        }
+
+        // The inventory replaces the current event's menu, so it answers before the event does.
+        if (InventoryOpen)
+        {
+            return ChooseInventory();
         }
 
         return Current switch

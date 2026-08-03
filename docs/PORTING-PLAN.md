@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,815 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,826 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,31 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The inventory, on screen
+
+`ITEMS` in a shop or a vault now opens the inventory instead of naming it, and closing it returns
+to the service underneath. The first **nested** screen the runner has — and the nesting is what
+made it interesting:
+
+> **The inventory replaces its parent's menu; the character sheet draws over one.** The reference
+> gets the return for free by pushing an event and popping it, so it never has to think about what
+> was underneath. This runner presents one event at a time, so closing the inventory has to
+> *rebuild* the parent's menu by hand — which is why it remembers which service pushed it rather
+> than assuming.
+
+> **Paging lives in the runner, not in `ItemsForm`.** The form lays out a fixed number of rows and
+> has no notion of a page, and the treasure screen shares it — so NEXT and PREV re-populate with a
+> slice instead of inventing a paging model in a class with two callers. `NEXT` off the end wraps.
+
+> **A row carries its item's own index.** Once the list pages, a row's position on screen is not
+> the item's position in the pack, so READY on page two has to act on the ninth item and not the
+> first. That is the whole reason `InventoryRow` has an `Index` at all.
+
+One stated shortcut: **READY puts everything in the weapon hand.** The reference picks the slot
+from the item's own `Location_Readied`, which needs the item database threaded through to the call
+site. Until it is, every item goes to the same slot — visible and wrong the same way for all of
+them, rather than invisible and wrong for some.
+
 ##### The shared inventory, as ported
 
 `Inventory` — the data behind `ITEMS_MENU_DATA` (`RunEvent.cpp:7843`), which **the vault, the shop
@@ -5701,11 +5726,11 @@ What is left, in order:
      four GPDL terminals and actions want a script runner; everything else runs. This was the most
      frequent inert type in the corpus.
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
-     shells, complete). The **inventory** is the most-shared of them and its data layer is done
-     (§the shared inventory) — what is left there is wiring it into the three services that push
-     it and the ten commands it still names. Then the **character picker**, which the training
-     hall and several others want, and after that the single-caller screens: save, load, magic,
-     rest, alter, journal, buy, appraise, heal, donate.
+     shells, complete). The **inventory** is done and on screen in the shop and the vault
+     (§the shared inventory, §the inventory on screen); what is left there is its ten unbuilt
+     commands and threading the item database through so READY picks the right slot. Then the
+     **character picker**, which the training hall and several others want, and after that the
+     single-caller screens: save, load, magic, rest, alter, journal, buy, appraise, heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing
