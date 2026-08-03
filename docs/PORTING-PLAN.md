@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,826 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,852 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3181,6 +3181,64 @@ A chain-depth cap was added with them. **It is not a rule from the reference**, 
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
 is an easy mistake to make and a hang tells the author nothing.
 
+##### The ready rules, and two conversion tables that are not the same table
+
+READY now puts an item where its own database record says, and refuses what the reference
+refuses. Getting there turned up a constant that had been quietly wrong since the inventory was
+first read.
+
+> **`NOTRDY` is a packed word, not zero — and zero is the weapon hand.** `Inventory.NotReady` was
+> `0`. The reference's `NotReady` is `BASE38('N','O','T','R','D','Y')`, and a stored `0` converts
+> to `WeaponHand`. Every carried item in every shipped savegame is worn, and two of them are
+> stored as a bare `0`, so the port was reading two readied weapons as empty hands. Nothing in the
+> file looks wrong, no round-trip notices — the bytes are preserved perfectly either way — and no
+> unit test written against the port's own assumptions could have caught it. What caught it was
+> reading the constant's definition while porting a different function.
+
+> **A carried item and a database record convert by *different tables*.**
+> `itemReadiedLocation::Synonym` (`Items.cpp:727`) converts a carried `ITEM`'s slot;
+> `Items.cpp:2495` converts an `ITEM_DATA` record's. They agree on nine of eleven ordinals. They
+> disagree on **3** — `Hands` in the database, `AmmoQuiver` for a carried item — and the carried
+> table runs to 16 rather than 10, reaching `CANNOT`, `PACK` and five body parts no item record
+> can name. `Hands` does not appear in the carried table at all. Crossing the two swaps gauntlets
+> for quivers and has no other symptom. `ReadiedLocation.Convert` and `ReadiedLocation.Synonym`
+> are now separate, and a test walks both tables against each other so the divergence has to stay
+> deliberate.
+
+> **The carried conversion has no version gate.** The database's is gated; this one runs on every
+> load at every version, which is why a 2.81 save and a 3.65 save can be read the same way.
+
+The refusals (`ITEM_LIST::CanReadyItem`, `Items.cpp:1460`) are ported whole: money, an empty
+stack, an item the design no longer defines, more than two hands, a `CANNOT` slot, an occupied
+slot, a two-hander wanting a full hand, and a hand already holding a two-hander. Each has its own
+`ReadyRefusal` value where the reference collapses most of them onto `UnknownError` and shows
+nothing — the difference between "that is a gem" and "your hands are full" is the entire content
+of the message, and a screen that says neither is indistinguishable from a broken one.
+
+> **An item already worn is never refused.** The reference tests that second, before any of the
+> hand rules, which is what lets a two-hander be put down again despite the rules that stopped its
+> neighbour going on.
+
+> **The reference asks "is this slot taken?" two different ways, three lines apart.**
+> `GetReadiedCount` matches on the *database record's* slot; `GetReadiedItem` matches on the
+> *carried item's own*. They diverge exactly for an item the engine placed somewhere its record
+> does not name — which the engine itself can do. Both are ported as they are, under names that
+> say which is which (`ReadiedCount`, `WornIn`), because they answer different questions.
+
+Two deliberate divergences, both flagged in the source:
+
+> **An item whose slot is `CANNOT` is refused rather than worn.** `itemUsesRdySlot` returns false
+> for it, and the reference then skips the whole slot check and readies it anyway — at a location
+> named `CANNOT`. Refused here.
+
+> **A carried item whose record is gone is skipped, not dereferenced.** `GetReadiedCount`
+> dereferences the lookup without checking, so a design that dropped an item its savegame still
+> carries crashes the reference. Skipping gives the same count, alive.
+
+Not ported: the class check (`IsUsableByClass`) needs the baseclass tables, so for now any class
+may wear anything; and the twelve `ReadyWeaponScript`-family hooks, which are where an item's
+special abilities switch on and off.
+
 ##### The inventory, on screen
 
 `ITEMS` in a shop or a vault now opens the inventory instead of naming it, and closing it returns
@@ -3195,16 +3253,29 @@ made it interesting:
 
 > **Paging lives in the runner, not in `ItemsForm`.** The form lays out a fixed number of rows and
 > has no notion of a page, and the treasure screen shares it — so NEXT and PREV re-populate with a
-> slice instead of inventing a paging model in a class with two callers. `NEXT` off the end wraps.
+> slice instead of inventing a paging model in a class with two callers.
 
 > **A row carries its item's own index.** Once the list pages, a row's position on screen is not
 > the item's position in the pack, so READY on page two has to act on the ninth item and not the
 > first. That is the whole reason `InventoryRow` has an `Index` at all.
 
-One stated shortcut: **READY puts everything in the weapon hand.** The reference picks the slot
-from the item's own `Location_Readied`, which needs the item database threaded through to the call
-site. Until it is, every item goes to the same slot — visible and wrong the same way for all of
-them, rather than invisible and wrong for some.
+> **Horizontal menu, vertical inventory.** Up and down move the item cursor, Page Up and Page Down
+> turn the page, and left and right fall through to the menu underneath
+> (`HMenuVInventoryKeyboardAction`, `RunEvent.cpp:748`). This is the only screen where the arrow
+> keys are split between two things at once, and the cursor it moves is what a command acts on.
+
+Two things written here a round ago were wrong, and are corrected:
+
+> **The paging does not wrap.** `nextCharItemsPage` stops on the last page and `prevCharItemsPage`
+> stops on the first (`Disptext.cpp:577`) — NEXT at the end does nothing at all, with no feedback.
+> That reads as a stuck key, but the menu entry and the Page Down key share the helper and would
+> otherwise disagree with each other.
+
+> **The screen had no row cursor at all.** `ItemsForm.Select` existed and nothing ever called it,
+> so READY always acted on row zero. The paging test passed because it checked the page rather
+> than the row, and the readying test passed because row zero of page two *is* the ninth item.
+> Two tests agreeing on a screen with one reachable row is not coverage. The cursor
+> (`party.activeItem`) wraps within the page and clamps onto the shorter final page.
 
 ##### The shared inventory, as ported
 
@@ -3216,16 +3287,16 @@ Four of its fourteen commands run — READY, NEXT, PREV, EXIT. The other ten eac
 this port does not have (a trade partner picker, the shop's price list, the scribe rules) and are
 named.
 
-> **The screen shows a *word*, not a tick.** `readyLocation` names one of eleven slots — WEAPON,
-> SHIELD, ARMOR, HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER — so an inventory line says
-> where a thing is worn rather than whether it is.
+> **The screen shows a *word*, not a tick.** `readyLocation` names a slot — WEAPON, SHIELD, ARMOR,
+> HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER, and seven more the engine can reach — so
+> an inventory line says where a thing is worn rather than whether it is.
 
 > **Decoding that field needed a matcher, not a decoder.** `Base38` folds six characters into a
-> `DWORD` and is **not invertible in general** — nothing constrains a stored value to the eleven
-> words that exist. `ReadiedLocation.WordFor` therefore packs each known word and compares, which
-> is exact and keeps one encoder rather than two that can drift. A value naming no slot honestly
+> `DWORD` and is **not invertible in general** — nothing constrains a stored value to the words
+> that exist. `ReadiedLocation.WordFor` therefore packs each known word and compares, which is
+> exact and keeps one encoder rather than two that can drift. A value naming no slot honestly
 > shows nothing. Both the packed form and the legacy ordinal are accepted, because a savegame can
-> hold either.
+> hold either — and the shipped corpus holds both, which is pinned in `InventoryCorpusTests`.
 
 > **Cursing only blocks taking a thing off.** `ToggleReady` refuses to unready a cursed item, and
 > never refuses to ready one — which is rather the point of a cursed item, and is the same rule
@@ -5726,11 +5797,14 @@ What is left, in order:
      four GPDL terminals and actions want a script runner; everything else runs. This was the most
      frequent inert type in the corpus.
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
-     shells, complete). The **inventory** is done and on screen in the shop and the vault
-     (§the shared inventory, §the inventory on screen); what is left there is its ten unbuilt
-     commands and threading the item database through so READY picks the right slot. Then the
-     **character picker**, which the training hall and several others want, and after that the
-     single-caller screens: save, load, magic, rest, alter, journal, buy, appraise, heal, donate.
+     shells, complete). The **inventory** is done and on screen in the shop and the vault, with a
+     row cursor, paging and the full ready rules (§the shared inventory, §the inventory on screen,
+     §the ready rules); what is left there is its ten unbuilt commands — of which **DROP is the
+     one to take next**, and it is not small: it drops the item into the level's
+     `CELL_LEVEL_CONTENTS`, so it needs the level's mutable cell-contents table before it can do
+     anything. Then the **character picker**, which the training hall and several others want, and
+     after that the single-caller screens: save, load, magic, rest, alter, journal, buy, appraise,
+     heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing

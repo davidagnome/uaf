@@ -44,11 +44,24 @@ public class EventInventoryScreenTests
         (int)EventType.Vault, 1, 0, 0, ChainEventHappen: 77, ChainEventNotHappen: 0,
         "The vault.", "", "", []);
 
-    private static ItemInstance Item(string id, uint ready = 0, byte cursed = 0) =>
-        new(0, id, 0, ready, 1, 1, 0, cursed, 0);
+    private static ItemInstance Item(string id, uint? ready = null, byte cursed = 0) =>
+        new(0, id, 0, ready ?? Inventory.NotReady, 1, 1, 0, cursed, 0);
 
     private static ItemList Carrying(params ItemInstance[] items) =>
         new(items, new ReadyItems([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+
+    /// <summary>
+    /// A database where every item is a ring, so a whole pack of them can go on one at a time
+    /// without the hand rules getting in the way of what these tests are about.
+    /// </summary>
+    private static ItemRecord? Database(string id) =>
+        new(new ItemNames(0, "", "", "", "", "", ""), null, null,
+            new ItemScalars("", 0, 0, 0, 0, 0, 0, 0),
+            new ItemCombat(ReadiedLocation.Fingers, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 0),
+            new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null, 0, 0,
+                         new SpecabBlock([], [], []), []));
+
+    private static readonly uint Ring = ReadiedLocation.Fingers;
 
     /// <summary>A vault, whose menu has ITEMS at index 4 and EXIT at 5.</summary>
     private static VaultEvent Vault() => new(Base, 0, 0);
@@ -61,6 +74,7 @@ public class EventInventoryScreenTests
         var runner = new EventRunner
         {
             IsValidEvent = _ => true,
+            ItemDatabase = Database,
             ActiveCharacterItems = () => held,
             ApplyItemChange = changed =>
             {
@@ -142,8 +156,29 @@ public class EventInventoryScreenTests
         Choose(runner, (int)InventoryCommand.Ready);
 
         Assert.NotNull(applied);
-        Assert.Equal(EventRunner.DefaultReadySlot, applied!.Items[0].ReadyLocation);
-        Assert.Equal("WEAPON", runner.InventoryRows![0].Ready);
+        Assert.Equal(Ring, applied!.Items[0].ReadyLocation);
+        Assert.Equal("FINGER", runner.InventoryRows![0].Ready);
+        Assert.Equal(ReadyRefusal.None, runner.LastRefusal);
+    }
+
+    [Fact]
+    public void A_refused_ready_changes_nothing_and_says_why()
+    {
+        // Two rings, one pair of hands' worth of fingers as far as the default rule is concerned.
+        ItemList? applied = null;
+        var runner = Started(Carrying(Item("Ring of Fire"), Item("Ring of Ice")),
+                             changed => applied = changed);
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Ready);       // the first goes on
+        applied = null;
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Down)); // select the second row
+        Choose(runner, (int)InventoryCommand.Ready);
+
+        Assert.Equal(ReadyRefusal.SlotTaken, runner.LastRefusal);
+        Assert.Null(applied);
+        Assert.Equal(string.Empty, runner.InventoryRows![1].Ready);
     }
 
     [Fact]
@@ -161,20 +196,23 @@ public class EventInventoryScreenTests
     [Fact]
     public void A_cursed_item_cannot_be_taken_off_through_the_screen()
     {
-        var runner = Started(Carrying(Item("Cursed Blade", EventRunner.DefaultReadySlot, cursed: 1)));
+        var runner = Started(Carrying(Item("Cursed Ring", Ring, cursed: 1)));
         Choose(runner, VaultItems);
 
         Choose(runner, (int)InventoryCommand.Ready);
 
-        Assert.Equal("WEAPON", runner.InventoryRows![0].Ready);
+        Assert.Equal(ReadyRefusal.Cursed, runner.LastRefusal);
+        Assert.Equal("FINGER", runner.InventoryRows![0].Ready);
     }
 
+    /// <summary>Ten items: a full page of eight and a short one of two.</summary>
+    private static ItemList TenItems() =>
+        Carrying([.. Enumerable.Range(0, 10).Select(i => Item($"item{i}"))]);
+
     [Fact]
-    public void The_list_pages_and_wraps()
+    public void The_list_pages_and_stops_at_both_ends()
     {
-        // A page holds TreasurePageSize rows; ten items therefore need two.
-        var many = Carrying([.. Enumerable.Range(0, 10).Select(i => Item($"item{i}"))]);
-        var runner = Started(many);
+        var runner = Started(TenItems());
         Choose(runner, VaultItems);
 
         Assert.Equal(0, runner.InventoryPage);
@@ -184,12 +222,90 @@ public class EventInventoryScreenTests
         Assert.Equal(1, runner.InventoryPage);
         Assert.Equal(2, runner.InventoryPageRows.Count);
 
-        // NEXT off the end wraps rather than sticking, as the reference's paging does.
+        // NEXT on the last page does nothing at all -- it does not wrap, and there is no
+        // feedback either. That reads as a stuck key, and is what the reference does.
         Choose(runner, (int)InventoryCommand.Next);
+        Assert.Equal(1, runner.InventoryPage);
+
+        Choose(runner, (int)InventoryCommand.Prev);
         Assert.Equal(0, runner.InventoryPage);
 
         Choose(runner, (int)InventoryCommand.Prev);
+        Assert.Equal(0, runner.InventoryPage);
+    }
+
+    [Fact]
+    public void The_page_keys_turn_the_page_as_the_menu_entries_do()
+    {
+        var runner = Started(TenItems());
+        Choose(runner, VaultItems);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.PageDown));
         Assert.Equal(1, runner.InventoryPage);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.PageUp));
+        Assert.Equal(0, runner.InventoryPage);
+    }
+
+    [Fact]
+    public void Up_and_down_move_the_row_while_the_menu_keeps_the_horizontal_ones()
+    {
+        // The one screen where the arrow keys are split between two things at once.
+        var runner = Started(TenItems());
+        Choose(runner, VaultItems);
+
+        int menuBefore = runner.Menu.ActiveItem;
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Down));
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Down));
+        Assert.Equal(2, runner.InventoryRowIndex);
+        Assert.Equal(menuBefore, runner.Menu.ActiveItem);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Right));
+        Assert.Equal(2, runner.InventoryRowIndex);
+        Assert.NotEqual(menuBefore, runner.Menu.ActiveItem);
+    }
+
+    [Fact]
+    public void The_row_cursor_wraps_within_the_page_rather_than_onto_the_next()
+    {
+        var runner = Started(TenItems());
+        Choose(runner, VaultItems);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Up));
+
+        Assert.Equal(EventRunner.TreasurePageSize - 1, runner.InventoryRowIndex);
+        Assert.Equal(0, runner.InventoryPage);
+    }
+
+    [Fact]
+    public void The_row_cursor_clamps_onto_a_shorter_page()
+    {
+        // Eight rows on the first page, two on the second: a cursor left on row 7 has nowhere to
+        // stand once the page turns.
+        var runner = Started(TenItems());
+        Choose(runner, VaultItems);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Up));       // row 7, the last of the page
+        Choose(runner, (int)InventoryCommand.Next);
+
+        Assert.Equal(1, runner.InventoryRowIndex);
+    }
+
+    [Fact]
+    public void The_row_the_cursor_is_on_is_the_one_that_is_readied()
+    {
+        ItemList? applied = null;
+        var runner = Started(TenItems(), changed => applied = changed);
+        Choose(runner, VaultItems);
+
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Down));
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Down));
+        Choose(runner, (int)InventoryCommand.Ready);
+
+        Assert.NotNull(applied);
+        Assert.Equal(Ring, applied!.Items[2].ReadyLocation);
+        Assert.Equal(Inventory.NotReady, applied.Items[0].ReadyLocation);
     }
 
     [Fact]
@@ -207,8 +323,7 @@ public class EventInventoryScreenTests
 
         // The ninth item -- the first on the second page -- and nothing on the first page.
         Assert.NotNull(applied);
-        Assert.Equal(EventRunner.DefaultReadySlot,
-                     applied!.Items[EventRunner.TreasurePageSize].ReadyLocation);
+        Assert.Equal(Ring, applied!.Items[EventRunner.TreasurePageSize].ReadyLocation);
         Assert.All(applied.Items.Take(EventRunner.TreasurePageSize),
                    i => Assert.Equal(Inventory.NotReady, i.ReadyLocation));
     }

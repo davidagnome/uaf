@@ -54,6 +54,9 @@ public sealed class Game
         // so the treasure list cannot be built without the item database.
         Runner.ItemNames = id => design.Item(id)?.Names.IdName;
 
+        // READY needs the record itself: how many hands the thing takes, and which slot it goes in.
+        Runner.ItemDatabase = design.Item;
+
         // VIEW shows whoever is active. Built here rather than in the runner, which has no party.
         Runner.ActiveCharacterSheet = () => Party?.Active is { } active
             ? CharacterSheetBuilder.Build(active, design.Baseclasses, design.Item)

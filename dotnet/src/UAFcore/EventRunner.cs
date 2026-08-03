@@ -132,6 +132,8 @@ public sealed class EventRunner
         InventoryRows = null;
         inventoryParent = null;
         InventoryPage = 0;
+        InventoryRowIndex = 0;
+        LastRefusal = ReadyRefusal.None;
 
         return gameEvent switch
         {
@@ -345,6 +347,7 @@ public sealed class EventRunner
 
         inventoryParent = parent;
         InventoryPage = 0;
+        InventoryRowIndex = 0;
         InventoryRows = Inventory.Rows(carried, ItemNames);
 
         Menu.Reset();
@@ -370,11 +373,29 @@ public sealed class EventRunner
             ? []
             : [.. InventoryRows.Skip(InventoryPage * TreasurePageSize).Take(TreasurePageSize)];
 
+    /// <summary>
+    /// Which row of the page the cursor is on (<c>party.activeItem</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It counts rows on the page, not items in the pack</b> — the reference wraps it modulo
+    /// <c>ItemsOnPage</c> and clamps it whenever the page turns, so it never points past the
+    /// short final page. <see cref="InventoryPageRows"/> plus this is what a command acts on.
+    /// </remarks>
+    public int InventoryRowIndex { get; private set; }
+
     private void PopulateInventoryForm()
     {
         if (InventoryRows is null)
         {
             return;
+        }
+
+        var page = InventoryPageRows;
+
+        // The cursor clamps to the shorter final page rather than pointing off the end.
+        if (InventoryRowIndex >= page.Count)
+        {
+            InventoryRowIndex = Math.Max(page.Count - 1, 0);
         }
 
         Items = new ItemsForm(TreasurePageSize);
@@ -383,15 +404,87 @@ public sealed class EventRunner
             // READY on and COST off: this is a pack, not a shop's shelf. A shop turns the price
             // column on, which is the only thing that differs between the two presentations.
             Items.Populate(font,
-                           [.. InventoryPageRows.Select(r => new ItemsFormRow(
+                           [.. page.Select(r => new ItemsFormRow(
                                r.Ready, r.Quantity.ToString(), string.Empty, r.Name))],
                            useReady: true, useCost: false);
         }
+
+        if (page.Count > 0)
+        {
+            Items.Select(InventoryRowIndex);
+        }
     }
 
-    /// <summary>How many pages the inventory has, at least one.</summary>
-    private int InventoryPageCount =>
-        Math.Max(1, ((InventoryRows?.Count ?? 0) + TreasurePageSize - 1) / TreasurePageSize);
+    /// <summary>
+    /// Moves the cursor a row (<c>party.nextItem</c> / <c>prevItem</c>, <c>Party.cpp:2986</c>).
+    /// </summary>
+    /// <remarks>It wraps within the page — never onto the next one, which is what NEXT is for.</remarks>
+    private void MoveInventoryRow(int delta)
+    {
+        int onPage = InventoryPageRows.Count;
+        if (onPage <= 0)
+        {
+            return;
+        }
+
+        InventoryRowIndex = ((InventoryRowIndex + delta) % onPage + onPage) % onPage;
+        Items?.Select(InventoryRowIndex);
+    }
+
+    /// <summary>
+    /// Turns the page (<c>nextCharItemsPage</c> / <c>prevCharItemsPage</c>,
+    /// <c>Disptext.cpp:577</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It stops at the ends rather than wrapping</b> — NEXT on the last page does nothing at
+    /// all, which reads as a stuck key but is what the reference does, and matters because the
+    /// menu entry and the Page Down key share this and would otherwise disagree.
+    /// </remarks>
+    private void TurnInventoryPage(int delta)
+    {
+        int count = InventoryRows?.Count ?? 0;
+
+        if (delta > 0 && (InventoryPage + 1) * TreasurePageSize >= count)
+        {
+            return;
+        }
+
+        InventoryPage = Math.Max(InventoryPage + delta, 0);
+        PopulateInventoryForm();
+    }
+
+    /// <summary>
+    /// The inventory's own keys (<c>HMenuVInventoryKeyboardAction</c>, <c>RunEvent.cpp:748</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Horizontal menu, vertical inventory</b>: up and down move the item cursor and the page
+    /// keys turn the page, while left and right fall through to the menu underneath. This is the
+    /// only screen where the arrow keys are split between two things at once.
+    /// </remarks>
+    private bool HandleInventoryKey(VirtualKey key)
+    {
+        switch (key)
+        {
+            case VirtualKey.Up:
+                MoveInventoryRow(-1);
+                return true;
+
+            case VirtualKey.Down:
+                MoveInventoryRow(+1);
+                return true;
+
+            case VirtualKey.PageDown:
+                TurnInventoryPage(+1);
+                return true;
+
+            case VirtualKey.PageUp:
+                TurnInventoryPage(-1);
+                return true;
+
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// <c>ITEMS_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:7883</c>).
@@ -420,13 +513,11 @@ public sealed class EventRunner
             }
 
             case InventoryCommand.Next:
-                InventoryPage = (InventoryPage + 1) % InventoryPageCount;
-                PopulateInventoryForm();
+                TurnInventoryPage(+1);
                 return EventStep.Running;
 
             case InventoryCommand.Prev:
-                InventoryPage = (InventoryPage + InventoryPageCount - 1) % InventoryPageCount;
-                PopulateInventoryForm();
+                TurnInventoryPage(-1);
                 return EventStep.Running;
 
             case InventoryCommand.Ready:
@@ -437,13 +528,21 @@ public sealed class EventRunner
                 }
 
                 var page = InventoryPageRows;
-                int row = Math.Max(Items?.Selection ?? 0, 0);
-                if (row >= page.Count)
+                int row = InventoryRowIndex;
+                if (row < 0 || row >= page.Count)
                 {
                     return EventStep.Running;
                 }
 
-                var changed = Inventory.ToggleReady(carried, page[row].Index, DefaultReadySlot);
+                var changed = Inventory.ToggleReady(carried, page[row].Index,
+                                                    ItemDatabase ?? (_ => null),
+                                                    out var refusal);
+                LastRefusal = refusal;
+                if (refusal is not ReadyRefusal.None)
+                {
+                    return EventStep.Running;
+                }
+
                 ApplyItemChange?.Invoke(changed);
 
                 InventoryRows = Inventory.Rows(changed, ItemNames);
@@ -459,16 +558,13 @@ public sealed class EventRunner
         }
     }
 
-    /// <summary>
-    /// Where READY puts an item this port cannot place properly.
-    /// </summary>
+    /// <summary>Why the last READY was refused, or <see cref="ReadyRefusal.None"/>.</summary>
     /// <remarks>
-    /// The reference picks the slot from the item's own <c>Location_Readied</c>, which needs the
-    /// item database in hand at the call site. Until that is threaded through, everything goes to
-    /// the weapon hand — visible and wrong in the same way for every item, rather than invisible
-    /// and wrong for some.
+    /// The reference puts the reason in <c>errorText</c> and shows it in a message box the port
+    /// does not have yet, so for now the reason is exposed rather than displayed. Nothing is
+    /// silently swallowed either way.
     /// </remarks>
-    public static uint DefaultReadySlot { get; } = ReadiedLocation.Convert(0);
+    public ReadyRefusal LastRefusal { get; private set; }
 
     /// <summary>
     /// Set when a town screen closed and the party owes a step backwards
@@ -971,6 +1067,13 @@ public sealed class EventRunner
     /// </remarks>
     public Func<string, string?>? ItemNames { get; set; }
 
+    /// <summary>Resolves a carried item's id to its database record; set by the host.</summary>
+    /// <remarks>
+    /// A carried item holds only an id and its own state — how many hands it needs and where it
+    /// is worn live in the design's record, so the ready rules cannot be applied without this.
+    /// </remarks>
+    public Func<string, ItemRecord?>? ItemDatabase { get; set; }
+
     /// <summary>The treasure list, while a treasure event is on screen.</summary>
     public ItemsForm? Items { get; private set; }
 
@@ -1227,6 +1330,13 @@ public sealed class EventRunner
         {
             Menu.SetCurrentItem(escapeItem);
             return Commit();
+        }
+
+        // The inventory takes the vertical keys before the menu sees them; the horizontal ones
+        // fall through, which is the whole shape of HMenuVInventoryKeyboardAction.
+        if (InventoryOpen && input.Kind == InputEventKind.KeyDown && HandleInventoryKey(input.Key))
+        {
+            return EventStep.Running;
         }
 
         // Anything that is not a commit goes to the menu, exactly as every OnKeypress does.

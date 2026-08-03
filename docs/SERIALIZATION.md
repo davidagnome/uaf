@@ -521,6 +521,25 @@ base38(a..f) = ((((a*38+b)*38+c)*38+d)*38+e)*38+f     'A'→12 … 'Z'→37, bla
 So ordinal 10 becomes `QUIVER` = 2,286,454,785 — which is what the oracle reports. A reader keeping
 the raw ordinal disagrees with the reference on every old design, with nothing to indicate it.
 
+**There are two of these tables and they are not the same table.** `ITEM_DATA::Location_Readied`
+uses the eleven-entry one above (`Items.cpp:2495`), gated on version. A *carried* `ITEM`'s
+`readyLocation` uses `itemReadiedLocation::Synonym` (`Items.cpp:727`), which runs to 16, is applied
+at **every** version with no gate, and **disagrees at ordinal 3** — `Hands` in the database,
+`AmmoQuiver` for a carried item. `Hands` does not appear in the carried table at all. Nine of
+eleven entries agree, so crossing the two produces a port that works on almost everything and
+silently swaps gauntlets for quivers.
+
+Two constants are worth stating outright, because both are easy to assume wrong:
+
+| Constant | Value | Trap |
+| --- | --- | --- |
+| `NotReady` | `BASE38("NOTRDY")` = 2,036,836,250 | **not zero** — an item in the pack holds a word |
+| ordinal `0` | `WeaponHand` | a stored zero means *worn*, not *unworn* |
+
+The shipped savegames carry both forms — bare ordinals in a 2.81 save, packed words in a 3.65 one —
+and every carried item in all of them is worn, so an engine reading zero as "in the pack" strips
+the party's weapons on load while every byte round-trips perfectly.
+
 ---
 
 ## 9. Structures that hide extra bytes

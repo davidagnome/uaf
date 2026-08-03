@@ -99,8 +99,91 @@ public static class ReadiedLocation
         "WAIST ", "ROBE  ", "CLOAK ", "FEET  ", "FINGER", "QUIVER",
     ];
 
+    /// <summary>
+    /// Every slot word the engine names (<c>Items.h:110-127</c>), for matching a packed value
+    /// back to a word. Longer than <see cref="LegacyWords"/>, which is indexed by ordinal.
+    /// </summary>
+    private static readonly string[] AllWords =
+    [
+        "WEAPON", "SHIELD", "ARMOR ", "HANDS ", "HEAD  ", "WAIST ", "ROBE  ", "CLOAK ",
+        "FEET  ", "FINGER", "QUIVER", "ARMS  ", "LEGS  ", "FACE  ", "NECK  ", "PACK  ",
+        "CANNOT", "NOTRDY", "UNDEF ",
+    ];
+
+    public static readonly uint WeaponHand = Base38("WEAPON");
+    public static readonly uint ShieldHand = Base38("SHIELD");
+    public static readonly uint BodyArmor = Base38("ARMOR ");
+    public static readonly uint AmmoQuiver = Base38("QUIVER");
+    public static readonly uint Hands = Base38("HANDS ");
+    public static readonly uint Head = Base38("HEAD  ");
+    public static readonly uint Waist = Base38("WAIST ");
+    public static readonly uint BodyRobe = Base38("ROBE  ");
+    public static readonly uint Back = Base38("CLOAK ");
+    public static readonly uint Feet = Base38("FEET  ");
+    public static readonly uint Fingers = Base38("FINGER");
+    public static readonly uint Arms = Base38("ARMS  ");
+    public static readonly uint Legs = Base38("LEGS  ");
+    public static readonly uint Face = Base38("FACE  ");
+    public static readonly uint Neck = Base38("NECK  ");
+    public static readonly uint Pack = Base38("PACK  ");
+
+    /// <summary>The slot of an item that can never be worn.</summary>
+    public static readonly uint Cannot = Base38("CANNOT");
+
+    /// <summary>
+    /// What a carried item holds when it is in the pack — a packed word, <b>not zero</b>.
+    /// </summary>
+    /// <remarks>
+    /// Zero is <see cref="WeaponHand"/> under <see cref="Synonym"/>, so treating it as "not
+    /// readied" silently unequips whatever a design put in the weapon hand.
+    /// </remarks>
+    public static readonly uint NotReady = Base38("NOTRDY");
+
+    public static readonly uint Undefined = Base38("UNDEF ");
+
     /// <summary>True when the stored value is a legacy ordinal needing conversion.</summary>
     public static bool IsLegacyOrdinal(uint stored) => stored < (uint)LegacyOrder.Length;
+
+    /// <summary>
+    /// The conversion a <b>carried item's</b> <c>readyLocation</c> gets on load
+    /// (<c>itemReadiedLocation::Synonym</c>, <c>Items.cpp:727</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is not the same table as <see cref="Convert"/>.</b> That one converts an
+    /// <c>ITEM_DATA</c> record's <c>Location_Readied</c>; this one converts a carried
+    /// <c>ITEM</c>'s. They agree on nine of eleven ordinals and disagree on <b>3</b>, which is
+    /// <c>Hands</c> in the database and <c>AmmoQuiver</c> here — so crossing them swaps gauntlets
+    /// for quivers without any other symptom. This table also runs to 16 rather than 10, and
+    /// <c>Hands</c> does not appear in it at all: no ordinal a carried item can hold names the
+    /// gauntlet slot.
+    /// </para>
+    /// <para>
+    /// <b>Applied at every version, with no gate</b> — unlike the database's conversion, which is
+    /// gated. A carried 0 therefore always means the weapon hand.
+    /// </para>
+    /// </remarks>
+    public static uint Synonym(uint stored) => stored switch
+    {
+        0 => WeaponHand,
+        1 => ShieldHand,
+        2 => BodyArmor,
+        3 => AmmoQuiver,        // Hands in the database's table -- deliberately different
+        4 => Head,
+        5 => Waist,
+        6 => BodyRobe,
+        7 => Back,
+        8 => Feet,
+        9 => Fingers,
+        10 => AmmoQuiver,
+        11 => Cannot,
+        12 => Arms,
+        13 => Legs,
+        14 => Face,
+        15 => Neck,
+        16 => Pack,
+        _ => stored,
+    };
 
     /// <summary>
     /// Packs a six-character word into the base-38 <c>DWORD</c> the field actually holds
@@ -154,11 +237,11 @@ public static class ReadiedLocation
             return LegacyWords[stored].TrimEnd();
         }
 
-        for (int i = 0; i < LegacyWords.Length; i++)
+        foreach (string word in AllWords)
         {
-            if (Base38(LegacyWords[i]) == stored)
+            if (Base38(word) == stored)
             {
-                return LegacyWords[i].TrimEnd();
+                return word.TrimEnd();
             }
         }
 
