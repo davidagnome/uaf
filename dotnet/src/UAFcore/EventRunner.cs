@@ -128,6 +128,7 @@ public sealed class EventRunner
         TakeRequested = false;
         BackupRequested = false;
         escapeSelects = null;
+        lastAnchors = anchors;
 
         return gameEvent switch
         {
@@ -152,9 +153,147 @@ public sealed class EventRunner
             SmallTownEvent town => BeginSmallTown(town, anchors),
             CampEvent camp => BeginCamp(camp, anchors),
             TrainingHallEvent hall => BeginTrainingHall(hall, anchors),
+            TavernEvent tavern => BeginTownMenu(TavernMenu, tavern.Base.Text, anchors),
+            ShopEvent shop => BeginTownMenu(ShopMenu, shop.Base.Text, anchors),
+            VaultEvent vault => BeginTownMenu(VaultMenu, vault.Base.Text, anchors),
+            TempleEvent temple => BeginTemple(temple, anchors),
             _ => BeginUnsupported(gameEvent),
         };
     }
+
+    /// <summary>The tavern's menu (<c>TavernMenu</c>, <c>GameMenu.cpp:743</c>).</summary>
+    private static readonly (string Label, int Shortcut)[] TavernMenu =
+        [("FIGHT", 0), ("DRINK", 0), ("LISTEN", 0), ("EXIT", 1)];
+
+    /// <summary>The shop's menu (<c>ShopMenu</c>, <c>GameMenu.cpp:652</c>).</summary>
+    private static readonly (string Label, int Shortcut)[] ShopMenu =
+        [("BUY", 0), ("ITEMS", 0), ("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
+         ("APPRAISE", 0), ("EXIT", 1)];
+
+    /// <summary>The vault's menu (<c>VaultMenu</c>, <c>GameMenu.cpp:230</c>).</summary>
+    private static readonly (string Label, int Shortcut)[] VaultMenu =
+        [("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0), ("ITEMS", 0), ("EXIT", 1)];
+
+    /// <summary>The temple's menu (<c>TempleMenu</c>, <c>GameMenu.cpp:672</c>).</summary>
+    private static readonly (string Label, int Shortcut)[] TempleMenu =
+        [("HEAL", 0), ("DONATE", 0), ("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
+         ("EXIT", 1)];
+
+    /// <summary>
+    /// A town service's outer menu: horizontal, Escape on EXIT, the event's text above it.
+    /// </summary>
+    /// <remarks>
+    /// The four remaining services share this shell exactly; what differs is their entries and
+    /// what each entry pushes. See §camp and the training hall in the plan for why the shells are
+    /// the cheap half.
+    /// </remarks>
+    private EventStep BeginTownMenu((string Label, int Shortcut)[] entries, string text,
+                                    MenuAnchors anchors)
+    {
+        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal, entries);
+
+        escapeSelects = entries.Length - 1;      // EXIT is always last
+        ShowText(text);
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>TEMPLE::OnInitialEvent</c>'s default state (<c>RunEvent.cpp:12473</c>) — the welcome.
+    /// </summary>
+    /// <remarks>
+    /// <b>The temple is the only town service with two screens of its own.</b> It opens on a
+    /// press-enter welcome showing the event's <c>Text</c>, and only then shows its menu — which
+    /// uses <c>Text2</c>. Two text fields for one event, and nothing but the state distinguishes
+    /// which is on screen.
+    /// </remarks>
+    private EventStep BeginTemple(TempleEvent temple, MenuAnchors anchors)
+    {
+        templeWelcomed = false;
+        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal, ("PRESS ENTER TO CONTINUE", 7));
+
+        escapeSelects = 0;
+        ShowText(temple.Base.Text);
+        return EventStep.Running;
+    }
+
+    /// <summary>Whether the temple has moved past its welcome onto its menu.</summary>
+    private bool templeWelcomed;
+
+    /// <summary><c>TEMPLE::OnKeypress</c> (<c>RunEvent.cpp:12588</c>).</summary>
+    private EventStep ChooseTemple(TempleEvent temple)
+    {
+        if (!templeWelcomed)
+        {
+            templeWelcomed = true;
+
+            // The reference calls OnInitialEvent again, which calls setMenu -- a replacement, not
+            // an addition. SetupFixedMenu only appends, so the reset Begin does has to be repeated.
+            Menu.Reset();
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, TempleMenu);
+            escapeSelects = TempleMenu.Length - 1;
+            ShowText(temple.Base.Text2);          // NOT Text -- see BeginTemple
+            return EventStep.Running;
+        }
+
+        return ChooseTownItem(TempleMenu, temple.ForceExit);
+    }
+
+    /// <summary><c>TAVERN::OnKeypress</c> (<c>RunEvent.cpp:9755</c>).</summary>
+    /// <remarks>
+    /// <b>FIGHT is the one town entry that chains rather than pushing a screen</b>, and it has a
+    /// message of its own when the chain names nothing: "Everyone runs away. There's no one to
+    /// fight!" — which is the only place a town service tells the player why nothing happened
+    /// instead of silently staying put.
+    /// </remarks>
+    private EventStep ChooseTavern(TavernEvent tavern)
+    {
+        if (Menu.ActiveItem == 0)
+        {
+            if (tavern.FightChain == 0 || IsValidEvent?.Invoke(tavern.FightChain) == false)
+            {
+                ShowText(NoOneToFight);
+                return EventStep.Running;
+            }
+
+            Current = null;
+            return EventStep.To(tavern.FightChain);
+        }
+
+        return ChooseTownItem(TavernMenu, tavern.ForceExit);
+    }
+
+    /// <summary>What a tavern says when its brawl chains to nothing (<c>RunEvent.cpp:9782</c>).</summary>
+    public const string NoOneToFight = "Everyone runs away. There's no one to fight!";
+
+    /// <summary>
+    /// The shared tail of a town menu: VIEW shows the sheet, EXIT chains, everything else is named.
+    /// </summary>
+    private EventStep ChooseTownItem((string Label, int Shortcut)[] entries, int forceExit)
+    {
+        int chosen = Menu.ActiveItem;
+        string label = chosen >= 0 && chosen < entries.Length ? entries[chosen].Label : "option";
+
+        if (label == "EXIT")
+        {
+            BackupRequested = forceExit != 0;
+            return Complete(happened: true);
+        }
+
+        if (label == "VIEW" && ActiveCharacterSheet?.Invoke() is { } sheet && font is not null)
+        {
+            Stats = new CharStatsForm();
+            Stats.Populate(font, sheet);
+            return EventStep.Running;
+        }
+
+        // BUY, ITEMS, APPRAISE, TAKE, POOL, SHARE, HEAL, DONATE, DRINK and LISTEN each push a
+        // screen this port has not built.
+        Unimplemented = $"[{label} here -- not implemented]";
+        return EventStep.Running;
+    }
+
+    /// <summary>The anchors the current event was begun with, for a screen that rebuilds its menu.</summary>
+    private MenuAnchors lastAnchors = new((0, 0), (0, 0), (0, 0), (0, 0));
 
     /// <summary>
     /// Set when a town screen closed and the party owes a step backwards
@@ -965,6 +1104,10 @@ public sealed class EventRunner
             SmallTownEvent town => ChooseSmallTown(town),
             CampEvent camp => ChooseCamp(camp),
             TrainingHallEvent hall => ChooseTrainingHall(hall),
+            TavernEvent tavern => ChooseTavern(tavern),
+            ShopEvent shop => ChooseTownItem(ShopMenu, shop.ForceExit),
+            VaultEvent vault => ChooseTownItem(VaultMenu, vault.ForceBackup),
+            TempleEvent temple => ChooseTemple(temple),
             _ => Complete(happened: true),
         };
     }

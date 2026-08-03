@@ -325,14 +325,15 @@ public class EventRunnerTests
     [Fact]
     public void An_event_this_port_does_not_run_is_named_rather_than_silently_skipped()
     {
-        // Vault, which no shipped design contains and which is a treasure screen over the party's
-        // stored goods. This test used to name Camp; Camp now runs.
+        // PlayMovie, which is blocked on the FFmpeg adapter rather than merely unported -- this
+        // test has now had to move twice as Camp and then Vault started running, so it wants a
+        // type that is waiting on a whole subsystem.
         var runner = new EventRunner();
-        var step = Begin(runner, new VaultEvent(Base(EventType.Vault), 0, 0));
+        var step = Begin(runner, new PlayMovieEvent(Base(EventType.PlayMovieEvent), "", 0));
 
         Assert.Equal(EventStepKind.Running, step.Kind);
         Assert.NotNull(runner.Unimplemented);
-        Assert.Contains("Vault", runner.Unimplemented, StringComparison.Ordinal);
+        Assert.Contains("PlayMovie", runner.Unimplemented, StringComparison.Ordinal);
     }
 
     // ---- treasure ------------------------------------------------------------------------------
