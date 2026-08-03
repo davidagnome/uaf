@@ -172,4 +172,79 @@ public sealed class Party
     /// exclusive upper bound is the natural guess and makes 18:30 night.
     /// </remarks>
     public static bool InDaytime(int hours) => hours is >= 6 and <= 18;
+
+    // ---- the journal (PARTY::journal, Shared/Party.h:643) ---------------------------------------
+
+    /// <summary>
+    /// <c>MAX_JOURNAL_ENTRIES</c> (<c>Shared/Party.h:32</c>) — the ceiling
+    /// <c>JOURNAL_DATA::Add</c> refuses to cross.
+    /// </summary>
+    /// <remarks>
+    /// 0x00FFFFFF, which is a cap on the <i>count</i> and not on the key. It exists so the key
+    /// space stays strictly larger than the population, which is what lets <c>GetNextKey</c>'s wrap
+    /// branch (<c>Shared/Party.h:68</c>) assume a gap it can reuse. That branch needs a key at
+    /// <c>INT_MAX</c> to run and so is unreachable; the cap itself is transcribed because it is the
+    /// third of the three ways a journal event adds nothing.
+    /// </remarks>
+    public const int MaxJournalEntries = 0x00FFFFFF;
+
+    private readonly List<JournalEntry> journal = [];
+
+    /// <summary>
+    /// The journal entries the party has collected, oldest first (<c>PARTY::journal</c>,
+    /// <c>Shared/Party.h:643</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Party state, not world state</b>, on the reference's own evidence: this is written inside
+    /// <c>PARTY::Serialize</c> (<c>Shared/Party.cpp:926</c>), between the pooled money sack and
+    /// <c>party_asl</c>, while quests, special items and keys are written after PARTY
+    /// (<c>UAFWin/Dgngame.cpp:188</c>) and live on <see cref="WorldState"/>. Filled by
+    /// <see cref="EventJournal"/>, which is the only thing in the engine that adds to it.
+    /// </para>
+    /// <para>
+    /// Each entry's <c>Entry</c> is this party's own collection key and its <c>OriginalEntry</c> is
+    /// the design key it was copied from — the reverse of the design's own table, where the two
+    /// agree.
+    /// </para>
+    /// <para>
+    /// Distinct from the design's authored journal text, which is
+    /// <see cref="UAF.Serialization.GlobalStatsPrefix.Journal"/> and is read-only.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<JournalEntry> Journal => journal;
+
+    /// <summary>
+    /// Collects one entry, giving it the next party-local key (<c>JOURNAL_DATA::Add</c>,
+    /// <c>Shared/Party.h:99</c>).
+    /// </summary>
+    /// <returns>The key assigned, or -1 when the journal is full and nothing was added.</returns>
+    /// <remarks>
+    /// <b>The caller's key is overwritten, not honoured</b> — <c>Add</c> assigns
+    /// <c>GetNextKey()</c> before inserting, so passing a design key here does not preserve it. Keys
+    /// begin at 1, never 0.
+    /// <para>
+    /// The reference holds these in a key-ordered queue and inserts by key
+    /// (<c>OrderedQueue::Insert</c>, <c>Shared/SharedQueue.h:990</c>), but the new key is always one
+    /// past the tail's, so every insert lands at the end and a plain append is the same list. That
+    /// equivalence depends on this being the only way in: anything that later loads a saved journal
+    /// must add it in ascending key order, or the next key stops being one past the highest.
+    /// </para>
+    /// </remarks>
+    public int AddJournalEntry(JournalEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        if (journal.Count >= MaxJournalEntries)
+        {
+            return -1;
+        }
+
+        int key = NextJournalKey();
+        journal.Add(entry with { Entry = key });
+        return key;
+    }
+
+    /// <summary><c>JOURNAL_DATA::GetNextKey</c> (<c>Shared/Party.h:61</c>).</summary>
+    private int NextJournalKey() => journal.Count == 0 ? 1 : journal[^1].Entry + 1;
 }
