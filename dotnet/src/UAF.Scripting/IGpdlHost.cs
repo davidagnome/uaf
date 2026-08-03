@@ -1,5 +1,15 @@
 namespace UAF.Scripting;
 
+/// <summary>Shape of the hook-parameter block (<c>NUMHOOKPARAM</c>, <c>Shared/Specab.h:576</c>).</summary>
+public static class GpdlHookParameters
+{
+    /// <summary>Ten slots. Slot 0 is also where a global script's return value lands.</summary>
+    public const int Count = 10;
+
+    /// <summary>The slot <c>RunGlobalScript</c> writes its result into and returns.</summary>
+    public const int ResultSlot = 0;
+}
+
 /// <summary>
 /// Everything the GPDL VM needs from outside itself.
 /// </summary>
@@ -124,6 +134,29 @@ public interface IGpdlHost
     /// which <c>$RESPOND</c> arm fires.
     /// </summary>
     bool Grep(string pattern, string text);
+
+    /// <summary>
+    /// <c>$GET_HOOK_PARAM(n)</c> — one slot of the current hook-parameter block
+    /// (<c>HOOK_PARAMETERS</c>, <c>Shared/Specab.h:580</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The block is a stack, not a global.</b> Its constructor pushes itself as the current one
+    /// and its destructor pops, so a hook that runs another hook gets its own set and the caller's
+    /// survives underneath. Slot 0 doubles as the <i>return value</i>:
+    /// <c>RunGlobalScript</c> writes the script's result there and then returns it.
+    /// </remarks>
+    string GetHookParam(int index);
+
+    /// <summary>
+    /// <c>$SET_HOOK_PARAM(n, value)</c> — <b>a swap, not a setter</b>.
+    /// </summary>
+    /// <returns>
+    /// The slot's <i>previous</i> contents, which the reference pushes back onto the stack
+    /// (<c>GPDLexec.cpp:3213</c>). A script can therefore save a slot, borrow it and restore it,
+    /// and one written as though this returned nothing leaves a value on the stack.
+    /// </returns>
+    /// <inheritdoc cref="GetHookParam"/>
+    string SetHookParam(int index, string value);
 
     /// <summary>
     /// <c>$WIGGLE(n)</c> — the nth capture group from the last <see cref="Grep"/>, or empty when
@@ -290,6 +323,37 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual void Say(string text) => Said.Add(text);
+
+    /// <summary>The hook-parameter block, ten slots as <c>NUMHOOKPARAM</c> gives it.</summary>
+    /// <remarks>
+    /// Held here rather than refused, because unlike <see cref="Grep"/> there is nothing external
+    /// to port: the block is ten strings and a scope. Callers that need the reference's stacking
+    /// discipline should use <c>UAFcore</c>'s <c>HookParameters</c>, which pushes and pops.
+    /// </remarks>
+    public string[] HookParameters { get; } = new string[GpdlHookParameters.Count];
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The reference guards only the upper bound here</b> (<c>GPDLexec.cpp:3198</c>) where its
+    /// setter guards both, so a negative index reads off the front of the array. C# cannot
+    /// reproduce that read; empty is returned instead, which is what the guarded path yields.
+    /// </remarks>
+    public virtual string GetHookParam(int index) =>
+        index >= 0 && index < HookParameters.Length ? HookParameters[index] ?? string.Empty
+                                                    : string.Empty;
+
+    /// <inheritdoc/>
+    public virtual string SetHookParam(int index, string value)
+    {
+        if (index < 0 || index >= HookParameters.Length)
+        {
+            return string.Empty;
+        }
+
+        string previous = HookParameters[index] ?? string.Empty;
+        HookParameters[index] = value ?? string.Empty;
+        return previous;
+    }
 
     /// <inheritdoc/>
     public virtual bool Grep(string pattern, string text) =>

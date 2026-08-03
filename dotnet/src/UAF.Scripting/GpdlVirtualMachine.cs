@@ -839,6 +839,17 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_Wiggle:
                 PushSp(_host.Wiggle(PopInteger()));
                 break;
+            case SubOp.SUBOP_GET_HOOK_PARAM:
+                PushSp(_host.GetHookParam(PopInteger()));
+                break;
+            case SubOp.SUBOP_SET_HOOK_PARAM:
+                {
+                    // Arguments push left to right, so the value is on top and the index beneath.
+                    // The slot's OLD contents go back on the stack -- this is a swap, not a set.
+                    string value = PopSp();
+                    PushSp(_host.SetHookParam(PopInteger(), value));
+                    break;
+                }
             case SubOp.SUBOP_RANDOM:
                 i1 = PopInteger();
                 if (i1 <= 0)

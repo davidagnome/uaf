@@ -17,7 +17,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**2,492 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**2,505 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3079,10 +3079,32 @@ and `SomethingWild` defines `$EVENT_WhoTries_Attempt` outright.
 The bracketing of a name gives its kind — `[script]`, `(variable)`, `<table>`, or a bare constant —
 and the split is a plain `Find('=')` with no escape handling, unlike the general config splitter.
 
-**What is still missing for `RunGlobalScript`**: compile-and-cache of the source into bytecode, the
-single built-in default script (`CombatPlacement`/`PlaceMonsterFar` — and note
-`TeleporterDestinations` is *not* among the defaults, so only a design that authors it has one),
-and the `HOOK_PARAMETERS` block the result lands in.
+**`RunGlobalScript` now runs** (`UAFcore.GlobalScripts`), so the bridge is complete: look the
+source up by ability and script name, wrap it in `$PUBLIC $FUNC SA(){ … } SA ;`, compile it once,
+execute it and take the result from hook parameter 0.
+
+> **There is exactly one built-in default script** — `CombatPlacement`/`PlaceMonsterFar`. Not a
+> table that grew; a single entry. `TeleporterDestinations` and the `WHO_TRIES` `Attempt` veto have
+> no default at all, so they exist only in designs that author them.
+
+> **The default is consulted per *ability*, not per script.** The reference reaches its defaults
+> only in the `pSpecAb == NULL` branch, so a design that defines `CombatPlacement` without
+> `PlaceMonsterFar` *loses* the built-in rather than inheriting it.
+
+> **`$SET_HOOK_PARAM` is a swap, not a setter.** It pushes the slot's previous contents back
+> (`GPDLexec.cpp:3213`), so a script written as though it returned nothing leaves a value on the
+> stack. Its read guards only the upper bound where the write guards both, so a negative index
+> reads off the front of the array in the reference; C# returns empty instead.
+
+> **`#` belongs to the numeric comparison operators, not to integer literals.** `>=#` is the
+> numeric form of `>=`; `$GET_HOOK_PARAM(#5)` is a syntax error and `$GET_HOOK_PARAM(5)` is
+> correct. Reading the one built-in default script — which contains `>=#2` — the other way round
+> costs a compile error that names only the `#`.
+
+Compilation is cached, failures included, matching the reference's `SPECAB_SCRIPTERROR` flag: a
+broken script pays the error once rather than once per invocation. **The reference caches by
+overwriting the source with the bytecode**; this port caches beside it, which keeps the source
+readable and behaves identically.
 
 A chain-depth cap was added with them. **It is not a rule from the reference**, which has no limit
 and simply hangs if a design chains an event to itself; chains of chains are ordinary, so a cycle
