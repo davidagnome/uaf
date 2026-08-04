@@ -495,6 +495,60 @@ public sealed class LoadedDesign : IDisposable
         }
     }
 
+    private Dictionary<string, AbilityRecord>? abilities;
+    private bool abilitiesLoaded;
+
+    /// <summary>The design's abilities, by name — or null when the database cannot be read.</summary>
+    /// <remarks>
+    /// The dice a new character's scores are rolled from. Unread by this port until the character
+    /// generator needed them — see §ability.dat.
+    /// </remarks>
+    public IReadOnlyDictionary<string, AbilityRecord>? Abilities
+    {
+        get
+        {
+            if (abilitiesLoaded)
+            {
+                return abilities;
+            }
+
+            abilitiesLoaded = true;
+            abilities = LoadAbilities();
+            return abilities;
+        }
+    }
+
+    private Dictionary<string, AbilityRecord>? LoadAbilities()
+    {
+        string path = Path.Combine(Root, "Data",
+                                   TaggedDatabaseReader.FileName(TaggedDatabase.Ability));
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var header = TaggedDatabaseReader.Read(path, TaggedDatabase.Ability, out var body,
+                                                   out var stream);
+            using (stream)
+            {
+                var map = new Dictionary<string, AbilityRecord>(StringComparer.OrdinalIgnoreCase);
+                foreach (var record in AbilityRecordReader.ReadAll(body, header.Count,
+                                                                   Globals.Version))
+                {
+                    map[record.Name] = record;
+                }
+                return map;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException
+                                       or EndOfStreamException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     private Dictionary<string, ClassRecord>? classes;
     private bool classesLoaded;
 

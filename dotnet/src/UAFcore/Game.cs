@@ -513,6 +513,24 @@ public sealed class Game
     private const byte NpcType = 1;
 
     /// <summary>
+    /// A fresh hit-point seed (<c>hitpointSeed = randomMT()</c>, <c>Char.cpp:4419</c>).
+    /// </summary>
+    /// <remarks>
+    /// Stored on the character so a re-roll of its ability scores replays the same dice — see
+    /// <see cref="LittleRandom"/>. Fresh per character and never reused.
+    /// </remarks>
+    private uint HitPointSeed() => (uint)Dice(int.MaxValue);
+
+    /// <summary>
+    /// <c>START_AGE</c>, from config (<c>Globals.cpp:2797</c>).
+    /// </summary>
+    private int StartAge =>
+        design.Config.TryGetInts("START_AGE", out int[] values, count: 1, consume: false)
+        && values.Length > 0
+            ? Math.Max(1, values[0])
+            : RolledCharacter.DefaultStartAge;
+
+    /// <summary>
     /// Writes a newly made character to its own <c>.chr</c>.
     /// </summary>
     /// <remarks>
@@ -529,17 +547,20 @@ public sealed class Game
             return "A character needs a name before it can be saved.";
         }
 
+        int Roll(int count, int sides) => DiceExpression.Roll(count, sides, Dice);
+
+        var rolled = RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge);
+        var classRecord = design.Classes?.GetValueOrDefault(made.ClassId ?? "");
+
         var record = NewCharacter.Assemble(
             made,
-            abilities: new AbilityScores(0, 0, 0, 0, 0, 0, 0),
-            maxHitPoints: 1,
-            baseclasses: NewCharacter.BaseclassRows(design.Classes?.GetValueOrDefault(made.ClassId ?? "")),
+            rolled.Abilities,
+            rolled.MaxHitPoints,
+            baseclasses: NewCharacter.BaseclassRows(classRecord),
             money: NewCharacter.StartingMoney(design.Globals.StartPlatinum, design.Globals.StartGem,
                                               design.Globals.StartJewelry, Money),
-            equipment: NewCharacter.StartingEquipment(
-                design.Classes?.GetValueOrDefault(made.ClassId ?? "")),
-            age: 0, maxAge: 0,
-            birthday: NewCharacter.Birthday((count, sides) => DiceExpression.Roll(count, sides, Dice)));
+            equipment: NewCharacter.StartingEquipment(classRecord),
+            rolled.Age, rolled.MaxAge, rolled.Birthday);
 
         try
         {

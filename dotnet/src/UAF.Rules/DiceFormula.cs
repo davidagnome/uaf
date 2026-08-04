@@ -12,11 +12,17 @@ namespace UAF.Rules;
 /// phase and not to character creation.
 /// </para>
 /// <para>
-/// <b>What designs actually write is far smaller.</b> Across every race and class in the corpus —
-/// 288 expressions, 74 distinct — the whole vocabulary is integers, <c>NdM</c>, <c>+ − * /</c>,
-/// parentheses, and <b>one identifier</b>: <c>Male</c>, a 1 or 0 used to add a gender bonus to
-/// weight and height (<c>2d4+34+(1*Male)</c>). Not one field references a level, a race or an
-/// ability. So this covers the corpus completely at a fraction of the size.
+/// <b>What designs write is far smaller than the toolchain allows</b> — integers, <c>NdM</c>,
+/// <c>+ − * /</c>, parentheses, and a handful of one-or-zero symbols: <c>Male</c>, and
+/// <c>Race_&lt;name&gt;</c> for "is the character this race". A field may also carry its own
+/// bounds as <c>min|&lt;expression&gt;|max</c>.
+/// </para>
+/// <para>
+/// <b>An earlier note here claimed <c>Male</c> was the only identifier in the corpus, and that
+/// was wrong.</b> The measurement behind it covered races and classes and not abilities, and
+/// every ability in <c>SomethingWild</c> references races. A partial sample gave a confident and
+/// false answer; the fields that carry these expressions have not all been enumerated yet, so no
+/// coverage claim is made here now.
 /// </para>
 /// <para>
 /// <b>Anything outside that subset is refused by name, never guessed at</b> — see
@@ -26,8 +32,17 @@ namespace UAF.Rules;
 /// </remarks>
 public static class DiceFormula
 {
-    /// <summary>The one identifier any shipped design uses: 1 for a male character, else 0.</summary>
+    /// <summary>1 for a male character, else 0.</summary>
     public const string MaleSymbol = "Male";
+
+    /// <summary>
+    /// The prefix a race test carries: <c>Race_Elf</c> is 1 for an elf and 0 for anyone else.
+    /// </summary>
+    /// <remarks>
+    /// <b>A name with a space or a hyphen is quoted</b> — <c>"Race_Half-Orc"</c> — because the
+    /// expression's own tokeniser would otherwise stop at the punctuation.
+    /// </remarks>
+    public const string RacePrefix = "Race_";
 
     /// <summary>
     /// Evaluates an expression.
@@ -61,14 +76,63 @@ public static class DiceFormula
             return false;
         }
 
-        var parser = new Parser(text, roll, symbol);
+        var (body, low, high) = Unwrap(text);
+
+        var parser = new Parser(body, roll, symbol);
         if (!parser.TryParse(out value, out unsupported))
         {
             value = 0;
             return false;
         }
 
+        if (low is int floor && value < floor)
+        {
+            value = floor;
+        }
+
+        if (high is int ceiling && value > ceiling)
+        {
+            value = ceiling;
+        }
+
         return true;
+    }
+
+    /// <summary>
+    /// Splits a <c>min|&lt;expression&gt;|max</c> field into its parts.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A <c>DICEPLUS</c>'s text carries its own bounds.</b> The record has <c>Min</c> and
+    /// <c>Max</c> fields too, and the text form repeats them around the expression in angle
+    /// brackets — <c>3|&lt;2d6+6&gt;|18</c>. An evaluator that reads the whole string as an
+    /// expression chokes on the bars; one that ignores the bounds rolls outside them.
+    /// </para>
+    /// <para>
+    /// A field with no bars is its own expression and has no bounds, which is the majority case.
+    /// </para>
+    /// </remarks>
+    public static (string Body, int? Min, int? Max) Unwrap(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        int first = text.IndexOf('|', StringComparison.Ordinal);
+        int last = text.LastIndexOf('|');
+
+        if (first < 0 || last == first)
+        {
+            return (text, null, null);
+        }
+
+        string body = text[(first + 1)..last].Trim();
+        if (body.StartsWith('<') && body.EndsWith('>'))
+        {
+            body = body[1..^1];
+        }
+
+        return (body,
+                int.TryParse(text[..first].Trim(), out int min) ? min : null,
+                int.TryParse(text[(last + 1)..].Trim(), out int max) ? max : null);
     }
 
     /// <summary>
@@ -253,9 +317,39 @@ public static class DiceFormula
                 return true;
             }
 
+            // A quoted identifier: "Race_Half-Orc". The quotes exist because the name contains
+            // punctuation the bare tokeniser would stop at.
+            if (text[at] == '"')
+            {
+                at++;
+                int quoted = at;
+                while (at < text.Length && text[at] != '"')
+                {
+                    at++;
+                }
+
+                string inside = text[quoted..at];
+                if (at < text.Length)
+                {
+                    at++;
+                }
+
+                if (symbol(inside) is not int found)
+                {
+                    unsupported =
+                        $"\"{text}\" references {inside}, which this port does not resolve";
+                    return false;
+                }
+
+                value = found;
+                return true;
+            }
+
             if (char.IsAsciiLetter(text[at]) || text[at] == '_')
             {
                 int start = at;
+                // No hyphen here: it is subtraction. A name containing one is quoted, which is
+                // the branch above -- allowing it bare would read "Male-1" as one identifier.
                 while (at < text.Length && (char.IsAsciiLetterOrDigit(text[at]) || text[at] == '_'))
                 {
                     at++;

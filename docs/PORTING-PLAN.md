@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,180 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,188 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3252,6 +3252,37 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
 
+##### Rolling a character against a real design — and a measurement that was wrong
+
+The generator's rules finally meet a design's own tables. Two things showed up the moment they
+did, and neither was visible in any unit test, because both are properties of real data.
+
+> **A `DICEPLUS`'s text carries its own bounds.** The field is
+> `min|<expression>|max` — `3|<2d6+6>|18` — with the record's `Min` and `Max` repeated around the
+> expression in angle brackets. An evaluator that reads the whole string as an expression chokes
+> on the bars; one that strips them and ignores the bounds rolls outside them.
+
+> **Ability dice reference races, and the names are quoted when they need to be.**
+> `2d6+6+(Race_Halfling*-1)+("Race_Half-Orc"*1)` — a `Race_<name>` symbol is 1 for that race and 0
+> otherwise, exactly like `Male`, and a name containing a hyphen is quoted because the tokeniser
+> would otherwise stop at it.
+
+> **My earlier measurement was partial and I stated its conclusion as fact.** The probe covered
+> races and classes and reported "the only identifier in the entire corpus is `Male`" — from 288
+> expressions, which made it look settled. Abilities were never sampled. **A confident number from
+> an incomplete sample is worse than no number**, and the fix is not a bigger probe but naming
+> which records were read: the fields carrying these expressions have not all been enumerated, so
+> the evaluator now makes no coverage claim at all.
+
+> **`SomethingWild`'s own data is corrupt here.** The race prefix repeats forty-one times —
+> `Race_Race_Race_…_Halfling` — in four of its six abilities. It parses, resolves to no known
+> race, and reads as 0, which is what the reference would also do. Left alone: it is the design's
+> bug, not the port's.
+
+One bug I introduced and caught: allowing `-` inside a bare identifier so `Race_Half-Orc` would
+parse unquoted. It would have read `Male-1` as a single identifier. The quoted branch is the
+correct home for that, and bare identifiers are letters, digits and underscore again.
+
 ##### CREATE CHARACTER, all ten steps
 
 The wizard runs from race to a written `.chr`. **Eight of the party menu's twelve entries now do
@@ -3494,10 +3525,12 @@ the corpus's races and classes, 74 distinct:**
 | arithmetic over those | 25.0% | `+ − * /`, parentheses |
 | contains an identifier | 25.0% | a name lookup |
 
-> **Every identifier in the entire corpus is `Male`.** Not one dice field references a level, a
-> race, an ability or anything else the `interpretDicePlusRDR` switch can resolve — the only
-> reference any design uses is a 1-or-0 for gender, to add a gender-dependent bonus to weight and
-> height (`2d4+34+(1*Male)`).
+> ~~**Every identifier in the entire corpus is `Male`.**~~ **That was wrong, and the way it was
+> wrong is worth keeping.** The probe behind it read races and classes — the records I happened to
+> be working on — and not abilities. **Every ability in `SomethingWild` references races**, and
+> its dice fields also carry bounds the probe never saw. A partial sample gave a confident, false,
+> and *measured-looking* answer; the number 288 made it feel settled. See §rolling a character
+> against a real design.
 
 **So the whole corpus is covered by numbers, `NdM`, `+ − *`, parentheses and one symbol.** That is
 a small recursive-descent evaluator with a one-entry symbol table — not thirteen thousand lines —

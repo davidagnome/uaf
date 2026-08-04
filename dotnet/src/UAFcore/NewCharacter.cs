@@ -183,17 +183,30 @@ public static class NewCharacter
     /// there; keeping them distinct here is what lets a caller say which happened.
     /// </remarks>
     public static int? Roll(DicePlus? dice, Func<int, int, int> roll, bool male,
+                            out string? unsupported) =>
+        Roll(dice, roll,
+             n => n == DiceFormula.MaleSymbol ? (male ? 1 : 0) : null,
+             out unsupported);
+
+    /// <summary>
+    /// Rolls a dice field with a caller's own symbol table.
+    /// </summary>
+    /// <param name="symbol">
+    /// Resolves an identifier, or null for one it does not know — which refuses the whole
+    /// expression rather than substituting a zero. Ability dice reference races this way.
+    /// </param>
+    public static int? Roll(DicePlus? dice, Func<int, int, int> roll, Func<string, int?> symbol,
                             out string? unsupported)
     {
+        ArgumentNullException.ThrowIfNull(symbol);
+
         unsupported = null;
         if (dice is null)
         {
             return null;
         }
 
-        return DiceFormula.TryEvaluate(dice.Text, roll,
-                                       n => n == DiceFormula.MaleSymbol ? (male ? 1 : 0) : null,
-                                       out int value, out unsupported)
+        return DiceFormula.TryEvaluate(dice.Text, roll, symbol, out int value, out unsupported)
             ? value
             : null;
     }
