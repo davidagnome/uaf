@@ -56,8 +56,27 @@ public sealed record BonusExperience(string AbilityId, char BonusType, byte[] Bo
 /// </param>
 /// <param name="Bonus">25 bytes — <c>HIGHEST_CHARACTER_PRIME</c>.</param>
 /// <param name="Penalty">25 bytes, likewise.</param>
-public sealed record CastingInfo(string Name, string AbilityId, byte[] SpellsPerLevel,
-                                 byte[] Bonus, byte[] Penalty);
+/// <summary>
+/// One school a baseclass can cast from (<c>CASTING_INFO</c>, <c>class.cpp:12372</c>).
+/// </summary>
+/// <param name="SpellsPerLevel">
+/// <c>m_spellLimits</c> — how many spells of each spell level a character of each baseclass level
+/// may know. <c>HIGHEST_CHARACTER_LEVEL</c> rows of <c>MAX_SPELL_LEVEL</c>, blitted as one blob.
+/// </param>
+/// <param name="MaxSpellLevelByPrime">
+/// <c>m_maxSpellLevelsByPrime</c> — the highest spell level castable, indexed by the prime
+/// ability's score.
+/// </param>
+/// <param name="MaxSpellsByPrime">
+/// <c>m_maxSpellsByPrime</c> — how many spells may be known at all, indexed the same way.
+/// </param>
+/// <remarks>
+/// <b>The last two were called <c>Bonus</c> and <c>Penalty</c> and are neither.</b> They are the
+/// two by-prime-score tables, in the order the reference writes them — level first, count second.
+/// Nothing had used them yet, so nothing was wrong; the names would have made the first use wrong.
+/// </remarks>
+public sealed record CastingInfo(string SchoolId, string PrimeAbility, byte[] SpellsPerLevel,
+                                 byte[] MaxSpellLevelByPrime, byte[] MaxSpellsByPrime);
 
 /// <summary>A complete <c>BASE_CLASS_DATA</c> record.</summary>
 /// <remarks>
@@ -340,10 +359,11 @@ public static class BaseclassRecordReader
     {
         ArgumentNullException.ThrowIfNull(ar);
 
-        string name = ArchiveStringConventions.Decode(ar.ReadString());
-        string abilityId = ArchiveStringConventions.Decode(ar.ReadString());
+        string schoolId = ArchiveStringConventions.Decode(ar.ReadString());
+        string primeAbility = ArchiveStringConventions.Decode(ar.ReadString());
 
-        return new CastingInfo(name, abilityId,
+        // Level-by-prime before count-by-prime -- the order the reference writes them.
+        return new CastingInfo(schoolId, primeAbility,
                                ar.ReadBytes(Thac0Size * MaxSpellLevel),
                                ar.ReadBytes(HighestCharacterPrime),
                                ar.ReadBytes(HighestCharacterPrime));

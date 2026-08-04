@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,156 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,168 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3251,6 +3251,37 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > `START_EXP_VALUE` and then calls `die("Not Needed?")` for the "start experience is a minimum
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
+
+##### A character's casting ability — and two fields that were named backwards
+
+`UpdateSpellAbilityForBaseclass` folds each baseclass's casting tables into a per-school ability.
+It is what `CanKnowSpell` consults, so it decides what the spell screens can offer at all.
+
+> **Two `CASTING_INFO` fields were called `Bonus` and `Penalty` and are neither.** They are
+> `m_maxSpellLevelsByPrime` and `m_maxSpellsByPrime` — the highest spell level castable, and how
+> many spells may be known, each indexed by the prime ability's score. Nothing had used them yet,
+> so nothing was wrong; the names would have made the first use wrong. Renamed, along with
+> `Name` → `SchoolId` and `AbilityId` → `PrimeAbility`.
+
+> **The maximum spell level is *assigned*, not maximised — and the spell *count* beside it is
+> maximised.** The line above is the commented-out `if (maxSpellLevel > …)`, replaced in 2017 by a
+> bare assignment from the by-prime table. So a character whose two baseclasses cast from the same
+> school gets **the later baseclass's level ceiling and the better of the two spell counts**, from
+> adjacent lines. The order that decides it is the order of `BASECLASS_STATS`.
+
+> **The old code's `maxSpellLevel` is still computed and goes nowhere.** The scan for the highest
+> non-zero entry in the level's spell-limit row survived the replacement; its result is never read.
+
+> **The base count updates on `>=`, not `>`.** A baseclass matching the count already recorded
+> still takes the slot, handing the "contributing level" to whichever is folded in later — and
+> that level is what tells a level-up how many new spells to grant.
+
+> **Bonus spells are triples of (threshold, bonus, level) and accumulate.** Two triples naming the
+> same spell level stack; one naming a level above the school's maximum is skipped rather than
+> clamped.
+
+> **A school the character has no ability in is a refusal, not a zero.** `CanKnowSpell`'s lookup
+> returning -1 answers FALSE before the level is compared.
 
 ##### Which spells a character is offered
 
