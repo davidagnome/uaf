@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,128 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,144 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3252,6 +3252,50 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
 
+##### Learning spells at creation — a two-pass round robin
+
+The rules behind `INITIAL_MU_SPELLS_MENU_DATA`: how many spells a new character may take, which
+are free, and when the screen is finished. `AreWeDone` states its own rule in a comment, and the
+comment is accurate — which is rare enough here to be worth saying.
+
+> **Every new character sees this screen, whatever their class.** The reference computes
+> `PickMUSpells` from the class, comments the line out, and assigns `knowSpellsAtCreation = TRUE`
+> unconditionally — so the `else` branch that skips to the save prompt is dead code and a fighter
+> is offered a spell list.
+
+> **`MNMC` is four counts and only two are limits.** `Certain` is a free allowance and `Num` is an
+> obligation to *try* — a character who fails every roll still leaves the level, because `Num`
+> counts attempts and not successes. `Min` and `Max` are the actual bounds.
+
+> **The free allowance counts successes, not attempts.** The test is `numAcquired < certain`, so a
+> failed roll leaves the allowance intact.
+
+> **Index 0 of the state array is not a spell level — it is the totals.** The loop starts at 1 and
+> `m_acquireStates[0].mnmc` carries the global floor and ceiling across every level at once. A
+> reader treating the array as levels 0..n counts the totals as a level and finishes early.
+
+> **A level with nothing on offer is out of the reckoning** — neither short of its minimum nor of
+> its maximum, so it never holds the loop open.
+
+The two passes have different goals, and the second one behaves in a way I got wrong first time:
+
+> **Pass 0 fills every level to its `Max`; passes 1 onwards bring short levels up to `Min`.** So
+> `Min` is not a floor checked at the end — it is the target of a second sweep.
+
+> **A later pass leaves the level showing *even when it is the short one*.** In the
+> `oneLevelNotMin` branch nothing ever clears `FinishedThisLevel`, so a top-up pass does not sit
+> on a level until it is satisfied: it moves on immediately and comes back around. **The sweep is
+> a round robin**, which is the only reason "pass 1 → n" is plural. I wrote it as stay-until-
+> satisfied, and the test I had written from the reference's structure caught it — then the
+> *corrected* code failed a second test I had written from my wrong model, which is how the round
+> robin surfaced at all.
+
+> **Exactly one branch holds a level open in a later pass**: every level at its minimum, the
+> global floor still unmet, and this level with room.
+
+> **`AllLevels` always implies `ThisLevel`.** The reference sets it as a postcondition, so the two
+> flags can never disagree and a caller checking only `ThisLevel` still advances off the last one.
+
 ##### The art pickers, and a search that does not search
 
 The generator's last two screens. **One screen, two directories** — both scan a fixed naming
@@ -6424,10 +6468,11 @@ What is left, in order:
      identifier (`Male`), so a small evaluator covers every design and the toolchain stays in
      priority 3 where it belongs. Refuse anything outside that subset by name.
 
-     Hit points and the two art screens are ported too (§a new character's hit points, §the art
-     pickers). **Eight of CREATE's ten steps now run** — what is left is the two spell screens,
-     which want the spell system, and the final save. Then MODIFY, the same wizard re-entered over
-     an existing character.
+     Hit points, the two art screens and the spell-acquisition rules are ported too (§a new
+     character's hit points, §the art pickers, §learning spells at creation). What is left of
+     CREATE is **wiring the spell screens onto those rules** — they need the per-level available-
+     spell lists, which means `CreateSpellAvailabilityList` — and the final save. Then MODIFY,
+     the same wizard re-entered over an existing character.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.
