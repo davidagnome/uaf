@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,116 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,128 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3252,6 +3252,30 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
 
+##### The art pickers, and a search that does not search
+
+The generator's last two screens. **One screen, two directories** — both scan a fixed naming
+series, show one picture at a time, and offer `NEXT`, `PREV`, `SELECT`; only the folder, the
+pattern and the destination field differ.
+
+> **`FindImageWithValidExt` does not look for valid extensions — not in the engine.** It reads as
+> though it tries every image format for a root name, and under `UAFEngine` the function is
+> `if (FileExists(fullName)) return TRUE; return FALSE;` — the search is behind `#ifndef
+> UAFEngine` (`Globals.cpp:3714`). So at play time the series is literal `.png`, and **a design
+> that shipped its portraits as `.pcx` shows the designer everything and the player nothing.**
+
+> **The series is scanned by name, not enumerated.** The engine asks for `prt_SPic1` through
+> `prt_SPic50` one at a time, so a portrait called anything else is invisible however well formed
+> it is — and a gap in the numbering is skipped rather than ending the scan.
+
+> **Both directions wrap.** `NEXT` off the end returns to the first and `PREV` off the front goes
+> to the last — the opposite of the roster and the inventory, which stop. It is a carousel because
+> there is only ever one picture on screen.
+
+> **One picture darkens both paging entries, and SELECT never darkens.** The test is
+> `numSmallPics <= 1`, so a design with no portraits at all still asks the player to press SELECT
+> over an empty screen, and the character is made without one.
+
 ##### A new character's hit points, and two ways they differ from a trained one's
 
 `DetermineNewCharMaxHitPoints` is **not** the formula `DetermineCharMaxHitPoints` uses when a
@@ -6400,9 +6424,10 @@ What is left, in order:
      identifier (`Male`), so a small evaluator covers every design and the toolchain stays in
      priority 3 where it belongs. Refuse anything outside that subset by name.
 
-     Hit points are ported too (§a new character's hit points). What is left of CREATE is the
-     **art picker** — the icon and small-picture steps — and then MODIFY, the same wizard
-     re-entered over an existing character, which comes nearly free.
+     Hit points and the two art screens are ported too (§a new character's hit points, §the art
+     pickers). **Eight of CREATE's ten steps now run** — what is left is the two spell screens,
+     which want the spell system, and the final save. Then MODIFY, the same wizard re-entered over
+     an existing character.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.

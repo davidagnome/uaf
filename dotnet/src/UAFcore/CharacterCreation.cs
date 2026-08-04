@@ -132,6 +132,39 @@ public sealed class CharacterCreation
         }
     }
 
+    /// <summary>The portrait chosen, or null before the small-picture step.</summary>
+    public string? SmallPicture { get; private set; }
+
+    /// <summary>The combat icon chosen, or null before the icon step.</summary>
+    public string? Icon { get; private set; }
+
+    /// <summary>
+    /// Takes a picture and moves on. A design with no art still advances.
+    /// </summary>
+    /// <remarks>
+    /// <b>SELECT is always available, even with nothing to select.</b> The reference darkens only
+    /// NEXT and PREV, so a design shipping no portraits leaves the player pressing SELECT over an
+    /// empty screen — and the character is made without one.
+    /// </remarks>
+    public void Pick(string? art)
+    {
+        switch (Step)
+        {
+            case CreationStep.Icon:
+                Icon = art;
+                Step = CreationStep.SmallPicture;
+                break;
+
+            case CreationStep.SmallPicture:
+                SmallPicture = art;
+                Step = CreationStep.Spells;
+                break;
+
+            default:
+                break;
+        }
+    }
+
     /// <summary>Backs out of character creation entirely.</summary>
     public void Abort()
     {
