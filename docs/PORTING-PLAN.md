@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,168 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,176 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3251,6 +3251,39 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > `START_EXP_VALUE` and then calls `die("Not Needed?")` for the "start experience is a minimum
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
+
+##### The art and spell screens on screen — and three bugs the end-to-end test found
+
+The generator now runs as a wizard from race to the save prompt. Wiring the last four steps into
+the runner turned up three defects that no unit test could have seen, because each needed the
+*sequence*.
+
+> **The art pickers were rules with no screen.** `ArtPicker` and the wizard's `Pick` transitions
+> were built and tested a few rounds back, and the runner never showed them — so the wizard
+> closed at the icon step. The earlier note here said eight of ten steps ran; it was the rules for
+> eight, and the screens for six. Corrected.
+
+> **`Typing` survived the name step and swallowed every movement key.** `HandleTyping` takes any
+> key that is not Return, so once the name screen set it, the art and spell screens after it could
+> not move their menus. On the art screen this was invisible — the cursor already sits on the only
+> entry that does anything — and total on the spell screen, which pages. The fix is one line, and
+> the reason it hid is that **a screen that swallows input looks identical to a screen whose
+> input does nothing.**
+
+> **The art screen left the cursor on a darkened entry.** `NEXT` is the first entry and the cursor
+> starts there; with one picture both paging entries darken, leaving the cursor on an entry that
+> does nothing. It now homes onto `SELECT`.
+
+The screens themselves:
+
+> **Neither spell screen has an EXIT.** Both menus are three entries — `SELECT/NEXT/PREV` and
+> `LEARN/NEXT/PREV` — so there is no way out but to keep picking until the acquisition rules say
+> every level is finished. They differ in the verb and the message and nothing else, which is why
+> one screen serves both.
+
+> **A failed attempt still consumes the spell.** The reference sets
+> `m_spellAvailabilityList[i].learned = success` either way, so there is no second go at a spell
+> that was missed — which is what makes `Num`, "how many he must try", a bound at all.
 
 ##### A character's casting ability — and two fields that were named backwards
 

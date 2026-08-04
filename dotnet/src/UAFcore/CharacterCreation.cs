@@ -165,6 +165,15 @@ public sealed class CharacterCreation
         }
     }
 
+    /// <summary>Moves past the spell screens to the save prompt.</summary>
+    public void LearnedSpells()
+    {
+        if (Step is CreationStep.Spells)
+        {
+            Step = CreationStep.AskToSave;
+        }
+    }
+
     /// <summary>Backs out of character creation entirely.</summary>
     public void Abort()
     {

@@ -144,6 +144,10 @@ public sealed class EventRunner
         Confirming = PartyConfirm.None;
         Creating = null;
         CreationOffered = [];
+        ArtChoices = null;
+        SpellChoices = null;
+        spellScreen = null;
+        SpellMessage = null;
         Typing = null;
         TriesLeft = 0;
 
@@ -1204,6 +1208,26 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // Every step past the name is done typing. Leaving this set makes HandleTyping swallow
+        // the movement keys, which is invisible on a screen whose cursor already sits on the only
+        // entry that does anything -- and total on one that pages.
+        if (Creating.Step is not CreationStep.Name)
+        {
+            Typing = null;
+        }
+
+        // The two art steps share one screen -- see ArtPicker.
+        if (!Creating.Aborted && Creating.Step is CreationStep.Icon or CreationStep.SmallPicture)
+        {
+            return ShowArtScreen();
+        }
+
+        // The two spell steps share one screen -- see SpellScreen.
+        if (!Creating.Aborted && Creating.Step is CreationStep.Spells)
+        {
+            return ShowSpellScreen();
+        }
+
         // CHOOSESTATS is a RE-ROLL screen, not the thing that makes the stats: the character was
         // already generated at the alignment step, and item 2 there is "don't re-roll". Skipping
         // it means the player keeps the first roll -- a real divergence, and a small one, where
@@ -1248,6 +1272,7 @@ public sealed class EventRunner
         }
 
         Typing = null;
+        ArtChoices = null;
         CreationOffered = CreationChoicesFor?.Invoke(Creating) ?? [];
         CreationIndex = 0;
         CreationPage = 0;
@@ -1352,6 +1377,249 @@ public sealed class EventRunner
             default:
                 return false;
         }
+    }
+
+    // ---- the art screens -----------------------------------------------------------------------
+
+    /// <summary>The pictures on offer, or null when no art screen is up.</summary>
+    public IReadOnlyList<string>? ArtChoices { get; private set; }
+
+    /// <summary>Which picture is showing.</summary>
+    public int ArtIndex { get; private set; }
+
+    /// <summary>Lists the art for a step; set by the host, which knows the design's folders.</summary>
+    public Func<CreationStep, IReadOnlyList<string>>? ArtFor { get; set; }
+
+    /// <summary>
+    /// <c>GETCHARICON_MENU_DATA</c> and <c>GETCHARSMALLPIC_MENU_DATA</c> — one screen, two
+    /// directories (<c>RunEvent.cpp:3362</c>).
+    /// </summary>
+    private EventStep ShowArtScreen()
+    {
+        if (Creating is null)
+        {
+            return EventStep.Running;
+        }
+
+        ArtChoices = ArtFor?.Invoke(Creating.Step) ?? [];
+        ArtIndex = 0;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ArtPicker.Menu);
+
+        // One picture darkens both paging entries; SELECT never darkens, so a design with no art
+        // still asks the player to press it over an empty screen.
+        bool canStep = ArtPicker.CanStep(ArtChoices.Count);
+        Menu.SetItemEnabled(ArtPicker.Next, canStep);
+        Menu.SetItemEnabled(ArtPicker.Previous, canStep);
+
+        // NEXT is the first entry and the cursor starts there, so darkening it would leave the
+        // cursor on an entry that does nothing. With one picture SELECT is all there is.
+        if (!canStep)
+        {
+            Menu.SetCurrentItem(ArtPicker.Select);
+        }
+
+        escapeSelects = ArtPicker.Select;
+        ShowText(Creating.Step is CreationStep.Icon ? "CHOOSE AN ICON" : "CHOOSE A PORTRAIT");
+
+        return EventStep.Running;
+    }
+
+    private EventStep ChooseArt()
+    {
+        if (Creating is null || ArtChoices is null)
+        {
+            return EventStep.Running;
+        }
+
+        switch (Menu.ActiveItem)
+        {
+            case ArtPicker.Next:
+                ArtIndex = ArtPicker.Step(ArtIndex, ArtChoices.Count, +1);
+                return EventStep.Running;
+
+            case ArtPicker.Previous:
+                ArtIndex = ArtPicker.Step(ArtIndex, ArtChoices.Count, -1);
+                return EventStep.Running;
+
+            default:
+            {
+                string? picked = ArtIndex >= 0 && ArtIndex < ArtChoices.Count
+                    ? ArtChoices[ArtIndex]
+                    : null;
+
+                ArtChoices = null;
+                Creating.Pick(picked);
+                return ShowCreationStep();
+            }
+        }
+    }
+
+    // ---- the spell screens ---------------------------------------------------------------------
+
+    /// <summary>The spells on offer at the level showing, or null when no screen is up.</summary>
+    public IReadOnlyList<AvailableSpell>? SpellChoices { get; private set; }
+
+    /// <summary>Which spell level the screen is on.</summary>
+    public int SpellLevel { get; private set; }
+
+    /// <summary>Which sweep the acquisition loop is on — 0 fills to Max, 1+ tops up to Min.</summary>
+    public int SpellPass { get; private set; }
+
+    /// <summary>The last acquisition message, in the reference's own wording.</summary>
+    public string? SpellMessage { get; private set; }
+
+    /// <summary>Supplies the spells and the per-level counts; set by the host.</summary>
+    public Func<CharacterCreation, SpellScreenData?>? SpellScreenFor { get; set; }
+
+    /// <summary>Rolls d100 for an acquisition attempt; set by the host.</summary>
+    public Func<int, int>? RollPercent { get; set; }
+
+    private SpellScreenData? spellScreen;
+
+    /// <summary>
+    /// <c>INITIAL_MU_SPELLS_MENU_DATA</c> and <c>LEARN_SPELLS_MENU</c>
+    /// (<c>RunEvent.cpp:23299</c>, <c>:24557</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Neither screen has an EXIT.</b> Both menus are three entries — <c>SELECT/NEXT/PREV</c>
+    /// and <c>LEARN/NEXT/PREV</c> — so there is no way out but to keep picking until the
+    /// acquisition rules say every level is finished. The two differ in the verb and the message
+    /// and in nothing else, which is why one screen serves both.
+    /// </remarks>
+    private EventStep ShowSpellScreen()
+    {
+        if (Creating is null)
+        {
+            return EventStep.Running;
+        }
+
+        spellScreen = SpellScreenFor?.Invoke(Creating);
+        if (spellScreen is null || spellScreen.Levels.Count <= 1)
+        {
+            // No spells for this character at all; the screen never appears.
+            Creating.LearnedSpells();
+            return ShowCreationStep();
+        }
+
+        SpellPass = 0;
+        SpellLevel = 1;
+        return FillSpellMenu();
+    }
+
+    private EventStep FillSpellMenu()
+    {
+        if (spellScreen is null)
+        {
+            return EventStep.Running;
+        }
+
+        SpellChoices = spellScreen.Offered(SpellLevel);
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                       (spellScreen.Verb, 0), ("NEXT", 0), ("PREV", 0));
+
+        // No EXIT to map Escape onto.
+        escapeSelects = null;
+        SpellIndex = 0;
+
+        ShowText(SpellMessage ?? $"SPELL LEVEL {SpellLevel}");
+        return EventStep.Running;
+    }
+
+    /// <summary>Which row of the spell list the cursor is on.</summary>
+    public int SpellIndex { get; private set; }
+
+    private EventStep ChooseSpell()
+    {
+        if (Creating is null || spellScreen is null || SpellChoices is null)
+        {
+            return EventStep.Running;
+        }
+
+        switch (Menu.ActiveItem)
+        {
+            case 1:
+                SpellLevel = spellScreen.NextLevel(SpellLevel, +1);
+                return FillSpellMenu();
+
+            case 2:
+                SpellLevel = spellScreen.NextLevel(SpellLevel, -1);
+                return FillSpellMenu();
+
+            default:
+            {
+                if (SpellIndex < 0 || SpellIndex >= SpellChoices.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                var chosen = SpellChoices[SpellIndex];
+                var state = spellScreen.State(SpellLevel);
+
+                bool got = UAF.Rules.SpellAcquisition.Acquires(
+                    state, chosen.Probability, RollPercent ?? (_ => 100));
+
+                state.Record(got);
+                spellScreen.Taken(SpellLevel, chosen, got);
+
+                SpellMessage = got
+                    ? $"{Creating.CharacterName} successfully acquired {chosen.Spell.Name}."
+                    : $"{Creating.CharacterName} failed to acquire {chosen.Spell.Name}.";
+
+                return AdvanceSpellLoop();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the acquisition loop on until a level with something left, or the end.
+    /// </summary>
+    /// <remarks>
+    /// <b>The sweep is a round robin.</b> A later pass leaves the level showing as soon as its
+    /// turn comes even when it is the short one, so the loop wraps back to level 1 and increments
+    /// the pass rather than sitting still — see §learning spells at creation.
+    /// </remarks>
+    private EventStep AdvanceSpellLoop()
+    {
+        if (Creating is null || spellScreen is null)
+        {
+            return EventStep.Running;
+        }
+
+        for (int guard = 0; guard < spellScreen.Levels.Count * 4; guard++)
+        {
+            var progress = UAF.Rules.SpellAcquisition.Progress(
+                spellScreen.Levels, SpellLevel, SpellPass);
+
+            if (progress.HasFlag(UAF.Rules.AcquireProgress.AllLevels))
+            {
+                SpellChoices = null;
+                spellScreen = null;
+                Creating.LearnedSpells();
+                return ShowCreationStep();
+            }
+
+            if (!progress.HasFlag(UAF.Rules.AcquireProgress.ThisLevel))
+            {
+                return FillSpellMenu();
+            }
+
+            SpellLevel++;
+            if (SpellLevel >= spellScreen.Levels.Count)
+            {
+                SpellLevel = 1;
+                SpellPass++;
+            }
+        }
+
+        // The loop cannot make progress; close rather than spin.
+        SpellChoices = null;
+        spellScreen = null;
+        Creating.LearnedSpells();
+        return ShowCreationStep();
     }
 
     /// <summary>Which confirmation the yes/no screen is asking.</summary>
@@ -2224,6 +2492,16 @@ public sealed class EventRunner
         if (RosterOpen)
         {
             return ChooseRoster();
+        }
+
+        if (ArtChoices is not null)
+        {
+            return ChooseArt();
+        }
+
+        if (SpellChoices is not null)
+        {
+            return ChooseSpell();
         }
 
         if (Creating is not null)
