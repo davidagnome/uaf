@@ -110,6 +110,33 @@ public class NewCharacterTests
     }
 
     [Fact]
+    public void A_races_dice_field_rolls_through_the_expression_evaluator()
+    {
+        // Weight is the field that uses the gender bonus, and it is the shape the corpus is full
+        // of: dice, a constant, and a parenthesised multiple of Male.
+        var weight = NoDice with { Text = "2d4+34+(1*Male)" };
+
+        Assert.Equal(37, NewCharacter.Roll(weight, (c, _) => c, male: true, out _));
+        Assert.Equal(36, NewCharacter.Roll(weight, (c, _) => c, male: false, out _));
+    }
+
+    [Fact]
+    public void An_empty_or_unsupported_field_rolls_nothing_and_says_which()
+    {
+        // Null is the reference's own "did not roll" -- GetStartAge returns 0 when Roll answers
+        // false, so an empty field and a refused one are the same answer there. Keeping them
+        // distinct is what lets a caller say what happened.
+        Assert.Null(NewCharacter.Roll(NoDice, (c, _) => c, male: true, out string? empty));
+        Assert.Contains("empty", empty);
+
+        var odd = NoDice with { Text = "1d6+CharLevel" };
+        Assert.Null(NewCharacter.Roll(odd, (c, _) => c, male: true, out string? why));
+        Assert.Contains("CharLevel", why);
+
+        Assert.Null(NewCharacter.Roll(null, (c, _) => c, male: true, out _));
+    }
+
+    [Fact]
     public void The_cap_is_applied_after_the_floor_and_they_are_not_reconciled()
     {
         // A race whose maximum age is below the design's minimum starting age produces a

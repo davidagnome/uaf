@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,068 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,116 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3252,10 +3252,82 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
 
-**What stands between here and a finished character is `DICEPLUS::Roll`** — and it is not a
-formula. It compiles the expression to a binary form and interprets it through `RDREXEC`, a small
-expression VM. Age, weight, height and the exceptional-strength dice all go through it, so it is
-one subsystem blocking four fields.
+##### A new character's hit points, and two ways they differ from a trained one's
+
+`DetermineNewCharMaxHitPoints` is **not** the formula `DetermineCharMaxHitPoints` uses when a
+character levels up. The training path rolls only the levels just gained and *adds* to the
+existing maximum; this one rolls every level from 1 and replaces it. Same character, two
+functions, and they disagree twice.
+
+> **The per-level constant is only added when the baseclass rolls no dice.** The line is
+> `HP += (numDice>0) ? ran.Roll(sides, numDice, bonus) : 0 + constant;` — and `?:` binds looser
+> than `+`, so it parses as `… : (0 + constant)`. The training path writes
+> `RollDice(…) + constant` and gets it right. A baseclass with dice therefore **loses its constant
+> at creation and gains it on every level-up afterwards**. Transcribed as written: a design's hit
+> points are balanced against what the engine does, not against what it meant.
+
+> **The comment says "take the average" and the code takes the sum.** Twenty lines are given over
+> to explaining that a multi-class character's baseclasses should be averaged, `numBaseclass` is
+> counted for it, and `maxHP` and `specificHP` are computed alongside — then the result is
+> `max(1, totalHP)` and none of the three is ever read. A fighter/mage gets both baseclasses' hit
+> points in full.
+
+> **There is a private random generator, and it is there on purpose.** `LITTLE_RAN` is seeded from
+> the character's `hitpointSeed` before every attempt, so re-rolling ability scores changes only
+> the bonus and never the dice. The comment above it explains why: the computation is "complex and
+> non-linear because of multiple baseclasses", so replaying it deterministically is the only way
+> to isolate what an ability change is worth.
+
+> **Its `z` half is initialised, guarded against zero, and never read.** The two-word generator the
+> commented-out line above describes was replaced by a one-word one and the setup stayed.
+
+##### What a dice expression actually contains
+
+**`DICEPLUS::Roll` is a client of the GPDL toolchain, not a small VM of its own.** `RDRCOMP` and
+`RDREXEC` live in `GPDLcomp.h` and `GPDLexec.h` — **13,146 lines** of compiler and interpreter
+between them — so the expression a designer types into a dice field is compiled by the same
+machinery as a script. That puts it in **priority 3**, not in character creation.
+
+There is no shortcut through `decodeNdM`, either: it decodes a single token, and the compiler has
+already split `3d6+2` into `3d6`, `+`, `2`, so even that needs the expression layer.
+
+So before building anything, I counted what designs actually write. **288 dice expressions across
+the corpus's races and classes, 74 distinct:**
+
+| shape | share | what it needs |
+| --- | --- | --- |
+| empty | 19.1% | nothing — zero |
+| a constant | 17.7% | nothing |
+| a bare `NdM` | 13.2% | a dice roll |
+| arithmetic over those | 25.0% | `+ − * /`, parentheses |
+| contains an identifier | 25.0% | a name lookup |
+
+> **Every identifier in the entire corpus is `Male`.** Not one dice field references a level, a
+> race, an ability or anything else the `interpretDicePlusRDR` switch can resolve — the only
+> reference any design uses is a 1-or-0 for gender, to add a gender-dependent bonus to weight and
+> height (`2d4+34+(1*Male)`).
+
+**So the whole corpus is covered by numbers, `NdM`, `+ − *`, parentheses and one symbol.** That is
+a small recursive-descent evaluator with a one-entry symbol table — not thirteen thousand lines —
+and the GPDL toolchain stays where it belongs, in the scripting phase.
+
+`DiceFormula` is that evaluator, and **all twenty-two distinct shapes in the corpus are pinned as
+a theory**, evaluated with every die showing a 1 so the arithmetic around the dice is what is
+checked.
+
+> **`NdM` binds tighter than `*`.** `2d2*Male` is `(2d2)*Male` — the dice are a primary, not an
+> operator at multiplying precedence. Getting this wrong turns a gender bonus into a different
+> die.
+
+> **An empty expression "did not roll"; it did not roll zero.** `Compile` fails on an empty string
+> and `Roll` returns FALSE with its result left at 0 — the same answer `AbilityRoll` treats as a
+> zero-scoring attempt. Nineteen per cent of the corpus's dice fields are empty, so this is the
+> common case and not an edge one.
+
+> **Everything outside the subset is refused by name.** An unknown identifier, a bare `d6`, an
+> unclosed bracket, a division by zero — each says what and where. A bare `d6` is refused rather
+> than read as `1d6` because no design writes one, and inventing the implicit 1 would be guessing
+> at a convention rather than transcribing it.
 
 ##### Typed text — and `EnterPassword` running
 
@@ -6322,11 +6394,15 @@ What is left, in order:
      (§ability.dat) — and the deterministic half of `generateNewCharacter` is done (§what a new
      character starts with).
 
-     **`DICEPLUS::Roll` is the next thing, and it is a subsystem**: an expression compiler and the
-     `RDREXEC` interpreter that runs it. Age, weight, height and the exceptional-strength dice all
-     wait on it, and so does anything else a designer writes as an expression. After that: hit
-     points, the **art picker**, and MODIFY — which is the same wizard re-entered over an existing
-     character and comes nearly free.
+     **`DICEPLUS::Roll` is next, and it is much smaller than it looked** — see §what a dice
+     expression actually contains. It compiles through the 13k-line GPDL toolchain in the
+     reference, but the corpus only ever uses numbers, `NdM`, `+ − *`, parentheses and a single
+     identifier (`Male`), so a small evaluator covers every design and the toolchain stays in
+     priority 3 where it belongs. Refuse anything outside that subset by name.
+
+     Hit points are ported too (§a new character's hit points). What is left of CREATE is the
+     **art picker** — the icon and small-picture steps — and then MODIFY, the same wizard
+     re-entered over an existing character, which comes nearly free.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.

@@ -15,10 +15,9 @@ namespace UAFcore;
 /// path is ported, because only the value path runs.
 /// </para>
 /// <para>
-/// <b>Not ported: age, weight and height.</b> All three come from a race's <c>DICEPLUS</c>, and
-/// <c>DICEPLUS::Roll</c> is not a formula — it compiles the expression to a binary form and
-/// interprets it through <c>RDREXEC</c>, a small expression VM. That is a subsystem of its own and
-/// the last thing standing between here and a finished character.
+/// Age, weight and height all come from a race's <c>DICEPLUS</c>, which the reference compiles
+/// through the GPDL toolchain. <see cref="DiceFormula"/> evaluates the subset every shipped
+/// design actually uses and refuses the rest by name — see its remarks.
 /// </para>
 /// </remarks>
 public static class NewCharacter
@@ -81,6 +80,35 @@ public static class NewCharacter
             : [.. record.Baseclasses.Select(
                 id => new BaseclassStats(id, CurrentLevel: 1, PreviousLevel: 0,
                                          PreDrainLevel: 0, Experience: 0))];
+
+    /// <summary>
+    /// Rolls a race's dice field — its age, maximum age, weight, height or movement.
+    /// </summary>
+    /// <param name="male">
+    /// What the expression's one identifier resolves to. Weight and height are the fields that
+    /// use it, to add a gender bonus.
+    /// </param>
+    /// <returns>The rolled value, or null when the expression is empty or unsupported.</returns>
+    /// <remarks>
+    /// <b>Null is the reference's own "did not roll".</b> <c>RACE_DATA::GetStartAge</c> returns 0
+    /// when <c>Roll</c> answers false, so an empty field and a refused one are the same answer
+    /// there; keeping them distinct here is what lets a caller say which happened.
+    /// </remarks>
+    public static int? Roll(DicePlus? dice, Func<int, int, int> roll, bool male,
+                            out string? unsupported)
+    {
+        unsupported = null;
+        if (dice is null)
+        {
+            return null;
+        }
+
+        return DiceFormula.TryEvaluate(dice.Text, roll,
+                                       n => n == DiceFormula.MaleSymbol ? (male ? 1 : 0) : null,
+                                       out int value, out unsupported)
+            ? value
+            : null;
+    }
 
     /// <summary>Rolls a birthday — a day of the year, 1 to 365.</summary>
     /// <param name="roll">Rolls <c>count</c> dice of <c>sides</c> and totals them.</param>
