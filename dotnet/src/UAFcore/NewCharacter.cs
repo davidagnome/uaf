@@ -82,6 +82,94 @@ public static class NewCharacter
                                          PreDrainLevel: 0, Experience: 0))];
 
     /// <summary>
+    /// A record with nothing in it, for the generator to build on.
+    /// </summary>
+    /// <remarks>
+    /// <b>The only place this port constructs a <c>CharacterRecord</c> positionally.</b> Sixty-odd
+    /// fields in an order that means nothing to a reader, so it happens once, here, and everything
+    /// else uses <c>with</c> — the same shape <see cref="SaveGameProjection"/> uses to write a
+    /// live character back over the record it came from.
+    /// </remarks>
+    public static CharacterRecord Blank { get; } = new(
+        CharacterVersion: unchecked((int)CharacterRecordWriter.CharacterVersion),
+        PreSpellNamesKey: 0,
+        Type: 0, Race: "", Gender: 0, ClassId: "", Alignment: 0,
+        AllowInCombat: 1, Status: 0, UndeadType: "", CreatureSize: 0,
+        Name: "", CharacterId: "",
+        Thac0: 20, Morale: 50, Encumbrance: 0, MaxEncumbrance: 0, ArmorClass: 10,
+        HitPoints: 1, MaxHitPoints: 1, NumberOfHitDice: 1.0,
+        Age: 0, MaxAge: 0, Birthday: 0, MaxCureDisease: 0,
+        UnarmedDieSmall: 0, UnarmedNumberDieSmall: 0, UnarmedBonus: 0,
+        UnarmedDieLarge: 0, UnarmedNumberDieLarge: 0,
+        MaxMovement: 0, ReadyToTrain: 0, CanTradeItems: 1,
+        Abilities: new AbilityScores(0, 0, 0, 0, 0, 0, 0),
+        OpenDoors: 0, OpenMagicDoors: 0, BendBarsLiftGates: 0,
+        HitBonus: 0, DamageBonus: 0, MagicResistance: 0,
+        BaseclassStats: [], SkillAdjustments: [], SpellAdjustments: [],
+        IsPreGenerated: 0, CanBeSaved: 1, HasLayedOnHandsToday: 0,
+        Money: null, NumberOfAttacks: 1.0f,
+        Icon: null, IconIndex: 0, OriginalIndex: 0, UniquePartyId: 0,
+        DisableTalkIfDead: 0, TalkEvent: 0, TalkLabel: "",
+        ExamineEvent: 0, ExamineLabel: "",
+        SpellBook: new SpellBook(0, []), DetectingInvisible: 0, DetectingTraps: 0,
+        SpellEffects: [], Blockages: [],
+        SmallPic: new PicRecord(0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+        Items: new ItemList([], ReadyItems.Empty),
+        SpecialAbilities: new SpecabBlock([], [], []),
+        Attributes: []);
+
+    /// <summary>
+    /// Everything the generator collected, as the record a <c>.chr</c> is written from.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>CanBeSaved</c> and <c>IsPreGenerated</c> are what make this a player's character.</b>
+    /// A pre-generated NPC is offered on the roster and refuses to serialize —
+    /// <c>serializeCharacter</c> returns FALSE when <c>CanBeSaved</c> is clear — so a generated
+    /// character has to declare itself the opposite of one.
+    /// </remarks>
+    public static CharacterRecord Assemble(CharacterCreation made, AbilityScores abilities,
+                                           int maxHitPoints,
+                                           IEnumerable<BaseclassStats> baseclasses,
+                                           Purse money, IEnumerable<ItemInstance> equipment,
+                                           int age, int maxAge, int birthday)
+    {
+        ArgumentNullException.ThrowIfNull(made);
+        ArgumentNullException.ThrowIfNull(abilities);
+        ArgumentNullException.ThrowIfNull(baseclasses);
+        ArgumentNullException.ThrowIfNull(money);
+        ArgumentNullException.ThrowIfNull(equipment);
+
+        return Blank with
+        {
+            Race = made.RaceId ?? "",
+            Gender = (int)made.Gender,
+            ClassId = made.ClassId ?? "",
+            Alignment = made.Alignment,
+            Name = made.CharacterName ?? "",
+            Abilities = abilities,
+            HitPoints = maxHitPoints,
+            MaxHitPoints = maxHitPoints,
+            BaseclassStats = [.. baseclasses],
+            Money = money.ToRecord(),
+            Items = new ItemList([.. equipment], ReadyItems.Empty),
+            Age = age,
+            MaxAge = maxAge,
+            Birthday = birthday,
+
+            // The icon and the portrait are file names, not art: the record holds a PIC_DATA
+            // whose only field the generator fills is its filename.
+            Icon = made.Icon is null
+                ? null
+                : new PicRecord(0, made.Icon, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            SmallPic = new PicRecord(0, made.SmallPicture ?? "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+
+            // A player's character, not one the design shipped.
+            IsPreGenerated = 0,
+            CanBeSaved = 1,
+        };
+    }
+
+    /// <summary>
     /// Rolls a race's dice field — its age, maximum age, weight, height or movement.
     /// </summary>
     /// <param name="male">

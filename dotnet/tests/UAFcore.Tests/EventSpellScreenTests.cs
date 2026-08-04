@@ -223,11 +223,69 @@ public class EventSpellScreenTests
     }
 
     [Fact]
-    public void A_character_with_no_spells_never_sees_the_screen()
+    public void A_character_with_no_spells_goes_straight_to_the_save_prompt()
     {
         var runner = AtSpells(screen: null);
 
         Assert.Null(runner.SpellChoices);
-        Assert.Null(runner.Creating);            // the wizard ran past it and stopped
+        Assert.Equal(CreationStep.AskToSave, runner.Creating!.Step);
+        Assert.Equal(["YES", "NO"], Labels(runner));
+    }
+
+    // ---- the save prompt -----------------------------------------------------------------------
+
+    [Fact]
+    public void The_wizard_ends_by_asking_whether_to_keep_the_character()
+    {
+        var runner = AtSpells(Screen(globalMax: 1));
+        Choose(runner, 0);                        // the one spell, which ends the screen
+
+        Assert.Equal(CreationStep.AskToSave, runner.Creating!.Step);
+        Assert.Contains("SAVE Aramil", BitmapFont.Decode(runner.Text.Lines[0].Text));
+
+        // It opens on NO, like every other irreversible prompt in this port.
+        Assert.Equal(1, runner.Menu.ActiveItem);
+    }
+
+    [Fact]
+    public void Saying_yes_writes_the_character()
+    {
+        CharacterCreation? saved = null;
+        var runner = AtSpells(Screen(globalMax: 1));
+        runner.SaveCreatedCharacter = made => { saved = made; return null; };
+
+        Choose(runner, 0);                        // ends the spell screen
+        Choose(runner, 0);                        // YES
+
+        Assert.NotNull(saved);
+        Assert.Equal("Aramil", saved!.CharacterName);
+        Assert.Equal("Elf", saved.RaceId);
+        Assert.Null(runner.Creating);             // and the wizard is over
+    }
+
+    [Fact]
+    public void Saying_no_throws_the_character_away()
+    {
+        bool asked = false;
+        var runner = AtSpells(Screen(globalMax: 1));
+        runner.SaveCreatedCharacter = _ => { asked = true; return null; };
+
+        Choose(runner, 0);
+        Choose(runner, 1);                        // NO
+
+        Assert.False(asked);
+        Assert.Null(runner.Creating);
+    }
+
+    [Fact]
+    public void A_refused_save_is_reported_rather_than_swallowed()
+    {
+        var runner = AtSpells(Screen(globalMax: 1));
+        runner.SaveCreatedCharacter = _ => "the disk is full";
+
+        Choose(runner, 0);
+        Choose(runner, 0);                        // YES
+
+        Assert.Equal("the disk is full", runner.SaveMessage);
     }
 }

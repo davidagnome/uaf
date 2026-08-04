@@ -174,6 +174,15 @@ public sealed class CharacterCreation
         }
     }
 
+    /// <summary>Ends the wizard after the save prompt has been answered.</summary>
+    public void Finish()
+    {
+        if (Step is CreationStep.AskToSave)
+        {
+            Step = CreationStep.Done;
+        }
+    }
+
     /// <summary>Backs out of character creation entirely.</summary>
     public void Abort()
     {

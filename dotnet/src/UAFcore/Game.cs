@@ -167,6 +167,13 @@ public sealed class Game
 
         Runner.ApplyRoster = ApplyRoster;
 
+        Runner.ArtFor = step => ArtPicker.Available(
+            Path.Combine(design.Root, "Art"),
+            step is CreationStep.Icon ? ArtPicker.IconPattern : ArtPicker.SmallPicturePattern);
+
+        Runner.RollPercent = sides => Dice(sides);
+        Runner.SaveCreatedCharacter = SaveCreatedCharacter;
+
         // Each step's offers come off the design's own tables, and class depends on the two
         // choices before it -- which is why the wizard's order is what it is.
         Runner.CreationChoicesFor = making => making.Step switch
@@ -504,6 +511,49 @@ public sealed class Game
 
     /// <summary><c>NPC_TYPE</c> — whose saved file carries the <c>DCNPC_</c> prefix.</summary>
     private const byte NpcType = 1;
+
+    /// <summary>
+    /// Writes a newly made character to its own <c>.chr</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>The character is not added to the party.</b> Creating and joining are separate acts —
+    /// CREATE writes the file, and ADD is what seats it, which is why a design's roster shows
+    /// characters the party has never met.
+    /// </remarks>
+    private string? SaveCreatedCharacter(CharacterCreation made)
+    {
+        ArgumentNullException.ThrowIfNull(made);
+
+        if (string.IsNullOrEmpty(made.CharacterName))
+        {
+            return "A character needs a name before it can be saved.";
+        }
+
+        var record = NewCharacter.Assemble(
+            made,
+            abilities: new AbilityScores(0, 0, 0, 0, 0, 0, 0),
+            maxHitPoints: 1,
+            baseclasses: NewCharacter.BaseclassRows(design.Classes?.GetValueOrDefault(made.ClassId ?? "")),
+            money: NewCharacter.StartingMoney(design.Globals.StartPlatinum, design.Globals.StartGem,
+                                              design.Globals.StartJewelry, Money),
+            equipment: NewCharacter.StartingEquipment(
+                design.Classes?.GetValueOrDefault(made.ClassId ?? "")),
+            age: 0, maxAge: 0,
+            birthday: NewCharacter.Birthday((count, sides) => DiceExpression.Roll(count, sides, Dice)));
+
+        try
+        {
+            Directory.CreateDirectory(SaveDirectory);
+            CharacterFileWriter.Write(Path.Combine(SaveDirectory, $"{made.CharacterName}.chr"),
+                                      record);
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                                    or NotSupportedException)
+        {
+            return $"{made.CharacterName} could not be saved: {e.Message}";
+        }
+    }
 
     /// <summary>Writes the game into a slot; returns null on success or the reason it did not.</summary>
     /// <remarks>

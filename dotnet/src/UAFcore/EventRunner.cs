@@ -148,6 +148,7 @@ public sealed class EventRunner
         SpellChoices = null;
         spellScreen = null;
         SpellMessage = null;
+        SaveMessage = null;
         Typing = null;
         TriesLeft = 0;
 
@@ -1159,6 +1160,12 @@ public sealed class EventRunner
     /// <summary>Which page of the offers is showing.</summary>
     public int CreationPage { get; private set; }
 
+    /// <summary>Writes the finished character; returns null on success or the reason it did not.</summary>
+    public Func<CharacterCreation, string?>? SaveCreatedCharacter { get; set; }
+
+    /// <summary>Why the new character was not saved, or null if it was.</summary>
+    public string? SaveMessage { get; private set; }
+
     /// <summary>What a step may pick; set by the host, which owns the design's tables.</summary>
     public Func<CharacterCreation, IReadOnlyList<CreationChoice>>? CreationChoicesFor { get; set; }
 
@@ -1251,7 +1258,18 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
-        if (Creating.Aborted || Creating.Step > CreationStep.Name)
+        // The last step: keep this character, or throw it away.
+        if (!Creating.Aborted && Creating.Step is CreationStep.AskToSave)
+        {
+            Menu.Reset();
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+            escapeSelects = 1;
+            Menu.SetCurrentItem(1);
+            ShowText($"DO YOU WANT TO SAVE {Creating.CharacterName}?");
+            return EventStep.Running;
+        }
+
+        if (Creating.Aborted || Creating.Step > CreationStep.AskToSave)
         {
             var reached = Creating.Step;
             bool aborted = Creating.Aborted;
@@ -1300,6 +1318,18 @@ public sealed class EventRunner
         if (Creating is null)
         {
             return EventStep.Running;
+        }
+
+        // The save prompt: YES writes the character, NO throws it away. Either ends the wizard.
+        if (Creating.Step is CreationStep.AskToSave)
+        {
+            if (Menu.ActiveItem == 0)
+            {
+                SaveMessage = SaveCreatedCharacter?.Invoke(Creating);
+            }
+
+            Creating.Finish();
+            return ShowCreationStep();
         }
 
         // The name step has no picker menu -- Return commits whatever has been typed, and an

@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,176 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,180 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3251,6 +3251,35 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > `START_EXP_VALUE` and then calls `die("Not Needed?")` for the "start experience is a minimum
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
+
+##### CREATE CHARACTER, all ten steps
+
+The wizard runs from race to a written `.chr`. **Eight of the party menu's twelve entries now do
+something.**
+
+> **`CanBeSaved` and `IsPreGenerated` are what make a character the player's.** A pre-generated
+> NPC appears on the roster and refuses to serialize — `serializeCharacter` returns FALSE when
+> `CanBeSaved` is clear — so a generated character has to declare itself the opposite of one.
+
+> **Creating and joining are separate acts.** CREATE writes the file and nothing else; ADD is what
+> seats a character. That is why a design's roster shows characters the party has never met, and
+> why making one does not put it in the party.
+
+> **The icon and the portrait are file names, not art.** The record holds a `PIC_DATA` whose only
+> field the generator fills is its filename; the surfaces are loaded on demand by whoever draws it.
+
+> **The save prompt opens on NO**, like every other irreversible prompt in this port.
+
+`NewCharacter.Blank` is **the only place the port constructs a `CharacterRecord` positionally** —
+sixty-odd fields in an order that means nothing to a reader, so it happens once and everything
+else uses `with`, the same shape `SaveGameProjection` uses to write a live character back over the
+record it came from.
+
+**Still stubbed at the seam:** the assembled record takes zeroed ability scores, one hit point and
+no age. Every one of those rules is ported and tested — `AbilityRoll`, `NewCharacterHitPoints`,
+`NewCharacter.Roll` — and nothing yet calls them at the point of assembly, because the roller
+needs the ability database threaded to the call site and the ages need the race record. That is
+plumbing, and it is the next thing.
 
 ##### The art and spell screens on screen — and three bugs the end-to-end test found
 
