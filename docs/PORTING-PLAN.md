@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,144 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,156 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3251,6 +3251,37 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 > `START_EXP_VALUE` and then calls `die("Not Needed?")` for the "start experience is a minimum
 > level" case, so a design configured that way takes down the reference. Only the live path is
 > ported.
+
+##### Which spells a character is offered
+
+`CreateSpellAvailabilityList` — four filters in order, feeding the acquisition rules below.
+
+> **A spell must name a baseclass the character's class actually has.** The check walks the
+> spell's `allowedBaseclasses` looking for one the class contains, and `continue`s if it finds
+> none — so a spell allowing an empty list is offered to nobody, however scribable it is.
+
+> **The `KNOWABLE_SPELLS` hook runs on the class first and the spell second, and an empty reply
+> from both means 100.** So the absence of scripting is *more* generous than a scripted design and
+> never less — every offered spell is certain. Same shape as `IS_BASECLASS_ALLOWED`: the scripting
+> phase will add refusals this port currently grants.
+
+> **A probability of zero removes the spell rather than offering it as impossible.**
+> `if (probability != 0)` guards the add, so a hook can hide a spell as well as make it unlikely.
+
+> **The reference reads an unparsed reply as an indeterminate number.** `probability` is an
+> uninitialised local and the reply goes through `sscanf(result, "%d", …)`, which leaves it
+> untouched when the text is not a number — a hook answering "yes" gives whatever was on the
+> stack. The port treats an unparsable answer as certainty, the only defined behaviour available.
+
+> **The maximum spell level is taken from what survived the filters**, not from what the database
+> holds — a level 9 spell the character cannot know does not raise the ceiling the acquisition
+> loop sweeps.
+
+> **`CanKnowSpell` is injected, not reached for.** It asks the character's `spellAbility` for a
+> per-school maximum level, which `UpdateSpellAbility` derives — a chain this port has not built.
+> A caller supplies the answer, as `Training` takes two functions rather than a whole design, so
+> the rest of the rule can be exercised now. **`UpdateSpellAbility` is what stands between here
+> and a finished CREATE.**
 
 ##### Learning spells at creation — a two-pass round robin
 
