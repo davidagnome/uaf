@@ -182,6 +182,12 @@ public sealed class Game
         Runner.PartySize = () => Party.Count;
         Runner.AdvanceClock = minutes => Minutes += minutes;
         Runner.ZoneHere = ZoneHere;
+        Runner.ProcessTime = (minutes, resting) =>
+        {
+            var passed = PartyTime.Advance(Party, restClock, minutes, resting,
+                                           newDay: NewDayCrossed(minutes));
+            LastTimePassed = passed;
+        };
         Runner.RestEventThisMinute = RestEventThisMinute;
         Runner.MoveActive = earlier =>
         {
@@ -607,6 +613,22 @@ public sealed class Game
         && values.Length > 0
             ? Math.Max(1, values[0])
             : RolledCharacter.DefaultStartAge;
+
+    private readonly RestClock restClock = new();
+
+    /// <summary>What the last cycle of game time did, for the screen and for tests.</summary>
+    public TimePassed? LastTimePassed { get; private set; }
+
+    /// <summary>
+    /// Whether the day counter turned over during the minutes just added.
+    /// </summary>
+    /// <remarks>
+    /// <b>"New day" means the counter incremented, not that a day has passed</b> — the reference
+    /// says so beside its own test (<c>Party.cpp:4079</c>). A party that rests from 23:00 to
+    /// 01:00 has crossed a day boundary on two hours' sleep.
+    /// </remarks>
+    private bool NewDayCrossed(int minutes) =>
+        (Minutes - minutes) / RestClock.MinutesPerDay != Minutes / RestClock.MinutesPerDay;
 
     /// <summary>What the zone under the party permits (<c>RunEvent.cpp:9197</c>).</summary>
     private EventRunner.ZoneRules ZoneHere()

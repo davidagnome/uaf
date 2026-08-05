@@ -1231,6 +1231,17 @@ public sealed class EventRunner
     public Action<int>? AdvanceClock { get; set; }
 
     /// <summary>
+    /// Runs everything that depends on the clock, once per cycle
+    /// (<c>PARTY::ProcessTimeSensitiveData</c>). Set by the host, which owns the party.
+    /// </summary>
+    /// <remarks>
+    /// <b>Called once with the whole elapsed step, not once per minute.</b> The reference's
+    /// minute loop only advances the clock and the rest-event counter; the time-sensitive pass
+    /// runs after it, which is what makes the auto-heal at most one point per cycle.
+    /// </remarks>
+    public Action<int, bool>? ProcessTime { get; set; }
+
+    /// <summary>
     /// Whether a rest event fires this minute, and which. Set by the host, which owns the zones.
     /// </summary>
     /// <remarks>
@@ -1387,9 +1398,11 @@ public sealed class EventRunner
         }
 
         int delta = RestLeft.MinuteDelta();
+        int passed = 0;
 
         for (int elapsed = 0; elapsed < delta; elapsed++)
         {
+            passed++;
             AdvanceClock?.Invoke(1);
 
             var left = RestLeft.Less(1);
@@ -1404,11 +1417,16 @@ public sealed class EventRunner
                 RestEngaged = false;
                 RestTime = null;
                 Current = null;
+
+                // The interrupted rest still counts the minutes it managed.
+                ProcessTime?.Invoke(passed, true);
                 ShowText(InterruptedText);
 
                 return EventStep.To(fired);
             }
         }
+
+        ProcessTime?.Invoke(passed, true);
 
         if (RestLeft.Elapsed)
         {
@@ -1418,6 +1436,7 @@ public sealed class EventRunner
 
         return EventStep.Running;
     }
+
 
     /// <summary>What a rest event's interruption says (<c>RunEvent.cpp:22919</c>).</summary>
     public const string InterruptedText = "YOUR REST IS INTERRUPTED!";

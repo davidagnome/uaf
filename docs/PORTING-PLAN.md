@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,353 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,371 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,47 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### Time passing, and two things that never happen
+
+`PARTY::ProcessTimeSensitiveData` (`Party.cpp:4052`) — the function `OnCycle` calls "basically all
+of the time". `UAF.Rules/RestClock.cs` and `UAFcore/PartyTime.cs`. This is what REST was waiting
+on, and it is where memorisation and FIX will hang too.
+
+> **Only unbroken rest counts, and the break costs everything.** Any cycle where the party is not
+> resting sets the tally to **zero**, not down — twenty-three hours of sleep interrupted for a
+> minute is worth nothing. Over a day the tally is *reduced* by a day rather than cleared, so two
+> unbroken days really is two hit points.
+
+> **At most one hit point per cycle, however long the cycle.** The reference tests
+> `if (minutesRested >= 1440)` once and subtracts once — not a loop — so a rest stepping a
+> fortnight heals a single point and carries thirteen days forward. With the delta ladder
+> shortening as a rest runs down, healing is roughly per cycle rather than per day.
+
+> **One hit point a day is the live rule.** The generous version — three points for a full day's
+> rest, one otherwise, granted every 24 hours whether resting or not — is the `OLD_AUTO_HEAL`
+> branch and is compiled out. The comment beside it records the decision: "According to Eric and
+> Tom we should add a hit point for every 1440 minutes of unbroken rest."
+
+> **Spell effects expire on every cycle, not only while resting** — a blessing wears off while the
+> party walks.
+
+**And two things in this function never happen at all.**
+
+> **Resting does not wake an unconscious character.** The block that would (`:4175`) sits inside
+> `if (lastUpdateTime != -1)` and is itself gated on `if (resting && (lastUpdateTime == -1))` —
+> two conditions that contradict. It is unreachable. `PARTY::BeginResting` (`:4018`) does the same
+> job at the right moment and is **never called from anywhere in the source**. Since the auto-heal
+> also skips the unconscious, **a character who goes down stays down however long the party
+> sleeps** — temples and healing spells are the only way back.
+
+> **The poison tick is commented out**, so a poisoned character loses nothing over time. Nothing
+> to port.
+
+**Not ported, and named:** spell *memorisation*, which needs `IncAllMemorizedTime` and the
+per-character spell list; drink points; and the background-music day/night switch. The new-day
+resets — item charges and lay-on-hands — have a place in the code and no rule behind them yet,
+because neither is modelled on the live character.
+
 ##### REST — and a form that had been sitting there for rounds
 
 `REST_MENU_DATA` (`RunEvent.cpp:22652`, `:22815`) — camp's **ninth of twelve**. Two states: setting
@@ -7017,11 +7058,11 @@ What is left, in order:
 
      **ALTER and the marching order run too** — **eight of camp's twelve entries** (§ALTER).
 
-     **REST runs** — **nine of camp's twelve entries** (§REST). What it does not do is heal or
-     memorise, because both hang off `PARTY::ProcessTimeSensitiveData`.
+     **REST runs and now heals** — **nine of camp's twelve entries** (§REST, §time passing).
+     What it still does not do is memorise spells, which wants the per-character spell list.
 
-     **Next: that function**, which unblocks REST's healing, MAGIC's memorisation and FIX at once —
-     then the town services: buy, appraise, heal, donate.
+     **Next: MAGIC**, camp's last unbuilt entry, which is that spell list — and it takes
+     memorisation and FIX with it. Then the town services: buy, appraise, heal, donate.
 
 
 

@@ -45,13 +45,15 @@ public class EventRestTests
 
     private const int CampRest = 4;
 
-    private static EventRunner Started(Action<int>? clock = null, Func<uint>? restEvent = null)
+    private static EventRunner Started(Action<int>? clock = null, Func<uint>? restEvent = null,
+                                       Action<int, bool>? processTime = null)
     {
         var runner = new EventRunner
         {
             IsValidEvent = _ => true,
             AdvanceClock = clock,
             RestEventThisMinute = restEvent,
+            ProcessTime = processTime,
         };
 
         runner.Begin(Camp(), Font(), Box, Anchors);
@@ -257,6 +259,42 @@ public class EventRestTests
         runner.Cycle();
 
         Assert.Equal(15, checks);
+    }
+
+    [Fact]
+    public void The_time_pass_runs_once_a_cycle_with_the_whole_step()
+    {
+        // Not once per minute: the reference's minute loop only advances the clock and the
+        // rest-event counter, and ProcessTimeSensitiveData runs after it. That is what makes the
+        // auto-heal at most one point a cycle however long the step was.
+        var calls = new List<(int Minutes, bool Resting)>();
+        var runner = Started(clock: _ => { }, processTime: (m, r) => calls.Add((m, r)));
+
+        Choose(runner, CampRest);
+        Set(runner, EventRunner.RestHours, 1);
+        Choose(runner, EventRunner.RestBegin);
+
+        runner.Cycle();
+
+        Assert.Equal([(15, true)], calls);
+    }
+
+    [Fact]
+    public void An_interrupted_rest_still_counts_the_minutes_it_managed()
+    {
+        var calls = new List<(int Minutes, bool Resting)>();
+        int checks = 0;
+        var runner = Started(clock: _ => { },
+                             restEvent: () => ++checks == 4 ? 99u : 0u,
+                             processTime: (m, r) => calls.Add((m, r)));
+
+        Choose(runner, CampRest);
+        Set(runner, EventRunner.RestDays, 1);
+        Choose(runner, EventRunner.RestBegin);
+
+        runner.Cycle();
+
+        Assert.Equal([(4, true)], calls);
     }
 
     [Fact]
