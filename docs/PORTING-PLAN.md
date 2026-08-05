@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,403 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,420 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,39 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### The memorise screen's working list
+
+`FillMemorizeSpellListText` (`Spell.cpp:8735`) and the two count functions (`:9662`, `:9708`).
+`UAFcore/MemorizeList.cs`. The rules behind MAGIC's MEMORIZE.
+
+> **A slot belongs to a school <i>and</i> a level, and every spell at that pair shares it.**
+> Selecting one level-three wizard spell takes a slot from every other level-three wizard spell on
+> the screen. The count comes from the school ability's base plus bonus at that level, then through
+> any script adjustment matching the school — or the wildcard <c>*</c> — and covering the level:
+> <c>available = available * percent / 100 + bonus</c>.
+
+> **A spell whose school gives no slots is absent, not greyed.** The row is built and then dropped
+> unless <c>available &gt; 0</c>, so a caster does not see the spell listed as unavailable — it is
+> simply not there.
+
+> **What is already selected has already been paid for.** A second pass subtracts every row's
+> <c>selected</c> from the <c>available</c> of every row at the same school and level, itself
+> included, so the number left really is the slots still free.
+
+> **Nothing bounds the counts; the menu does.** <c>IncreaseSpellSelectedCount</c> adds and
+> subtracts unconditionally — the only thing stopping a caster overcommitting is <c>OnUpdateUI</c>
+> darkening SELECT at zero. The guard is kept where the reference puts it.
+
+> **UNSELECT only goes down to what is memorised.** A copy already in the caster's head is dropped
+> with FORGET, which decrements the memorised count and **does not return the slot** — the
+> reference's function carries the comment "Now we need to decrease the available counts for all
+> spells of this school and level" and then returns without doing it. Correctly, as it turns out:
+> <c>selected</c> still holds the slot, so the copy is simply memorised again. The slot comes back
+> by unselecting, not by forgetting.
+
+> **The screen edits a copy and EXIT is the commit.** Nothing reaches the character until the
+> player leaves, and there is no cancel — escape *is* EXIT.
+
 ##### The memorisation clock — and a comment the port believed
 
 The rules behind MAGIC's MEMORIZE and REST's spell recovery (`Spell.cpp:1189`–`:1256`, `:2701`,
@@ -7146,7 +7179,10 @@ What is left, in order:
      **The memorisation clock is ported** (§the memorisation clock), which is what REST's spell
      recovery and MAGIC's MEMORIZE both stand on.
 
-     **Next: the MEMORIZE screen itself**, then wiring memorisation into the resting cycle. Then
+     **The memorise working list is ported too** (§the memorise screen's working list) — slots,
+     adjustments, and the three commands.
+
+     **Next: the MEMORIZE screen over it**, then wiring memorisation into the resting cycle. Then
      the town services: buy, appraise, heal, donate.
 
 
