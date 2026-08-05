@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,371 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,388 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,41 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### MAGIC — a hub whose defaults run the other way
+
+`MAGIC_MENU_DATA` (`RunEvent.cpp:26468`, `:26578`) — camp's **tenth of twelve**. Six entries, three
+separate gating rules. `UAFcore/SpellPermissions.cs`.
+
+> **Both spell permissions default to <i>yes</i>, and that is the opposite of CHANGE CLASS.**
+> `CanMemorizeSpells` literally seeds `"YYYYY"` as its "innitial assumption" and scripts can only
+> narrow it; `CanCastSpells` looks for a script answering `"N"` and finds none. So a design with no
+> scripts casts and memorises freely — where the same design can never change class, because that
+> gate starts from an empty answer only a script can fill in. Two script hooks, opposite failure
+> modes, and only one of them is a refusal.
+
+> **The class-level cast hook never applies.** The combatant's and character's answers are checked
+> with `.IsEmpty()`; the class's is `if (!pClass->RunClassScripts(...))` — a `CString` through
+> `LPCTSTR`, whose buffer is never null, so the negation is always false and the branch is dead. A
+> design putting its casting rule on the class finds it silently ignored.
+
+> **SCRIBE has no fixed name and no fixed meaning.** `CAN_SCRIBE_OR_WHATEVER` runs on the character
+> and its class and answers with the menu text *and* a shortcut index; an empty answer darkens the
+> entry. The reference's own constant is spelled `SCRIBE_OR_WHATEVER` — with no script there is
+> nothing to call it and nothing for it to do, so it is dark in every shipped design.
+
+> **In combat, MEMORIZE, SCRIBE and REST go dark and the character predicates are not consulted at
+> all** — the whole `else` branch that reads them is skipped, so a character who could not
+> otherwise cast still gets a live CAST entry in a fight.
+
+> **The hub's own no-magic rule is unreachable from camp.** It would darken CAST, MEMORIZE, SCRIBE
+> and REST — but camp darkens its MAGIC entry on the same flag first, so the branch can only be
+> reached from a magic menu pushed by combat. Found by a test that could not walk its cursor onto
+> the entry it wanted.
+
+REST is reached from here as well as from camp, so the rest screen grew a parent the way the
+inventory, the slot screens and the confirmation already had one. CAST, MEMORIZE and DISPLAY are
+each a screen of their own and are named rather than run.
+
 ##### Time passing, and two things that never happen
 
 `PARTY::ProcessTimeSensitiveData` (`Party.cpp:4052`) — the function `OnCycle` calls "basically all
@@ -7061,8 +7096,12 @@ What is left, in order:
      **REST runs and now heals** — **nine of camp's twelve entries** (§REST, §time passing).
      What it still does not do is memorise spells, which wants the per-character spell list.
 
-     **Next: MAGIC**, camp's last unbuilt entry, which is that spell list — and it takes
-     memorisation and FIX with it. Then the town services: buy, appraise, heal, donate.
+     **MAGIC's hub runs** — **ten of camp's twelve entries** (§MAGIC). Only FIX and QUIT are left,
+     and FIX waits on spell casting.
+
+     **Next: MEMORIZE**, the screen behind MAGIC's second entry — it is the per-character spell
+     list, and it is what REST's memorisation needs too. Then the town services: buy, appraise,
+     heal, donate.
 
 
 

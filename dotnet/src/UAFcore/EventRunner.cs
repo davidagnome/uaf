@@ -732,10 +732,9 @@ public sealed class EventRunner
     /// entirely the inner menu, and the two are collapsed here.
     /// </para>
     /// <para>
-    /// <b>Nine of its twelve entries run</b> — SAVE, LOAD, VIEW, REST, ALTER, TALK, JOURNAL, ZAP
-    /// and EXIT. MAGIC is its own event class and is named rather than run
-    /// (<see cref="Unimplemented"/>); FIX needs the fix spell book and spell casting; QUIT is the
-    /// game's own exit.
+    /// <b>Ten of its twelve entries run</b> — SAVE, LOAD, VIEW, MAGIC, REST, ALTER, TALK,
+    /// JOURNAL, ZAP and EXIT. FIX needs the fix spell book and spell casting; QUIT is the game's
+    /// own exit.
     /// </para>
     /// </remarks>
     private EventStep BeginCamp(CampEvent camp, MenuAnchors anchors)
@@ -861,6 +860,9 @@ public sealed class EventRunner
 
             case 1:
                 return OpenSlots(saving: false, CampMenu);
+
+            case 3:
+                return OpenMagic();
 
             case 4:
                 return OpenRest();
@@ -1190,6 +1192,154 @@ public sealed class EventRunner
     /// <summary>Why the last save or load did not happen, or null if it did.</summary>
     public string? SlotMessage { get; private set; }
 
+    // ---- MAGIC ---------------------------------------------------------------------------------
+
+    /// <summary>The magic menu (<c>MagicMenuData</c>, <c>GameMenu.cpp:791</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] MagicMenu =
+        [("CAST", 0), ("MEMORIZE", 0), ("SCRIBE", 0), ("DISPLAY", 0), ("REST", 0), ("EXIT", 1)];
+
+    public const int MagicCast = 0;
+    public const int MagicMemorize = 1;
+    public const int MagicScribe = 2;
+    public const int MagicDisplay = 3;
+    public const int MagicRest = 4;
+    public const int MagicExit = 5;
+
+    /// <summary>Whether the magic hub is the screen on top.</summary>
+    public bool MagicOpen { get; private set; }
+
+    /// <summary>Whether the active character may cast; set by the host.</summary>
+    public Func<bool>? CanCastSpells { get; set; }
+
+    /// <summary>Whether MEMORIZE should appear for the active character; set by the host.</summary>
+    public Func<bool>? CanMemorizeSpells { get; set; }
+
+    /// <summary>
+    /// What the SCRIBE entry is called, or null when it should not appear.
+    /// </summary>
+    /// <remarks>
+    /// <b>The entry has no fixed name and no fixed meaning.</b> <c>CAN_SCRIBE_OR_WHATEVER</c> runs
+    /// on the character and its class and answers with the menu text and a shortcut index; an
+    /// empty answer darkens the entry. The reference's own constant is spelled
+    /// <c>SCRIBE_OR_WHATEVER</c>, which says what the designers meant by it — with no script there
+    /// is nothing to call it and nothing for it to do.
+    /// </remarks>
+    public Func<string?>? ScribeLabel { get; set; }
+
+    /// <summary>Whether a fight is running, which darkens three of the six entries.</summary>
+    public Func<bool>? InCombat { get; set; }
+
+    private EventStep OpenMagic()
+    {
+        MagicOpen = true;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, MagicMenu);
+        escapeSelects = MagicExit;
+        UpdateMagicMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>MAGIC_MENU_DATA::OnUpdateUI</c> (<c>RunEvent.cpp:26578</c>) — three rules over six
+    /// entries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A zone that forbids magic darkens four of them</b>, REST among them — and that branch
+    /// is unreachable from camp, which darkens its own MAGIC entry on the same flag before this
+    /// screen can open. It can only be reached from a magic menu pushed by combat.
+    /// </para>
+    /// <para>
+    /// <b>In combat, MEMORIZE, SCRIBE and REST all go dark</b> and the character predicates are
+    /// not consulted at all — the whole <c>else</c> branch that reads them is skipped.
+    /// </para>
+    /// </remarks>
+    private void UpdateMagicMenu()
+    {
+        if (!MagicOpen || Menu.Count < MagicMenu.Length)
+        {
+            return;
+        }
+
+        Menu.SetAllItemsEnabled(true);
+
+        var zone = ZoneHere?.Invoke() ?? new ZoneRules(true, true);
+
+        if (!zone.AllowsMagic)
+        {
+            Menu.SetItemEnabled(MagicCast, false);
+            Menu.SetItemEnabled(MagicMemorize, false);
+            Menu.SetItemEnabled(MagicScribe, false);
+            Menu.SetItemEnabled(MagicRest, false);
+        }
+
+        if (!zone.AllowsResting)
+        {
+            Menu.SetItemEnabled(MagicRest, false);
+        }
+
+        if (InCombat?.Invoke() == true)
+        {
+            Menu.SetItemEnabled(MagicMemorize, false);
+            Menu.SetItemEnabled(MagicScribe, false);
+            Menu.SetItemEnabled(MagicRest, false);
+            return;
+        }
+
+        if (ScribeLabel?.Invoke() is { Length: > 0 } label)
+        {
+            Menu.SetItemText(MagicScribe, label);
+            Menu.SetItemEnabled(MagicScribe, true);
+        }
+        else
+        {
+            Menu.SetItemEnabled(MagicScribe, false);
+        }
+
+        if (CanCastSpells?.Invoke() == false)
+        {
+            Menu.SetItemEnabled(MagicCast, false);
+        }
+
+        if (CanMemorizeSpells?.Invoke() == false)
+        {
+            Menu.SetItemEnabled(MagicMemorize, false);
+        }
+    }
+
+    private EventStep ChooseMagic()
+    {
+        switch (Menu.ActiveItem)
+        {
+            case MagicRest:
+                MagicOpen = false;
+                return OpenRest(MagicMenu);
+
+            case MagicExit:
+                return CloseMagic();
+
+            default:
+                Unimplemented =
+                    $"[{MagicMenu[Math.Clamp(Menu.ActiveItem, 0, MagicMenu.Length - 1)].Label}"
+                    + " here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    private EventStep CloseMagic()
+    {
+        MagicOpen = false;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CampMenu);
+        escapeSelects = CampExit;
+        UpdateCampMenu();
+
+        return EventStep.Running;
+    }
+
     // ---- REST ----------------------------------------------------------------------------------
 
     /// <summary>The rest screen's menu (<c>RestMenuData</c>, <c>GameMenu.cpp:773</c>).</summary>
@@ -1253,8 +1403,15 @@ public sealed class EventRunner
     /// <summary>
     /// <c>REST_MENU_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:22769</c>).
     /// </summary>
-    private EventStep OpenRest()
+    private (string Label, int Shortcut)[]? restParent;
+
+    /// <param name="parent">
+    /// The menu to rebuild on leaving, or null for camp's. MAGIC pushes this screen too.
+    /// </param>
+    private EventStep OpenRest((string Label, int Shortcut)[]? parent = null)
     {
+        restParent = parent;
+
         RestOpen = true;
         RestEngaged = false;
         RestTime = new RestTimeForm(lastAnchors.TextBox.X, lastAnchors.TextBox.Y);
@@ -1307,10 +1464,24 @@ public sealed class EventRunner
         RestEngaged = false;
         RestTime = null;
 
+        var parent = restParent;
+        restParent = null;
+
         Menu.Reset();
-        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CampMenu);
-        escapeSelects = CampExit;
-        UpdateCampMenu();
+
+        if (parent is null)
+        {
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CampMenu);
+            escapeSelects = CampExit;
+            UpdateCampMenu();
+        }
+        else
+        {
+            MagicOpen = true;
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, parent);
+            escapeSelects = parent.Length - 1;
+            UpdateMagicMenu();
+        }
 
         return EventStep.Running;
     }
@@ -3494,6 +3665,11 @@ public sealed class EventRunner
         if (RestOpen)
         {
             return ChooseRest();
+        }
+
+        if (MagicOpen)
+        {
+            return ChooseMagic();
         }
 
         if (Creating is not null)

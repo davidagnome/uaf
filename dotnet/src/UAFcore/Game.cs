@@ -182,6 +182,16 @@ public sealed class Game
         Runner.PartySize = () => Party.Count;
         Runner.AdvanceClock = minutes => Minutes += minutes;
         Runner.ZoneHere = ZoneHere;
+        Runner.InCombat = () => Combat is not null;
+        Runner.CanCastSpells = () =>
+            Party.Active is { } who && SpellPermissions.CanCast(who);
+        Runner.CanMemorizeSpells = () =>
+            Party.Active is { } who
+            && SpellPermissions.CanMemorize(who, SpellPermissions.ForTheMagicMenu);
+
+        // No scripting layer, so no design names the SCRIBE entry and it stays dark -- which is
+        // what the reference does for the same reason.
+        Runner.ScribeLabel = () => null;
         Runner.ProcessTime = (minutes, resting) =>
         {
             var passed = PartyTime.Advance(Party, restClock, minutes, resting,

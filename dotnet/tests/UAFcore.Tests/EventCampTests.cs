@@ -279,7 +279,6 @@ public class EventCampTests
     }
 
     [Theory]
-    [InlineData(3, "MAGIC")]
     [InlineData(6, "FIX")]
     [InlineData(11, "QUIT")]
     public void The_entries_that_push_unbuilt_screens_are_named(int item, string label)
