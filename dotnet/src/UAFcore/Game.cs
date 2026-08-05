@@ -207,9 +207,25 @@ public sealed class Game
         };
         Runner.ProcessTime = (minutes, resting) =>
         {
-            var passed = PartyTime.Advance(Party, restClock, minutes, resting,
-                                           newDay: NewDayCrossed(minutes));
+            var passed = PartyTime.Advance(
+                Party, restClock, minutes, resting, newDay: NewDayCrossed(minutes),
+                canCast: who => SpellPermissions.CanCast(who),
+                nameOf: id => design.Spell(id)?.Name ?? id);
+
             LastTimePassed = passed;
+
+            if (passed.Memorized is { Length: > 0 } announcement)
+            {
+                Message = announcement;
+            }
+        };
+
+        // Opening the rest screen seeds its duration from what the party needs to memorise, and
+        // wakes anyone unconscious -- both in the reference's OnInitialEvent.
+        Runner.BeginRest = () =>
+        {
+            PartyTime.BeginResting(Party);
+            return Party.Members.Sum(RestTimeFor);
         };
         Runner.RestEventThisMinute = RestEventThisMinute;
         Runner.MoveActive = earlier =>
@@ -652,6 +668,13 @@ public sealed class Game
     /// </remarks>
     private bool NewDayCrossed(int minutes) =>
         (Minutes - minutes) / RestClock.MinutesPerDay != Minutes / RestClock.MinutesPerDay;
+
+    /// <summary>
+    /// How long this character needs to memorise everything it has selected
+    /// (<c>CHARACTER::CalcRestTime</c>, <c>Char.cpp:11295</c>).
+    /// </summary>
+    private static int RestTimeFor(Character who) =>
+        who.Book.RestTimeNeeded(e => SpellListEntry.MemorizeMinutes(e.Level));
 
     /// <summary>A spell's school and level, from the design's table.</summary>
     private (string School, int Level)? SchoolAndLevelOf(string spellId) =>

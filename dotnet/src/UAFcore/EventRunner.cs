@@ -1411,6 +1411,16 @@ public sealed class EventRunner
     /// <summary>Whether a fight is running, which darkens three of the six entries.</summary>
     public Func<bool>? InCombat { get; set; }
 
+    /// <summary>
+    /// How long the party needs to memorise everything, and who the rest woke; set by the host.
+    /// </summary>
+    /// <remarks>
+    /// <b>Opening the rest screen is not passive.</b> It seeds the duration from
+    /// <c>party.CalcRestTime()</c> and then calls <c>BeginResting</c>, which wakes the
+    /// unconscious — both in <c>OnInitialEvent</c> (<c>RunEvent.cpp:22778</c>, <c>:22812</c>).
+    /// </remarks>
+    public Func<int>? BeginRest { get; set; }
+
     private EventStep OpenMagic()
     {
         MagicOpen = true;
@@ -1603,6 +1613,15 @@ public sealed class EventRunner
         RestOpen = true;
         RestEngaged = false;
         RestTime = new RestTimeForm(lastAnchors.TextBox.X, lastAnchors.TextBox.Y);
+
+        // The screen opens already set to how long the party needs to memorise everything, so a
+        // player who just wants their spells back presses REST and nothing else.
+        if (BeginRest?.Invoke() is int needed && needed > 0 && font is not null)
+        {
+            RestTime.SetTime(font, needed / RestDuration.MinutesPerDay,
+                             needed / RestDuration.MinutesPerHour % 24,
+                             needed % RestDuration.MinutesPerHour);
+        }
 
         Menu.Reset();
         SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, RestMenu);

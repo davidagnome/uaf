@@ -4,8 +4,12 @@ namespace UAFcore;
 
 /// <summary>What one turn of the clock did, for the caller to report or redraw.</summary>
 /// <param name="Healed">Characters who gained a hit point from a full day's rest.</param>
+/// <param name="Memorized">
+/// What the last minute of memorising finished, if anything — <b>not</b> everything the rest
+/// memorised. See <see cref="PartyTime.Advance"/>.
+/// </param>
 /// <param name="Redraw">Whether anything visible changed.</param>
-public sealed record TimePassed(IReadOnlyList<Character> Healed, bool Redraw);
+public sealed record TimePassed(IReadOnlyList<Character> Healed, string? Memorized, bool Redraw);
 
 /// <summary>
 /// What the passage of game time does to a party
@@ -24,12 +28,13 @@ public sealed record TimePassed(IReadOnlyList<Character> Healed, bool Redraw);
 /// is nothing there to port.
 /// </para>
 /// <para>
-/// <b>Resting does not wake an unconscious character, and that is not an omission here.</b> The
-/// reference has such a block (<c>:4175</c>) sitting inside <c>if (lastUpdateTime != -1)</c> and
-/// gated on <c>if (resting &amp;&amp; (lastUpdateTime == -1))</c> — two conditions that
-/// contradict, so it never runs. <c>PARTY::BeginResting</c> (<c>:4018</c>) does the same job at
-/// the right moment and is <i>never called</i> from anywhere in the source. Since the auto-heal
-/// also skips the unconscious, a character who goes down stays down however long the party sleeps.
+/// <b>The waking does not happen here — it happens when the rest screen opens.</b> This function
+/// has a block that would do it (<c>:4175</c>), sitting inside <c>if (lastUpdateTime != -1)</c>
+/// and gated on <c>if (resting &amp;&amp; (lastUpdateTime == -1))</c> — two conditions that
+/// contradict, so that copy never runs. <c>PARTY::BeginResting</c> (<c>:4018</c>) does the job
+/// instead, called from <c>REST_MENU_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:22812</c>) — see
+/// <see cref="BeginResting"/>. The auto-heal below still skips the unconscious, but by the time a
+/// day has passed they have already been woken.
 /// </para>
 /// </remarks>
 public static class PartyTime
@@ -40,15 +45,23 @@ public static class PartyTime
     /// <param name="elapsedMinutes">Game minutes since the last cycle.</param>
     /// <param name="resting">Whether the party is resting rather than adventuring.</param>
     /// <param name="newDay">Whether the day counter turned over during those minutes.</param>
+    /// <param name="canCast">
+    /// Whether a character may memorise at all. <c>CanCastSpells</c> — and not
+    /// <c>CanMemorizeSpells(1)</c>, whose "resting" circumstance the engine defines in a header
+    /// comment and never asks.
+    /// </param>
+    /// <param name="nameOf">A spell's name, for the announcement.</param>
     public static TimePassed Advance(Party party, RestClock clock, int elapsedMinutes,
-                                     bool resting, bool newDay)
+                                     bool resting, bool newDay,
+                                     Func<Character, bool>? canCast = null,
+                                     Func<string, string>? nameOf = null)
     {
         ArgumentNullException.ThrowIfNull(party);
         ArgumentNullException.ThrowIfNull(clock);
 
         if (elapsedMinutes <= 0)
         {
-            return new TimePassed([], false);
+            return new TimePassed([], null, false);
         }
 
         int healing = clock.Advance(elapsedMinutes, resting);
@@ -75,12 +88,19 @@ public static class PartyTime
 
         }
 
+        string? announced = null;
+
+        if (resting)
+        {
+            announced = Memorize(party, elapsedMinutes, canCast, nameOf, ref redraw);
+        }
+
         if (healing > 0)
         {
             foreach (var member in party.Members)
             {
-                // Alive and *not unconscious*: someone still out cold heals nothing, and
-                // nothing in the engine wakes them -- see this class's remarks.
+                // Alive and *not unconscious*: someone still out cold heals nothing. They are
+                // woken when the rest screen opens rather than here -- see BeginResting.
                 if (IsAlive(member) && member.Status != CharacterStatus.Unconscious)
                 {
                     member.HitPoints += healing;
@@ -90,7 +110,95 @@ public static class PartyTime
             }
         }
 
-        return new TimePassed(healed, redraw);
+        return new TimePassed(healed, announced, redraw);
+    }
+
+    /// <summary>
+    /// Ticks every caster's book, a minute at a time
+    /// (<c>ProcessTimeSensitiveData</c>'s resting branch, <c>Party.cpp:4118</c>).
+    /// </summary>
+    /// <returns>The last announcement standing, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A minute at a time, unlike the auto-heal.</b> The reference loops <c>inc</c> times over
+    /// the whole party — so memorisation really does get every minute of a coarse step, where the
+    /// day's hit point is granted at most once per cycle.
+    /// </para>
+    /// <para>
+    /// <b>Only the last announcement survives.</b> A minute that finishes a copy sets the paused
+    /// text; a minute that finishes nothing <i>clears</i> it — and the clearing is inside the
+    /// per-character loop, so one caster finishing nothing wipes what another just set. What a
+    /// player sees is whatever the very last character on the very last minute did.
+    /// </para>
+    /// </remarks>
+    private static string? Memorize(Party party, int minutes, Func<Character, bool>? canCast,
+                                    Func<string, string>? nameOf, ref bool redraw)
+    {
+        string? announced = null;
+
+        for (int minute = 0; minute < minutes; minute++)
+        {
+            foreach (var member in party.Members)
+            {
+                if (canCast?.Invoke(member) == false || member.Book.Entries.Count == 0)
+                {
+                    continue;
+                }
+
+                if (!member.Book.AddMemorizeTime(1))
+                {
+                    announced = null;
+                    continue;
+                }
+
+                var finished = member.Book.Entries.FirstOrDefault(e => e.JustMemorized);
+                if (finished is not null)
+                {
+                    finished.JustMemorized = false;
+                    announced = $"{member.Name} memorizes {nameOf?.Invoke(finished.SpellId)
+                                                           ?? finished.SpellId}";
+                    redraw = true;
+                }
+            }
+        }
+
+        return announced;
+    }
+
+    /// <summary>
+    /// Wakes the party at the start of a rest (<c>PARTY::BeginResting</c>, <c>Party.cpp:4018</c>).
+    /// </summary>
+    /// <returns>Whoever was brought round.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>An unconscious character wakes at one hit point.</b> Not healed — woken, so that the
+    /// day's auto-heal, which skips the unconscious, can reach them at all.
+    /// </para>
+    /// <para>
+    /// <b>A <c>BeginResting</c> script can veto it</b> by answering anything but zero. With no
+    /// scripting layer the answer is the default, which is to wake them.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<Character> BeginResting(Party party,
+                                                        Func<Character, bool>? vetoed = null)
+    {
+        ArgumentNullException.ThrowIfNull(party);
+
+        var woken = new List<Character>();
+
+        foreach (var member in party.Members)
+        {
+            if (vetoed?.Invoke(member) == true || member.Status != CharacterStatus.Unconscious)
+            {
+                continue;
+            }
+
+            member.HitPoints = 1;
+            member.Status = CharacterStatus.Okay;
+            woken.Add(member);
+        }
+
+        return woken;
     }
 
     /// <summary>

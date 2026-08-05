@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,432 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,441 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,41 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### What opening a rest does — and a claim I got wrong
+
+Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
+properly, and it does two things I had not ported.
+
+> **The rest screen opens already filled in.** Its duration is seeded from `party.CalcRestTime()`
+> — how long the party needs to memorise everything selected — so a player who just wants their
+> spells back presses REST and nothing else. This port opened at zero.
+
+> **And it wakes the unconscious.** `party.BeginResting()` runs at the end of the same function:
+> an unconscious character is set to one hit point and `Okay`. Woken, not healed — which is
+> exactly what the day's auto-heal needs, since that skips the unconscious.
+
+**Which corrects something I stated two sections above.** I wrote that `BeginResting` is "never
+called from anywhere in the source". It is called, once, from the line above. The grep behind the
+claim was piped through `head -8` and the call site was the ninth line. **A truncated search read
+as a complete one** — the same shape as the dice-expression probe that sampled 3% of the corpus and
+reported a settled answer. The lesson repeats: a search that could be complete and a search that
+*is* complete look identical in the output.
+
+The memorisation itself:
+
+> **A minute at a time, unlike the auto-heal.** The resting branch loops `inc` times over the whole
+> party, so memorisation gets every minute of a coarse step — where the day's hit point is granted
+> at most once per cycle. A forty-five minute step finishes three first-level spells.
+
+> **It gates on `CanCastSpells`, not `CanMemorizeSpells(1)`.** The header documents circumstance 1
+> as "Resting; should character memorize spells" and **nothing ever asks it** — the only call in
+> the engine is `CanMemorizeSpells(0)` on the magic menu.
+
+> **Only the last announcement survives.** A minute that finishes a copy sets the paused text; a
+> minute that finishes nothing *clears* it — and the clearing is inside the per-character loop, so
+> one caster finishing nothing wipes what another just set. A long step that ends quietly shows
+> nothing at all, however many copies it finished on the way.
+
 ##### The MEMORIZE screen, and a live character's spell book
 
 `MEMORIZE_MENU_DATA` (`RunEvent.cpp:25101`, `:25208`) over the working list. Camp reaches it
@@ -4107,12 +4142,12 @@ on, and it is where memorisation and FIX will hang too.
 
 **And two things in this function never happen at all.**
 
-> **Resting does not wake an unconscious character.** The block that would (`:4175`) sits inside
-> `if (lastUpdateTime != -1)` and is itself gated on `if (resting && (lastUpdateTime == -1))` —
-> two conditions that contradict. It is unreachable. `PARTY::BeginResting` (`:4018`) does the same
-> job at the right moment and is **never called from anywhere in the source**. Since the auto-heal
-> also skips the unconscious, **a character who goes down stays down however long the party
-> sleeps** — temples and healing spells are the only way back.
+> ~~**Resting does not wake an unconscious character.**~~ **Half right, and the wrong half was a
+> truncated grep.** The block inside this function (`:4175`) really is unreachable — it sits inside
+> `if (lastUpdateTime != -1)` and is gated on `if (resting && (lastUpdateTime == -1))`. But
+> `PARTY::BeginResting` (`:4018`) is **not** uncalled: `REST_MENU_DATA::OnInitialEvent` calls it
+> (`RunEvent.cpp:22812`), so opening the rest screen does wake the unconscious. See §what opening
+> a rest does.
 
 > **The poison tick is commented out**, so a poisoned character loses nothing over time. Nothing
 > to port.
@@ -7213,8 +7248,11 @@ What is left, in order:
      **The MEMORIZE screen runs** (§the MEMORIZE screen), and a live character finally has a
      spell book to edit.
 
-     **Next: wiring memorisation into the resting cycle** — the clock and the book now both exist,
-     and `PartyTime` is where they meet. Then the town services: buy, appraise, heal, donate.
+     **Resting memorises now**, and opening the rest screen fills in the duration and wakes the
+     unconscious (§what opening a rest does). **REST and MEMORIZE are both complete.**
+
+     **Next: the town services** — buy, appraise, heal, donate — and FIX, which casts from the
+     design's fix spell book.
 
 
 
