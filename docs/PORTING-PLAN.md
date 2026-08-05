@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,284 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,306 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,58 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### The camp screen's journal — and a rule that was dark by omission
+
+`DISPLAY_PARTY_JOURNAL_DATA` (`RunEvent.cpp:27570`) and `FormatJournalText`
+(`FormattedText.cpp:1201`). `UAFcore/JournalScreen.cs`, plus six methods on `TextDisplayData`.
+**Seven of camp's twelve entries now run** — SAVE, LOAD, VIEW, TALK, JOURNAL, ZAP and EXIT.
+
+> **The journal pages by lines, not by entries.** Every entry is concatenated into one passage and
+> then wrapped, so a long entry spans boxes and a box can hold the end of one and the start of the
+> next.
+
+> **The separator carries a colour reset.** `"\b\n\n"` — the `\b` is the journal's own tag
+> (`CheckJournalColorTag`, `:343`), clearing whatever colour the previous entry left set, and it is
+> stripped before drawing so it costs no width.
+
+> **Empty entries are skipped but still counted.** The separator goes on while
+> `count < jdata.GetCount()`, where `count` only advances for entries that had text and
+> `GetCount()` is the whole list — so a journal ending in empty entries puts a separator after its
+> last real one.
+
+> **The journal gets six paging methods of its own** (`:581`–`:645`) rather than the box methods
+> with a bigger count, and the difference is real: `NextBox` reads the lines it steps over and
+> stops early at a `/N`; the journal's never does, because what it shows is many entries
+> concatenated rather than one authored passage.
+
+> **It opens on the last box.** A player opening the journal wants what just happened.
+
+> **`LastJournalBox` has a bug that only bites on an empty journal.** It floors the line at zero
+> and then re-tests `currLine >= numLines`, which with no lines at all is `0 >= 0` — putting the
+> line back to `-20`. Nothing else reaches it and what it would do is read before the start of the
+> list, so this port stops at the floor.
+
+**And porting the encamp menu's enable rules found TALK had never been wired at all.** `Game` set
+no talk callback, so the entry was dark by omission; now it is dark by rule, and live when the rule
+says so. Its three conditions (`RunEvent.cpp:9215`):
+
+> **The label is not decoration.** `changeMenuItem(8, dude.TalkLabel)` *renames* the entry and then
+> re-derives the first-letter shortcuts, so a character's own word appears on the bar — and a
+> character with an event but no label would leave a nameless entry, which is why an empty label
+> darkens it. The two are one rule.
+
+> **`DisableTalkIfDead` is a third condition**, applied after the other two against a status that
+> is not `Okay`.
+
+> **The dispatch's `DO_NOTHING` fallback is unreachable from the keyboard** once `OnUpdateUI` runs,
+> since a dark entry cannot be selected. It is kept anyway — a mouse click or a shortcut could
+> disagree with the enable pass, and then the screen has to stay up.
+
+One test had to change for a reason worth recording: `EventCampTests`' menu helper **counted
+keypresses**, which is the exact trap already recorded two sections above. It worked until entries
+started darkening, because a dark entry is skipped and N presses stop advancing N places. It steps
+until it arrives now, and asserts it did.
+
 ##### The level load, and three bugs in the transfer beside it
 
 `LoadLevel` (`Level.cpp:2210`) was the loose end saving left behind, and it was one extraction
@@ -6880,8 +6932,12 @@ What is left, in order:
      **Reloading the level on load is done**, and so are cross-level teleports — one extraction
      served both (§the level load).
 
-     **Next: the single-caller screens** — magic, rest, alter, journal, buy, appraise, heal,
-     donate.
+     **The journal runs**, and SAVE, LOAD and TALK are wired from camp — **seven of camp's twelve
+     entries** (§the camp screen's journal).
+
+     **Next: the rest of the single-caller screens** — magic, rest, alter, buy, appraise, heal,
+     donate. FIX belongs with them rather than with camp's shell: it casts from the design's fix
+     spell book, so it waits on spell casting.
 
 
 

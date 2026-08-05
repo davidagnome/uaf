@@ -283,6 +283,28 @@ public sealed class Menu
         }
     }
 
+    /// <summary>
+    /// Renames one entry (<c>CMyMenu::changeMenuItem</c>, <c>GameMenu.cpp:1444</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The shortcut is reassigned with the text</b>, because a new word makes the old
+    /// shortcut index point at a different letter — or past the end. Callers that want the first
+    /// letter pass 0.
+    /// </remarks>
+    public void SetItemText(int index, string text, int shortcutIndex = 0)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        if ((uint)index < (uint)items.Count)
+        {
+            items[index] = items[index] with
+            {
+                Text = BitmapFont.Encode(text),
+                ShortcutIndex = shortcutIndex,
+            };
+        }
+    }
+
     public void SetAllItemsEnabled(bool enabled)
     {
         for (int i = 0; i < items.Count; i++)

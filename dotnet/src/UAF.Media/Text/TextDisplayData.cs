@@ -220,6 +220,73 @@ public sealed class TextDisplayData
     /// </summary>
     public void FirstBox() => CurrentLine = 0;
 
+    // ---- the journal's own paging --------------------------------------------------------------
+
+    /// <summary>
+    /// Lines in a journal box (<c>JOURNAL_TEXTBOX_LINES</c>, <c>FormattedText.cpp:48</c>).
+    /// </summary>
+    /// <remarks>
+    /// Four times <see cref="LinesPerBox"/>'s default: the journal has the whole screen where a
+    /// text event has a box under the viewport.
+    /// </remarks>
+    public const int JournalLinesPerBox = 20;
+
+    /// <summary>
+    /// The journal pages in fixed steps, where plain text stops at its markers.
+    /// </summary>
+    /// <remarks>
+    /// <b>These are six separate methods in the reference, not the box methods with a different
+    /// count</b> (<c>FormattedText.cpp:581</c>–<c>:645</c>). <see cref="NextBox"/> reads the
+    /// lines it is stepping over and stops early at a <c>/N</c>; the journal never does, because
+    /// what it is showing is many entries concatenated rather than one authored passage.
+    /// </remarks>
+    public bool IsFirstJournalBox => CurrentLine == 0;
+
+    /// <inheritdoc cref="IsFirstJournalBox"/>
+    public bool IsLastJournalBox => CurrentLine + JournalLinesPerBox >= NumLines;
+
+    /// <inheritdoc cref="IsFirstJournalBox"/>
+    public void NextJournalBox()
+    {
+        if (CurrentLine >= NumLines)
+        {
+            return;
+        }
+
+        // Clamped to NumLines rather than to the last whole box, so the guard above is what keeps
+        // the view from running off the end -- reachable only if a caller steps past IsLast.
+        CurrentLine = Math.Min(CurrentLine + JournalLinesPerBox, NumLines);
+        InitialBoxDisplay = true;
+    }
+
+    /// <inheritdoc cref="IsFirstJournalBox"/>
+    public void PrevJournalBox()
+    {
+        if (CurrentLine <= 0)
+        {
+            return;
+        }
+
+        CurrentLine = Math.Max(CurrentLine - JournalLinesPerBox, 0);
+        InitialBoxDisplay = true;
+    }
+
+    /// <inheritdoc cref="IsFirstJournalBox"/>
+    public void FirstJournalBox() => CurrentLine = 0;
+
+    /// <summary>
+    /// Jumps to the last box — where the journal screen opens, since the newest entry is the one
+    /// a player wants.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference's third line is a bug that only bites on an empty journal.</b> It floors
+    /// the line at zero and then re-tests <c>currLine >= numLines</c>, which with no lines at all
+    /// is <c>0 &gt;= 0</c> — putting the line back to <c>-20</c>. Nothing else can reach it, and
+    /// what it would do is read before the start of the list, so this stops at the floor.
+    /// </remarks>
+    public void LastJournalBox() =>
+        CurrentLine = Math.Max(NumLines - JournalLinesPerBox, 0);
+
     /// <summary>The lines of the box currently displayed, stopping at a line that waits.</summary>
     public IEnumerable<TextLine> CurrentBox()
     {

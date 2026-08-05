@@ -731,25 +731,82 @@ public sealed class EventRunner
     /// entirely the inner menu, and the two are collapsed here.
     /// </para>
     /// <para>
-    /// <b>Most of its twelve entries push whole screens this port does not have</b> — save, load,
-    /// magic, rest, alter and the journal are each their own event class. They are named rather
-    /// than run, which is what <see cref="Unimplemented"/> is for. VIEW, TALK, ZAP and EXIT work.
+    /// <b>Seven of its twelve entries run</b> — SAVE, LOAD, VIEW, TALK, JOURNAL, ZAP and EXIT.
+    /// MAGIC, REST and ALTER are each their own event class and are named rather than run
+    /// (<see cref="Unimplemented"/>); FIX needs the fix spell book and spell casting; QUIT is the
+    /// game's own exit.
     /// </para>
     /// </remarks>
     private EventStep BeginCamp(CampEvent camp, MenuAnchors anchors)
     {
-        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal,
-                       ("SAVE", 0), ("LOAD", 0), ("VIEW", 0), ("MAGIC", 0), ("REST", 0),
-                       ("ALTER", 0), ("FIX", 0), ("TALK", 0), ("JOURNAL", 0), ("ZAP", 0),
-                       ("EXIT", 1), ("QUIT", 0));
+        SetupFixedMenu(anchors, null, MenuOrientation.Horizontal, CampMenu);
 
         escapeSelects = CampExit;
+        UpdateCampMenu();
         ShowText(camp.Base.Text);
         return EventStep.Running;
     }
 
+    /// <summary>The encamp menu (<c>EncampMenuData</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] CampMenu =
+        [("SAVE", 0), ("LOAD", 0), ("VIEW", 0), ("MAGIC", 0), ("REST", 0),
+         ("ALTER", 0), ("FIX", 0), ("TALK", 0), ("JOURNAL", 0), ("ZAP", 0),
+         ("EXIT", 1), ("QUIT", 0)];
+
     /// <summary>The EXIT item's index in the encamp menu.</summary>
     public const int CampExit = 10;
+
+    private const int CampSave = 0;
+    private const int CampLoad = 1;
+    private const int CampTalk = 7;
+    private const int CampJournal = 8;
+
+    /// <summary>
+    /// Which encamp entries light up (<c>ENCAMP_MENU_DATA::OnUpdateUI</c>,
+    /// <c>RunEvent.cpp:9215</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>TALK needs both a valid event and a label.</b> A character with an event but no
+    /// <c>TalkLabel</c> leaves the entry dark, because the label is what the entry is <i>renamed
+    /// to</i> — the reference calls <c>changeMenuItem(8, dude.TalkLabel)</c> and then re-derives
+    /// the first-letter shortcuts, so an empty label would produce a nameless entry.
+    /// </para>
+    /// <para>
+    /// <b>SAVE is dark inside a global event and LOAD is not</b> — unless the encamp screen is
+    /// itself global, or a fight is running, in which case both are. The asymmetry is the
+    /// reference's: an event pushed from the world can be saved past, one that <i>is</i> the world
+    /// cannot.
+    /// </para>
+    /// </remarks>
+    private void UpdateCampMenu()
+    {
+        if (Menu.Count < CampMenu.Length)
+        {
+            return;
+        }
+
+        Menu.SetItemEnabled(CampJournal, (PartyJournal?.Invoke().Count ?? 0) > 0);
+
+        var talk = TalkForActive?.Invoke() ?? default;
+
+        bool canTalk = talk.Event != 0
+                       && IsValidEvent?.Invoke(talk.Event) != false
+                       && !string.IsNullOrEmpty(talk.Label)
+                       && !talk.Silenced;
+
+        Menu.SetItemEnabled(CampTalk, canTalk);
+
+        // The label is not decoration: changeMenuItem(8, dude.TalkLabel) renames the entry and
+        // then re-derives the first-letter shortcuts, so a character's own word appears on the
+        // menu bar.
+        if (canTalk)
+        {
+            Menu.SetItemText(CampTalk, talk.Label!);
+        }
+    }
+
+
 
     /// <summary>The ZAP item's text (<c>RunEvent.cpp:9323</c>).</summary>
     /// <remarks>
@@ -784,6 +841,15 @@ public sealed class EventRunner
                 ShowText(ZapText);
                 return EventStep.Running;
 
+            case 0:
+                return OpenSlots(saving: true, CampMenu);
+
+            case 1:
+                return OpenSlots(saving: false, CampMenu);
+
+            case 8:
+                return OpenJournal(CampMenu);
+
             case CampExit:
                 BackupRequested = camp.ForceExit != 0;
                 return Complete(happened: true);
@@ -795,6 +861,23 @@ public sealed class EventRunner
                 return EventStep.Running;
         }
     }
+
+    /// <summary>
+    /// What the encamp screen's TALK entry offers for the active character.
+    /// </summary>
+    /// <param name="Event">The character's <c>TalkEvent</c>, or 0 for none.</param>
+    /// <param name="Label">
+    /// <c>TalkLabel</c> — the word the entry is renamed to. An empty one darkens the entry rather
+    /// than leaving it nameless.
+    /// </param>
+    /// <param name="Silenced">
+    /// <c>DisableTalkIfDead</c> against a status that is not <c>Okay</c>. A separate condition
+    /// from the two above, applied after them.
+    /// </param>
+    public readonly record struct TalkOption(uint Event, string? Label, bool Silenced);
+
+    /// <summary>What TALK offers; set by the host, which owns the party.</summary>
+    public Func<TalkOption>? TalkForActive { get; set; }
 
     /// <summary>The active character's TALK event id; set by the host, which owns the party.</summary>
     public Func<uint>? TalkEventOfActive { get; set; }
@@ -983,8 +1066,16 @@ public sealed class EventRunner
     /// above the menu changes when none of them has one.
     /// </para>
     /// </remarks>
-    private EventStep OpenSlots(bool saving)
+    private (string Label, int Shortcut)[]? slotParent;
+
+    /// <param name="parent">
+    /// The menu to rebuild when the screen closes, or null for the party menu. Camp pushes these
+    /// screens too, and closing one there must not drop the player into a menu they never opened.
+    /// </param>
+    private EventStep OpenSlots(bool saving, (string Label, int Shortcut)[]? parent = null)
     {
+        slotParent = parent;
+
         var slots = SaveSlotsAvailable?.Invoke() ?? SaveSlots.Under(null);
 
         Slots = slots;
@@ -1032,11 +1123,22 @@ public sealed class EventRunner
         }
 
         Slots = null;
+        var parent = slotParent;
+        slotParent = null;
 
         Menu.Reset();
-        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
-        UpdatePartyMenu();
-        escapeSelects = PartyExit;
+        if (parent is null)
+        {
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+            UpdatePartyMenu();
+            escapeSelects = PartyExit;
+        }
+        else
+        {
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, parent);
+            escapeSelects = parent.Length - 1;
+            UpdateCampMenu();
+        }
 
         if (SlotMessage is { Length: > 0 } message)
         {
@@ -1048,6 +1150,104 @@ public sealed class EventRunner
 
     /// <summary>Why the last save or load did not happen, or null if it did.</summary>
     public string? SlotMessage { get; private set; }
+
+    // ---- the journal ---------------------------------------------------------------------------
+
+    /// <summary>The journal's wrapped text, or null when the screen is not up.</summary>
+    public TextDisplayData? JournalText { get; private set; }
+
+    private (string Label, int Shortcut)[]? journalParent;
+
+    /// <summary>The party's journal; set by the host, which owns the party.</summary>
+    public Func<IReadOnlyList<JournalEntry>>? PartyJournal { get; set; }
+
+    /// <summary>
+    /// <c>DISPLAY_PARTY_JOURNAL_DATA</c> (<c>RunEvent.cpp:27604</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It opens on the <i>last</i> box.</b> <c>OnInitialEvent</c> formats the text and then
+    /// calls <c>LastJournalBox()</c> — a player opening the journal wants what just happened, not
+    /// the first thing that ever did.
+    /// </remarks>
+    private EventStep OpenJournal((string Label, int Shortcut)[] parent)
+    {
+        if (font is null)
+        {
+            Unimplemented = "[JOURNAL here -- not implemented]";
+            return EventStep.Running;
+        }
+
+        string text = JournalScreen.Text(PartyJournal?.Invoke() ?? []);
+
+        var data = TextFormatter.Format(text, Box.Width, font);
+        data.LinesPerBox = TextDisplayData.JournalLinesPerBox;
+        data.LastJournalBox();
+
+        JournalText = data;
+        journalParent = parent;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, JournalScreen.Menu);
+        escapeSelects = JournalScreen.Exit;
+        UpdateJournalMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>NEXT and PREV darken at the ends; FIRST, LAST and EXIT never do.</summary>
+    private void UpdateJournalMenu()
+    {
+        if (JournalText is not { } data)
+        {
+            return;
+        }
+
+        Menu.SetItemEnabled(JournalScreen.Next, !data.IsLastJournalBox);
+        Menu.SetItemEnabled(JournalScreen.Previous, !data.IsFirstJournalBox);
+    }
+
+    private EventStep ChooseJournal()
+    {
+        if (JournalText is not { } data)
+        {
+            return EventStep.Running;
+        }
+
+        switch (Menu.ActiveItem)
+        {
+            case JournalScreen.Next:
+                data.NextJournalBox();
+                break;
+
+            case JournalScreen.Previous:
+                data.PrevJournalBox();
+                break;
+
+            case JournalScreen.First:
+                data.FirstJournalBox();
+                break;
+
+            case JournalScreen.Last:
+                data.LastJournalBox();
+                break;
+
+            default:
+            {
+                var parent = journalParent;
+                JournalText = null;
+                journalParent = null;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                               parent ?? JournalScreen.Menu);
+                escapeSelects = (parent?.Length ?? 1) - 1;
+                return EventStep.Running;
+            }
+        }
+
+        UpdateJournalMenu();
+        return EventStep.Running;
+    }
 
     // ---- ADD, REMOVE and DELETE ----------------------------------------------------------------
 
@@ -2821,6 +3021,11 @@ public sealed class EventRunner
         if (ClassChoices is not null)
         {
             return ChooseClassChange();
+        }
+
+        if (JournalText is not null)
+        {
+            return ChooseJournal();
         }
 
         if (Creating is not null)

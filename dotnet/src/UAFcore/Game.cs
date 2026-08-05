@@ -178,6 +178,17 @@ public sealed class Game
             _ => [],
         };
         Runner.ActiveCharacterName = () => Party.Active?.Name ?? "THIS CHARACTER";
+        Runner.PartyJournal = () => Party.Journal;
+
+        // TALK's three conditions, from the record the character was read from. Nothing wired
+        // this before, so the entry was dark by omission rather than by rule.
+        Runner.TalkForActive = () => Party.Active is { } who
+            ? new EventRunner.TalkOption(
+                who.Record.TalkEvent, who.Record.TalkLabel,
+                who.Record.DisableTalkIfDead != 0 && who.Status != CharacterStatus.Okay)
+            : default;
+
+        Runner.TalkEventOfActive = () => Party.Active?.Record.TalkEvent ?? 0;
         Runner.ApplyPartyConfirm = ApplyPartyConfirm;
 
         // The party menu's TRAIN entry is dark unless all three conditions hold, and it is

@@ -52,12 +52,23 @@ public class EventCampTests
     private static EventStep Press(EventRunner runner, VirtualKey key) =>
         runner.Handle(InputEvent.KeyDown(key));
 
+    /// <summary>
+    /// Walks to <paramref name="item"/> and commits it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Steps until it arrives rather than counting.</b> The encamp menu darkens entries now —
+    /// TALK without a label, JOURNAL with nothing in it — and the menu skips over dark ones, so N
+    /// presses do not advance N places. Failing here means the entry is unreachable, which is
+    /// worth knowing loudly.
+    /// </remarks>
     private static EventStep Choose(EventRunner runner, int item)
     {
-        for (int i = 0; i < item; i++)
+        for (int i = 0; i < runner.Menu.Count && runner.Menu.ActiveItem != item; i++)
         {
             Press(runner, VirtualKey.Right);
         }
+
+        Assert.Equal(item, runner.Menu.ActiveItem);
         return Press(runner, VirtualKey.Return);
     }
 
@@ -129,6 +140,7 @@ public class EventCampTests
         var runner = new EventRunner
         {
             TalkEventOfActive = () => 42,
+            TalkForActive = () => new EventRunner.TalkOption(42, "GREET", false),
             IsValidEvent = _ => true,
         };
         runner.Begin(Camp(), Font(), Box, Anchors);
@@ -140,24 +152,101 @@ public class EventCampTests
     }
 
     [Fact]
-    public void Talk_with_no_talk_event_leaves_the_player_camped()
+    public void Talk_needs_a_label_as_well_as_an_event()
     {
-        // DO_NOTHING_EVENT again: the screen stays up rather than falling back on the chain.
-        var runner = new EventRunner { TalkEventOfActive = () => 0 };
+        // The label is what the entry is renamed to (changeMenuItem(8, dude.TalkLabel)), so a
+        // character with an event and no label would leave a nameless entry. The reference
+        // darkens it instead, and the two conditions are one rule.
+        var runner = new EventRunner
+        {
+            TalkEventOfActive = () => 42,
+            TalkForActive = () => new EventRunner.TalkOption(42, "", false),
+            IsValidEvent = _ => true,
+        };
         runner.Begin(Camp(), Font(), Box, Anchors);
 
-        Assert.Equal(EventStepKind.Running, Choose(runner, 7).Kind);
-        Assert.True(runner.IsActive);
+        Assert.False(runner.Menu.Items[7].Enabled);
+    }
+
+    [Fact]
+    public void Talk_with_no_talk_event_is_dark_rather_than_doing_nothing()
+    {
+        // The dispatch still has its DO_NOTHING fallback and OnUpdateUI makes it unreachable, so
+        // what a player sees is a dark entry. The fallback is kept because the two could disagree
+        // -- a mouse click, a shortcut key -- and then the screen has to stay up.
+        var runner = new EventRunner
+        {
+            TalkEventOfActive = () => 0,
+            TalkForActive = () => new EventRunner.TalkOption(0, "GREET", false),
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Assert.False(runner.Menu.Items[7].Enabled);
+    }
+
+    [Fact]
+    public void Talk_takes_the_characters_own_word_as_its_label()
+    {
+        // changeMenuItem(8, dude.TalkLabel) renames the entry, so the bar shows what the design
+        // wrote rather than "TALK".
+        var runner = new EventRunner
+        {
+            TalkEventOfActive = () => 42,
+            TalkForActive = () => new EventRunner.TalkOption(42, "PARLEY", false),
+            IsValidEvent = _ => true,
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Assert.Equal("PARLEY", BitmapFont.Decode(runner.Menu.Items[7].Text));
+    }
+
+    [Fact]
+    public void A_character_silenced_by_its_status_cannot_talk()
+    {
+        // DisableTalkIfDead against a status that is not Okay -- a third condition, applied after
+        // the event and the label.
+        var runner = new EventRunner
+        {
+            TalkEventOfActive = () => 42,
+            TalkForActive = () => new EventRunner.TalkOption(42, "GREET", Silenced: true),
+            IsValidEvent = _ => true,
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Assert.False(runner.Menu.Items[7].Enabled);
+    }
+
+    [Fact]
+    public void Save_and_load_open_the_slot_screens_and_come_back_to_camp()
+    {
+        // The party menu pushed these already; camp pushes the same two, and closing one has to
+        // rebuild the camp bar rather than dropping the player into a menu they never opened.
+        var runner = new EventRunner
+        {
+            IsValidEvent = _ => true,
+            SaveSlotsAvailable = () => SaveSlots.Under(null),
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Choose(runner, 0);                          // SAVE
+        Assert.NotNull(runner.Slots);
+        Assert.True(runner.SlotsForSaving);
+
+        Press(runner, VirtualKey.Escape);           // the slot screen's EXIT
+        Assert.Null(runner.Slots);
+        Assert.Equal(12, runner.Menu.Count);
+        Assert.Equal("SAVE", BitmapFont.Decode(runner.Menu.Items[0].Text));
+
+        Choose(runner, 1);                          // LOAD
+        Assert.NotNull(runner.Slots);
+        Assert.False(runner.SlotsForSaving);
     }
 
     [Theory]
-    [InlineData(0, "SAVE")]
-    [InlineData(1, "LOAD")]
     [InlineData(3, "MAGIC")]
     [InlineData(4, "REST")]
     [InlineData(5, "ALTER")]
     [InlineData(6, "FIX")]
-    [InlineData(8, "JOURNAL")]
     [InlineData(11, "QUIT")]
     public void The_entries_that_push_unbuilt_screens_are_named(int item, string label)
     {
