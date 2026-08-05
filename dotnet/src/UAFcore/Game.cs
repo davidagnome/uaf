@@ -180,6 +180,9 @@ public sealed class Game
         Runner.ActiveCharacterName = () => Party.Active?.Name ?? "THIS CHARACTER";
         Runner.PartyJournal = () => Party.Journal;
         Runner.PartySize = () => Party.Count;
+        Runner.AdvanceClock = minutes => Minutes += minutes;
+        Runner.ZoneHere = ZoneHere;
+        Runner.RestEventThisMinute = RestEventThisMinute;
         Runner.MoveActive = earlier =>
         {
             if (earlier)
@@ -604,6 +607,83 @@ public sealed class Game
         && values.Length > 0
             ? Math.Max(1, values[0])
             : RolledCharacter.DefaultStartAge;
+
+    /// <summary>What the zone under the party permits (<c>RunEvent.cpp:9197</c>).</summary>
+    private EventRunner.ZoneRules ZoneHere()
+    {
+        if (zones is null || Map is null)
+        {
+            return new EventRunner.ZoneRules(true, true);
+        }
+
+        int index = Map.At(X, Y)?.Zone ?? 0;
+        if (index < 0 || index >= zones.Zones.Count)
+        {
+            return new EventRunner.ZoneRules(true, true);
+        }
+
+        var zone = zones.Zones[index];
+        return new EventRunner.ZoneRules(zone.AllowMagic != 0, zone.Rest.AllowResting != 0);
+    }
+
+    /// <summary>
+    /// Minutes counted toward each zone's rest-event check
+    /// (<c>restEvent.prevMinChecked</c>, <c>Level.cpp:1758</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Per zone rather than per party.</b> The counter lives on the zone, so resting in one
+    /// corner of a level does not bring on an event waiting in another.
+    /// </remarks>
+    private readonly int[] restEventMinutes = new int[EventTriggerFlags.ZoneCount];
+
+    /// <summary>
+    /// Whether this minute of rest is interrupted, and by what
+    /// (<c>LEVEL::haveRestEvent</c>, <c>Level.cpp:1979</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The check is not per minute; the counter is.</b> Every minute adds to the zone's
+    /// tally, and only once it reaches <c>everyMin</c> is a d100 rolled against
+    /// <c>chance</c> — so a zone set to check hourly rolls once an hour however long the party
+    /// rests.
+    /// </para>
+    /// <para>
+    /// <b>The tally resets when it is checked, not when it fires.</b> A roll that misses still
+    /// starts the interval again.
+    /// </para>
+    /// </remarks>
+    private uint RestEventThisMinute()
+    {
+        if (zones is null || Map is null)
+        {
+            return 0;
+        }
+
+        int zone = Map.At(X, Y)?.Zone ?? 0;
+        if (zone < 0 || zone >= zones.Zones.Count || zone >= restEventMinutes.Length)
+        {
+            return 0;
+        }
+
+        var rest = zones.Zones[zone].Rest;
+
+        // IncRestEventTime only counts for a zone that has an event to fire.
+        if (rest.Event == 0 || events?.ById(rest.Event) is null
+            || rest.EveryMinutes <= 0 || rest.Chance <= 0)
+        {
+            return 0;
+        }
+
+        restEventMinutes[zone]++;
+
+        if (restEventMinutes[zone] < rest.EveryMinutes)
+        {
+            return 0;
+        }
+
+        restEventMinutes[zone] = 0;
+        return Dice(100) <= rest.Chance ? rest.Event : 0;
+    }
 
     /// <summary>
     /// What the active party member could change class to.
@@ -2224,6 +2304,34 @@ public sealed class Game
     }
 
     /// <summary>Feeds input to the event on screen.</summary>
+    /// <summary>
+    /// One turn of the engine's clock, run whether or not the player pressed anything
+    /// (<c>GameEvent::OnCycle</c>).
+    /// </summary>
+    /// <returns>Whether anything changed and the screen should be redrawn.</returns>
+    /// <remarks>
+    /// <b>Only the rest screen uses this so far.</b> The reference also drives spell-effect expiry
+    /// and the auto-heal timer through it, by way of <c>PARTY::ProcessTimeSensitiveData</c> — that
+    /// is what REST's healing and spell memorisation hang off, and it is not ported.
+    /// </remarks>
+    public bool Cycle()
+    {
+        if (Combat is not null || !Runner.IsActive)
+        {
+            return false;
+        }
+
+        var step = Runner.Cycle();
+
+        if (step.Kind == EventStepKind.Running)
+        {
+            return Runner.RestOpen;
+        }
+
+        Apply(step);
+        return true;
+    }
+
     private bool UpdateEvent(InputEvent input)
     {
         var currentEvent = Runner.Current;

@@ -1,4 +1,5 @@
 using UAF.Media;
+using UAF.Rules;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -731,8 +732,8 @@ public sealed class EventRunner
     /// entirely the inner menu, and the two are collapsed here.
     /// </para>
     /// <para>
-    /// <b>Eight of its twelve entries run</b> — SAVE, LOAD, VIEW, ALTER, TALK, JOURNAL, ZAP and
-    /// EXIT. MAGIC and REST are each their own event class and are named rather than run
+    /// <b>Nine of its twelve entries run</b> — SAVE, LOAD, VIEW, REST, ALTER, TALK, JOURNAL, ZAP
+    /// and EXIT. MAGIC is its own event class and is named rather than run
     /// (<see cref="Unimplemented"/>); FIX needs the fix spell book and spell casting; QUIT is the
     /// game's own exit.
     /// </para>
@@ -758,6 +759,9 @@ public sealed class EventRunner
 
     private const int CampSave = 0;
     private const int CampLoad = 1;
+    private const int CampMagic = 3;
+    private const int CampRest = 4;
+    private const int CampFix = 6;
     private const int CampTalk = 7;
     private const int CampJournal = 8;
 
@@ -787,6 +791,17 @@ public sealed class EventRunner
         }
 
         Menu.SetItemEnabled(CampJournal, (PartyJournal?.Invoke().Count ?? 0) > 0);
+
+        var zone = ZoneHere?.Invoke() ?? new ZoneRules(true, true);
+
+        Menu.SetItemEnabled(CampMagic, zone.AllowsMagic);
+
+        // FIX is dark in a no-rest zone whatever pushed this camp; REST is only dark when the
+        // camp came from the world rather than from an event. The asymmetry is the reference's
+        // (RunEvent.cpp:9204) -- an event that camps the party can rest them somewhere they could
+        // not have chosen to.
+        Menu.SetItemEnabled(CampFix, zone.AllowsResting);
+        Menu.SetItemEnabled(CampRest, zone.AllowsResting || CampPushedByEvent);
 
         var talk = TalkForActive?.Invoke() ?? default;
 
@@ -847,6 +862,9 @@ public sealed class EventRunner
             case 1:
                 return OpenSlots(saving: false, CampMenu);
 
+            case 4:
+                return OpenRest();
+
             case 5:
                 return OpenAlter();
 
@@ -881,6 +899,24 @@ public sealed class EventRunner
 
     /// <summary>What TALK offers; set by the host, which owns the party.</summary>
     public Func<TalkOption>? TalkForActive { get; set; }
+
+    /// <summary>What the zone under the party permits.</summary>
+    public readonly record struct ZoneRules(bool AllowsMagic, bool AllowsResting);
+
+    /// <summary>The zone under the party; set by the host, which owns the level.</summary>
+    public Func<ZoneRules>? ZoneHere { get; set; }
+
+    /// <summary>
+    /// Whether the encamp screen was pushed by an event rather than opened from the world
+    /// (<c>m_pOrigEvent != NULL</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Always true in this port, because the other path does not exist yet.</b> The reference
+    /// reaches the encamp menu two ways — a <c>CAMP_EVENT</c> on a square, or the player pressing
+    /// the camp key while adventuring — and only the first is wired here. It is a property rather
+    /// than a constant so the rule it feeds stays visible and correct when the second arrives.
+    /// </remarks>
+    public bool CampPushedByEvent { get; set; } = true;
 
     /// <summary>The active character's TALK event id; set by the host, which owns the party.</summary>
     public Func<uint>? TalkEventOfActive { get; set; }
@@ -1153,6 +1189,238 @@ public sealed class EventRunner
 
     /// <summary>Why the last save or load did not happen, or null if it did.</summary>
     public string? SlotMessage { get; private set; }
+
+    // ---- REST ----------------------------------------------------------------------------------
+
+    /// <summary>The rest screen's menu (<c>RestMenuData</c>, <c>GameMenu.cpp:773</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] RestMenu =
+        [("REST", 0), ("DAYS", 0), ("HOURS", 0), ("MINS", 0), ("ADD", 0), ("SUB", 0), ("EXIT", 1)];
+
+    public const int RestBegin = 0;
+    public const int RestDays = 1;
+    public const int RestHours = 2;
+    public const int RestMins = 3;
+    public const int RestAdd = 4;
+    public const int RestSub = 5;
+    public const int RestExit = 6;
+
+    /// <summary>Whether the rest screen is up.</summary>
+    public bool RestOpen { get; private set; }
+
+    /// <summary>
+    /// Whether the party is actually resting rather than setting a duration.
+    /// </summary>
+    /// <remarks>
+    /// <b>The menu is hidden while this is true</b> (<c>m_showMenu = FALSE</c>) — the player has
+    /// nothing to press but the key that stops it.
+    /// </remarks>
+    public bool RestEngaged { get; private set; }
+
+    /// <summary>
+    /// The duration picker — the form that was built rounds ago and had no screen behind it.
+    /// </summary>
+    public RestTimeForm? RestTime { get; private set; }
+
+    /// <summary>How long is left to rest.</summary>
+    public RestDuration RestLeft =>
+        RestTime is { } form
+            ? new RestDuration((int)form.Days, (int)form.Hours, (int)form.Minutes)
+            : default;
+
+    /// <summary>Advances the clock by this many minutes; set by the host.</summary>
+    public Action<int>? AdvanceClock { get; set; }
+
+    /// <summary>
+    /// Whether a rest event fires this minute, and which. Set by the host, which owns the zones.
+    /// </summary>
+    /// <remarks>
+    /// Called once per game minute, because the reference's counter is incremented per minute and
+    /// its check is "has <c>everyMin</c> passed since the last roll".
+    /// </remarks>
+    public Func<uint>? RestEventThisMinute { get; set; }
+
+    /// <summary>
+    /// <c>REST_MENU_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:22769</c>).
+    /// </summary>
+    private EventStep OpenRest()
+    {
+        RestOpen = true;
+        RestEngaged = false;
+        RestTime = new RestTimeForm(lastAnchors.TextBox.X, lastAnchors.TextBox.Y);
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, RestMenu);
+        escapeSelects = RestExit;
+        ShowText("HOW LONG WILL YOU REST?");
+
+        return EventStep.Running;
+    }
+
+    private EventStep ChooseRest()
+    {
+        switch (Menu.ActiveItem)
+        {
+            case RestBegin:
+                // Nothing stops a rest of no time at all; it simply finishes on the first cycle.
+                RestEngaged = true;
+                return EventStep.Running;
+
+            case RestDays:
+                RestTime?.Select(RestField.Days);
+                return EventStep.Running;
+
+            case RestHours:
+                RestTime?.Select(RestField.Hours);
+                return EventStep.Running;
+
+            case RestMins:
+                RestTime?.Select(RestField.Minutes);
+                return EventStep.Running;
+
+            case RestAdd:
+                Adjust(up: true);
+                return EventStep.Running;
+
+            case RestSub:
+                Adjust(up: false);
+                return EventStep.Running;
+
+            default:
+                return CloseRest();
+        }
+    }
+
+    private EventStep CloseRest()
+    {
+        RestOpen = false;
+        RestEngaged = false;
+        RestTime = null;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CampMenu);
+        escapeSelects = CampExit;
+        UpdateCampMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// The rest screen's arrow keys, which move the duration rather than the menu.
+    /// </summary>
+    /// <remarks>
+    /// <b>The menu's left and right still move the cursor</b>, and moving it onto DAYS, HOURS or
+    /// MINS re-activates that field — the reference re-syncs the form to the menu after every
+    /// keypress (<c>RunEvent.cpp:22673</c>) so the two can never disagree.
+    /// </remarks>
+    private bool HandleRestKey(VirtualKey key)
+    {
+        if (!RestOpen || RestEngaged)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+            case VirtualKey.Add:
+                Adjust(up: true);
+                return true;
+
+            case VirtualKey.Down:
+            case VirtualKey.Subtract:
+                Adjust(up: false);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private void Adjust(bool up)
+    {
+        if (RestTime is not { } form || font is null)
+        {
+            return;
+        }
+
+        if (up)
+        {
+            form.Increment(font);
+        }
+        else
+        {
+            form.Decrement(font);
+        }
+    }
+
+    /// <summary>Keeps the highlighted field in step with the menu cursor.</summary>
+    private void SyncRestField()
+    {
+        switch (Menu.ActiveItem)
+        {
+            case RestDays: RestTime?.Select(RestField.Days); break;
+            case RestHours: RestTime?.Select(RestField.Hours); break;
+            case RestMins: RestTime?.Select(RestField.Minutes); break;
+        }
+    }
+
+    /// <summary>
+    /// One turn of the engine's clock (<c>GameEvent::OnCycle</c>).
+    /// </summary>
+    /// <returns>Whether anything changed and the screen should be redrawn.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>This runs whether or not the player pressed anything</b> — it is what lets a rest pass
+    /// time on its own. Only the rest screen uses it so far; the reference also drives spell-effect
+    /// expiry and drunk points through it, by way of <c>ProcessTimeSensitiveData</c>.
+    /// </para>
+    /// <para>
+    /// <b>Time advances a minute at a time even though the delta is coarse</b>, because the rest
+    /// event's counter is per-minute and a rest can be interrupted part-way through a step.
+    /// </para>
+    /// </remarks>
+    public EventStep Cycle()
+    {
+        if (!RestEngaged)
+        {
+            return EventStep.Running;
+        }
+
+        int delta = RestLeft.MinuteDelta();
+
+        for (int elapsed = 0; elapsed < delta; elapsed++)
+        {
+            AdvanceClock?.Invoke(1);
+
+            var left = RestLeft.Less(1);
+            RestTime?.SetTime(font!, left.Days, left.Hours, left.Minutes);
+
+            if (RestEventThisMinute?.Invoke() is { } fired && fired != 0
+                && IsValidEvent?.Invoke(fired) != false)
+            {
+                // "YOUR REST IS INTERRUPTED!", and the event replaces this screen rather than
+                // being pushed over it -- so there is no rest to come back to.
+                RestOpen = false;
+                RestEngaged = false;
+                RestTime = null;
+                Current = null;
+                ShowText(InterruptedText);
+
+                return EventStep.To(fired);
+            }
+        }
+
+        if (RestLeft.Elapsed)
+        {
+            RestEngaged = false;
+            Menu.SetCurrentItem(RestBegin);
+        }
+
+        return EventStep.Running;
+    }
+
+    /// <summary>What a rest event's interruption says (<c>RunEvent.cpp:22919</c>).</summary>
+    public const string InterruptedText = "YOUR REST IS INTERRUPTED!";
 
     // ---- ALTER ---------------------------------------------------------------------------------
 
@@ -3058,6 +3326,12 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The rest screen's up and down move the duration; left and right stay with the menu.
+        if (RestOpen && input.Kind == InputEventKind.KeyDown && HandleRestKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // TABParty is the FIRST line of every OnKeypress (RunEvent.cpp:792) and returns before the
         // menu ever sees the key, so TAB can never also move a selection.
         if (input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Tab)
@@ -3113,6 +3387,13 @@ public sealed class EventRunner
 
         // Anything that is not a commit goes to the menu, exactly as every OnKeypress does.
         var result = MenuInput.Handle(Menu, input);
+
+        // The rest form re-syncs to the menu after every keypress, so moving the cursor onto
+        // DAYS, HOURS or MINS activates that field without a separate press.
+        if (RestOpen)
+        {
+            SyncRestField();
+        }
         bool committed = result == MenuInputResult.Accepted
                          || (input.Kind == InputEventKind.KeyDown
                              && input.Key == VirtualKey.Return);
@@ -3189,6 +3470,11 @@ public sealed class EventRunner
         if (OrderingParty)
         {
             return CloseOrder();
+        }
+
+        if (RestOpen)
+        {
+            return ChooseRest();
         }
 
         if (Creating is not null)

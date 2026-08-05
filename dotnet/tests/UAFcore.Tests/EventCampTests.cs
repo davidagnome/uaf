@@ -242,9 +242,44 @@ public class EventCampTests
         Assert.False(runner.SlotsForSaving);
     }
 
+    [Fact]
+    public void A_zone_that_forbids_magic_darkens_it()
+    {
+        var runner = new EventRunner
+        {
+            IsValidEvent = _ => true,
+            ZoneHere = () => new EventRunner.ZoneRules(AllowsMagic: false, AllowsResting: true),
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Assert.False(runner.Menu.Items[3].Enabled);
+        Assert.True(runner.Menu.Items[4].Enabled);
+    }
+
+    [Fact]
+    public void A_no_rest_zone_darkens_FIX_but_not_a_camp_an_event_pushed()
+    {
+        // The asymmetry is the reference's: FIX is dark whatever pushed the camp, REST only when
+        // the camp came from the world. An event that camps the party can rest them somewhere
+        // they could not have chosen to.
+        var runner = new EventRunner
+        {
+            IsValidEvent = _ => true,
+            ZoneHere = () => new EventRunner.ZoneRules(AllowsMagic: true, AllowsResting: false),
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Assert.False(runner.Menu.Items[6].Enabled);       // FIX
+        Assert.True(runner.Menu.Items[4].Enabled);        // REST, because an event pushed this
+
+        runner.CampPushedByEvent = false;
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Assert.False(runner.Menu.Items[4].Enabled);
+    }
+
     [Theory]
     [InlineData(3, "MAGIC")]
-    [InlineData(4, "REST")]
     [InlineData(6, "FIX")]
     [InlineData(11, "QUIT")]
     public void The_entries_that_push_unbuilt_screens_are_named(int item, string label)

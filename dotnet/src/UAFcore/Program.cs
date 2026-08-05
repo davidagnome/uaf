@@ -90,6 +90,10 @@ while (game.Running)
         dirty |= game.Update(next);
     }
 
+    // OnCycle runs whether or not anything was pressed -- it is what lets a rest pass time on
+    // its own.
+    dirty |= game.Cycle();
+
     // Running is checked as well as dirty: Escape changes state that is not drawn, so repainting
     // on the way out just presents a duplicate frame.
     if (dirty && game.Running)
