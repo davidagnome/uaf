@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,323 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,353 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,56 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### REST — and a form that had been sitting there for rounds
+
+`REST_MENU_DATA` (`RunEvent.cpp:22652`, `:22815`) — camp's **ninth of twelve**. Two states: setting
+a duration, then spending it.
+
+> **The two directions of the editor are not inverses.** Incrementing carries — and because the
+> minutes case re-tests the hours, one press at 23:59 advances the day. Decrementing does not
+> borrow: each field refuses at zero, so one day flat cannot be counted down through its minutes.
+
+> **ADD and SUB act on whatever the cursor last passed over.** The reference re-syncs the form to
+> the menu after *every* keypress (`:22673`), so walking from HOURS rightward to ADD crosses MINS
+> and takes the selection with it — pressing ADD there adds a minute. Only the field immediately
+> before ADD is reachable that way; anything else has to be adjusted with `+` and `−`. A real
+> wart, faithfully reproduced, and the thing that made three of my first tests wrong.
+
+> **Time passes faster the more of it is left** (`GetMinuteDelta`, `:10485`) — a fortnight a cycle
+> at the top of the ladder, a minute at the bottom, so a sixty-day rest does not take an hour of
+> real time. **Its top four rungs are commented out**, which is why anything past sixty days steps
+> a fortnight rather than a proportion of what remains. **Its final guard cannot fire**: every live
+> rung returns a delta no larger than the threshold that selected it, so the remainder is never
+> below it. It exists for the rungs that were removed.
+
+> **The clock advances a minute at a time even though the delta is coarse**, because the zone's
+> rest-event counter is per minute and a rest can be interrupted part-way through a step. A
+> fifteen-minute step gives the zone fifteen chances, not one.
+
+> **The zone's counter resets when it is checked, not when it fires.** A roll that misses still
+> starts the interval again.
+
+**This is the first screen that needed a cycle.** `GameEvent::OnCycle` runs "regardless of whether
+the player provides input", and the port's loop was purely input-driven — so `Game.Cycle` is new,
+and the main loop now calls it every frame. Only REST uses it; the reference also drives
+spell-effect expiry and the auto-heal timer through it, by way of
+`PARTY::ProcessTimeSensitiveData`. **That function is what REST's healing and spell memorisation
+hang off, and it is not ported** — so a rest passes time and can be interrupted, and nobody heals.
+
+> **`RestTimeForm` already existed, built and tested, wired to nothing.** The art-picker situation
+> again: I wrote the carrying increment and the refusing decrement a second time, in a second
+> place, and found out only because the `RestField` enum collided on a build. The duplicate is
+> gone; `RestDuration` keeps only what a *running* rest needs — how much is left, and how fast to
+> spend it. **Grepping for the screen's name before porting its rules would have cost nothing.**
+
+Three more encamp gates turned up while reading `OnUpdateUI` (`:9197`):
+
+> **MAGIC follows the zone's `AllowMagic`.** **FIX is dark in a no-rest zone whatever pushed the
+> camp; REST is dark only when the camp came from the world** rather than from an event — so an
+> event that camps the party can rest them somewhere they could not have chosen to. Only the
+> event-pushed path exists in this port, so the flag feeding that rule is a property rather than a
+> constant, to stay visible when the other arrives.
+
 ##### ALTER, and the marching order
 
 `ALTER_GAME_MENU_DATA` (`RunEvent.cpp:22353`) is a hub of nine over one character; three of them
@@ -6967,8 +7017,11 @@ What is left, in order:
 
      **ALTER and the marching order run too** — **eight of camp's twelve entries** (§ALTER).
 
-     **Next: MAGIC and REST**, and the town services — buy, appraise, heal, donate. FIX belongs
-     with them: it casts from the design's fix spell book, so it waits on spell casting.
+     **REST runs** — **nine of camp's twelve entries** (§REST). What it does not do is heal or
+     memorise, because both hang off `PARTY::ProcessTimeSensitiveData`.
+
+     **Next: that function**, which unblocks REST's healing, MAGIC's memorisation and FIX at once —
+     then the town services: buy, appraise, heal, donate.
 
 
 
