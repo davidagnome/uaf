@@ -69,23 +69,7 @@ public sealed class Game
             RandomEventChoice.Pick(random, id => events?.ById(id) is not null, sides => Dice(sides));
 
 
-        // The full level gives the wall sets, which sit after the event list; the map-only read is
-        // the fallback for a level whose events cannot all be decoded, since movement needs the
-        // grid and nothing else.
-        var level = design.Level(levelIndex);
-        Map = level is not null
-            ? new Map(level.Width, level.Height, level.Cells)
-            : design.Map(levelIndex);
-
-        zones = level?.Zones;
-
-        if (level is not null && Map is not null)
-        {
-            events = new EventLookup(level.Events);
-            resolver = new WallResolver(Map, level.WallSets);
-            wallFormats = WallFormatReader.ReadAll(design.Config);
-            wallSets = level.WallSets;
-        }
+        LoadLevel(levelIndex);
 
         // The engine's own defaults, from GLOBAL_STATS. A design says where a new party starts.
         X = design.Globals.StartX;
@@ -304,12 +288,70 @@ public sealed class Game
 
     }
 
-    private readonly EventLookup? events;
-    private readonly WallResolver? resolver;
-    private readonly IReadOnlyList<WallFormat> wallFormats = [];
+    /// <summary>
+    /// Opens a level and hangs everything that depends on it off this game
+    /// (<c>LoadLevel</c>, <c>Level.cpp:2210</c>).
+    /// </summary>
+    /// <returns>False when the level could not be read, leaving the current one in place.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>It does not move the party.</b> The reference's callers stash the position before
+    /// calling and put it back afterwards, so where the party ends up is always the caller's
+    /// decision — a savegame's stored square, or a teleporter's destination, never the level's own
+    /// idea of a start.
+    /// </para>
+    /// <para>
+    /// <b>A failure leaves the game on the level it was already on.</b> <c>LoadLevel</c> assigns
+    /// <c>globalData.currLevel</c> only inside its success branch, and its callers set
+    /// <c>miscError = LevelLoadError</c> rather than proceeding.
+    /// </para>
+    /// <para>
+    /// <b>The map-only read is the fallback</b> for a level whose events cannot all be decoded:
+    /// movement needs the grid and nothing else, so a level that will not decode fully still walks.
+    /// </para>
+    /// </remarks>
+    public bool LoadLevel(int levelIndex)
+    {
+        var level = design.Level(levelIndex);
+        var map = level is not null
+            ? new Map(level.Width, level.Height, level.Cells)
+            : design.Map(levelIndex);
+
+        if (map is null)
+        {
+            return false;
+        }
+
+        LevelIndex = levelIndex;
+        Map = map;
+        zones = level?.Zones;
+
+        if (level is not null)
+        {
+            events = new EventLookup(level.Events);
+            resolver = new WallResolver(map, level.WallSets);
+            wallFormats = WallFormatReader.ReadAll(design.Config);
+            wallSets = level.WallSets;
+        }
+        else
+        {
+            // Nothing from the old level may survive onto the new one: an event lookup or a wall
+            // resolver built against a different grid answers confidently and wrongly.
+            events = null;
+            resolver = null;
+            wallFormats = [];
+            wallSets = null;
+        }
+
+        return true;
+    }
+
+    private EventLookup? events;
+    private WallResolver? resolver;
+    private IReadOnlyList<WallFormat> wallFormats = [];
 
     /// <summary>The current level's grid, or null when it could not be read.</summary>
-    public Map? Map { get; }
+    public Map? Map { get; private set; }
 
     /// <summary>Resolves viewport slots to wall art, when the level's wall sets were readable.</summary>
     public WallResolver? Walls => resolver;
@@ -353,8 +395,8 @@ public sealed class Game
     private string wrappedMessage = string.Empty;
     private int wrappedWidth = -1;
 
-    /// <summary>Which level is loaded. A transfer to any other one is not carried out yet.</summary>
-    public int LevelIndex { get; }
+    /// <summary>Which level is loaded.</summary>
+    public int LevelIndex { get; private set; }
 
     /// <summary>The adventuring party.</summary>
     /// <remarks>
@@ -846,12 +888,30 @@ public sealed class Game
         {
             int level = LoadFrom(SaveGameReader.Read(path));
 
-            // The map is not reloaded -- see LoadFrom. Saying so is better than landing the party
-            // on the wrong level's map without comment.
-            return level == LevelIndex
-                ? null
-                : $"The saved game is on level {level}; this port cannot switch levels on load, "
-                  + "so the party has been placed on the current one.";
+            if (level == LevelIndex)
+            {
+                return null;
+            }
+
+            // The reference stashes the party's square before LoadLevel and puts it back after,
+            // so the save decides where the party stands and the level decides nothing
+            // (RunEvent.cpp:5612). Same here, and for the same reason: a level load must not be
+            // able to move anyone.
+            int x = X, y = Y;
+            var facing = Facing;
+
+            if (!LoadLevel(level))
+            {
+                return $"The saved game is on level {level}, which could not be read; "
+                       + "the party is still on level " + LevelIndex + ".";
+            }
+
+            X = x;
+            Y = y;
+            Facing = facing;
+            Visited.SetVisited(LevelIndex, X, Y);
+
+            return null;
         }
         catch (Exception e) when (e is IOException or InvalidDataException
                                     or EndOfStreamException or NotSupportedException)
@@ -860,7 +920,15 @@ public sealed class Game
         }
     }
 
-    /// <returns>The level the save was taken on, for a caller that can load it.</returns>
+    /// <summary>
+    /// Restores a saved game onto this one, without touching the level.
+    /// </summary>
+    /// <returns>The level the save was taken on, which the caller loads.</returns>
+    /// <remarks>
+    /// <b>The split is the reference's.</b> <c>serializeGame</c> restores the state and the
+    /// caller then calls <c>LoadLevel</c> around it, stashing the party's square so the level
+    /// cannot move anyone — see <see cref="LoadFromSlot"/>.
+    /// </remarks>
     public int LoadFrom(SaveGame save)
     {
         ArgumentNullException.ThrowIfNull(save);
@@ -1900,10 +1968,9 @@ public sealed class Game
     /// Moves the party to a transfer's destination (<c>TRANSFER_EVENT_DATA</c>).
     /// </summary>
     /// <remarks>
-    /// <b>Only same-level transfers are carried out.</b> A destination level other than the one
-    /// loaded needs the level swapped underneath the game, which this engine does not do yet — so
-    /// it is reported rather than silently landing the party at the right coordinates on the wrong
-    /// map, which would look like it worked.
+    /// <b>Stairs, teleporters and module transfers are one operation.</b> The only fork is
+    /// whether <c>destLevel</c> is the level already loaded, and both sides of it are carried
+    /// out — see <see cref="Teleport"/>.
     /// </remarks>
     /// <summary><c>destEP</c> for a destination resolved by a global script.</summary>
     /// <remarks>
@@ -1954,11 +2021,18 @@ public sealed class Game
             destination = resolved;
         }
 
+        // The destination is copied out before anything else: it lives in the current level's
+        // event, and loading another level frees that. "This data gets wiped when the new level
+        // is loaded" is the reference's own comment (Party.cpp:3483) -- and `destination` being a
+        // record here means the copy is already made.
         if (destination.DestLevel != LevelIndex)
         {
-            Message = $"[Teleporter to level {destination.DestLevel} "
-                      + "-- changing level is not implemented]";
-            return false;
+            if (!LoadLevel(destination.DestLevel))
+            {
+                Message = $"[teleporter to level {destination.DestLevel}, "
+                          + "which could not be read]";
+                return false;
+            }
         }
 
         int x = destination.DestX;
@@ -1966,6 +2040,8 @@ public sealed class Game
 
         if (destination.DestEntryPoint >= 0)
         {
+            // Read from the level just loaded, not the one being left -- "need to use entry point
+            // data from loaded level" (Party.cpp:3492).
             if (EntryPoint(destination.DestEntryPoint) is not { } arrival)
             {
                 Message = $"[teleporter names entry point {destination.DestEntryPoint}, "
@@ -1975,19 +2051,61 @@ public sealed class Game
 
             (x, y) = (arrival.X, arrival.Y);
         }
+        else if (destination.DestEntryPoint == StayWhereYouAre)
+        {
+            (x, y) = (X, Y);
+        }
+
+        // A square outside the new level is refused rather than arrived at. The reference sets
+        // success = FALSE here too, but only after it has already loaded the new level -- leaving
+        // the party on it at the old level's coordinates, which its own comment questions
+        // ("reload old level?", Party.cpp:3516).
+        if (Map is { } map && (x < 0 || x >= map.Width || y < 0 || y >= map.Height))
+        {
+            Message = $"[teleporter names ({x}, {y}), which is off level {LevelIndex}]";
+            return false;
+        }
 
         X = x;
         Y = y;
-        Facing = (Facing)(destination.Facing & 3);
+        Facing = FacingAfter(destination.Facing);
         Visited.SetVisited(LevelIndex, X, Y);
         Message = $"You are somewhere else: ({X}, {Y}) facing {Facing}.";
         return true;
     }
 
+    /// <summary>
+    /// <c>destEP == -2</c>: arrive on the square the party is already standing on.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference only honours this on a same-level transfer</b> (<c>Party.cpp:3540</c>);
+    /// its cross-level branch has no such case, so the stored coordinates are used instead. Since
+    /// "stay here" across a level change means a square on a different map, the two readings
+    /// differ only for a design that writes something the reference does not really support —
+    /// this port honours it either way rather than reproducing the gap.
+    /// </remarks>
+    public const int StayWhereYouAre = -2;
+
+    /// <summary>
+    /// The facing a transfer leaves the party in.
+    /// </summary>
+    /// <remarks>
+    /// <b>Four means "unchanged", and masking it to two bits turns it into north.</b>
+    /// <c>if (df == 4) df = facing;</c> (<c>Party.cpp:3520</c>) — a teleporter that means to leave
+    /// the party looking the way it came would otherwise spin it, silently and only sometimes.
+    /// </remarks>
+    private Facing FacingAfter(int stored) =>
+        stored == FacingUnchanged ? Facing : (Facing)(stored & 3);
+
+    /// <summary>The sentinel <see cref="FacingAfter"/> reads.</summary>
+    public const int FacingUnchanged = 4;
+
     /// <summary>An entry point on the current level, or null when there is no such slot.</summary>
     /// <remarks>
-    /// The reference reads these from the level it has just loaded. Only same-level transfers get
-    /// this far, so the current level's table is the right one.
+    /// <b>Called after the destination level is loaded, never before.</b> The reference says so in
+    /// as many words — "need to use entry point data from loaded level" (<c>Party.cpp:3492</c>) —
+    /// and reading the table of the level being left would place the party by an index that means
+    /// something else there.
     /// </remarks>
     private EntryPoint? EntryPoint(int index)
     {
@@ -1999,10 +2117,10 @@ public sealed class Game
         return index >= 0 && index < stats!.EntryPoints.Count ? stats.EntryPoints[index] : null;
     }
 
-    private readonly ZoneData? zones;
+    private ZoneData? zones;
 
     /// <summary>The level's wall sets, which combat needs to build its map.</summary>
-    private readonly IReadOnlyList<WallSetSlot>? wallSets;
+    private IReadOnlyList<WallSetSlot>? wallSets;
 
     /// <summary>
     /// The art a full-screen event shows where the dungeon view was.

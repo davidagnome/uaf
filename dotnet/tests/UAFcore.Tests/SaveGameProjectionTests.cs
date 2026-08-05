@@ -338,6 +338,67 @@ public class SaveGameProjectionTests : IDisposable
     }
 
     [Fact]
+    public void A_game_saved_on_one_level_loads_back_onto_it()
+    {
+        // The loose end saving left behind: LoadFrom restores the party but the map was whatever
+        // was already open, so a cross-level load put everyone on the wrong grid.
+        using var design = Open();
+        if (design is null || design.LevelFiles.Count < 2)
+        {
+            return;
+        }
+
+        var game = new Game(design, levelIndex: 1);
+        int level = game.LevelIndex;
+        var (x, y) = (game.X, game.Y);
+
+        Assert.Null(SaveInto(game, 0));
+
+        // A fresh game on a different level, which is the state a load has to correct.
+        var reopened = new Game(design, levelIndex: 0);
+        Assert.NotEqual(level, reopened.LevelIndex);
+
+        Assert.Null(LoadFrom(reopened, 0));
+
+        Assert.Equal(level, reopened.LevelIndex);
+        Assert.Equal((x, y), (reopened.X, reopened.Y));
+    }
+
+    [Fact]
+    public void The_level_load_does_not_move_the_party()
+    {
+        // The reference stashes the square before LoadLevel and puts it back after, so where the
+        // party stands comes from the save and never from the level.
+        using var design = Open();
+        if (design is null || design.LevelFiles.Count < 2)
+        {
+            return;
+        }
+
+        var game = new Game(design, levelIndex: 1);
+        var start = (game.X, game.Y);
+
+        // Walk somewhere the level's own defaults would not have put anyone.
+        for (int i = 0; i < 12 && (game.X, game.Y) == start; i++)
+        {
+            game.Update(InputEvent.KeyDown(i % 4 == 3 ? VirtualKey.Right : VirtualKey.Up));
+        }
+
+        if ((game.X, game.Y) == start)
+        {
+            return;             // walled in; the other test still covers the level itself
+        }
+
+        var moved = (game.X, game.Y);
+        Assert.Null(SaveInto(game, 0));
+
+        var reopened = new Game(design, levelIndex: 0);
+        Assert.Null(LoadFrom(reopened, 0));
+
+        Assert.Equal(moved, (reopened.X, reopened.Y));
+    }
+
+    [Fact]
     public void Saving_is_no_longer_refused()
     {
         using var design = Open();

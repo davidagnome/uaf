@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,277 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,284 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3939,10 +3939,49 @@ yet mutated a spell's or a monster's attributes writes nothing and loses nothing
 where "not ported" and "correct" coincide, and it holds only until something starts changing
 those lists.
 
-**Not done: loading does not reload the level.** The reference calls `LoadLevel` and rebuilds the
-map, events and music; `LoadFrom` restores the party onto whatever level is open and *returns the
-level the save was taken on* so the caller can act. A cross-level load says so on screen rather
-than placing the party silently on the wrong map.
+~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
+
+##### The level load, and three bugs in the transfer beside it
+
+`LoadLevel` (`Level.cpp:2210`) was the loose end saving left behind, and it was one extraction
+away: every level-dependent thing — the map, the zones, the event lookup, the wall resolver and
+the wall sets — was built once in `Game`'s constructor and never rebuilt. Pulling it into a
+`LoadLevel(index)` the constructor also calls closed the load path and the teleporter's
+cross-level branch together.
+
+> **It does not move the party.** Every caller in the reference stashes the square before calling
+> and puts it back after, so where the party ends up is always the caller's decision — a
+> savegame's stored square, a teleporter's destination — never the level's own idea of a start.
+
+> **A failure leaves the game on the level it was already on.** `LoadLevel` assigns
+> `globalData.currLevel` only inside its success branch, and its callers set
+> `miscError = LevelLoadError` rather than proceeding.
+
+> **The destination has to be copied before the load.** "This data gets wiped when the new level
+> is loaded" (`Party.cpp:3483`) — the `TRANSFER_DATA` lives in an event on the level being left,
+> which the load frees. A record parameter makes the copy for free here, but the hazard is real and
+> the reason is worth keeping.
+
+> **Entry points come from the level just loaded**, not the one being left — the reference says so
+> in a comment, and reading the old table would place the party by coordinates that mean something
+> else entirely.
+
+Reading `TeleportParty` properly to get the cross-level case turned up **two live bugs in the
+same-level case the port already had**, neither of which any test covered:
+
+> **A facing of 4 means "unchanged", and this port masked it to two bits.** `if (df == 4) df =
+> facing` (`Party.cpp:3520`); `4 & 3` is 0, which is north. A teleporter meaning to leave the
+> party looking the way it came was spinning it — silently, and only for the designs that use the
+> sentinel.
+
+> **`destEP == -2` means "the square you are already on".** The port read the stored coordinates
+> instead. The reference honours this only in its same-level branch; since "stay here" across a
+> level change names a square on a different map, this port honours it either way rather than
+> reproducing a gap that no design can sensibly rely on.
+
+> **An off-map destination is refused rather than arrived at.** The reference bounds-checks too,
+> but only *after* loading the new level — leaving the party on it at the old level's coordinates.
+> Its own comment questions this: `// reload old level?`. The port refuses before moving anyone.
 
 ##### Blockages and vaults — the last two, and one that was never missing
 
@@ -6838,8 +6877,11 @@ What is left, in order:
      question to two design scripts, and a design without them has a permanently dark entry
      (§CHANGE CLASS). **All twelve party-menu entries now run**, which closes the party menu.
 
+     **Reloading the level on load is done**, and so are cross-level teleports — one extraction
+     served both (§the level load).
+
      **Next: the single-caller screens** — magic, rest, alter, journal, buy, appraise, heal,
-     donate — and **reloading the level on load**, the one loose end saving left behind.
+     donate.
 
 
 

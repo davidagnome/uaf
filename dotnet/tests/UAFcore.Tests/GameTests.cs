@@ -1374,6 +1374,13 @@ public class GameTests
             .Where(l => l is not null)
             .SelectMany(l => l!.Events.OfType<T>())];
 
+    private static TransferEvent Transfer(int entryPoint, int level, int x, int y,
+                                          int facing) =>
+        new(new GameEventBase(NoControl, NoPicRecord, NoPicRecord, (int)EventType.Teleporter,
+                              1, 0, 0, 0, 0, "", "", "", []),
+            AskYesNo: 0, TransferOnYes: 0, DestroyDrow: 0, ActivateBeforeEntry: 0,
+            new TransferData(0, entryPoint, level, x, y, facing));
+
     private static TransferEvent Transfer(int entryPoint, int level, int x, int y) =>
         new(new GameEventBase(NoControl, NoPicRecord, NoPicRecord, (int)EventType.Teleporter,
                               1, 0, 0, 0, 0, "", "", "", []),
@@ -1439,6 +1446,119 @@ public class GameTests
         game.StartEvent(Transfer(entryPoint: -1, game.LevelIndex, x: 5, y: 6));
 
         Assert.Equal((5, 6), (game.X, game.Y));
+    }
+
+    [Fact]
+    public void A_facing_of_four_means_unchanged_rather_than_north()
+    {
+        // if (df == 4) df = facing (Party.cpp:3520). Masking it to two bits instead turns it into
+        // north -- silently, and only for the teleporters that meant to leave the party alone.
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        game.Update(InputEvent.KeyDown(VirtualKey.Right));      // off north, whatever it was
+        var before = game.Facing;
+        Assert.NotEqual(Facing.North, before);
+
+        game.StartEvent(Transfer(entryPoint: -1, game.LevelIndex, x: 5, y: 6,
+                                 facing: Game.FacingUnchanged));
+
+        Assert.Equal(before, game.Facing);
+        Assert.Equal((5, 6), (game.X, game.Y));
+    }
+
+    [Fact]
+    public void A_destination_of_minus_two_leaves_the_party_where_it_stands()
+    {
+        // destEP == -2 takes the party's own square (Party.cpp:3540) rather than the stored pair.
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        var (x, y) = (game.X, game.Y);
+
+        game.StartEvent(Transfer(Game.StayWhereYouAre, game.LevelIndex, x: 5, y: 6, facing: 0));
+
+        Assert.Equal((x, y), (game.X, game.Y));
+    }
+
+    [Fact]
+    public void A_destination_off_the_map_is_refused_rather_than_arrived_at()
+    {
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+        var (x, y) = (game.X, game.Y);
+
+        game.StartEvent(Transfer(entryPoint: -1, game.LevelIndex, x: 9999, y: 9999, facing: 0));
+
+        Assert.Equal((x, y), (game.X, game.Y));
+        Assert.Contains("off level", game.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_transfer_to_another_level_loads_it()
+    {
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        if (design.LevelFiles.Count < 2)
+        {
+            return;
+        }
+
+        var game = new Game(design);
+        int from = game.LevelIndex;
+        var map = game.Map;
+
+        game.StartEvent(Transfer(entryPoint: -1, level: from + 1, x: 1, y: 1, facing: 0));
+
+        Assert.Equal(from + 1, game.LevelIndex);
+        Assert.NotSame(map, game.Map);
+        Assert.Equal((1, 1), (game.X, game.Y));
+    }
+
+    [Fact]
+    public void A_level_that_cannot_be_read_leaves_the_party_where_it_was()
+    {
+        // LoadLevel assigns globalData.currLevel only in its success branch, and its callers set
+        // miscError rather than proceeding.
+        string? root = EventBearingDesigns().FirstOrDefault();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+        var game = new Game(design);
+
+        int from = game.LevelIndex;
+        var (x, y) = (game.X, game.Y);
+
+        game.StartEvent(Transfer(entryPoint: -1, level: 250, x: 1, y: 1, facing: 0));
+
+        Assert.Equal(from, game.LevelIndex);
+        Assert.Equal((x, y), (game.X, game.Y));
     }
 
     [Fact]
