@@ -63,7 +63,9 @@ public class EventStatsScreenTests
 
     private static EventRunner Started(Func<CharacterCreation, StatsScreen?>? forCreation = null,
                                        Func<StatsScreen?>? forMember = null,
-                                       Action? onTab = null)
+                                       Action? onTab = null,
+                                       Func<IReadOnlyList<string>>? classes = null,
+                                       Action<string>? applyClass = null)
     {
         var runner = new EventRunner
         {
@@ -72,6 +74,9 @@ public class EventStatsScreenTests
             TabParty = onTab ?? (() => { }),
             StatsForCreation = forCreation,
             StatsForActiveMember = forMember,
+            ClassChangesFor = classes,
+            CanChangeClassHere = () => classes?.Invoke().Count > 0,
+            ApplyClassChange = applyClass,
             CreationChoicesFor = making => making.Step switch
             {
                 CreationStep.Race => [new CreationChoice("Human", "HUMAN")],

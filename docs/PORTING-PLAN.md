@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,251 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,277 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3339,8 +3339,8 @@ and nothing else** — no questions, no re-picking a race.
 
 Which means the screen the generator was skipping and the screen MODIFY needs are one screen, and
 porting it finished both. `UAFcore/StatsScreen.cs`, `UAF.Rules/AbilityLimits.cs`,
-`UAF.Rules/StatAdjustment.cs`. **Ten of the party menu's twelve entries now do something** — only
-CHANGE CLASS and VIEW's deeper pages are left.
+`UAF.Rules/StatAdjustment.cs`. **Ten of the party menu's twelve entries do something at this
+point** — CHANGE CLASS is the twelfth, in the section below.
 
 > **`AllowModifyStats` is a global initialised to `true` and assigned nowhere else**
 > (`Globals.cpp:588`). It guards the TAB and up/down handling, so in a shipped build the guard is
@@ -3404,6 +3404,61 @@ hit-point seed is not yet stored on a character that has not been assembled. The
 `DetermineNewCharMaxHitPoints(hitpointSeed)` against the character's own seed, so its hit points
 are a function of the ability scores alone. The scores are right; the total moves more than it
 should.
+
+##### CHANGE CLASS, which the engine deliberately refuses to decide
+
+`CreateChangeClassList` (`Char.cpp:7646`) filters every class in the design through
+`CanChangeToClass` — and **every rule that function once had is commented out**, with the reason
+written above it. The designer asked for "the engine to have no part in this decision"; the
+alignment check and the minimum-15-in-your-prime-ability checks are all `/* … */`.
+`UAFcore/ClassChange.cs`.
+
+> **Two script hooks decide, and they are asked of different classes.** `CanChangeFromClass` runs
+> on the class being left with the target's id in `hookParameters[5]`; `CanChangeToClass` runs on
+> the class being joined with the origin's. Both must answer `Y`.
+
+> **Silence is a refusal, and that is the shipped behaviour.** `hookParameters[0]` starts empty and
+> is emptied again between the two calls, so a class with no such script fails `!= 'Y'`. **A design
+> that has not written these hooks has a permanently dark CHANGE CLASS entry — in the reference as
+> much as here.** `ClassChange.NoScripts` is therefore not a placeholder standing in for a rule; it
+> *is* the rule until the scripting phase lands, and the seam for when it does.
+
+Everything around the hook is deterministic and ported: not a monster, the race's
+`m_canChangeClass` flag set, a race the design actually has (a missing one refuses rather than
+permits), not already dual-classed, and never the character's own class.
+
+> **`IsDualClass` is a sweep for a non-zero `previousLevel`** (`Char.cpp:7454`) — which is exactly
+> the field changing class sets, so the change is one-way by construction rather than by a flag.
+
+`HumanChangeClass` (`Char.cpp:7770`) is the mutation:
+
+- **Every existing baseclass drops to level 0 and keeps its old level as its previous one.**
+  Nothing is removed — the old row is what makes the character dual-classed.
+- **Experience is not reset.** Only rows added by the change start at zero.
+- **Every carried item is unreadied**, whether or not the new class could use it.
+- Two more hooks, `CHANGE_CLASS_FROM` and `CHANGE_CLASS_TO`, bracket it.
+
+> **The duplicate-baseclass check reads the wrong index.** The inner search does
+> `PeekBaseclassStats(i)` where `j` is plainly meant, so it compares one arbitrary row instead of
+> searching them all — and indexes past the end as soon as the new class has more baseclasses than
+> the character has rows. There is no defined behaviour to transcribe, so the port searches
+> properly and says so.
+
+##### A silent bug the type constants were hiding
+
+Porting the monster check turned up that `Game` had `NpcType = 1`, documented as `NPC_TYPE`.
+**`CHAR_TYPE` is 1; `NPC_TYPE` is 2** (`Externs.h:965`). DELETE built its filename from that
+constant, so it looked for every player character at `DCNPC_<name>.chr` and every NPC at
+`<name>.chr` — **both misses silent**, because the delete failed, was caught, and reported a file
+that had never been there.
+
+> **And the comparison was raw where it had to be masked.** `type` holds a kind in its low bits and
+> an in-party flag in its top one, and `CHARACTER::GetType` masks the flag off before comparing
+> (`Char.h:985`). `EventNpc.KindOf` already did this correctly elsewhere in the port; this call
+> site did not use it. So even with the right constant, every record saved while its subject was in
+> the party — which is every record DELETE sees — would have missed.
+
+Two constants, one line, no test. `CharacterFileNameTests` now covers it.
 
 ##### The art and spell screens on screen — and three bugs the end-to-end test found
 
@@ -6779,11 +6834,14 @@ What is left, in order:
      (§MODIFY, which is not what the plan said it was). That screen was also the generator's one
      skipped step, so porting it closed both. **Ten of twelve party-menu entries now run.**
 
-     **Next: CHANGE CLASS**, which needs `CreateChangeClassList` — the last entry that does
-     nothing.
+     **CHANGE CLASS is done too, and it decides nothing** — the engine delegates the whole
+     question to two design scripts, and a design without them has a permanently dark entry
+     (§CHANGE CLASS). **All twelve party-menu entries now run**, which closes the party menu.
 
-     Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
-     and **reloading the level on load**, the one loose end saving left behind.
+     **Next: the single-caller screens** — magic, rest, alter, journal, buy, appraise, heal,
+     donate — and **reloading the level on load**, the one loose end saving left behind.
+
+
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing

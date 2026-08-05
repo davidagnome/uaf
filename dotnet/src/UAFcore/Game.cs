@@ -176,6 +176,12 @@ public sealed class Game
         Runner.StatsForCreation = StatsForCreation;
         Runner.StatsForActiveMember = StatsForActiveMember;
 
+        // With no scripting layer this list is always empty and the entry stays dark, which is
+        // what the reference does for a design that has not written the two hooks.
+        Runner.ClassChangesFor = ClassChangesForActiveMember;
+        Runner.CanChangeClassHere = () => ClassChangesForActiveMember().Count > 0;
+        Runner.ApplyClassChange = ChangeActiveMemberClass;
+
         // Each step's offers come off the design's own tables, and class depends on the two
         // choices before it -- which is why the wizard's order is what it is.
         Runner.CreationChoicesFor = making => making.Step switch
@@ -490,7 +496,12 @@ public sealed class Game
 
         if (what is EventRunner.PartyConfirm.Delete && !string.IsNullOrEmpty(who.Name))
         {
-            string prefix = who.Record.Type == NpcType ? CharacterRoster.NpcFilePrefix : "";
+            // GetType() masks the in-party flag off before comparing (Char.h:985), and the
+            // kind for an NPC is 2 -- 1 is CHAR_TYPE, which would put the prefix on every
+            // player character and leave it off every NPC.
+            string prefix = EventNpc.KindOf(who.Record) == EventNpc.NpcType
+                ? CharacterRoster.NpcFilePrefix
+                : "";
             string path = Path.Combine(SaveDirectory, $"{prefix}{who.Name}.chr");
 
             try
@@ -511,9 +522,6 @@ public sealed class Game
         }
     }
 
-    /// <summary><c>NPC_TYPE</c> — whose saved file carries the <c>DCNPC_</c> prefix.</summary>
-    private const byte NpcType = 1;
-
     /// <summary>
     /// A fresh hit-point seed (<c>hitpointSeed = randomMT()</c>, <c>Char.cpp:4419</c>).
     /// </summary>
@@ -531,6 +539,37 @@ public sealed class Game
         && values.Length > 0
             ? Math.Max(1, values[0])
             : RolledCharacter.DefaultStartAge;
+
+    /// <summary>
+    /// What the active party member could change class to.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty for every shipped design, and correctly so.</b> The decision is two script hooks
+    /// on the classes themselves (<see cref="ClassChange"/>), and a class with no such script
+    /// refuses — so until the scripting phase lands, <see cref="ClassChange.NoScripts"/> is not a
+    /// placeholder but the engine's own answer.
+    /// </remarks>
+    private IReadOnlyList<string> ClassChangesForActiveMember()
+    {
+        if (Party.Active is not { } who || design.Classes is not { } classes)
+        {
+            return [];
+        }
+
+        return ClassChange.Options(who, design.Races?.GetValueOrDefault(who.Race),
+                                   classes.Keys, ClassChange.NoScripts, out _);
+    }
+
+    private void ChangeActiveMemberClass(string classId)
+    {
+        if (Party.Active is not { } who)
+        {
+            return;
+        }
+
+        var record = design.Classes?.GetValueOrDefault(classId);
+        ClassChange.Apply(who, classId, record?.Baseclasses ?? []);
+    }
 
     /// <summary>
     /// The class's range for one ability, tightest across its baseclasses.

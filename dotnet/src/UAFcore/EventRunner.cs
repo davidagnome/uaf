@@ -917,8 +917,13 @@ public sealed class EventRunner
 
         Menu.SetItemEnabled(PartyTrain, canTrain);
 
-        // CreateChangeClassList is not ported, so this is dark rather than guessed at.
-        Menu.SetItemEnabled(PartyChangeClass, false);
+        // CHANGE CLASS is dark outside a training hall whatever the list says (RunEvent.cpp:2522),
+        // which is the same gate TRAIN is behind. Inside one it follows
+        // CreateChangeClassList != 0 -- and with no scripting layer that list is always empty, so
+        // in practice this entry stays dark for every shipped design.
+        Menu.SetItemEnabled(PartyChangeClass,
+                            partyMenuHall is not null
+                            && CanChangeClassHere?.Invoke() == true);
 
         // The reference darkens SAVE inside a global event or a fight. Reached only from a
         // training hall so far, where neither holds -- but the screen has no other owner yet.
@@ -1414,6 +1419,126 @@ public sealed class EventRunner
         }
     }
 
+    // ---- CHANGE CLASS --------------------------------------------------------------------------
+
+    /// <summary>The classes on offer, or null when the change-class screen is not up.</summary>
+    public IReadOnlyList<string>? ClassChoices { get; private set; }
+
+    /// <summary>Which one the cursor is on.</summary>
+    public int ClassIndex { get; private set; }
+
+    /// <summary>Lists what the active member could change to; set by the host.</summary>
+    public Func<IReadOnlyList<string>>? ClassChangesFor { get; set; }
+
+    /// <summary>Whether the entry lights up — <c>CreateChangeClassList(NULL) != 0</c>.</summary>
+    public Func<bool>? CanChangeClassHere { get; set; }
+
+    /// <summary>Applies a chosen class to the active member.</summary>
+    public Action<string>? ApplyClassChange { get; set; }
+
+    /// <summary>
+    /// <c>CHANGE_CLASS_MENU_DATA</c> (<c>RunEvent.cpp:21949</c>) — the same four-entry picker the
+    /// generator's class step uses.
+    /// </summary>
+    private EventStep OpenClassChange()
+    {
+        ClassChoices = ClassChangesFor?.Invoke() ?? [];
+        ClassIndex = 0;
+
+        if (ClassChoices.Count == 0)
+        {
+            // The entry should have been dark. Reaching it anyway says so rather than showing an
+            // empty list the player cannot leave.
+            ClassChoices = null;
+            Unimplemented = "[CHANGE CLASS here -- no class qualifies]";
+            return EventStep.Running;
+        }
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CreationMenu);
+        escapeSelects = CreationExit;
+        ShowText("CHOOSE NEW CLASS");
+
+        return EventStep.Running;
+    }
+
+    /// <summary>The page of classes showing.</summary>
+    public IReadOnlyList<string> ClassPageOffers =>
+        [.. (ClassChoices ?? []).Skip(ClassPage * PageSize).Take(PageSize)];
+
+    private int ClassPage;
+
+    private int ClassPageCount =>
+        Math.Max(1, ((ClassChoices?.Count ?? 0) + PageSize - 1) / PageSize);
+
+    private EventStep ChooseClassChange()
+    {
+        if (ClassChoices is null)
+        {
+            return EventStep.Running;
+        }
+
+        switch (Menu.ActiveItem)
+        {
+            case CreationSelect:
+            {
+                var page = ClassPageOffers;
+                if (ClassIndex < 0 || ClassIndex >= page.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                ApplyClassChange?.Invoke(page[ClassIndex]);
+                break;
+            }
+
+            case CreationNext:
+                ClassPage = (ClassPage + 1) % ClassPageCount;
+                ClassIndex = 0;
+                return EventStep.Running;
+
+            case CreationPrev:
+                ClassPage = (ClassPage + ClassPageCount - 1) % ClassPageCount;
+                ClassIndex = 0;
+                return EventStep.Running;
+        }
+
+        // SELECT and EXIT both leave. The reference replaces the screen with the spell picker on
+        // SELECT -- knowSpellsAtCreation is hard-coded TRUE -- which is not wired here, so both
+        // drop back to the party menu.
+        ClassChoices = null;
+        ClassPage = 0;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+        UpdatePartyMenu();
+        escapeSelects = PartyExit;
+        return EventStep.Running;
+    }
+
+    private bool HandleClassChangeKey(VirtualKey key)
+    {
+        int onPage = ClassPageOffers.Count;
+        if (onPage <= 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                ClassIndex = ((ClassIndex - 1) % onPage + onPage) % onPage;
+                return true;
+
+            case VirtualKey.Down:
+                ClassIndex = (ClassIndex + 1) % onPage;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
     // ---- the stats screen ----------------------------------------------------------------------
 
     /// <summary>The stats screen's state, or null when it is not up.</summary>
@@ -1868,6 +1993,9 @@ public sealed class EventRunner
             // again from its own race, gender and class.
             case PartyModify:
                 return ShowStats(StatsForActiveMember?.Invoke());
+
+            case PartyChangeClass:
+                return OpenClassChange();
 
             case PartyRemove:
                 return AskAbout(PartyConfirm.Remove, "REMOVE {0} FROM PARTY?");
@@ -2564,6 +2692,14 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The class picker splits its keys the generator's way: the list takes up and down, the
+        // SELECT/NEXT/PREV/EXIT menu takes left and right.
+        if (ClassChoices is not null && input.Kind == InputEventKind.KeyDown
+            && HandleClassChangeKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // TABParty is the FIRST line of every OnKeypress (RunEvent.cpp:792) and returns before the
         // menu ever sees the key, so TAB can never also move a selection.
         if (input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Tab)
@@ -2608,7 +2744,7 @@ public sealed class EventRunner
         // stays "open" underneath them. The stats screen is the one that arrives without a
         // generator behind it, so Creating being null does not cover it.
         if (PartyMenuOpen && !SlotsOpen && !RosterOpen && Creating is null && ChoosingStats is null
-            && Confirming is PartyConfirm.None
+            && ClassChoices is null && Confirming is PartyConfirm.None
             && input.Kind == InputEventKind.KeyDown
             && input.Key is VirtualKey.Left or VirtualKey.Right)
         {
@@ -2680,6 +2816,11 @@ public sealed class EventRunner
         if (ChoosingStats is not null)
         {
             return ChooseStats();
+        }
+
+        if (ClassChoices is not null)
+        {
+            return ChooseClassChange();
         }
 
         if (Creating is not null)

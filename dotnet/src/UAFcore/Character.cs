@@ -71,6 +71,7 @@ public sealed class Character
         HitPoints = record.HitPoints;
         MaxHitPoints = record.MaxHitPoints;
         Abilities = record.Abilities;
+        ClassId = record.ClassId;
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
         Status = (CharacterStatus)record.Status;
@@ -92,7 +93,6 @@ public sealed class Character
 
     public string CharacterId => Record.CharacterId;
 
-    public string ClassId => Record.ClassId;
 
     public string Race => Record.Race;
 
@@ -107,6 +107,15 @@ public sealed class Character
     /// (<see cref="Training.HitPointsFor"/>), and the record is never rewritten.
     /// </remarks>
     public int MaxHitPoints { get; set; }
+
+    /// <summary>
+    /// The character's class, which CHANGE CLASS moves.
+    /// </summary>
+    /// <remarks>
+    /// <b>Loaded from the record but not tied to it</b>, for the same reason as
+    /// <see cref="Abilities"/>.
+    /// </remarks>
+    public string ClassId { get; set; }
 
     /// <summary>
     /// The six ability scores, which the stats screen shuffles points between.
@@ -258,6 +267,16 @@ public sealed class Character
     public List<ItemInstance> Items { get; }
 
     public IReadOnlyList<BaseclassProgress> Baseclasses => baseclasses;
+
+    /// <summary>Adds a baseclass row the character did not have.</summary>
+    /// <remarks>
+    /// Changing class is the only thing that does this — see <see cref="ClassChange.Apply"/>.
+    /// </remarks>
+    public void AddBaseclass(BaseclassProgress progress)
+    {
+        ArgumentNullException.ThrowIfNull(progress);
+        baseclasses.Add(progress);
+    }
 
     /// <summary>Total experience across every baseclass.</summary>
     public int TotalExperience => baseclasses.Sum(b => b.Experience);

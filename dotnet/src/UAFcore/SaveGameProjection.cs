@@ -188,6 +188,7 @@ public static class SaveGameProjection
             HitPoints = member.HitPoints,
             MaxHitPoints = member.MaxHitPoints,
             Abilities = member.Abilities,
+            ClassId = member.ClassId,
             Status = (int)member.Status,
             Morale = member.Morale,
             Money = member.Purse.ToRecord(),
