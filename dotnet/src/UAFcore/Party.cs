@@ -143,6 +143,52 @@ public sealed class Party
         ActiveCharacter = 0;
     }
 
+    /// <summary>
+    /// Moves the active character one place earlier in the marching order
+    /// (<c>PARTY::DecCharacterOrder</c>, <c>Party.cpp:4857</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The ends wrap by rotating, not by refusing.</b> Moving the character in front any
+    /// further shifts everyone else forward and drops it at the back — so a player holding the key
+    /// cycles the party rather than stopping.
+    /// </para>
+    /// <para>
+    /// <b>The active index follows the character.</b> It is set to wherever the character landed,
+    /// which is what lets the next press keep moving the same one.
+    /// </para>
+    /// </remarks>
+    public void MoveActiveEarlier() => Reorder(earlier: true);
+
+    /// <inheritdoc cref="MoveActiveEarlier"/>
+    public void MoveActiveLater() => Reorder(earlier: false);
+
+    private void Reorder(bool earlier)
+    {
+        if (members.Count <= 1)
+        {
+            return;
+        }
+
+        int source = Math.Clamp(ActiveCharacter, 0, members.Count - 1);
+        bool atEnd = earlier ? source == 0 : source == members.Count - 1;
+
+        if (!atEnd)
+        {
+            int swap = earlier ? source - 1 : source + 1;
+            (members[swap], members[source]) = (members[source], members[swap]);
+            ActiveCharacter = swap;
+            return;
+        }
+
+        var moved = members[source];
+        members.RemoveAt(source);
+
+        int landing = earlier ? members.Count : 0;
+        members.Insert(landing, moved);
+        ActiveCharacter = landing;
+    }
+
     /// <summary>The character whose turn it is, or null when the party is empty.</summary>
     public Character? Active =>
         (uint)ActiveCharacter < (uint)members.Count ? members[ActiveCharacter] : null;

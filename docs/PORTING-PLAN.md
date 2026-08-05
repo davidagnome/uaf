@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,306 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,323 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,36 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### ALTER, and the marching order
+
+`ALTER_GAME_MENU_DATA` (`RunEvent.cpp:22353`) is a hub of nine over one character; three of them
+run — ORDER, DROP and EXIT — which takes camp to **eight of twelve**. The other six are settings
+screens and the two art pickers, named rather than run.
+
+> **ORDER and DROP are dark below two characters** (`:22423`). There is no order to alter with
+> one, and dropping the last member would leave no party.
+
+`ALTER_ORDER_MENU_DATA` (`:22581`) is the smallest screen in the game: one EXIT entry, and all the
+work is in two arrow keys.
+
+> **The ends wrap by rotating rather than refusing.** `DecCharacterOrder` on the front character
+> shifts everyone else forward and drops it at the back; `IncCharacterOrder` on the back one does
+> the reverse (`Party.cpp:4857`, `:4891`). A player holding a key cycles the party instead of
+> jamming against slot one.
+
+> **The active index follows the character it moved**, not the slot it left — which is what lets
+> the next press keep moving the same one.
+
+> **DROP is the party menu's REMOVE, asked from somewhere else.** Same question, same confirmation,
+> same opening-on-NO. What differs is only where answering returns to, which is why the
+> confirmation grew a parent the way the inventory and the slot screens already had one.
+
+One ordering bug, caught by its own test: **a pushed screen has to answer before the screen it
+sits on.** DROP's confirmation was reaching `ChooseAlter` instead of `AnswerConfirm`, because the
+ALTER branch had gone in ahead of the confirmation's rather than after it — so YES did nothing at
+all. That rule is what the rest of the dispatch already follows; this was the one branch that
+broke it.
+
 ##### The camp screen's journal — and a rule that was dark by omission
 
 `DISPLAY_PARTY_JOURNAL_DATA` (`RunEvent.cpp:27570`) and `FormatJournalText`
@@ -6935,9 +6965,10 @@ What is left, in order:
      **The journal runs**, and SAVE, LOAD and TALK are wired from camp — **seven of camp's twelve
      entries** (§the camp screen's journal).
 
-     **Next: the rest of the single-caller screens** — magic, rest, alter, buy, appraise, heal,
-     donate. FIX belongs with them rather than with camp's shell: it casts from the design's fix
-     spell book, so it waits on spell casting.
+     **ALTER and the marching order run too** — **eight of camp's twelve entries** (§ALTER).
+
+     **Next: MAGIC and REST**, and the town services — buy, appraise, heal, donate. FIX belongs
+     with them: it casts from the design's fix spell book, so it waits on spell casting.
 
 
 

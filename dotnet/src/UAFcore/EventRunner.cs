@@ -731,8 +731,8 @@ public sealed class EventRunner
     /// entirely the inner menu, and the two are collapsed here.
     /// </para>
     /// <para>
-    /// <b>Seven of its twelve entries run</b> — SAVE, LOAD, VIEW, TALK, JOURNAL, ZAP and EXIT.
-    /// MAGIC, REST and ALTER are each their own event class and are named rather than run
+    /// <b>Eight of its twelve entries run</b> — SAVE, LOAD, VIEW, ALTER, TALK, JOURNAL, ZAP and
+    /// EXIT. MAGIC and REST are each their own event class and are named rather than run
     /// (<see cref="Unimplemented"/>); FIX needs the fix spell book and spell casting; QUIT is the
     /// game's own exit.
     /// </para>
@@ -846,6 +846,9 @@ public sealed class EventRunner
 
             case 1:
                 return OpenSlots(saving: false, CampMenu);
+
+            case 5:
+                return OpenAlter();
 
             case 8:
                 return OpenJournal(CampMenu);
@@ -1150,6 +1153,133 @@ public sealed class EventRunner
 
     /// <summary>Why the last save or load did not happen, or null if it did.</summary>
     public string? SlotMessage { get; private set; }
+
+    // ---- ALTER ---------------------------------------------------------------------------------
+
+    /// <summary>The ALTER menu (<c>AlterMenuData</c>, <c>GameMenu.cpp:1027</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] AlterMenu =
+        [("ORDER", 0), ("DROP", 0), ("SPEED", 0), ("ICON", 0), ("PIC", 0),
+         ("LEVEL", 0), ("VOLUME", 0), ("MUSIC", 0), ("EXIT", 1)];
+
+    public const int AlterOrder = 0;
+    public const int AlterDrop = 1;
+    public const int AlterExit = 8;
+
+    /// <summary>Whether the ALTER hub is the screen on top.</summary>
+    public bool AlterOpen { get; private set; }
+
+    /// <summary>Whether the party-order screen is up.</summary>
+    public bool OrderingParty { get; private set; }
+
+    /// <summary>Moves the active character up or down the marching order; set by the host.</summary>
+    public Action<bool>? MoveActive { get; set; }
+
+    /// <summary>How many characters the party has; set by the host.</summary>
+    public Func<int>? PartySize { get; set; }
+
+    /// <summary>
+    /// <c>ALTER_GAME_MENU_DATA</c> (<c>RunEvent.cpp:22407</c>) — nine entries over one character.
+    /// </summary>
+    private EventStep OpenAlter()
+    {
+        AlterOpen = true;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, AlterMenu);
+        escapeSelects = AlterExit;
+        UpdateAlterMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <b>ORDER and DROP are dark below two characters</b> (<c>:22423</c>) — there is no order to
+    /// alter with one, and dropping the last member would leave no party.
+    /// </summary>
+    private void UpdateAlterMenu()
+    {
+        if (!AlterOpen || Menu.Count < AlterMenu.Length)
+        {
+            return;
+        }
+
+        bool several = (PartySize?.Invoke() ?? 0) > 1;
+
+        Menu.SetItemEnabled(AlterOrder, several);
+        Menu.SetItemEnabled(AlterDrop, several);
+    }
+
+    private EventStep ChooseAlter()
+    {
+        switch (Menu.ActiveItem)
+        {
+            case AlterOrder:
+                OrderingParty = true;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ("EXIT", 1));
+                escapeSelects = 0;
+                ShowText("USE UP AND DOWN TO CHANGE THE MARCHING ORDER");
+                return EventStep.Running;
+
+            case AlterDrop:
+                return AskAbout(PartyConfirm.Remove, "REMOVE {0} FROM PARTY?", AlterMenu);
+
+            case AlterExit:
+                AlterOpen = false;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, CampMenu);
+                escapeSelects = CampExit;
+                UpdateCampMenu();
+                return EventStep.Running;
+
+            default:
+                Unimplemented =
+                    $"[{AlterMenu[Math.Clamp(Menu.ActiveItem, 0, AlterMenu.Length - 1)].Label}"
+                    + " here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>
+    /// <c>ALTER_ORDER_MENU_DATA</c> (<c>RunEvent.cpp:22581</c>) — one EXIT entry, and the work is
+    /// all in the arrow keys.
+    /// </summary>
+    private bool HandleOrderKey(VirtualKey key)
+    {
+        if (!OrderingParty)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                MoveActive?.Invoke(true);
+                return true;
+
+            case VirtualKey.Down:
+                MoveActive?.Invoke(false);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Return on the order screen means "done", whatever the cursor is on.</summary>
+    private EventStep CloseOrder()
+    {
+        OrderingParty = false;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, AlterMenu);
+        escapeSelects = AlterExit;
+        UpdateAlterMenu();
+
+        return EventStep.Running;
+    }
 
     // ---- the journal ---------------------------------------------------------------------------
 
@@ -2130,9 +2260,17 @@ public sealed class EventRunner
     /// register doubles as the yes/no answer, which is why <c>tradeItem</c> is in the saved
     /// <c>PARTY</c> record at all. Here the question is state on the runner instead.
     /// </remarks>
-    private EventStep AskAbout(PartyConfirm what, string question)
+    private (string Label, int Shortcut)[]? confirmParent;
+
+    /// <param name="parent">
+    /// The menu to rebuild on answering, or null for the party menu. ALTER's DROP asks the same
+    /// question the party menu's REMOVE does and has to come back to a different screen.
+    /// </param>
+    private EventStep AskAbout(PartyConfirm what, string question,
+                               (string Label, int Shortcut)[]? parent = null)
     {
         Confirming = what;
+        confirmParent = parent;
 
         Menu.Reset();
         SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
@@ -2153,10 +2291,23 @@ public sealed class EventRunner
 
         Confirming = PartyConfirm.None;
 
+        var parent = confirmParent;
+        confirmParent = null;
+
         Menu.Reset();
-        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
-        UpdatePartyMenu();
-        escapeSelects = PartyExit;
+        if (parent is null)
+        {
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+            UpdatePartyMenu();
+            escapeSelects = PartyExit;
+        }
+        else
+        {
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, parent);
+            escapeSelects = parent.Length - 1;
+            UpdateAlterMenu();
+        }
+
         return EventStep.Running;
     }
 
@@ -2900,6 +3051,13 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // ALTER/ORDER's whole screen is the arrow keys: its only menu entry is EXIT.
+        if (OrderingParty && input.Kind == InputEventKind.KeyDown
+            && HandleOrderKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // TABParty is the FIRST line of every OnKeypress (RunEvent.cpp:792) and returns before the
         // menu ever sees the key, so TAB can never also move a selection.
         if (input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Tab)
@@ -3028,6 +3186,11 @@ public sealed class EventRunner
             return ChooseJournal();
         }
 
+        if (OrderingParty)
+        {
+            return CloseOrder();
+        }
+
         if (Creating is not null)
         {
             return ChooseCreation();
@@ -3036,6 +3199,13 @@ public sealed class EventRunner
         if (Confirming is not PartyConfirm.None)
         {
             return AnswerConfirm();
+        }
+
+        // After the confirmation, which ALTER's DROP pushes over it -- a pushed screen answers
+        // before the one it is sitting on.
+        if (AlterOpen)
+        {
+            return ChooseAlter();
         }
 
         // So does the party menu, which the training hall pushes over itself.

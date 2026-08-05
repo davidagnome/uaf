@@ -179,6 +179,18 @@ public sealed class Game
         };
         Runner.ActiveCharacterName = () => Party.Active?.Name ?? "THIS CHARACTER";
         Runner.PartyJournal = () => Party.Journal;
+        Runner.PartySize = () => Party.Count;
+        Runner.MoveActive = earlier =>
+        {
+            if (earlier)
+            {
+                Party.MoveActiveEarlier();
+            }
+            else
+            {
+                Party.MoveActiveLater();
+            }
+        };
 
         // TALK's three conditions, from the record the character was read from. Nothing wired
         // this before, so the entry was dark by omission rather than by rule.
