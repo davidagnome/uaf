@@ -72,6 +72,12 @@ public sealed class Character
         MaxHitPoints = record.MaxHitPoints;
         Abilities = record.Abilities;
         ClassId = record.ClassId;
+
+        foreach (var spell in record.SpellBook.Spells)
+        {
+            var entry = Book.Add(spell.SpellId, spell.Level, spell.Memorized);
+            entry.Selected = spell.Selected;
+        }
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
         Status = (CharacterStatus)record.Status;
@@ -237,6 +243,17 @@ public sealed class Character
     /// read-only entries.
     /// </remarks>
     public AttributeList Attributes { get; } = new();
+
+    /// <summary>
+    /// The spells this character knows and how many copies are ready (<c>spellBookType</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Seeded from the record, and edited by MEMORIZE.</b> Until this existed the only live
+    /// spell list in the port was a <see cref="Combatant"/>'s, built for a fight and thrown away
+    /// with it — so nothing carried a caster's selections between rests. The projection writes it
+    /// back for the same reason it writes the ability scores.
+    /// </remarks>
+    public SpellList Book { get; } = new();
 
     /// <summary>
     /// The character's condition (<c>charStatusType</c>). Seeded from the record and changed by

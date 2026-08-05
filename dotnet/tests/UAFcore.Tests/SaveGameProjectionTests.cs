@@ -93,8 +93,10 @@ public class SaveGameProjectionTests : IDisposable
     [Fact]
     public void A_character_keeps_the_forty_fields_nothing_touched()
     {
-        // The whole reason a Character wraps its record rather than replacing it: alignment,
-        // ability scores, the icon and the spell book survive because nothing projected them.
+        // The whole reason a Character wraps its record rather than replacing it: alignment, the
+        // icon and forty other fields survive because nothing projected them. The ability scores
+        // and the spell book are projected now -- MODIFY and MEMORIZE move them -- so what is
+        // checked for those is that an untouched game round-trips them unchanged.
         using var design = Open();
         if (design is null)
         {
@@ -114,7 +116,11 @@ public class SaveGameProjectionTests : IDisposable
         Assert.Equal(before.Alignment, after.Alignment);
         Assert.Equal(before.Abilities, after.Abilities);
         Assert.Equal(before.Thac0, after.Thac0);
-        Assert.Equal(before.SpellBook, after.SpellBook);
+
+        // Rebuilt rather than carried, so this compares contents: a record's equality over a list
+        // is by reference and would pass on any two lists that happen to be the same object.
+        Assert.Equal(before.SpellBook.UseLimits, after.SpellBook.UseLimits);
+        Assert.Equal(before.SpellBook.Spells, after.SpellBook.Spells);
     }
 
     [Fact]

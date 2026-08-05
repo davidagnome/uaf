@@ -201,7 +201,7 @@ public class EventMagicTests
     public void The_unbuilt_entries_are_named()
     {
         foreach ((int item, string label) in new[]
-                 { (0, "CAST"), (1, "MEMORIZE"), (3, "DISPLAY") })
+                 { (0, "CAST"), (3, "DISPLAY") })
         {
             var runner = Started();
             Choose(runner, CampMagic);

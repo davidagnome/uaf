@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,420 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,432 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,34 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### The MEMORIZE screen, and a live character's spell book
+
+`MEMORIZE_MENU_DATA` (`RunEvent.cpp:25101`, `:25208`) over the working list. Camp reaches it
+through MAGIC, so **two of MAGIC's six entries now run**.
+
+> **The screen and the entry that opens it are gated on different predicates.** MAGIC darkens
+> MEMORIZE on `CanMemorizeSpells(0)`; the screen's own `OnInitialEvent` checks `CanCastSpells()`
+> and pops straight back out. A character who may memorise but may not cast presses a live entry
+> and nothing happens — the refusal is the screen failing to appear, not a message.
+
+> **A caster with no castable spells is left with one way out.** An empty list darkens the other
+> five entries and the reference returns early, so EXIT is all there is.
+
+**A live character had no spell book.** Until now the only `SpellList` in the port belonged to a
+`Combatant` — built for a fight and thrown away with it — so nothing carried a caster's selections
+between rests. `Character.Book` is seeded from the record and projected back, for the same reason
+the ability scores are: MEMORIZE moves it.
+
+> That is the hole the previous round named — "nothing populates it from a record yet" — and it is
+> why making `selected` a count had broken nothing. It would have broken here.
+
+One bug of my own, caught by pushing a test one assertion further: **pressing a live MEMORIZE entry
+that then refuses to open left neither screen active.** I closed the hub before the pushed screen
+had opened. The reference gets this free — its screen pops itself and lands back on the magic menu
+still sitting underneath — and the port now closes the hub only once the new screen is really up.
+The test had passed while asserting only that the screen was absent; asserting where the player
+actually ended up is what found it.
+
 ##### The memorise screen's working list
 
 `FillMemorizeSpellListText` (`Spell.cpp:8735`) and the two count functions (`:9662`, `:9708`).
@@ -7182,8 +7210,11 @@ What is left, in order:
      **The memorise working list is ported too** (§the memorise screen's working list) — slots,
      adjustments, and the three commands.
 
-     **Next: the MEMORIZE screen over it**, then wiring memorisation into the resting cycle. Then
-     the town services: buy, appraise, heal, donate.
+     **The MEMORIZE screen runs** (§the MEMORIZE screen), and a live character finally has a
+     spell book to edit.
+
+     **Next: wiring memorisation into the resting cycle** — the clock and the book now both exist,
+     and `PartyTime` is where they meet. Then the town services: buy, appraise, heal, donate.
 
 
 

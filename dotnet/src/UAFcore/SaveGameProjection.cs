@@ -178,9 +178,10 @@ public static class SaveGameProjection
     /// and forty other fields survive because nothing touched them, not because anything projected
     /// them.
     ///
-    /// <b>The ability scores used to be in that list and no longer are.</b> MODIFY moves them
+    /// <b>The ability scores used to be in that list and no longer are</b> — MODIFY moves them
     /// (<see cref="StatsScreen"/>), so leaving them to the record would quietly discard the change
-    /// on the next save.
+    /// on the next save. <b>The spell book left it for the same reason</b>: MEMORIZE edits what is
+    /// selected and memorised, and resting fills it in.
     /// </remarks>
     private static CharacterRecord RecordFor(Character member) =>
         member.Record with
@@ -189,6 +190,11 @@ public static class SaveGameProjection
             MaxHitPoints = member.MaxHitPoints,
             Abilities = member.Abilities,
             ClassId = member.ClassId,
+            SpellBook = member.Record.SpellBook with
+            {
+                Spells = [.. member.Book.Entries.Select(
+                    e => new CharacterSpell(e.SpellId, e.Memorized, e.Level, e.Selected))],
+            },
             Status = (int)member.Status,
             Morale = member.Morale,
             Money = member.Purse.ToRecord(),

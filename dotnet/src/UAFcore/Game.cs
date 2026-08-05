@@ -192,6 +192,19 @@ public sealed class Game
         // No scripting layer, so no design names the SCRIBE entry and it stays dark -- which is
         // what the reference does for the same reason.
         Runner.ScribeLabel = () => null;
+
+        Runner.MemorizeFor = () => Party.Active is { } who
+            ? MemorizeList.Build(who.Book.Entries, SchoolAndLevelOf, SchoolAbilitiesOf(who),
+                                 who.Record.SpellAdjustments)
+            : null;
+
+        Runner.ApplyMemorize = list =>
+        {
+            if (Party.Active is { } who)
+            {
+                list.Commit(who.Book);
+            }
+        };
         Runner.ProcessTime = (minutes, resting) =>
         {
             var passed = PartyTime.Advance(Party, restClock, minutes, resting,
@@ -639,6 +652,43 @@ public sealed class Game
     /// </remarks>
     private bool NewDayCrossed(int minutes) =>
         (Minutes - minutes) / RestClock.MinutesPerDay != Minutes / RestClock.MinutesPerDay;
+
+    /// <summary>A spell's school and level, from the design's table.</summary>
+    private (string School, int Level)? SchoolAndLevelOf(string spellId) =>
+        design.Spell(spellId) is { } spell ? (spell.SchoolId, spell.Level) : null;
+
+    /// <summary>
+    /// What this character may cast, folded across the baseclasses it holds
+    /// (<c>UpdateSpellAbility</c>).
+    /// </summary>
+    private Dictionary<string, SchoolAbility> SchoolAbilitiesOf(Character who)
+    {
+        var abilities = new Dictionary<string, SchoolAbility>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var progress in who.Baseclasses)
+        {
+            if (design.Baseclasses?.GetValueOrDefault(progress.BaseclassId) is { } baseclass)
+            {
+                SpellAbility.Fold(abilities, baseclass, progress.CurrentLevel,
+                                  name => AbilityScoreOf(who, name));
+            }
+        }
+
+        return abilities;
+    }
+
+    /// <summary>One of a character's six scores, by the name a baseclass's prime ability uses.</summary>
+    private static int AbilityScoreOf(Character who, string name) =>
+        Array.IndexOf(RolledCharacter.AbilityNames, name) switch
+        {
+            0 => who.Abilities.Strength,
+            1 => who.Abilities.Intelligence,
+            2 => who.Abilities.Wisdom,
+            3 => who.Abilities.Dexterity,
+            4 => who.Abilities.Constitution,
+            5 => who.Abilities.Charisma,
+            _ => 0,
+        };
 
     /// <summary>What the zone under the party permits (<c>RunEvent.cpp:9197</c>).</summary>
     private EventRunner.ZoneRules ZoneHere()

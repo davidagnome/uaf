@@ -733,8 +733,8 @@ public sealed class EventRunner
     /// </para>
     /// <para>
     /// <b>Ten of its twelve entries run</b> — SAVE, LOAD, VIEW, MAGIC, REST, ALTER, TALK,
-    /// JOURNAL, ZAP and EXIT. FIX needs the fix spell book and spell casting; QUIT is the game's
-    /// own exit.
+    /// JOURNAL, ZAP and EXIT, and MAGIC's own MEMORIZE and REST run under it. FIX needs the fix
+    /// spell book and spell casting; QUIT is the game's own exit.
     /// </para>
     /// </remarks>
     private EventStep BeginCamp(CampEvent camp, MenuAnchors anchors)
@@ -1192,6 +1192,188 @@ public sealed class EventRunner
     /// <summary>Why the last save or load did not happen, or null if it did.</summary>
     public string? SlotMessage { get; private set; }
 
+    // ---- MEMORIZE ------------------------------------------------------------------------------
+
+    /// <summary>The memorise menu (<c>MemorizeMenuData</c>, <c>GameMenu.cpp:880</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] MemorizeMenu =
+        [("SELECT", 0), ("UNSELECT", 0), ("FORGET", 0), ("NEXT", 0), ("PREV", 0), ("EXIT", 1)];
+
+    public const int MemorizeSelect = 0;
+    public const int MemorizeUnselect = 1;
+    public const int MemorizeForget = 2;
+    public const int MemorizeNext = 3;
+    public const int MemorizePrev = 4;
+    public const int MemorizeExit = 5;
+
+    /// <summary>The working list, or null when the screen is not up.</summary>
+    public MemorizeList? Memorizing { get; private set; }
+
+    /// <summary>Which row the cursor is on, within the page.</summary>
+    public int MemorizeIndex { get; private set; }
+
+    /// <summary>Which page of the list is showing.</summary>
+    public int MemorizePage { get; private set; }
+
+    /// <summary>Builds the working list for the active character; set by the host.</summary>
+    public Func<MemorizeList?>? MemorizeFor { get; set; }
+
+    /// <summary>Writes an edited list back onto the active character; set by the host.</summary>
+    public Action<MemorizeList>? ApplyMemorize { get; set; }
+
+    /// <summary>The rows on the page showing.</summary>
+    public IReadOnlyList<MemorizeItem> MemorizePageRows =>
+        [.. (Memorizing?.Items ?? []).Skip(MemorizePage * PageSize).Take(PageSize)];
+
+    private int MemorizePageCount =>
+        Math.Max(1, ((Memorizing?.Items.Count ?? 0) + PageSize - 1) / PageSize);
+
+    /// <summary>
+    /// <c>MEMORIZE_MENU_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:25166</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A character who cannot cast never sees the screen.</b> <c>OnInitialEvent</c> pops
+    /// straight back out — so the refusal is not a message, it is the screen failing to appear.
+    /// </remarks>
+    private EventStep OpenMemorize()
+    {
+        if (CanCastSpells?.Invoke() == false || MemorizeFor?.Invoke() is not { } list)
+        {
+            return EventStep.Running;
+        }
+
+        MagicOpen = false;
+        Memorizing = list;
+        MemorizeIndex = 0;
+        MemorizePage = 0;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, MemorizeMenu);
+        escapeSelects = MemorizeExit;
+        UpdateMemorizeMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>MEMORIZE_MENU_DATA::OnUpdateUI</c> (<c>RunEvent.cpp:25208</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>An empty list darkens everything but EXIT.</b> The reference returns early after
+    /// disabling the other five, so a caster with no castable spells is left with one way out.
+    /// </remarks>
+    private void UpdateMemorizeMenu()
+    {
+        if (Memorizing is null || Menu.Count < MemorizeMenu.Length)
+        {
+            return;
+        }
+
+        Menu.SetAllItemsEnabled(true);
+
+        if (Memorizing.Items.Count == 0)
+        {
+            for (int item = MemorizeSelect; item <= MemorizePrev; item++)
+            {
+                Menu.SetItemEnabled(item, false);
+            }
+            return;
+        }
+
+        var page = MemorizePageRows;
+        var row = MemorizeIndex >= 0 && MemorizeIndex < page.Count ? page[MemorizeIndex] : null;
+
+        Menu.SetItemEnabled(MemorizeSelect, row is not null && MemorizeList.CanSelect(row));
+        Menu.SetItemEnabled(MemorizeUnselect, row is not null && MemorizeList.CanUnselect(row));
+        Menu.SetItemEnabled(MemorizeForget, row is not null && MemorizeList.CanForget(row));
+
+        bool pages = MemorizePageCount > 1;
+        Menu.SetItemEnabled(MemorizeNext, pages);
+        Menu.SetItemEnabled(MemorizePrev, pages);
+    }
+
+    private EventStep ChooseMemorize()
+    {
+        if (Memorizing is not { } list)
+        {
+            return EventStep.Running;
+        }
+
+        var page = MemorizePageRows;
+        var row = MemorizeIndex >= 0 && MemorizeIndex < page.Count ? page[MemorizeIndex] : null;
+
+        switch (Menu.ActiveItem)
+        {
+            case MemorizeSelect when row is not null:
+                list.Select(row);
+                break;
+
+            case MemorizeUnselect when row is not null:
+                list.Unselect(row);
+                break;
+
+            case MemorizeForget when row is not null:
+                MemorizeList.Forget(row);
+                break;
+
+            case MemorizeNext:
+                MemorizePage = (MemorizePage + 1) % MemorizePageCount;
+                MemorizeIndex = 0;
+                break;
+
+            case MemorizePrev:
+                MemorizePage = (MemorizePage + MemorizePageCount - 1) % MemorizePageCount;
+                MemorizeIndex = 0;
+                break;
+
+            case MemorizeExit:
+                // EXIT is the commit; there is no cancel.
+                ApplyMemorize?.Invoke(list);
+                return CloseMemorize();
+        }
+
+        UpdateMemorizeMenu();
+        return EventStep.Running;
+    }
+
+    private EventStep CloseMemorize()
+    {
+        Memorizing = null;
+
+        MagicOpen = true;
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, MagicMenu);
+        escapeSelects = MagicExit;
+        UpdateMagicMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>The list takes the vertical keys; the menu keeps the horizontal ones.</summary>
+    private bool HandleMemorizeKey(VirtualKey key)
+    {
+        int onPage = MemorizePageRows.Count;
+        if (onPage <= 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                MemorizeIndex = ((MemorizeIndex - 1) % onPage + onPage) % onPage;
+                UpdateMemorizeMenu();
+                return true;
+
+            case VirtualKey.Down:
+                MemorizeIndex = (MemorizeIndex + 1) % onPage;
+                UpdateMemorizeMenu();
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
     // ---- MAGIC ---------------------------------------------------------------------------------
 
     /// <summary>The magic menu (<c>MagicMenuData</c>, <c>GameMenu.cpp:791</c>).</summary>
@@ -1313,6 +1495,12 @@ public sealed class EventRunner
     {
         switch (Menu.ActiveItem)
         {
+            // The hub is only closed once the pushed screen has actually opened. The reference
+            // gets this free: MEMORIZE's OnInitialEvent pops itself for a character who cannot
+            // cast, which lands back on the magic menu still sitting underneath.
+            case MagicMemorize:
+                return OpenMemorize();
+
             case MagicRest:
                 MagicOpen = false;
                 return OpenRest(MagicMenu);
@@ -3522,6 +3710,13 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The memorise list takes up and down; the menu keeps left and right.
+        if (Memorizing is not null && input.Kind == InputEventKind.KeyDown
+            && HandleMemorizeKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // TABParty is the FIRST line of every OnKeypress (RunEvent.cpp:792) and returns before the
         // menu ever sees the key, so TAB can never also move a selection.
         if (input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Tab)
@@ -3665,6 +3860,11 @@ public sealed class EventRunner
         if (RestOpen)
         {
             return ChooseRest();
+        }
+
+        if (Memorizing is not null)
+        {
+            return ChooseMemorize();
         }
 
         if (MagicOpen)
