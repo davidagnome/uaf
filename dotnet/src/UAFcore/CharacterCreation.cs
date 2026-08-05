@@ -174,6 +174,47 @@ public sealed class CharacterCreation
         }
     }
 
+    /// <summary>
+    /// The character as rolled, or null before it has been.
+    /// </summary>
+    /// <remarks>
+    /// <b>The roll happens at the alignment step, not at the end</b>
+    /// (<c>ALIGNMENT_MENU_DATA::OnKeypress</c>, <c>RunEvent.cpp:3937</c>). Everything after it —
+    /// the stats screen, the spell screens, the save prompt — is looking at a character that
+    /// already exists, which is why the stats screen can show scores and re-roll them.
+    /// </remarks>
+    public RolledStats? Rolled { get; private set; }
+
+    /// <summary>
+    /// Takes the roll, or aborts the whole wizard when there was none.
+    /// </summary>
+    /// <remarks>
+    /// <b>A failed generation ends creation rather than being retried.</b> The reference tests
+    /// <c>GetMaxHitPoints() == 0</c>, sets <c>miscError</c> and <c>m_AbortCharCreation</c>, and
+    /// pops — so the player is returned to the party menu with nothing made.
+    /// </remarks>
+    public void Generated(RolledStats? rolled)
+    {
+        if (rolled is null || rolled.MaxHitPoints == 0)
+        {
+            Abort();
+            return;
+        }
+
+        Rolled = rolled;
+    }
+
+    /// <summary>Replaces the roll with what the stats screen ended up showing.</summary>
+    public void Adjusted(AbilityScores scores, int maxHitPoints)
+    {
+        ArgumentNullException.ThrowIfNull(scores);
+
+        if (Rolled is { } rolled)
+        {
+            Rolled = rolled with { Abilities = scores, MaxHitPoints = maxHitPoints };
+        }
+    }
+
     /// <summary>Ends the wizard after the save prompt has been answered.</summary>
     public void Finish()
     {

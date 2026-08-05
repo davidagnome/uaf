@@ -174,15 +174,20 @@ public static class SaveGameProjection
     /// </summary>
     /// <remarks>
     /// <b>Everything not named here keeps the record's own value.</b> That is what makes a save
-    /// from this port loadable by the reference at all — the alignment, the ability scores, the
-    /// icon, the spell book and forty other fields survive because nothing touched them, not
-    /// because anything projected them.
+    /// from this port loadable by the reference at all — the alignment, the icon, the spell book
+    /// and forty other fields survive because nothing touched them, not because anything projected
+    /// them.
+    ///
+    /// <b>The ability scores used to be in that list and no longer are.</b> MODIFY moves them
+    /// (<see cref="StatsScreen"/>), so leaving them to the record would quietly discard the change
+    /// on the next save.
     /// </remarks>
     private static CharacterRecord RecordFor(Character member) =>
         member.Record with
         {
             HitPoints = member.HitPoints,
             MaxHitPoints = member.MaxHitPoints,
+            Abilities = member.Abilities,
             Status = (int)member.Status,
             Morale = member.Morale,
             Money = member.Purse.ToRecord(),

@@ -173,6 +173,8 @@ public sealed class Game
 
         Runner.RollPercent = sides => Dice(sides);
         Runner.SaveCreatedCharacter = SaveCreatedCharacter;
+        Runner.StatsForCreation = StatsForCreation;
+        Runner.StatsForActiveMember = StatsForActiveMember;
 
         // Each step's offers come off the design's own tables, and class depends on the two
         // choices before it -- which is why the wizard's order is what it is.
@@ -531,6 +533,179 @@ public sealed class Game
             : RolledCharacter.DefaultStartAge;
 
     /// <summary>
+    /// The class's range for one ability, tightest across its baseclasses.
+    /// </summary>
+    private AbilityLimits LimitsFor(string? classId, string ability)
+    {
+        if (design.Classes?.GetValueOrDefault(classId ?? "") is not { } record)
+        {
+            return AbilityLimits.UnknownClass;
+        }
+
+        return AbilityLimits.Combine(record.Baseclasses.Select(id => RequirementFor(id, ability)));
+    }
+
+    /// <summary>
+    /// One baseclass's requirement for one ability, or null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// <b>A baseclass the design does not have is null too</b>, and null means the default 3–18
+    /// rather than "skip this baseclass" — see <see cref="AbilityLimits.Combine"/>.
+    /// </remarks>
+    private AbilityLimits? RequirementFor(string baseclassId, string ability)
+    {
+        if (design.Baseclasses?.GetValueOrDefault(baseclassId) is not { } baseclass)
+        {
+            return null;
+        }
+
+        var requirement = baseclass.AbilityRequirements.FirstOrDefault(
+            r => string.Equals(r.AbilityId, ability, StringComparison.OrdinalIgnoreCase));
+
+        return requirement is null
+            ? null
+            : new AbilityLimits(requirement.Min, requirement.MinMod,
+                                requirement.Max, requirement.MaxMod);
+    }
+
+    /// <summary>
+    /// <c>UpdateStats</c>'s clamps: the race's limits, then the class's
+    /// (<c>Char.cpp:4451</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The race runs first</b>, so where the two disagree the class has the last word on a
+    /// score the race already moved.
+    /// </remarks>
+    private AbilityScores Clamp(string? raceId, string? classId, AbilityScores scores)
+    {
+        var race = design.Races?.GetValueOrDefault(raceId ?? "");
+
+        int Bound(string ability, int score)
+        {
+            if (race is not null)
+            {
+                var requirement = race.AbilityRequirements.FirstOrDefault(
+                    r => string.Equals(r.AbilityId, ability, StringComparison.OrdinalIgnoreCase));
+
+                if (requirement is not null)
+                {
+                    score = Math.Clamp(score, requirement.Min, requirement.Max);
+                }
+            }
+
+            var limits = LimitsFor(classId, ability);
+            return Math.Clamp(score, limits.Min, limits.Max);
+        }
+
+        return new AbilityScores(
+            Bound(RolledCharacter.AbilityNames[0], scores.Strength),
+            scores.StrengthMod,
+            Bound(RolledCharacter.AbilityNames[1], scores.Intelligence),
+            Bound(RolledCharacter.AbilityNames[2], scores.Wisdom),
+            Bound(RolledCharacter.AbilityNames[3], scores.Dexterity),
+            Bound(RolledCharacter.AbilityNames[4], scores.Constitution),
+            Bound(RolledCharacter.AbilityNames[5], scores.Charisma));
+    }
+
+    /// <summary>The class's exceptional-strength dice, for a score that reaches 18.</summary>
+    private int? StrengthDice(string? classId, bool male)
+    {
+        var record = design.Classes?.GetValueOrDefault(classId ?? "");
+        return NewCharacter.Roll(record?.StrengthBonusDice,
+                                 (count, sides) => DiceExpression.Roll(count, sides, Dice),
+                                 male, out _);
+    }
+
+    /// <summary>
+    /// The stats screen over the character being made, rolling it if that has not happened yet.
+    /// </summary>
+    /// <remarks>
+    /// <b>The roll belongs to the alignment step</b> (<c>RunEvent.cpp:3937</c>); this is the first
+    /// place after it that needs the result, and a failed roll aborts the wizard there rather
+    /// than here.
+    /// </remarks>
+    private StatsScreen? StatsForCreation(CharacterCreation made)
+    {
+        ArgumentNullException.ThrowIfNull(made);
+
+        int Roll(int count, int sides) => DiceExpression.Roll(count, sides, Dice);
+
+        made.Generated(RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge));
+
+        if (made.Rolled is not { } rolled)
+        {
+            return null;
+        }
+
+        return new StatsScreen(
+            rolled.Abilities, rolled.MaxHitPoints,
+            ability => LimitsFor(made.ClassId, ability),
+            scores => Clamp(made.RaceId, made.ClassId, scores),
+            () => StrengthDice(made.ClassId, made.Gender == Gender.Male),
+            _ => HitPointsFor(made, Roll),
+            reroll: () =>
+            {
+                var again = RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge);
+                return (again.Abilities, again.MaxHitPoints);
+            },
+            accept: screen => made.Adjusted(screen.Scores, screen.MaxHitPoints));
+    }
+
+    /// <summary>
+    /// Re-rolls a new character's hit points from its class, for a stats change.
+    /// </summary>
+    /// <remarks>
+    /// <b>A fresh seed each time, which the reference does not do.</b> It re-runs
+    /// <c>DetermineNewCharMaxHitPoints(hitpointSeed)</c> against the character's own stored seed,
+    /// so its hit points are a function of the ability scores alone; here the seed is not stored
+    /// on a character being made, so a stat change also re-rolls the dice. The scores are right
+    /// and the total moves more than it should.
+    /// </remarks>
+    private int HitPointsFor(CharacterCreation made, Func<int, int, int> roll) =>
+        RolledCharacter.Roll(made, design, roll, HitPointSeed(), StartAge).MaxHitPoints;
+
+    /// <summary>
+    /// The stats screen over the active party member — the party menu's MODIFY.
+    /// </summary>
+    /// <remarks>
+    /// <b>MODIFY re-rolls; it does not re-ask.</b> <c>CHOOSESTATS_MENU_DATA(false)</c> takes the
+    /// existing character and calls the same <c>generateNewCharacter</c> the generator does, so
+    /// the race, gender and class it was made with are kept and everything else is thrown away.
+    /// </remarks>
+    private StatsScreen? StatsForActiveMember()
+    {
+        if (Party.Active is not { } who)
+        {
+            return null;
+        }
+
+        int Roll(int count, int sides) => DiceExpression.Roll(count, sides, Dice);
+
+        var made = new CharacterCreation();
+        made.Choose(who.Race);
+        made.Choose(who.Gender.ToString());
+        made.Choose(who.ClassId);
+
+        return new StatsScreen(
+            who.Abilities, who.MaxHitPoints,
+            ability => LimitsFor(who.ClassId, ability),
+            scores => Clamp(who.Race, who.ClassId, scores),
+            () => StrengthDice(who.ClassId, who.Gender == Gender.Male),
+            _ => RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge).MaxHitPoints,
+            reroll: () =>
+            {
+                var again = RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge);
+                return (again.Abilities, again.MaxHitPoints);
+            },
+            accept: screen =>
+            {
+                who.Abilities = screen.Scores;
+                who.MaxHitPoints = screen.MaxHitPoints;
+                who.HitPoints = screen.HitPoints;
+            });
+    }
+
+    /// <summary>
     /// Writes a newly made character to its own <c>.chr</c>.
     /// </summary>
     /// <remarks>
@@ -549,7 +724,12 @@ public sealed class Game
 
         int Roll(int count, int sides) => DiceExpression.Roll(count, sides, Dice);
 
-        var rolled = RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge);
+        // The character was rolled at the alignment step and may have been re-rolled or had its
+        // points shuffled on the stats screen since. Rolling again here would throw all of that
+        // away and save a different character than the one the player accepted.
+        var rolled = made.Rolled
+                     ?? RolledCharacter.Roll(made, design, Roll, HitPointSeed(), StartAge);
+
         var classRecord = design.Classes?.GetValueOrDefault(made.ClassId ?? "");
 
         var record = NewCharacter.Assemble(

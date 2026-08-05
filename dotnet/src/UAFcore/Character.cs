@@ -70,6 +70,7 @@ public sealed class Character
         Record = record;
         HitPoints = record.HitPoints;
         MaxHitPoints = record.MaxHitPoints;
+        Abilities = record.Abilities;
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
         Status = (CharacterStatus)record.Status;
@@ -106,6 +107,17 @@ public sealed class Character
     /// (<see cref="Training.HitPointsFor"/>), and the record is never rewritten.
     /// </remarks>
     public int MaxHitPoints { get; set; }
+
+    /// <summary>
+    /// The six ability scores, which the stats screen shuffles points between.
+    /// </summary>
+    /// <remarks>
+    /// <b>Loaded from the record but not tied to it</b>, for the same reason as
+    /// <see cref="MaxHitPoints"/>: MODIFY changes them mid-game
+    /// (<see cref="StatsScreen"/>), so a live character can differ from the record it was read
+    /// from and the projection has to carry them back.
+    /// </remarks>
+    public AbilityScores Abilities { get; set; }
 
     public int ArmorClass => Record.ArmorClass;
 

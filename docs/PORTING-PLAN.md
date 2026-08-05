@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,208 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,251 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3296,8 +3296,8 @@ correct home for that, and bare identifiers are letters, digits and underscore a
 
 ##### CREATE CHARACTER, all ten steps
 
-The wizard runs from race to a written `.chr`. **Eight of the party menu's twelve entries now do
-something.**
+The wizard runs from race to a written `.chr`. **Eight of the party menu's twelve entries do
+something at this point** — see §MODIFY for the two that followed.
 
 > **`CanBeSaved` and `IsPreGenerated` are what make a character the player's.** A pre-generated
 > NPC appears on the roster and refuses to serialize — `serializeCharacter` returns FALSE when
@@ -3322,6 +3322,88 @@ no age. Every one of those rules is ported and tested — `AbilityRoll`, `NewCha
 `NewCharacter.Roll` — and nothing yet calls them at the point of assembly, because the roller
 needs the ability database threaded to the call site and the ages need the race record. That is
 plumbing, and it is the next thing.
+
+##### MODIFY, which is not what the plan said it was
+
+This plan said, for several rounds, that MODIFY was **"the same wizard re-entered over an existing
+character"**. It is not. `MAIN_MENU_DATA::OnKeypress` case 3 (`RunEvent.cpp:2038`) is three lines:
+take the active character, and push `CHOOSESTATS_MENU_DATA(false)`. **MODIFY is the stats screen
+and nothing else** — no questions, no re-picking a race.
+
+> **The flag it is pushed with buys nothing.** `CHOOSESTATS_MENU_DATA(false)` means "use the
+> existing character", and its handler is
+> `if (m_CreateNewChar) { generateNewCharacter(...) } else { generateNewCharacter(...) }`
+> (`RunEvent.cpp:4064`). **Both branches are the same call**; only the string in the debug log
+> differs. So MODIFY's REROLL regenerates a party member from scratch — keeping its race, gender
+> and class, discarding everything else — exactly as creation does.
+
+Which means the screen the generator was skipping and the screen MODIFY needs are one screen, and
+porting it finished both. `UAFcore/StatsScreen.cs`, `UAF.Rules/AbilityLimits.cs`,
+`UAF.Rules/StatAdjustment.cs`. **Ten of the party menu's twelve entries now do something** — only
+CHANGE CLASS and VIEW's deeper pages are left.
+
+> **`AllowModifyStats` is a global initialised to `true` and assigned nowhere else**
+> (`Globals.cpp:588`). It guards the TAB and up/down handling, so in a shipped build the guard is
+> permanently open and the only thing it changes is the screen's title.
+
+**It is point-buy starting from nothing.** `availPoints` opens at zero on every visit and no code
+path adds to it except a decrease, so a player can reshape a character but never improve one.
+
+> **The two directions are not symmetric, and the reason is a limit mismatch.** The increase
+> charges `*avail += orig - final` — what it actually achieved — while the decrease credits
+> exactly one point, its `if (orig != final)` guard commented out. That looks arbitrary until you
+> notice the guard and the clamp read different tables: `STF_IncrStat` refuses at the **class**
+> maximum, then `UpdateStats` clamps against the **race**'s as well, and the race check runs
+> first. Where a race is stricter, the press is allowed, the score comes straight back, and
+> nothing is charged. Where a race's *minimum* is above the class's, the decrease credits a point
+> for a score that did not move — which a player can farm.
+
+> **The class's limits are the tightest of its baseclasses** — greatest minimum, least maximum,
+> ties broken by the larger modifier at *both* ends (`CLASS_DATA::GetAbilityLimits`,
+> `class.cpp:7698`).
+
+> **A class with no baseclasses caps every score at 15.** The running maximum starts at 9999 as a
+> sentinel and, with nothing to lower it, goes straight into `ASSEMBLEABILITYLIMITS`, which masks
+> each field to a byte: `9999 & 0xff` is 15 — below what a 3d6 roll produces. An *unknown* class
+> is worse: `GetAbilityLimits` returns the literal `1`, which unpacks to a maximum of zero, so no
+> score can rise at all.
+
+> **Every adjustment recomputes the hit points and sets the current total to the new maximum**
+> (`CharStatsForm.cpp:2012`). A wounded party member that MODIFY touches ends the screen at full
+> health.
+
+> **The exceptional-strength percentile is rolled once per visit and cached.** Walking strength
+> down off 18 and back up returns the same percentile rather than a fresh chance at a better one —
+> the cache is a static cleared by `CHOOSESTATS_initial`. A roll of zero or less is stored as
+> zero, and since the cache is *tested* by being zero, a class with no strength dice re-rolls
+> nothing on every press.
+
+> **`KC_PLUS` and `KC_MINUS` are `VK_ADD` and `VK_SUBTRACT`** (`Getinput.cpp:566`) — the numeric
+> keypad, not the OEM keys on the number row, which the mapper passes through as `KC_NUM`. Reading
+> the constant names rather than the mapping puts the shortcut on a key that does nothing.
+
+> **This is one of the few screens whose `OnKeypress` does not open with `TABParty(key)`**
+> (`RunEvent.cpp:4049`). TAB moves the ability highlight here and never reaches the party, which
+> is the opposite of every other screen in the port.
+
+Two things the end-to-end test found that the unit tests could not:
+
+> **The party menu's horizontal handler was stealing the stats screen's keys.** `PartyMenuOpen`
+> stays set while the menu's pushed screens are up, and the guard excluded the roster, the slots
+> and the confirmations — and the generator, via `Creating is null`. MODIFY arrives with no
+> generator behind it, so <kbd>Right</kbd> tabbed the party instead of moving to ACCEPT. Every
+> screen the party menu pushes has to be named in that guard.
+
+> **A live character had nowhere to keep an ability score.** `Character` mirrored the record's hit
+> points but not its abilities, and `SaveGameProjection`'s comment said in as many words that the
+> scores "survive because nothing touched them". Once MODIFY can touch them that stops being true,
+> and a save would have silently discarded the change.
+
+**One divergence, stated:** during creation a stat change re-rolls the hit dice, because the
+hit-point seed is not yet stored on a character that has not been assembled. The reference re-runs
+`DetermineNewCharMaxHitPoints(hitpointSeed)` against the character's own seed, so its hit points
+are a function of the ability scores alone. The scores are right; the total moves more than it
+should.
 
 ##### The art and spell screens on screen — and three bugs the end-to-end test found
 
@@ -6692,9 +6774,13 @@ What is left, in order:
      **CREATE CHARACTER runs all ten steps** and writes a `.chr` with real ability scores, hit
      points and age (§the character generator's spine, §rolling a character against a real design).
 
-     **Next: MODIFY**, the same wizard re-entered over an existing character, and then **CHANGE
-     CLASS**, which needs `CreateChangeClassList` — the last two of the party menu's twelve
-     entries.
+     ~~**Next: MODIFY**, the same wizard re-entered over an existing character.~~ **Done, and it
+     was never a wizard** — it is `CHOOSESTATS` over the active party member and nothing else
+     (§MODIFY, which is not what the plan said it was). That screen was also the generator's one
+     skipped step, so porting it closed both. **Ten of twelve party-menu entries now run.**
+
+     **Next: CHANGE CLASS**, which needs `CreateChangeClassList` — the last entry that does
+     nothing.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.

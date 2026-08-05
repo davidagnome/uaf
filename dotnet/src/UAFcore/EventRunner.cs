@@ -1235,12 +1235,17 @@ public sealed class EventRunner
             return ShowSpellScreen();
         }
 
-        // CHOOSESTATS is a RE-ROLL screen, not the thing that makes the stats: the character was
-        // already generated at the alignment step, and item 2 there is "don't re-roll". Skipping
-        // it means the player keeps the first roll -- a real divergence, and a small one, where
-        // stopping here would strand the wizard one step short of the name.
+        // CHOOSESTATS is a re-roll screen, not the thing that makes the stats: the character was
+        // already generated at the alignment step, and item 2 there is "don't re-roll". A host
+        // that has not wired one skips the step and keeps the first roll, rather than stranding
+        // the wizard one step short of the name.
         if (!Creating.Aborted && Creating.Step is CreationStep.Stats)
         {
+            if (StatsForCreation?.Invoke(Creating) is { } screen)
+            {
+                return ShowStats(screen);
+            }
+
             Creating.SkipStats();
         }
 
@@ -1402,6 +1407,124 @@ public sealed class EventRunner
 
             case VirtualKey.Down:
                 CreationIndex = (CreationIndex + 1) % onPage;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    // ---- the stats screen ----------------------------------------------------------------------
+
+    /// <summary>The stats screen's state, or null when it is not up.</summary>
+    public StatsScreen? ChoosingStats { get; private set; }
+
+    /// <summary>
+    /// Opens the stats screen over the character being made. Set by the host, which owns the
+    /// design's limits and the hit-point seed.
+    /// </summary>
+    public Func<CharacterCreation, StatsScreen?>? StatsForCreation { get; set; }
+
+    /// <summary>Opens it over the active party member, for MODIFY.</summary>
+    public Func<StatsScreen?>? StatsForActiveMember { get; set; }
+
+    /// <summary>
+    /// Puts the screen up. Whether it came from the generator or from MODIFY only changes what
+    /// happens when it closes.
+    /// </summary>
+    private EventStep ShowStats(StatsScreen? screen)
+    {
+        if (screen is null)
+        {
+            Unimplemented = "[MODIFY CHARACTER here -- not implemented]";
+            return EventStep.Running;
+        }
+
+        ChoosingStats = screen;
+        Typing = null;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, StatsScreen.Menu);
+        escapeSelects = StatsScreen.Accept;
+
+        // The title is the one thing AllowModifyStats changes, and it is always true.
+        ShowText("<TAB><UP/DOWN> MODIFY CHARACTER STATS");
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// Return on the stats screen: keep this character, or roll it again.
+    /// </summary>
+    /// <remarks>
+    /// <b>The generator does not stop here.</b> Accepting moves the wizard on to the name; MODIFY
+    /// has no wizard behind it and drops back to the party menu.
+    /// </remarks>
+    private EventStep ChooseStats()
+    {
+        if (ChoosingStats is not { } screen)
+        {
+            return EventStep.Running;
+        }
+
+        if (Menu.ActiveItem != StatsScreen.Accept)
+        {
+            screen.Reroll();
+            return EventStep.Running;
+        }
+
+        screen.Accepted();
+        ChoosingStats = null;
+
+        if (Creating is not null)
+        {
+            Creating.SkipStats();
+            return ShowCreationStep();
+        }
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Vertical, PartyMenu);
+        UpdatePartyMenu();
+        escapeSelects = PartyExit;
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// The keys the stats screen takes for itself, before the menu sees them.
+    /// </summary>
+    /// <remarks>
+    /// <b>TAB moves the highlight here and not the party.</b> <c>CHOOSESTATS_MENU_DATA</c> is one
+    /// of the few screens whose <c>OnKeypress</c> does not open with <c>TABParty(key)</c>, so the
+    /// key means something different on this screen than on every other one.
+    /// </remarks>
+    private bool HandleStatsKey(VirtualKey key)
+    {
+        if (ChoosingStats is not { } screen)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Tab:
+                screen.Tab();
+                return true;
+
+            // Up and down are swallowed whether or not they moved anything -- the reference sets
+            // its "handled" bit before consulting the result.
+            //
+            // KC_PLUS and KC_MINUS are VK_ADD and VK_SUBTRACT (Getinput.cpp:566), the numeric
+            // keypad's keys -- not the OEM ones on the number row, which the mapper leaves as
+            // KC_NUM. Reading the names rather than the mapping puts the shortcut on a key that
+            // does nothing.
+            case VirtualKey.Up:
+            case VirtualKey.Add:
+                screen.Raise();
+                return true;
+
+            case VirtualKey.Down:
+            case VirtualKey.Subtract:
+                screen.Lower();
                 return true;
 
             default:
@@ -1739,6 +1862,12 @@ public sealed class EventRunner
 
             case PartyCreate:
                 return BeginCreation();
+
+            // MODIFY is CHOOSESTATS over the active member and nothing else -- no wizard, no
+            // questions. Accepting it writes the scores back; re-rolling generates the character
+            // again from its own race, gender and class.
+            case PartyModify:
+                return ShowStats(StatsForActiveMember?.Invoke());
 
             case PartyRemove:
                 return AskAbout(PartyConfirm.Remove, "REMOVE {0} FROM PARTY?");
@@ -2426,6 +2555,15 @@ public sealed class EventRunner
             return EventStep.Finished;
         }
 
+        // ...every OnKeypress but this one. CHOOSESTATS_MENU_DATA (RunEvent.cpp:4049) goes
+        // straight to its own handler, so TAB moves the ability highlight and never reaches the
+        // party. It has to be tested before the line below, not after it.
+        if (ChoosingStats is not null && input.Kind == InputEventKind.KeyDown
+            && HandleStatsKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // TABParty is the FIRST line of every OnKeypress (RunEvent.cpp:792) and returns before the
         // menu ever sees the key, so TAB can never also move a selection.
         if (input.Kind == InputEventKind.KeyDown && input.Key == VirtualKey.Tab)
@@ -2466,7 +2604,10 @@ public sealed class EventRunner
 
         // The party menu is the mirror image: VMenuHPartyKeyboardAction gives the menu the
         // vertical keys and the party the horizontal ones (RunEvent.cpp:1973).
-        if (PartyMenuOpen && !SlotsOpen && !RosterOpen && Creating is null
+        // Every screen the party menu pushes over itself has to be excluded here, because the menu
+        // stays "open" underneath them. The stats screen is the one that arrives without a
+        // generator behind it, so Creating being null does not cover it.
+        if (PartyMenuOpen && !SlotsOpen && !RosterOpen && Creating is null && ChoosingStats is null
             && Confirming is PartyConfirm.None
             && input.Kind == InputEventKind.KeyDown
             && input.Key is VirtualKey.Left or VirtualKey.Right)
@@ -2532,6 +2673,13 @@ public sealed class EventRunner
         if (SpellChoices is not null)
         {
             return ChooseSpell();
+        }
+
+        // Before the generator, because the generator pushed it -- and because MODIFY puts it up
+        // with no generator behind it at all.
+        if (ChoosingStats is not null)
+        {
+            return ChooseStats();
         }
 
         if (Creating is not null)
