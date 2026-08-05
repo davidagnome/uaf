@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,388 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,403 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,50 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### The memorisation clock — and a comment the port believed
+
+The rules behind MAGIC's MEMORIZE and REST's spell recovery (`Spell.cpp:1189`–`:1256`, `:2701`,
+`:2958`; `GameRules.cpp:4141`). `UAFcore/SpellList.cs`.
+
+> **`selected` is a count, not a flag, and its own comment says otherwise.** The field is declared
+> `int selected; // TRUE if dude will memorize this spell again`, and every use reads it as a
+> quantity — `HaveUnmemorized` is `selected > memorized`, `SetMemorized(all)` assigns
+> `memorized = selected`. Only `IsSelected` treats it as a flag, and even that says
+> `selected > 0`. **This port believed the comment and made it a `bool`**, which cannot express
+> "I want three of these" — the shape the whole clock is built on. The *reader* had it right the
+> whole time: `CharacterSpell.Selected` has been an int since Phase 1. The live model had drifted
+> from the record it loads.
+>
+> Nothing broke, because `SpellList` is only reachable from `Combatant.Book` and nothing populates
+> it from a record yet. It would have broken the moment anything did.
+
+> **Fifteen minutes a level to memorise a spell** — and a preparation block first, for the whole
+> book, keyed on the highest level still wanted: four hours for levels one and two, rising to
+> twelve above eight. Preparing for a single third-level spell is **six hours before the
+> forty-five minutes of memorising it**.
+
+> **The book prepares once per rest, not once per spell.** When the preparation clock passes, both
+> counters are cleared for good and every remaining copy memorises back to back.
+
+> **Only one spell memorises at a time.** The list is walked in order and the first entry still
+> wanting copies takes the whole slice; everything after it waits.
+
+> **`JustMemorized` is cleared by the reader.** The announcement loop clears it as it prints and
+> `IncMemorizedTime` clears it again on entry — so a copy finished and never announced is
+> forgotten on the next tick.
+
+Two things transcribed as written rather than repaired:
+
+> **The preparation overshoot looks swapped.** On the tick that finishes preparing, `delta` is how
+> far past `needed` the clock went — the minutes that ought to count toward memorising — and the
+> reference does `minuteInc -= delta`, keeping the other part. The resting path only ever passes
+> one minute, where the two are equal, so nothing in the shipped engine can tell.
+
+> **`CalcRestTime`'s shortfall is unguarded, so a surplus shortens the estimate.** The live loop
+> sums `single * (selected - memorized)` with no test that the first exceeds the second — the
+> commented-out version directly above it had exactly that guard. A spell with more copies
+> memorised than wanted contributes a *negative* number of minutes.
+
 ##### MAGIC — a hub whose defaults run the other way
 
 `MAGIC_MENU_DATA` (`RunEvent.cpp:26468`, `:26578`) — camp's **tenth of twelve**. Six entries, three
@@ -7099,9 +7143,11 @@ What is left, in order:
      **MAGIC's hub runs** — **ten of camp's twelve entries** (§MAGIC). Only FIX and QUIT are left,
      and FIX waits on spell casting.
 
-     **Next: MEMORIZE**, the screen behind MAGIC's second entry — it is the per-character spell
-     list, and it is what REST's memorisation needs too. Then the town services: buy, appraise,
-     heal, donate.
+     **The memorisation clock is ported** (§the memorisation clock), which is what REST's spell
+     recovery and MAGIC's MEMORIZE both stand on.
+
+     **Next: the MEMORIZE screen itself**, then wiring memorisation into the resting cycle. Then
+     the town services: buy, appraise, heal, donate.
 
 
 

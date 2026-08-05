@@ -54,11 +54,11 @@ public class SpellListTests
     [Fact]
     public void An_unselected_spell_is_cast_without_ever_being_used_up()
     {
-        // SetUnMemorized returns early when `selected` is false. `selected` means "will memorise
-        // this again", so it has no business gating the spend -- but it does.
+        // SetUnMemorized returns early when `selected` is zero. `selected` is how many copies
+        // the caster wants next time, so it has no business gating the spend -- but it does.
         var book = new SpellList();
         var entry = book.Add("sleep", level: 1, memorized: 2);
-        entry.Selected = false;
+        entry.Selected = 0;
 
         Assert.True(book.DecrementMemorized("sleep"));
         Assert.Equal(2, entry.Memorized);
