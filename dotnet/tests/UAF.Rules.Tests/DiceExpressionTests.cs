@@ -104,11 +104,14 @@ public class DiceExpressionTests
     }
 
     [Fact]
-    public void A_name_the_lookup_does_not_know_is_zero_rather_than_a_failure()
+    public void A_name_the_lookup_does_not_know_fails_the_whole_expression()
     {
-        // The reference logs "Illegal RDR code" and returns 0, so the expression still produces a
-        // number.
-        Assert.Equal(7, DiceExpression.Evaluate("7+something", Face(3)));
+        // compileDicePlusRDR returns 0 for a name LookupRefKey cannot place, which is
+        // "Unrecognized Runtime Variable reference" and a compile that produces nothing -- so the
+        // 7 goes with it. A name that resolves to a database the interpreter has not implemented
+        // is the other case, and that one is a zero term; the lookup is where a caller says which.
+        Assert.Null(DiceExpression.Evaluate("7+something", Face(3)));
+        Assert.Equal(7, DiceExpression.Evaluate("7+something", Face(3), _ => 0));
     }
 
     [Fact]
@@ -163,30 +166,37 @@ public class DiceExpressionTests
         Assert.Null(Eval(text));
     }
 
-    [Theory]
-    [InlineData(".5*level")]
-    [InlineData("1.5*level")]
-    public void A_fractional_literal_does_not_parse_and_the_expression_does_nothing(string text)
+    [Fact]
+    public void A_fractional_literal_truncates_the_expression_or_kills_it()
     {
-        // The reference's tokeniser has no decimal point: digits accumulate into an int and a '.'
-        // falls through to the operator table, matching nothing. The compile fails, and
-        // DICEPLUS::Roll returns false with its result already zeroed -- so the expression
-        // silently contributes nothing. Both of these are in shipped designs.
-        Assert.Null(Eval(text));
+        // The tokeniser has no decimal point: digits accumulate into an int and a '.' falls
+        // through to the operator table, matching nothing. Where a term was expected that is an
+        // error and the compile produces nothing; where an operator was expected the loop just
+        // breaks, and what came before it stands. Both of these are in shipped designs and they
+        // do not mean the same thing.
+        Assert.Null(Eval(".5*level"));
+        Assert.Equal(1, Eval("1.5*level"));
     }
 
     [Fact]
-    public void Only_one_unary_sign_is_allowed()
+    public void One_unary_sign_per_term_and_one_more_at_the_front()
     {
-        // "We allow only one unary operator. Do you want more?" -- GPDLcomp.cpp:4341.
-        Assert.Null(Eval("--5"));
+        // "We allow only one unary operator. Do you want more?" -- GPDLcomp.cpp:4341, in
+        // m_EvaluateAtomicElement. But m_EvaluateExpression takes a leading one of its own before
+        // the loop starts, so the very front of an expression accepts two and nowhere else does.
         Assert.Equal(-5, Eval("-5"));
+        Assert.Equal(5, Eval("--5"));
+        Assert.Null(Eval("1+--5"));
     }
 
     [Fact]
-    public void Trailing_rubbish_is_a_failure_not_a_silent_truncation()
+    public void Trailing_rubbish_is_a_silent_truncation_and_not_a_failure()
     {
-        Assert.Null(Eval("1+2)"));
+        // The reference stops at the end of what it can read and keeps the answer. This port used
+        // to refuse instead, on the grounds that no shipped expression had a tail -- which was
+        // not true, "1.5*level" is one.
+        Assert.Equal(3, Eval("1+2)"));
+        Assert.Equal(3, Eval("1+2 and then some"));
     }
 
     // ---- the maximum ---------------------------------------------------------------------------

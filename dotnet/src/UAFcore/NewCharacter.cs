@@ -173,8 +173,8 @@ public static class NewCharacter
     /// Rolls a race's dice field — its age, maximum age, weight, height or movement.
     /// </summary>
     /// <param name="male">
-    /// What the expression's one identifier resolves to. Weight and height are the fields that
-    /// use it, to add a gender bonus.
+    /// The character's gender. Weight and height are the race fields that use it, to add a gender
+    /// bonus; the others resolve no names at all.
     /// </param>
     /// <returns>The rolled value, or null when the expression is empty or unsupported.</returns>
     /// <remarks>
@@ -185,7 +185,7 @@ public static class NewCharacter
     public static int? Roll(DicePlus? dice, Func<int, int, int> roll, bool male,
                             out string? unsupported) =>
         Roll(dice, roll,
-             n => n == DiceFormula.MaleSymbol ? (male ? 1 : 0) : null,
+             new DiceSymbols(male, RaceId: null, ClassId: null, Level: 0).Resolver,
              out unsupported);
 
     /// <summary>

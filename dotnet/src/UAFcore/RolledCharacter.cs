@@ -63,6 +63,11 @@ public static class RolledCharacter
 
         bool modern = design.Globals.Version >= DesignVersion.V0870;
 
+        // A character being generated is level 1 and has no adjustments yet, so the whole context
+        // an ability's dice can ask about is what the wizard has collected so far.
+        var symbols = new DiceSymbols(made.Gender == Gender.Male, made.RaceId, made.ClassId,
+                                      Level: 1);
+
         int Score(string name)
         {
             if (!modern || design.Abilities?.GetValueOrDefault(name) is not { } ability)
@@ -71,27 +76,7 @@ public static class RolledCharacter
             }
 
             return AbilityRoll.Modern(
-                () => NewCharacter.Roll(ability.Roll, roll, Symbol, out _));
-        }
-
-        // Male, and Race_<name> for "is the character this race" -- the symbols a dice field
-        // actually uses. Anything else is refused by name rather than guessed at.
-        int? Symbol(string name)
-        {
-            if (name == DiceFormula.MaleSymbol)
-            {
-                return made.Gender == Gender.Male ? 1 : 0;
-            }
-
-            if (name.StartsWith(DiceFormula.RacePrefix, StringComparison.Ordinal))
-            {
-                return string.Equals(name[DiceFormula.RacePrefix.Length..], made.RaceId,
-                                     StringComparison.OrdinalIgnoreCase)
-                    ? 1
-                    : 0;
-            }
-
-            return null;
+                () => NewCharacter.Roll(ability.Roll, roll, symbols.Resolver, out _));
         }
 
         int strength = Score(AbilityNames[0]);

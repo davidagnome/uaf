@@ -6,9 +6,10 @@ namespace UAF.Rules.Tests;
 /// Covers the dice-field expression evaluator.
 /// </summary>
 /// <remarks>
-/// The reference compiles these through 13,146 lines of GPDL. The corpus only ever uses integers,
-/// <c>NdM</c>, <c>+ − * /</c>, parentheses and one identifier, so this covers every shipped design
-/// and refuses the rest by name.
+/// A transcription of <c>RDRCOMP</c> and <c>RDREXEC</c>, so these are tests of the reference's
+/// behaviour rather than of a subset chosen from the corpus — including the parts of it that are
+/// clearly bugs, because a design's numbers were balanced against them. <c>DiceCorpusTests</c>
+/// runs the same evaluator over every expression the shipped designs actually contain.
 /// </remarks>
 public class DiceFormulaTests
 {
@@ -156,18 +157,24 @@ public class DiceFormulaTests
     }
 
     [Fact]
-    public void Malformed_expressions_say_what_and_where()
+    public void A_missing_term_is_an_error_but_a_missing_operator_is_not()
     {
-        Assert.Contains("unclosed", Refused("(2+3"));
-        Assert.Contains("ends where a value was expected", Refused("2+"));
-        Assert.Contains("unexpected", Refused("2 3"));
-        Assert.Contains("unexpected", Refused("2%3"));
+        // m_EvaluateAtomicElement errors when it finds no term; m_EvaluateExpression's loop just
+        // breaks on anything that is not an operator. So the first two are refused and the third
+        // quietly evaluates its prefix.
+        Assert.Contains("close parenthesis", Refused("(2+3"));
+        Assert.Contains("no term", Refused("2+"));
+        Assert.Equal(2, Evaluate("2 3"));
     }
 
     [Fact]
-    public void Division_by_zero_is_refused_rather_than_thrown()
+    public void Division_and_remainder_by_zero_give_zero()
     {
-        Assert.Contains("division by zero", Refused("6/0"));
+        // InterpretExpression tests the divisor itself (GPDLexec.cpp:8274) rather than dividing --
+        // so this is a real answer, not a refusal and not a throw.
+        Assert.Equal(0, Evaluate("6/0"));
+        Assert.Equal(0, Evaluate("6%0"));
+        Assert.Equal(1, Evaluate("7%2"));
     }
 
     [Fact]
@@ -190,5 +197,98 @@ public class DiceFormulaTests
     public void Division_is_integer_division()
     {
         Assert.Equal(3, Evaluate("7/2"));
+    }
+
+    // ---- the clamps, which are operators and not a bracket syntax ------------------------------
+
+    /// <summary>
+    /// Resolves the three kinds of name the corpus writes: <c>Male</c>, <c>level</c> and a race
+    /// test, the last of which matches only <c>Elf</c>.
+    /// </summary>
+    private static int? Symbols(string name) => name switch
+    {
+        "Male" => 1,
+        "level" => 4,
+        "Race_Elf" => 1,
+        _ => name.StartsWith("Race_", StringComparison.Ordinal) ? 0 : null,
+    };
+
+    private static int WithSymbols(string text, Func<int, int, int> roll)
+    {
+        Assert.True(DiceFormula.TryEvaluate(text, roll, Symbols, out int value, out string? why),
+                    why);
+        return value;
+    }
+
+    [Fact]
+    public void The_left_clamp_is_a_floor_and_the_right_one_a_ceiling()
+    {
+        // 3 |< 3d6 is max(3, roll); >| 18 is min(that, 18).
+        Assert.Equal(3, WithSymbols("3|<3d6>|18", Min));       // three ones, floored at 3
+        Assert.Equal(18, WithSymbols("3|<3d6>|18", Max));      // eighteen, at the ceiling
+        Assert.Equal(12, WithSymbols("3|<2d6>|18", Max));      // between the two, untouched
+    }
+
+    [Fact]
+    public void Equal_priorities_associate_to_the_left()
+    {
+        // The drain condition is >=, not >, so this is (20 |< 1d6) >| 10 and not
+        // 20 |< (1d6 >| 10) -- which would answer 20.
+        Assert.Equal(10, WithSymbols("20|<1d6>|10", Min));
+    }
+
+    [Fact]
+    public void The_ceiling_is_an_expression_and_not_a_literal()
+    {
+        // The corpus writes racial ability maxima this way. Reading the bars as delimiters around
+        // an integer parses the "19" and silently drops the rest of the cap.
+        Assert.Equal(20, WithSymbols("3|<4d6>|19+(Race_Elf*1)", Max));
+        Assert.Equal(19, WithSymbols("3|<4d6>|19+(Race_Gnome*1)", Max));
+    }
+
+    // ---- what the reference does with text it cannot read ---------------------------------------
+
+    [Fact]
+    public void An_unreadable_character_ends_the_expression_without_complaint()
+    {
+        // m_EvaluateExpression breaks on CTKN_NONE with no error, so a decimal point truncates the
+        // expression rather than failing it. Both of these are in the shipped corpus.
+        Assert.Equal(1, WithSymbols("1.5*level", Max));
+        Assert.Contains("no term", Refused(".5*level"));
+    }
+
+    [Fact]
+    public void A_quoted_name_is_the_name_without_its_quotes()
+    {
+        // compileDicePlusRDR does name.Remove('"') before looking it up. The quotes are there
+        // because the tokeniser stops at the hyphen, not because they are part of the name.
+        Assert.Equal(0, WithSymbols("\"Race_Half-Orc\"*2", Max));
+        Assert.Equal(2, WithSymbols("\"Race_Elf\"*2", Max));
+    }
+
+    [Fact]
+    public void A_die_with_no_sides_rolls_nothing()
+    {
+        // RollDice returns the bonus -- zero -- when the sides or the count is not positive, so
+        // 1d0 never reaches the generator. SomethingWild's spell effects contain one.
+        Assert.Equal(0, WithSymbols("1d0", (_, _) => 999));
+        Assert.Equal(5, WithSymbols("1d0+5", (_, _) => 999));
+    }
+
+    [Fact]
+    public void A_race_name_no_race_has_is_a_zero_and_not_a_failure()
+    {
+        // LookupRefKey checks only the Race_ prefix and never consults the race database, so an
+        // accumulated name from the editor's re-encoding bug compiles and scores nothing. Every
+        // ability in SomethingWild depends on this: refusing here would make each one roll zero.
+        Assert.Equal(6, WithSymbols("2d3+(Race_Race_Race_Dwarf*-1)", Max));
+    }
+
+    [Fact]
+    public void Level_reads_the_character_and_not_a_die()
+    {
+        Assert.Equal(4, WithSymbols("1*level", Max));
+        Assert.Equal(2, WithSymbols("level/2", Max));
+        Assert.Equal(2, WithSymbols("(level+1)/2", Max));    // integer division, so 5/2 is 2
     }
 }

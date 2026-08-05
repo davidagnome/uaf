@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,188 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,208 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3257,10 +3257,11 @@ The deterministic half of `generateNewCharacter`: money, equipment, baseclass ro
 The generator's rules finally meet a design's own tables. Two things showed up the moment they
 did, and neither was visible in any unit test, because both are properties of real data.
 
-> **A `DICEPLUS`'s text carries its own bounds.** The field is
-> `min|<expression>|max` — `3|<2d6+6>|18` — with the record's `Min` and `Max` repeated around the
-> expression in angle brackets. An evaluator that reads the whole string as an expression chokes
-> on the bars; one that strips them and ignores the bounds rolls outside them.
+> ~~**A `DICEPLUS`'s text carries its own bounds** as `min|<expression>|max`.~~ **Half right, and
+> the wrong half mattered.** The bars are real, but they are the operators `|<` and `>|`, and what
+> follows the closing one is an expression rather than an integer — see §the re-measurement. The
+> reading here happened to give the same answers for these four designs and would not have for a
+> race-dependent ceiling.
 
 > **Ability dice reference races, and the names are quoted when they need to be.**
 > `2d6+6+(Race_Halfling*-1)+("Race_Half-Orc"*1)` — a `Race_<name>` symbol is 1 for that race and 0
@@ -3274,10 +3275,20 @@ did, and neither was visible in any unit test, because both are properties of re
 > which records were read: the fields carrying these expressions have not all been enumerated, so
 > the evaluator now makes no coverage claim at all.
 
-> **`SomethingWild`'s own data is corrupt here.** The race prefix repeats forty-one times —
-> `Race_Race_Race_…_Halfling` — in four of its six abilities. It parses, resolves to no known
-> race, and reads as 0, which is what the reference would also do. Left alone: it is the design's
-> bug, not the port's.
+> **`SomethingWild`'s own data is corrupt here, and now I know why.** The race prefix repeats up
+> to forty-one times — `Race_Race_Race_…_Halfling`. The *editor* rewrites every expression on
+> load through `EncodeOldDicePlusText` (`class.cpp:2309`, called at `:2591`, `#ifdef UAFEDITOR`),
+> prefixing bare race names with `Race_`. Its identifier scanner is `ISALPHANUM`
+> (`class.cpp:2307`) — letters and digits, **not** the underscore — so on the next pass
+> `Race_Dwarf` scans as `Race`, `_`, `Dwarf`, and `Dwarf` gets prefixed again. **One `Race_` per
+> editor session.** `"Race_Half-Orc"` is untouched in the same files because `Half-Orc` is not one
+> of the six names the encoder knows.
+>
+> The engine never re-encodes, and `LookupRefKey` (`class.cpp:900`) checks only that a name begins
+> `Race_` — it never consults the race database — so the accumulated name is a well-formed race
+> test that matches nobody and scores 0. **These designs' racial ability adjustments stopped
+> applying long ago, in the reference too.** That the port must resolve such a name to 0 rather
+> than refuse it is load-bearing: refusing would make every ability in the design roll nothing.
 
 One bug I introduced and caught: allowing `-` inside a bare identifier so `Race_Half-Orc` would
 parse unquoted. It would have read `Male-1` as a single identifier. The quoted branch is the
@@ -3507,9 +3518,12 @@ functions, and they disagree twice.
 ##### What a dice expression actually contains
 
 **`DICEPLUS::Roll` is a client of the GPDL toolchain, not a small VM of its own.** `RDRCOMP` and
-`RDREXEC` live in `GPDLcomp.h` and `GPDLexec.h` — **13,146 lines** of compiler and interpreter
-between them — so the expression a designer types into a dice field is compiled by the same
-machinery as a script. That puts it in **priority 3**, not in character creation.
+`RDREXEC` live in `GPDLcomp.h` and `GPDLexec.h` — ~~**13,146 lines** of compiler and interpreter
+between them, so this belongs in **priority 3**, not in character creation.~~ **That line count is
+the files', not the feature's.** `RDRCOMP` and `RDREXEC` are about 250 lines between them and are
+self-contained; the other thirteen thousand are `GPDLCOMP`, the *script* compiler, which a dice
+field never touches. Reading them first would have been cheaper than the two measurements it took
+to get here. See §the re-measurement.
 
 There is no shortcut through `decodeNdM`, either: it decodes a single token, and the compiler has
 already split `3d6+2` into `3d6`, `+`, `2`, so even that needs the expression layer.
@@ -3527,32 +3541,78 @@ the corpus's races and classes, 74 distinct:**
 
 > ~~**Every identifier in the entire corpus is `Male`.**~~ **That was wrong, and the way it was
 > wrong is worth keeping.** The probe behind it read races and classes — the records I happened to
-> be working on — and not abilities. **Every ability in `SomethingWild` references races**, and
-> its dice fields also carry bounds the probe never saw. A partial sample gave a confident, false,
-> and *measured-looking* answer; the number 288 made it feel settled. See §rolling a character
-> against a real design.
+> be working on — and not abilities or spells. It had sampled **288 of 8,880 expressions**, 3% of
+> the corpus, and reported a settled-looking conclusion. Every ability in `SomethingWild`
+> references races; every spell field that scales writes `level`. A partial sample gave a
+> confident, false, and *measured-looking* answer, and the number 288 is what made it feel
+> settled. The complete count and the vocabulary it actually shows are in §the re-measurement.
 
-**So the whole corpus is covered by numbers, `NdM`, `+ − *`, parentheses and one symbol.** That is
-a small recursive-descent evaluator with a one-entry symbol table — not thirteen thousand lines —
-and the GPDL toolchain stays where it belongs, in the scripting phase.
+`DiceFormula` was that evaluator: a hand-rolled recursive-descent parser over the subset I had
+measured. **It has since been replaced by a transcription, and the section below records what the
+re-measurement found.**
 
-`DiceFormula` is that evaluator, and **all twenty-two distinct shapes in the corpus are pinned as
-a theory**, evaluated with every die showing a 1 so the arithmetic around the dice is what is
-checked.
+##### The re-measurement, and what it cost to guess
 
-> **`NdM` binds tighter than `*`.** `2d2*Male` is `(2d2)*Male` — the dice are a primary, not an
-> operator at multiplying precedence. Getting this wrong turns a gender bonus into a different
-> die.
+Enumerating every field that carries a `DICEPLUS` — an ability's roll, a class's strength bonus, a
+race's weight, height, age, maximum age and movement, and a spell's parameters, effect duration
+and effect change data — gives **8,880 expressions across all four designs**, not 288. The first
+sample had missed abilities and all of spells; it had been 3% of the corpus.
+
+| field | expressions | empty | distinct |
+| --- | --- | --- | --- |
+| `spell.Parameter` | 6,786 | 4,030 | 69 |
+| `spell.Duration` | 1,131 | 353 | 4 |
+| `spell.Effect` | 651 | 0 | 60 |
+| `class.StrengthBonus` | 78 | 40 | 2 |
+| `race.*` (five fields) | 210 | 15 | 78 |
+| `ability.Roll` | 24 | 0 | 20 |
+
+**The complete identifier vocabulary is three things:** `Male`, `Race_<name>`, and `level` in
+either case. Spells are where `level` lives, which is why sampling races and classes could not
+have found it.
+
+**And the grammar was wrong in a way no symbol count would have caught.** `|<` and `>|` are
+*operators* in `CoperDef` (`GPDLcomp.cpp:4100`), at the table's lowest priority — not a
+`min|<expr>|max` bracket syntax. `3|<3d6>|18` is `3 |< 3d6 >| 18`: floor, then ceiling, each
+taking everything to its right. The corpus writes `3|<3d6>|19+(Race_Elf*1)`, where **the ceiling is
+itself an expression** — a racial ability maximum. Reading the bars as delimiters parses the `19`
+and silently drops the rest of the cap.
+
+So rather than guess again, `DiceFormula` is now a transcription of `RDRCOMP::CompileExpression`
+(`GPDLcomp.cpp:4517`) and `RDREXEC::InterpretExpression` (`GPDLexec.cpp:8249`): the tokeniser, the
+operator table with its priorities, the shunting-yard loop, and a postfix interpreter over an
+integer stack. **Those two functions are ~250 lines, not 13,146** — the rest of `GPDL*` is the
+*script* compiler, `GPDLCOMP`, which a dice field never touches. The earlier line count was the
+file's, not the feature's.
+
+> **The arithmetic is integer.** `InterpretExpression`'s stack is `int stk[40]`; `DICEPLUS::Roll`
+> widens to a double only at the end. `level/2` at level three is 1.
+
+> **`|<` keeps the larger operand and `>|` the smaller**, and equal priorities associate left
+> (the drain condition is `>=`), so `3|<3d6>|18` clamps low first and high second.
+
+> **An unrecognised character ends the expression silently.** The loop does
+> `if (tokenType == CTKN_NONE) break;` with no error — so `1.5*level` compiles to just `1`. The
+> same character where a *term* was expected is an error, so `.5*level` fails to compile and the
+> roll returns nothing. **Both forms are in the shipped corpus and they do not mean the same
+> thing.**
+
+> **Division and remainder by zero give zero**, tested by the interpreter rather than performed.
+> My hand-rolled evaluator refused instead — a defensible-looking choice that was simply not what
+> the reference does.
+
+> **`1d0` rolls nothing.** `RollDice` returns the bonus when either the sides or the count is not
+> positive. `SomethingWild`'s spell effects contain one.
 
 > **An empty expression "did not roll"; it did not roll zero.** `Compile` fails on an empty string
 > and `Roll` returns FALSE with its result left at 0 — the same answer `AbilityRoll` treats as a
-> zero-scoring attempt. Nineteen per cent of the corpus's dice fields are empty, so this is the
-> common case and not an edge one.
+> zero-scoring attempt. Just under half the corpus's dice fields are empty.
 
-> **Everything outside the subset is refused by name.** An unknown identifier, a bare `d6`, an
-> unclosed bracket, a division by zero — each says what and where. A bare `d6` is refused rather
-> than read as `1d6` because no design writes one, and inventing the implicit 1 would be guessing
-> at a convention rather than transcribing it.
+The measurement itself is now a **test**, not a probe: `DiceCorpusTests` walks all ten fields in
+every design, asserts every expression either evaluates or is empty, asserts that the only refusals
+are the ones the reference also refuses, and — the guard against repeating the original mistake —
+**asserts that all ten field kinds are present in the sample**, so a database that silently fails
+to open can no longer look like a field with no expressions.
 
 ##### Typed text — and `EnterPassword` running
 
@@ -5244,14 +5304,13 @@ the identifier `level` (case-insensitively — designs write both `level` and `L
 one unary sign, and parentheses. Real examples: `1`, `-1d8`, `2d8+1`, `-(1d6)*level`,
 `-(1d4+1)*((level+1)/2)`, `6-(1/4*LEVEL)`.
 
-> **A deliberate divergence in route, not in result.** The reference compiles the text to an RDR
-> expression (`DICEPLUS::Compile`) and runs it through `RDREXEC`, a postfix interpreter shared with
-> GPDL, dispatching dice terms to `RollDice` and identifiers to
-> `GENERIC_REFERENCE::LookupReferenceData`. This port evaluates the same grammar directly. The
-> compiler and interpreter are a subsystem of their own and buy nothing here — what decides the
-> answer is the operator set, the precedence and the integer arithmetic, all of which are
-> reproduced. `DiceExpressionCorpusTests` checks the two agree in the only way that matters: every
-> expression the shipped designs contain evaluates.
+> ~~**A deliberate divergence in route, not in result.**~~ **The divergence was in result too, and
+> `DiceExpression` is now a façade over the transcription** — see §the re-measurement. Evaluating
+> "the same grammar directly" was fine for spells and wrong for the corpus: the grammar has clamp
+> operators this section never saw, and two of the divergences below were real behavioural
+> differences rather than route. `DiceExpressionCorpusTests` kept checking every spell expression
+> evaluates, and that assertion was true throughout — it just could not see what it was not
+> looking at.
 
 - **The arithmetic is integer throughout**, and that is not a rounding detail.
   `RDREXEC::InterpretExpression` works on an `int` stack and its dice callback returns `int`, so
@@ -5261,16 +5320,21 @@ one unary sign, and parentheses. Real examples: `1`, `-1d8`, `2d8+1`, `-(1d6)*le
   designs — is zero rather than an error or a one.
 - **Only one unary sign is allowed**: "We allow only one unary operator. Do you want more?"
   (`GPDLcomp.cpp:4341`).
-- An identifier the lookup does not know evaluates to **zero, not a failure** — the reference logs
-  "Illegal RDR code" and returns 0.
+- ~~An identifier the lookup does not know evaluates to **zero, not a failure**.~~ **Two different
+  paths were being conflated.** A name `LookupRefKey` cannot place at all fails the *compile*
+  (`compileDicePlusRDR` returns 0, "Unrecognized Runtime Variable reference"), so the whole
+  expression yields nothing. Only a name that resolves to a database the interpreter has not
+  implemented — abilities, traits, spellgroups — is the "Illegal RDR code" zero. The lookup
+  callback is where a caller says which it has.
 
 > **There are no fractional literals, and designs write them anyway.** The tokeniser treats only
-> `'0'`–`'9'` as numeric (`GPDLcomp.cpp:4221`) and accumulates digits into an `int`; a decimal point
-> falls through to the operator table, matches nothing, and the compile fails. `DICEPLUS::Roll`
-> then returns false with its result already zeroed — **the expression silently contributes
-> nothing**. `.5*level` is in all four designs checked and `1.5*level` in `ci-tier3`. All of them
-> are dead. This was only found by running the parser over the whole corpus rather than the
-> examples that prompted it.
+> `'0'`–`'9'` as numeric (`GPDLcomp.cpp:4221`) and accumulates digits into an `int`; a decimal
+> point falls through to the operator table and matches nothing. ~~All of them are dead.~~
+> **Only half of them.** Where a term was expected — `.5*level`, in all four designs — that is an
+> error and the expression contributes nothing. Where an *operator* was expected the compiler's
+> loop simply breaks, so `1.5*level` in `ci-tier3` is **`1`**. This port called both of them dead,
+> and asserted it, for the same reason it called trailing text a failure: it had reconstructed the
+> grammar instead of reading it.
 
 ##### Area geometry, as ported
 
@@ -6619,24 +6683,21 @@ What is left, in order:
      (§ability.dat) — and the deterministic half of `generateNewCharacter` is done (§what a new
      character starts with).
 
-     **`DICEPLUS::Roll` is next, and it is much smaller than it looked** — see §what a dice
-     expression actually contains. It compiles through the 13k-line GPDL toolchain in the
-     reference, but the corpus only ever uses numbers, `NdM`, `+ − *`, parentheses and a single
-     identifier (`Male`), so a small evaluator covers every design and the toolchain stays in
-     priority 3 where it belongs. Refuse anything outside that subset by name.
+     **`DICEPLUS::Roll` is done, and it is now a transcription rather than a reconstruction**
+     (§the re-measurement). `RDRCOMP` and `RDREXEC` are ~250 lines, not the 13k the file sizes
+     suggested, so the tokeniser, the operator table and the postfix interpreter are all ported
+     directly and the *script* half of GPDL stays in priority 3 where it belongs. The two
+     evaluators this port had grown — one for spells, one for character creation — are one.
 
-     Hit points, the two art screens and the spell-acquisition rules are ported too (§a new
-     character's hit points, §the art pickers, §learning spells at creation). What is left of
-     CREATE is **wiring the spell screens onto those rules** — they need the per-level available-
-     spell lists, which means `CreateSpellAvailabilityList` — and the final save. Then MODIFY,
-     the same wizard re-entered over an existing character.
+     **CREATE CHARACTER runs all ten steps** and writes a `.chr` with real ability scores, hit
+     points and age (§the character generator's spine, §rolling a character against a real design).
+
+     **Next: MODIFY**, the same wizard re-entered over an existing character, and then **CHANGE
+     CLASS**, which needs `CreateChangeClassList` — the last two of the party menu's twelve
+     entries.
 
      Then the single-caller screens — magic, rest, alter, journal, buy, appraise, heal, donate —
      and **reloading the level on load**, the one loose end saving left behind.
-
-     After that: the character-creation family (ADD, REMOVE, CREATE, DELETE, MODIFY), one
-     subsystem behind five entries, and the single-caller screens — magic, rest, alter, journal,
-     buy, appraise, heal, donate.
 
 2. ~~**The rest of the archive writer.**~~ **Done — this was the largest structural gap in the
    port and it is closed.** All six record types write: monsters, items and spells each reproducing
