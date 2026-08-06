@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,441 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,468 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,34 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### The temple's donation
+
+`TEMPLE`'s donate states (`RunEvent.cpp:12717`–`:12830`). `UAFcore/Donation.cs`.
+
+> **The amount is typed into a <i>menu</i>, not a text field.** Each digit is its own menu entry
+> with a blank one on the end, and the total is the entries concatenated through <c>atoi</c>.
+> Backspace deletes the last entry.
+
+> **Too much snaps to the maximum rather than being refused.** A digit that would take the amount
+> past what the party can pay — or wrap it negative — clears the whole entry and replaces it with
+> the maximum. A player mashing digits ends up offering everything they have, which is presumably
+> the point.
+
+> **Pooled money is the party's to give; otherwise it comes out of one purse.** The ceiling is
+> <c>party.GetPoolGoldValue()</c> or <c>poolCharacterGold()</c> depending on
+> <c>party.moneyPooled</c>.
+
+> **The running total belongs to the temple, not the party.** It is saved with the event, so a
+> party giving a little on each of several visits still crosses the threshold.
+
+> **The trigger is only tested on the way out</b>, and crossing it mid-visit does nothing. On exit,
+> a total at or past <c>donationTrigger</c> resets the total and <i>replaces</i> the event with
+> <c>donationChain</c> — where an ordinary exit follows the event's own <c>ChainEventHappen</c>.
+> Both paths chain; the trigger decides which.
+
+> **A trigger of zero fires on every visit.** The total starts at zero and the test is <c>&gt;=</c>,
+> so a design that leaves the field unset chains every time the party walks out — donation or not.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7251,8 +7279,10 @@ What is left, in order:
      **Resting memorises now**, and opening the rest screen fills in the duration and wakes the
      unconscious (§what opening a rest does). **REST and MEMORIZE are both complete.**
 
-     **Next: the town services** — buy, appraise, heal, donate — and FIX, which casts from the
-     design's fix spell book.
+     **DONATE runs** (§the temple's donation), including its trigger chain.
+
+     **Next: HEAL**, the temple's other half — it casts from the temple's own spell book, which is
+     the same machinery FIX needs. Then the shop: buy and appraise.
 
 
 

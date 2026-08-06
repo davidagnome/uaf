@@ -193,6 +193,12 @@ public sealed class Game
         // what the reference does for the same reason.
         Runner.ScribeLabel = () => null;
 
+        // Pooled money is the party's to give; otherwise it comes out of one purse.
+        Runner.DonationMaximum = () => (int)DonatingPurse().Total();
+
+        Runner.ApplyDonation = amount =>
+            TempleDonations.Give(DonatingPurse(), amount, Runner.TotalDonated);
+
         Runner.MemorizeFor = () => Party.Active is { } who
             ? MemorizeList.Build(who.Book.Entries, SchoolAndLevelOf, SchoolAbilitiesOf(who),
                                  who.Record.SpellAdjustments)
@@ -675,6 +681,18 @@ public sealed class Game
     /// </summary>
     private static int RestTimeFor(Character who) =>
         who.Book.RestTimeNeeded(e => SpellListEntry.MemorizeMinutes(e.Level));
+
+    /// <summary>
+    /// Which purse a donation comes out of.
+    /// </summary>
+    /// <remarks>
+    /// <b>Pooled money is the party's to give; otherwise it comes out of one character's own.</b>
+    /// The reference asks <c>party.GetPoolGoldValue()</c> or
+    /// <c>GetActiveChar(this).poolCharacterGold()</c> for the ceiling and then charges the active
+    /// character either way — this charges whichever purse it measured, so the two agree.
+    /// </remarks>
+    private Purse DonatingPurse() =>
+        Party.MoneyPooled != 0 ? Party.Pooled : Party.Active?.Purse ?? Party.Pooled;
 
     /// <summary>A spell's school and level, from the design's table.</summary>
     private (string School, int Level)? SchoolAndLevelOf(string spellId) =>

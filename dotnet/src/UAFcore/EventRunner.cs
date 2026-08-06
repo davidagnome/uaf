@@ -326,6 +326,114 @@ public sealed class EventRunner
         [("HEAL", 0), ("DONATE", 0), ("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
          ("EXIT", 1)];
 
+    /// <summary>The temple's donate menu (<c>TempleDonateMenu</c>, <c>GameMenu.cpp:690</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] DonateMenu =
+        [("TAKE", 0), ("POOL", 0), ("SHARE", 0), ("APPR", 0), ("GIVE", 0), ("EXIT", 1)];
+
+    public const int DonateGive = 4;
+    public const int DonateExit = 5;
+
+    /// <summary>Whether the donate sub-menu is up.</summary>
+    public bool DonateOpen { get; private set; }
+
+    /// <summary>What is being typed into GIVE, or null when that screen is not up.</summary>
+    public Donation? Giving { get; private set; }
+
+    /// <summary>The most the party could give; set by the host.</summary>
+    public Func<int>? DonationMaximum { get; set; }
+
+    /// <summary>Takes a donation and returns the temple's new running total; set by the host.</summary>
+    public Func<int, int>? ApplyDonation { get; set; }
+
+    /// <summary>What this temple has been given so far, across every visit.</summary>
+    public int TotalDonated { get; private set; }
+
+    private EventStep OpenDonate(TempleEvent temple)
+    {
+        DonateOpen = true;
+        TotalDonated = TotalDonated == 0 ? temple.TotalDonation : TotalDonated;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, DonateMenu);
+        escapeSelects = DonateExit;
+
+        return EventStep.Running;
+    }
+
+    private EventStep ChooseDonate(TempleEvent temple)
+    {
+        switch (Menu.ActiveItem)
+        {
+            case DonateGive:
+                Giving = Donation.None;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                               ("PRESS ENTER WHEN DONE", 7));
+                escapeSelects = 0;
+                ShowText("HOW MUCH WILL YOU GIVE?");
+                return EventStep.Running;
+
+            case DonateExit:
+                DonateOpen = false;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, TempleMenu);
+                escapeSelects = TempleMenu.Length - 1;
+                ShowText(temple.Base.Text2);
+                return EventStep.Running;
+
+            default:
+                Unimplemented =
+                    $"[{DonateMenu[Math.Clamp(Menu.ActiveItem, 0, DonateMenu.Length - 1)].Label}"
+                    + " here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>
+    /// Return on the GIVE screen: hand the money over and go back to the donate menu.
+    /// </summary>
+    private EventStep CommitGive()
+    {
+        if (Giving is { } entry)
+        {
+            TotalDonated = ApplyDonation?.Invoke(entry.Amount) ?? TotalDonated;
+        }
+
+        Giving = null;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, DonateMenu);
+        escapeSelects = DonateExit;
+
+        return EventStep.Running;
+    }
+
+    /// <summary>The digits and the backspace, which never reach the menu.</summary>
+    private bool HandleGiveKey(InputEvent input)
+    {
+        if (Giving is not { } entry || input.Kind != InputEventKind.KeyDown)
+        {
+            return false;
+        }
+
+        if (input.Key == VirtualKey.Backspace)
+        {
+            Giving = entry.Backspace();
+            return true;
+        }
+
+        char typed = input.Character;
+        if (typed is >= '0' and <= '9')
+        {
+            Giving = entry.Type(typed, DonationMaximum?.Invoke() ?? 0);
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// A town service's outer menu: horizontal, Escape on EXIT, the event's text above it.
     /// </summary>
@@ -369,6 +477,16 @@ public sealed class EventRunner
     /// <summary><c>TEMPLE::OnKeypress</c> (<c>RunEvent.cpp:12588</c>).</summary>
     private EventStep ChooseTemple(TempleEvent temple)
     {
+        if (Giving is not null)
+        {
+            return CommitGive();
+        }
+
+        if (DonateOpen)
+        {
+            return ChooseDonate(temple);
+        }
+
         if (!templeWelcomed)
         {
             templeWelcomed = true;
@@ -380,6 +498,24 @@ public sealed class EventRunner
             escapeSelects = TempleMenu.Length - 1;
             ShowText(temple.Base.Text2);          // NOT Text -- see BeginTemple
             return EventStep.Running;
+        }
+
+        // DONATE is the temple's own screen; everything else is the shared town dispatch.
+        if (Menu.ActiveItem == 1 && temple.AllowDonations != 0)
+        {
+            return OpenDonate(temple);
+        }
+
+        if (Menu.ActiveItem == TempleMenu.Length - 1
+            && TempleDonations.Triggers(TotalDonated, temple.DonationTrigger)
+            && temple.DonationChain != 0
+            && IsValidEvent?.Invoke(temple.DonationChain) != false)
+        {
+            // Only tested on the way out, and only once: the total is reset as it fires.
+            TotalDonated = 0;
+            BackupRequested = temple.ForceExit != 0;
+            Current = null;
+            return EventStep.To(temple.DonationChain);
         }
 
         return ChooseTownItem(TempleMenu, temple.ForceExit);
@@ -438,8 +574,8 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
-        // BUY, ITEMS, APPRAISE, TAKE, POOL, SHARE, HEAL, DONATE, DRINK and LISTEN each push a
-        // screen this port has not built.
+        // BUY, ITEMS, APPRAISE, TAKE, POOL, SHARE, HEAL, DRINK and LISTEN each push a screen
+        // this port has not built. DONATE is handled by the temple itself.
         Unimplemented = $"[{label} here -- not implemented]";
         return EventStep.Running;
     }
@@ -3756,6 +3892,12 @@ public sealed class EventRunner
         // The inventory takes the vertical keys before the menu sees them; the horizontal ones
         // fall through, which is the whole shape of HMenuVInventoryKeyboardAction.
         if (InventoryOpen && input.Kind == InputEventKind.KeyDown && HandleInventoryKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
+        // The GIVE screen takes digits and backspace; Return falls through and commits.
+        if (Giving is not null && HandleGiveKey(input))
         {
             return EventStep.Running;
         }
