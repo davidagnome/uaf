@@ -89,6 +89,27 @@ public static class SpellResolution
     {
         ArgumentNullException.ThrowIfNull(caster);
         ArgumentNullException.ThrowIfNull(target);
+
+        return InvokeOn(caster, target, target.Index, spell, dice, elapsedMinutes, activeSpellKey,
+                        saveScore, casterLevel,
+                        attackSucceeds is null ? null : (c, t) => attackSucceeds((Combatant)c,
+                                                                                 (Combatant)t));
+    }
+
+    /// <inheritdoc cref="Invoke"/>
+    /// <param name="targetIndex">
+    /// What identifies the target in the returned <see cref="SpellHit"/>. A combatant's place in
+    /// the fight, or a party slot for a cast made outside one — the reference has one identity for
+    /// both because it resolves spells against <c>CHARACTER</c> either way, and this port does not.
+    /// </param>
+    public static SpellHit InvokeOn(ISpellSubject caster, ISpellSubject target, int targetIndex,
+                                    SpellRecord spell, Func<int, int> dice,
+                                    double elapsedMinutes = 0, int activeSpellKey = -1,
+                                    int saveScore = 20, int casterLevel = 1,
+                                    Func<ISpellSubject, ISpellSubject, bool>? attackSucceeds = null)
+    {
+        ArgumentNullException.ThrowIfNull(caster);
+        ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(spell);
         ArgumentNullException.ThrowIfNull(dice);
 
@@ -96,13 +117,13 @@ public static class SpellResolution
         if (spell.IsCumulative == 0
             && target.Effects.Effects.Any(e => e.SourceSpell == spell.Name))
         {
-            return new SpellHit(target.Index, SpellOutcome.AlreadyAffected, false, 0);
+            return new SpellHit(targetIndex, SpellOutcome.AlreadyAffected, false, 0);
         }
 
         // 2. The DOES_SPELL_ATTACK_SUCCEED chain.
         if (attackSucceeds is not null && !attackSucceeds(caster, target))
         {
-            return new SpellHit(target.Index, SpellOutcome.Refused, false, 0);
+            return new SpellHit(targetIndex, SpellOutcome.Refused, false, 0);
         }
 
         // 3. The saving throw -- rolled only when the spell declares one.
@@ -120,7 +141,7 @@ public static class SpellResolution
 
             if (save.NoEffect)
             {
-                return new SpellHit(target.Index, SpellOutcome.Saved, true, 0);
+                return new SpellHit(targetIndex, SpellOutcome.Saved, true, 0);
             }
         }
 
@@ -153,7 +174,7 @@ public static class SpellResolution
             }
         }
 
-        return new SpellHit(target.Index,
+        return new SpellHit(targetIndex,
                             applied > 0 ? SpellOutcome.Applied : SpellOutcome.NoEffect,
                             saved, applied);
     }

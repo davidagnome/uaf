@@ -4145,6 +4145,66 @@ a cast that resolves nothing would spin forever on the first hurt character. One
 on when spells resolve, and the line is in the source. This is the same layer the temple's own
 casting waits on.
 
+##### Casting outside combat, and one class where the reference has none
+
+`CHARACTER::CastSpell` (`Char.cpp:17021`) and `CHARACTER::SpellActivate` (`:16913`).
+`UAFcore/PartyCasting.cs`, plus `UAFcore/SpellSubject.cs`.
+
+**First: what was already there.** `SpellResolution` — `InvokeSpellOnTarget`, the part that decides
+what actually happens to a target — has been ported since the combat work, along with the saving
+throw and the effect roll. The gap was only the path *into* it from outside a fight. Grepping
+before porting saved the whole of it a second time.
+
+> **Outside combat every target is a party member.** `SpellActivate` matches each selected target's
+> `uniquePartyID` against the party and **skips** anything it cannot find, so a spell aimed at
+> something that has left the party affects nobody rather than erroring.
+
+> **The global `::SpellActivate` is only a dispatcher** (`Globals.cpp:4245`) — a two-level switch on
+> where the caster came from that routes to the right object's own method and does nothing else.
+
+> **The memorised copy is spent first and never refunded.** A target who saves, a target already
+> carrying the spell, or no valid target at all each leave the caster one copy poorer. Only an id
+> the design has lost escapes the charge, because the lookup fails before the decrement.
+
+> **One active-spell key for the whole cast, allocated before the target loop** — so a spell that
+> reached four people expires from all four together rather than each on its own clock. It is spent
+> even when the cast reaches nobody. A `Permanent` spell takes no key at all.
+
+> **`LayOrCureOrWhatever` suppresses the decrement**, which is how laying on hands and the temple's
+> bishop cast without a spell book behind them.
+
+> **The cast sound plays whether or not the spell affected anybody** — the reference says so in a
+> comment, and there is no graphical feedback outside combat at all.
+
+###### One class there, two here
+
+The reference resolves every spell against a `CHARACTER`; a `COMBATANT` holds a pointer back to
+one, so `InvokeSpellOnTarget` serves both paths by construction. This port has a `Combatant` that
+belongs to a fight and a `Character` that belongs to the party, and they share no base. Rather than
+copy the resolution — the mistake this port has made twice and caught twice — `ISpellSubject` names
+the four things resolution actually reads off either of them, and `SpellResolution.InvokeOn` takes
+that. The old `Invoke(Combatant, Combatant, …)` stays as a one-line delegation, so no combat caller
+or test changed.
+
+###### The open question underneath: do effects double-count?
+
+Found while reading, not resolved, and it decides whether healing works.
+
+`AddSpellEffect` (`Char.cpp:11984`) calls `ModifyByDouble` in **both** its branches. For a
+non-permanent effect it applies the change to the attribute *and* stores the effect in
+`m_spellEffects` — and reverses it with `ModifyByDouble(…, -changeResult)` when it expires
+(`:11448`). `CHAR_HITPOINTS` resolves to `SetHitPoints(GetHitPoints() + modification)`
+(`RunTimeIF.cpp:1425`), a write to the real attribute. But `GetAdjHitPoints` (`:13239`) *also*
+walks the spell-effect list. On the face of it a cure is counted twice, which cannot be right, so
+one of the two must be narrower than it looks — most likely `ApplySpellEffectAdjustments` filters
+on flags this port has not yet had to read.
+
+This port currently models effects the second way only: `SpellEffectList` plus the `Adjusted…`
+properties. **So a cure spell today moves `AdjustedHitPoints` and not `HitPoints`** — and
+`FixSpells.WantsFixing` reads the raw value, which is why FIX still cannot be switched on even now
+that casting resolves. Resolving this is the next thing, and it is a reading job before it is a
+coding one.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7478,10 +7538,17 @@ What is left, in order:
      **Camp is at eleven of twelve entries** (QUIT alone is unbuilt) and the temple is complete
      bar its own casting.
 
-     **Next: the spell resolution layer** — `CHARACTER::CastSpell` and the effect application
-     behind it. Three things are now queued on exactly this and nothing else: the temple's CAST,
-     FIX's casting, and MAGIC's own cast entry. It is the last shared gap in the town services and
-     the first real piece of Priority 3.
+     ~~**Next: the spell resolution layer** — `CHARACTER::CastSpell` and the effect application
+     behind it.~~ **The non-combat casting path runs** (§casting outside combat) — and most of
+     what I expected to write was already ported for combat, so the round was the path into it
+     plus the interface that lets both paths share one resolution.
+
+     **Next: how a spell effect reaches an attribute** (§the open question underneath). The
+     reference applies the change to the attribute *and* keeps the effect in a list that
+     `GetAdj…` also walks, which looks like double-counting and cannot be. Until that is read
+     properly a cure spell moves `AdjustedHitPoints` and not `HitPoints`, which is exactly why FIX
+     is still held back. It is a reading job before it is a coding one, and the temple's CAST and
+     MAGIC's cast entry are behind it too.
 
 
 

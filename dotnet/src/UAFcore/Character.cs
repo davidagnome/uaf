@@ -58,7 +58,7 @@ public sealed class BaseclassProgress(string baseclassId, int currentLevel, int 
 /// and spellcasting exist.
 /// </para>
 /// </remarks>
-public sealed class Character
+public sealed class Character : ISpellSubject
 {
     private readonly List<BaseclassProgress> baseclasses;
 
@@ -196,6 +196,11 @@ public sealed class Character
 
     /// <summary>The character's base to-hit number (<c>GetTHAC0</c>, <c>Char.cpp:6074</c>).</summary>
     public int Thac0 => Record.Thac0;
+
+    /// <summary>
+    /// Percentage magic resistance (<c>GetMagicResistance</c>), as a saving throw reads it.
+    /// </summary>
+    public int MagicResistance => Record.MagicResistance;
 
     /// <summary>
     /// The worst to-hit number the rules allow (<c>MAX_THAC0</c>, <c>Char.h:36</c>).

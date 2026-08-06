@@ -53,7 +53,7 @@ public enum CombatantKind
 /// this holds the coordinate, exactly as the original splits them. Moving means updating both.
 /// </para>
 /// </remarks>
-public sealed class Combatant
+public sealed class Combatant : ISpellSubject
 {
     /// <param name="index">
     /// Its place in the combatant list. This is the value written into the grid's occupancy
