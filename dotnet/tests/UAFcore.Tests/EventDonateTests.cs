@@ -84,6 +84,84 @@ public class EventDonateTests
     }
 
     [Fact]
+    public void Heal_opens_its_own_menu()
+    {
+        var runner = Started();
+        Choose(runner, TempleHeal);
+
+        Assert.True(runner.HealOpen);
+        Assert.Equal(["CAST", "VIEW", "FIX", "TAKE", "POOL", "SHARE", "APPR", "EXIT"],
+                     runner.Menu.Items.Select(i => BitmapFont.Decode(i.Text)));
+    }
+
+    [Fact]
+    public void Cast_opens_the_priced_list()
+    {
+        var runner = Started();
+        runner.TempleSpellsFor = () => [new TempleSpell("cure", "Cure Light Wounds", 1, 50)];
+
+        Choose(runner, TempleHeal);
+        Choose(runner, EventRunner.HealCast);
+
+        Assert.NotNull(runner.TempleCasting);
+        Assert.Equal(50, runner.TempleCasting![0].Cost);
+        Assert.Equal(["CAST", "NEXT", "PREV", "EXIT"],
+                     runner.Menu.Items.Select(i => BitmapFont.Decode(i.Text)));
+    }
+
+    [Fact]
+    public void The_cast_list_takes_the_vertical_keys()
+    {
+        var runner = Started();
+        runner.TempleSpellsFor = () =>
+            [new TempleSpell("a", "A", 1, 10), new TempleSpell("b", "B", 1, 20)];
+
+        Choose(runner, TempleHeal);
+        Choose(runner, EventRunner.HealCast);
+
+        Press(runner, VirtualKey.Down);
+        Assert.Equal(1, runner.TempleSpellIndex);
+
+        Press(runner, VirtualKey.Down);
+        Assert.Equal(0, runner.TempleSpellIndex);          // wraps
+    }
+
+    [Fact]
+    public void The_casting_itself_is_named_rather_than_done()
+    {
+        // The reference synthesises a max-level bishop and casts through the ordinary spell
+        // machinery -- the same layer FIX waits on.
+        var runner = Started();
+        runner.TempleSpellsFor = () => [new TempleSpell("cure", "Cure", 1, 50)];
+
+        Choose(runner, TempleHeal);
+        Choose(runner, EventRunner.HealCast);
+        Press(runner, VirtualKey.Return);
+
+        Assert.Contains("casting", runner.Unimplemented);
+    }
+
+    [Fact]
+    public void Leaving_the_cast_list_returns_to_heal_and_then_to_the_temple()
+    {
+        var runner = Started();
+        runner.TempleSpellsFor = () => [new TempleSpell("cure", "Cure", 1, 50)];
+
+        Choose(runner, TempleHeal);
+        Choose(runner, EventRunner.HealCast);
+        Press(runner, VirtualKey.Escape);
+
+        Assert.Null(runner.TempleCasting);
+        Assert.True(runner.HealOpen);
+        Assert.Equal(8, runner.Menu.Count);
+
+        Choose(runner, EventRunner.HealExit);
+
+        Assert.False(runner.HealOpen);
+        Assert.Equal(7, runner.Menu.Count);
+    }
+
+    [Fact]
     public void The_temple_menu_follows_its_welcome()
     {
         var runner = Started();

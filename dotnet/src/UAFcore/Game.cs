@@ -196,6 +196,24 @@ public sealed class Game
         // Pooled money is the party's to give; otherwise it comes out of one purse.
         Runner.DonationMaximum = () => (int)DonatingPurse().Total();
 
+        Runner.TempleSpellsFor = () =>
+        {
+            if (Runner.Current is not TempleEvent temple)
+            {
+                return [];
+            }
+
+            var book = new SpellList();
+            foreach (var spell in temple.TempleSpells.Spells)
+            {
+                book.Add(spell.SpellId, spell.Level, spell.Memorized).Selected = spell.Selected;
+            }
+
+            return TempleSpells.Offered(
+                book, Prices.FactorOf(temple.CostFactor), temple.MaxLevel,
+                id => design.Spell(id) is { } s ? (s.Name, s.Level, s.CastCost) : null);
+        };
+
         Runner.ApplyDonation = amount =>
             TempleDonations.Give(DonatingPurse(), amount, Runner.TotalDonated);
 

@@ -20,7 +20,7 @@ stacking under it, and **combat: walking onto a combat event starts a fight that
 verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
 and cast** — spells run the full casting clock, saving throw, area geometry and effect
 application. Phases 5–7 have not started.
-**3,468 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,499 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -3941,6 +3941,32 @@ those lists.
 
 ~~**Not done: loading does not reload the level.**~~ **Done** — see §the level load, below.
 
+##### HEAL, and the one price scale the whole game shares
+
+`TEMPLE`'s heal states (`RunEvent.cpp:12859`) and `ApplyCostFactor` (`Globals.cpp:971`).
+`UAF.Rules/CostFactor.cs`, `UAFcore/TempleSpells.cs`. **Both of the temple's own entries now run.**
+
+> **One scale prices everything.** `costFactorType` is twenty steps from a hundredth to a hundred
+> with `Normal` in the middle, and the same function serves the temple's spells, a shop's items
+> (`Items.cpp:2191`) and `Char.cpp:6695`.
+
+> **`Free` is the only way to pay nothing.** It is answered before the arithmetic; every other
+> factor truncates to an integer and then **floors at one**, so a one-coin spell at a hundredth
+> still costs a coin. A temple meaning to give something away has to say `Free` rather than
+> dividing enough.
+
+> **It truncates rather than rounds** — three halved is one.
+
+> **The list is the temple's own memorised spells, not the party's.** And the character holding
+> them is *synthesised*: `TASK_TempleCast`'s first run builds a "TempleBishop" — a maximum-level
+> cleric and magic-user with a chaotic-neutral alignment and a gender of `Bishop` — and keeps it in
+> the design's NPC list, so that any spell the temple carries can actually be cast. A spell with no
+> memorised copy is not offered; the temple is out of it until it memorises again.
+
+**Not ported, and named:** the casting itself, which goes through the ordinary spell machinery —
+the same layer FIX waits on. HEAL's FIX entry is `party.FixParty(1)`, the same call camp's FIX
+makes with a different environment, so the two arrive together.
+
 ##### The temple's donation
 
 `TEMPLE`'s donate states (`RunEvent.cpp:12717`–`:12830`). `UAFcore/Donation.cs`.
@@ -7281,8 +7307,10 @@ What is left, in order:
 
      **DONATE runs** (§the temple's donation), including its trigger chain.
 
-     **Next: HEAL**, the temple's other half — it casts from the temple's own spell book, which is
-     the same machinery FIX needs. Then the shop: buy and appraise.
+     **HEAL runs too**, with the price scale the whole game shares (§HEAL). The temple is
+     complete bar the casting.
+
+     **Next: the shop** — BUY and APPRAISE, which price items through that same scale.
 
 
 

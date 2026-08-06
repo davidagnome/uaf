@@ -326,6 +326,125 @@ public sealed class EventRunner
         [("HEAL", 0), ("DONATE", 0), ("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
          ("EXIT", 1)];
 
+    /// <summary>The temple's heal menu (<c>TempleHealMenu</c>, <c>GameMenu.cpp:707</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] HealMenu =
+        [("CAST", 0), ("VIEW", 0), ("FIX", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
+         ("APPR", 0), ("EXIT", 1)];
+
+    public const int HealCast = 0;
+    public const int HealExit = 7;
+
+    /// <summary>Whether the heal sub-menu is up.</summary>
+    public bool HealOpen { get; private set; }
+
+    /// <summary>The temple's spells and their prices, or null when that list is not up.</summary>
+    public IReadOnlyList<TempleSpell>? TempleCasting { get; private set; }
+
+    /// <summary>Which row the cursor is on.</summary>
+    public int TempleSpellIndex { get; private set; }
+
+    /// <summary>What the temple will cast and for how much; set by the host.</summary>
+    public Func<IReadOnlyList<TempleSpell>>? TempleSpellsFor { get; set; }
+
+    private EventStep OpenHeal(TempleEvent temple)
+    {
+        HealOpen = true;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, HealMenu);
+        escapeSelects = HealExit;
+        ShowText(temple.Base.Text2);
+
+        return EventStep.Running;
+    }
+
+    private EventStep ChooseHeal(TempleEvent temple)
+    {
+        switch (Menu.ActiveItem)
+        {
+            case HealCast:
+                TempleCasting = TempleSpellsFor?.Invoke() ?? [];
+                TempleSpellIndex = 0;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                               ("CAST", 0), ("NEXT", 0), ("PREV", 0), ("EXIT", 1));
+                escapeSelects = 3;
+                return EventStep.Running;
+
+            case HealExit:
+                HealOpen = false;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, TempleMenu);
+                escapeSelects = TempleMenu.Length - 1;
+                ShowText(temple.Base.Text2);
+                return EventStep.Running;
+
+            default:
+                Unimplemented =
+                    $"[{HealMenu[Math.Clamp(Menu.ActiveItem, 0, HealMenu.Length - 1)].Label}"
+                    + " here -- not implemented]";
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>
+    /// The temple's cast list: CAST, NEXT, PREV, EXIT.
+    /// </summary>
+    /// <remarks>
+    /// <b>The casting itself is not ported.</b> The reference synthesises a max-level
+    /// "TempleBishop" (<c>RunEvent.cpp:12408</c>), targets the active character and casts through
+    /// the ordinary spell machinery — which is the same layer FIX waits on. What is here is the
+    /// list and its prices.
+    /// </remarks>
+    private EventStep ChooseTempleCast(TempleEvent temple)
+    {
+        switch (Menu.ActiveItem)
+        {
+            case 0:
+                Unimplemented = "[the temple's casting here -- not implemented]";
+                return EventStep.Running;
+
+            case 1:
+            case 2:
+                return EventStep.Running;
+
+            default:
+                TempleCasting = null;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, HealMenu);
+                escapeSelects = HealExit;
+                ShowText(temple.Base.Text2);
+                return EventStep.Running;
+        }
+    }
+
+    /// <summary>The cast list takes the vertical keys.</summary>
+    private bool HandleTempleCastKey(VirtualKey key)
+    {
+        int count = TempleCasting?.Count ?? 0;
+        if (count <= 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                TempleSpellIndex = ((TempleSpellIndex - 1) % count + count) % count;
+                return true;
+
+            case VirtualKey.Down:
+                TempleSpellIndex = (TempleSpellIndex + 1) % count;
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
     /// <summary>The temple's donate menu (<c>TempleDonateMenu</c>, <c>GameMenu.cpp:690</c>).</summary>
     public static readonly (string Label, int Shortcut)[] DonateMenu =
         [("TAKE", 0), ("POOL", 0), ("SHARE", 0), ("APPR", 0), ("GIVE", 0), ("EXIT", 1)];
@@ -482,6 +601,16 @@ public sealed class EventRunner
             return CommitGive();
         }
 
+        if (TempleCasting is not null)
+        {
+            return ChooseTempleCast(temple);
+        }
+
+        if (HealOpen)
+        {
+            return ChooseHeal(temple);
+        }
+
         if (DonateOpen)
         {
             return ChooseDonate(temple);
@@ -500,7 +629,13 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
-        // DONATE is the temple's own screen; everything else is the shared town dispatch.
+        // HEAL and DONATE are the temple's own screens; everything else is the shared town
+        // dispatch.
+        if (Menu.ActiveItem == 0)
+        {
+            return OpenHeal(temple);
+        }
+
         if (Menu.ActiveItem == 1 && temple.AllowDonations != 0)
         {
             return OpenDonate(temple);
@@ -574,8 +709,8 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
-        // BUY, ITEMS, APPRAISE, TAKE, POOL, SHARE, HEAL, DRINK and LISTEN each push a screen
-        // this port has not built. DONATE is handled by the temple itself.
+        // BUY, ITEMS, APPRAISE, TAKE, POOL, SHARE, DRINK and LISTEN each push a screen this port
+        // has not built. HEAL and DONATE are handled by the temple itself.
         Unimplemented = $"[{label} here -- not implemented]";
         return EventStep.Running;
     }
@@ -3898,6 +4033,13 @@ public sealed class EventRunner
 
         // The GIVE screen takes digits and backspace; Return falls through and commits.
         if (Giving is not null && HandleGiveKey(input))
+        {
+            return EventStep.Running;
+        }
+
+        // The temple's cast list takes up and down; the menu keeps left and right.
+        if (TempleCasting is not null && input.Kind == InputEventKind.KeyDown
+            && HandleTempleCastKey(input.Key))
         {
             return EventStep.Running;
         }
