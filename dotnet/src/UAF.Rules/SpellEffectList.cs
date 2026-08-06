@@ -78,15 +78,22 @@ public sealed class SpellEffectList
     ///   castings of the same buff do not add up, and the second is simply wasted.
     ///   </item>
     ///   <item>
-    ///   <b><see cref="SpellEffectFlags.RemoveAll"/> clears the attribute first</b>, except for
-    ///   intrinsic character abilities, which cannot be removed because they are part of the
-    ///   character rather than something done to it.
+    ///   <b><see cref="SpellEffectFlags.RemoveAll"/> clears the attribute and stops there</b>,
+    ///   except for intrinsic character abilities, which cannot be removed because they are part
+    ///   of the character rather than something done to it. It reports success without adding
+    ///   anything — see below.
     ///   </item>
     /// </list>
     /// <para>
-    /// Note rules 2 and 3 are <i>not</i> exclusive: an effect flagged both cumulative and
-    /// remove-all clears the attribute and then adds itself, which is how a spell that overrides
-    /// rather than stacks is written.
+    /// <b>A remove-all effect is an instruction, not an effect.</b> The reference's branch ends in
+    /// <c>return TRUE</c> (<c>Char.cpp:12054</c>) without ever reaching the add, so the flag means
+    /// "strip this attribute" and nothing is left behind carrying the new change. An earlier
+    /// version of this port cleared the attribute and <i>then</i> added the effect, which left a
+    /// dispel behaving like a replacement — and its own change value quietly in force.
+    /// </para>
+    /// <para>
+    /// Note the order still matters between rules 2 and 3: a remove-all effect that is <i>not</i>
+    /// cumulative is refused at rule 2 and never clears anything at all.
     /// </para>
     /// </remarks>
     public bool Add(ActiveSpellEffect effect)
@@ -106,10 +113,12 @@ public sealed class SpellEffectList
             return false;
         }
 
-        // 3. Clear the attribute, sparing intrinsic abilities.
+        // 3. Clear the attribute, sparing intrinsic abilities, and stop -- the reference returns
+        // here rather than falling through to the add.
         if ((flags & SpellEffectFlags.RemoveAll) != 0)
         {
             effects.RemoveAll(e => e.Attribute == effect.Attribute && !e.IsIntrinsic);
+            return true;
         }
 
         effects.Add(effect);

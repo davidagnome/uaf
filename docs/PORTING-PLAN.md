@@ -4188,22 +4188,56 @@ or test changed.
 
 ###### The open question underneath: do effects double-count?
 
-Found while reading, not resolved, and it decides whether healing works.
+Found while reading, not resolved in that round — see the next section, which settles it.
 
-`AddSpellEffect` (`Char.cpp:11984`) calls `ModifyByDouble` in **both** its branches. For a
-non-permanent effect it applies the change to the attribute *and* stores the effect in
-`m_spellEffects` — and reverses it with `ModifyByDouble(…, -changeResult)` when it expires
-(`:11448`). `CHAR_HITPOINTS` resolves to `SetHitPoints(GetHitPoints() + modification)`
-(`RunTimeIF.cpp:1425`), a write to the real attribute. But `GetAdjHitPoints` (`:13239`) *also*
-walks the spell-effect list. On the face of it a cure is counted twice, which cannot be right, so
-one of the two must be narrower than it looks — most likely `ApplySpellEffectAdjustments` filters
-on flags this port has not yet had to read.
+##### The permanent branch, and why FIX runs now
 
-This port currently models effects the second way only: `SpellEffectList` plus the `Adjusted…`
-properties. **So a cure spell today moves `AdjustedHitPoints` and not `HitPoints`** — and
-`FixSpells.WantsFixing` reads the raw value, which is why FIX still cannot be switched on even now
-that casting resolves. Resolving this is the next thing, and it is a reading job before it is a
-coding one.
+`CHARACTER::AddSpellEffect` (`Char.cpp:11984`). `UAFcore/PermanentEffects.cs`, plus a correction in
+`UAF.Rules/SpellEffectList.cs`.
+
+**The answer to the open question: `AddSpellEffect` has two branches and they are exclusive.**
+`isPerm = (pSdata->Duration_Rate == Permanent)`.
+
+> **A permanent spell never reaches the effect list at all.** The `isPerm` arm reads the attribute,
+> applies the change and writes it back with `SetDataXXX` (`:12256`), storing nothing — there is
+> nothing to expire. So the "double count" I suspected is not one: the eager `ModifyByDouble` and
+> the stored entry belong to the *non-permanent* arm, and only that arm is walked by
+> `ApplySpellEffectAdjustments`.
+
+> **This is what makes healing work.** A cure spell is permanent, so it moves the character's
+> *stored* hit points rather than layering an adjustment over them. That is precisely what
+> `FixSpells.WantsFixing` reads, so the FIX loop ends on its own.
+
+> **Virtual traits are the exception.** An attribute with no character field behind it has nowhere
+> to be written, so a permanent effect on one is stored anyway (`:12283`). In this port that is any
+> attribute `PermanentEffects` does not recognise — including armour class, THAC0 and magic
+> resistance, which `Character` reads off its immutable record. Observably identical for every
+> reader, since all three are read through their adjusted form; a *saved* game would differ, and
+> that is called out in the source.
+
+> **Nothing clamps a cure on the way in.** The write goes through `SetHitPoints`, and the target
+> test only asks whether the stored value is below the maximum — so the last cast of a FIX run
+> leaves the character *above* it, and `AdjustedHitPoints` is what caps the number anyone reads.
+
+**Still open, and narrower than before:** in the non-permanent arm the change really is applied
+eagerly *and* stored, and `ApplySpellEffectAdjustments` walks the stored list with no filter
+(`Char.cpp:13062` — the flag test that would have excluded once-only effects is commented out, with
+its comment still there). That does look like a genuine double count for temporary effects. It is
+not transcribed here: it would change every buff in combat on the strength of a reading I cannot
+run, and nothing currently depends on it.
+
+###### A correction: remove-all is an instruction, not an effect
+
+`SpellEffectList.Add`'s remove-all branch cleared the attribute and then added the new effect. The
+reference's ends in `return TRUE` (`Char.cpp:12054`) without ever reaching the add — so the flag
+means "strip this attribute" and leaves nothing behind carrying the new change. Two tests encoded
+the wrong behaviour and now encode the right one. Found by reading `AddSpellEffect` properly for
+the branch above.
+
+**FIX is switched on.** Both entries now run for real: camp casts out of the party's memorised
+spells and spends them, the temple casts from the bishop and spends nothing, and the loop
+terminates because the healing moves the value the target test reads. Proven end to end rather than
+argued — three tests drive `FixSpells.Run` through the actual `PartyCasting.Cast`.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -7543,12 +7577,17 @@ What is left, in order:
      what I expected to write was already ported for combat, so the round was the path into it
      plus the interface that lets both paths share one resolution.
 
-     **Next: how a spell effect reaches an attribute** (§the open question underneath). The
-     reference applies the change to the attribute *and* keeps the effect in a list that
-     `GetAdj…` also walks, which looks like double-counting and cannot be. Until that is read
-     properly a cure spell moves `AdjustedHitPoints` and not `HitPoints`, which is exactly why FIX
-     is still held back. It is a reading job before it is a coding one, and the temple's CAST and
-     MAGIC's cast entry are behind it too.
+     ~~**Next: how a spell effect reaches an attribute**~~ **Settled** (§the permanent branch):
+     `AddSpellEffect`'s two branches are exclusive, a permanent spell writes the attribute and
+     stores nothing, and that is what makes a cure move stored hit points. **FIX is switched on**
+     and proven end to end. A remove-all divergence in `SpellEffectList.Add` was found and fixed
+     on the way.
+
+     **Camp is complete bar QUIT, and the temple bar its own CAST.**
+
+     **Next: the temple's CAST and MAGIC's cast entry** — the two remaining screens that reach
+     casting, now that the casting itself resolves. Both are target selection over
+     `PartyCasting.Cast`, which is the piece `SpellTargets` was built for.
 
 
 

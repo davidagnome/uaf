@@ -351,4 +351,96 @@ public class FixSpellsTests
 
         Assert.Empty(made);
     }
+
+    // ---- end to end, through the real casting -------------------------------------------------
+
+    private static DicePlus DiceText(string text) =>
+        new("DP2", text, string.Empty, 0, 0, 0, 0, 0, 1, []);
+
+    /// <summary>A permanent cure, which is what makes healing move the stored hit points.</summary>
+    private static SpellRecord CureSpell(string change = "4") =>
+        new(0, "cure", string.Empty, string.Empty, [],
+            Level: 1, CastingTime: 0, CastingTimeType: 0,
+            CanTargetFriend: 1, CanTargetEnemy: 0, IsCumulative: 1, Restrictions: 0,
+            CanBeDispelled: 1, CanMemorize: 1, AllowScribe: 0, AutoScribe: 0,
+            Lingers: 0, LingerOnceOnly: 0,
+            SaveVersus: (int)SaveVersus.Spell, SaveResult: (int)SaveResult.NoSave, Targeting: 1,
+            DurationRate: (int)SpellDurationRate.Permanent, CastCost: 0, CastPriority: 0,
+            Parameters: [],
+            Effects: [new UAF.Serialization.SpellEffect(
+                "$CHAR_HITPOINTS", (uint)SpellEffectFlags.Target, 0, string.Empty, 0, 0, [], 0, 0,
+                DiceText(change))],
+            CastArt: null, Art: [], Sounds: [],
+            CastMessage: string.Empty, Scripts: [], EffectDuration: DiceText("1"),
+            SpecialAbilities: null!, Attributes: []);
+
+    [Fact]
+    public void Fix_heals_the_party_through_the_real_casting_and_stops()
+    {
+        // The claim the whole round rests on. A permanent cure writes stored hit points, so
+        // WantsFixing stops saying yes and the loop terminates on its own -- no bound anywhere.
+        var cleric = Knowing(Member("Cleric", hitPoints: 10), "cure", memorized: 20);
+        var a = Member("A", hitPoints: 2);
+        var b = Member("B", hitPoints: 6);
+        var party = new[] { cleric, a, b };
+
+        int key = 0;
+
+        var made = FixSpells.Run(
+            ["cure"], party, FixEnvironment.Encamp, First,
+            (_, who, _) => FixSpells.WantsFixing(who),
+            (caster, spellId, target) => PartyCasting.Cast(
+                caster, party, [target], CureSpell(), _ => 1, () => ++key));
+
+        Assert.NotEmpty(made);
+        Assert.All(party, who => Assert.True(who.HitPoints >= who.MaxHitPoints));
+    }
+
+    [Fact]
+    public void Fix_stops_when_the_casters_copies_run_out_rather_than_when_everyone_is_well()
+    {
+        // Two copies, three points of healing each, and far more damage than that to undo.
+        var cleric = Knowing(Member("Cleric", hitPoints: 10), "cure", memorized: 2);
+        var hurt = Member("Hurt", hitPoints: 1);
+        var party = new[] { cleric, hurt };
+
+        int key = 0;
+
+        var made = FixSpells.Run(
+            ["cure"], party, FixEnvironment.Encamp, First,
+            (_, who, _) => FixSpells.WantsFixing(who),
+            (caster, spellId, target) => PartyCasting.Cast(
+                caster, party, [target], CureSpell("3"), _ => 1, () => ++key));
+
+        Assert.Equal(2, made.Count);
+        Assert.Equal(0, cleric.Book.Find("cure")!.Memorized);
+        Assert.Equal(7, hurt.HitPoints);              // 1 + 3 + 3, still short of ten
+    }
+
+    [Fact]
+    public void The_temple_heals_without_spending_the_partys_spells()
+    {
+        var cleric = Knowing(Member("Cleric", hitPoints: 10), "cure", memorized: 2);
+        var hurt = Member("Hurt", hitPoints: 1);
+        var bishop = Member("@TempleBishop");
+        var party = new[] { cleric, hurt };
+
+        int key = 0;
+
+        FixSpells.Run(
+            ["cure"], party, FixEnvironment.Temple, First,
+            (_, who, _) => FixSpells.WantsFixing(who),
+            (caster, spellId, target) => PartyCasting.Cast(
+                caster, party, [target], CureSpell(), _ => 1, () => ++key,
+                freeOfCharge: true),
+            () => bishop);
+
+        // 1 + 4 + 4 + 4. FIX overshoots because nothing clamps a cure on the way in and the
+        // target test only asks whether the stored value is still below the maximum -- so the
+        // last cast of a run leaves the character above it, and AdjustedHitPoints caps what
+        // anyone reads.
+        Assert.Equal(13, hurt.HitPoints);
+        Assert.Equal(10, hurt.AdjustedHitPoints);
+        Assert.Equal(2, cleric.Book.Find("cure")!.Memorized);   // the party paid nothing
+    }
 }

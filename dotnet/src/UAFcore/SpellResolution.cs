@@ -148,6 +148,7 @@ public static class SpellResolution
         // 4. Roll and add each effect aimed at the target.
         int applied = 0;
         double? stopTime = StopTimeFor(spell, elapsedMinutes, dice, casterLevel);
+        bool permanent = (SpellDurationRate)spell.DurationRate == SpellDurationRate.Permanent;
 
         foreach (var effect in spell.Effects)
         {
@@ -166,6 +167,18 @@ public static class SpellResolution
             }
 
             var runtime = new UAF.Rules.SpellEffect(effect.IndexKey, change, flags);
+
+            // A permanent spell writes the attribute and stores nothing -- AddSpellEffect's
+            // second branch. Anything it cannot write behaves as a virtual trait and falls
+            // through to the list, which is what the reference does too.
+            if (permanent && target is Character person
+                && PermanentEffects.Applies(runtime.Attribute)
+                && PermanentEffects.Write(person, runtime.Attribute, runtime))
+            {
+                applied++;
+                continue;
+            }
+
             if (target.Effects.Add(new ActiveSpellEffect(runtime, stopTime,
                                                          SourceSpell: spell.Name,
                                                          Parent: activeSpellKey)))

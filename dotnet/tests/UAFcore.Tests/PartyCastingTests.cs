@@ -157,7 +157,7 @@ public class PartyCastingTests
         var result = Cast(cleric, [cleric], [cleric], Spell());
 
         Assert.Equal(SpellOutcome.Applied, Assert.Single(result.Hits).Outcome);
-        Assert.Single(cleric.Effects.Effects);
+        Assert.Equal(12, cleric.HitPoints);
     }
 
     [Fact]
@@ -170,8 +170,8 @@ public class PartyCastingTests
         var result = Cast(cleric, [cleric, a, b], [a, b], Spell());
 
         Assert.Equal(2, result.Hits.Count);
-        Assert.Single(a.Effects.Effects);
-        Assert.Single(b.Effects.Effects);
+        Assert.Equal(12, a.HitPoints);
+        Assert.Equal(12, b.HitPoints);
     }
 
     // ---- the active-spell key -----------------------------------------------------------------
@@ -207,7 +207,11 @@ public class PartyCastingTests
              keys: () => { issued++; return 7; });
 
         Assert.Equal(0, issued);
-        Assert.Equal(-1, hurt.Effects.Effects[0].Parent);
+
+        // And nothing is stored either -- a permanent effect is written onto the attribute, so
+        // there is no list entry for a key to parent.
+        Assert.Empty(hurt.Effects.Effects);
+        Assert.Equal(12, hurt.HitPoints);
     }
 
     [Fact]
@@ -235,7 +239,7 @@ public class PartyCastingTests
 
         Cast(cleric, [cleric, hurt], [hurt], Spell(effects: Effect("$CHAR_HITPOINTS", "level")));
 
-        Assert.Equal(5, hurt.Effects.Effects[0].Effect.Change);
+        Assert.Equal(15, hurt.HitPoints);       // 10 + the caster's five levels
     }
 
     [Fact]
@@ -262,7 +266,7 @@ public class PartyCastingTests
         Cast(cleric, [cleric, hurt], [hurt],
              Spell(effects: Effect("$CHAR_HITPOINTS", "level")), castingLevel: 20);
 
-        Assert.Equal(20, hurt.Effects.Effects[0].Effect.Change);
+        Assert.Equal(30, hurt.HitPoints);
     }
 
     [Fact]
@@ -274,7 +278,7 @@ public class PartyCastingTests
         Cast(cleric, [cleric, hurt], [hurt],
              Spell(effects: Effect("$CHAR_HITPOINTS", "level")), castingLevel: -1);
 
-        Assert.Equal(4, hurt.Effects.Effects[0].Effect.Change);
+        Assert.Equal(14, hurt.HitPoints);
     }
 
     // ---- what the shared resolution still does -------------------------------------------------
@@ -285,7 +289,7 @@ public class PartyCastingTests
         // The check that already lived in SpellResolution, reached from the non-combat path.
         var cleric = Knowing(Member("Cleric"), "cure", memorized: 2);
         var hurt = Member("Hurt");
-        var spell = Spell(cumulative: 0);
+        var spell = Spell(duration: SpellDurationRate.InRounds, cumulative: 0);
 
         Cast(cleric, [cleric, hurt], [hurt], spell);
         var second = Cast(cleric, [cleric, hurt], [hurt], spell);
@@ -293,5 +297,22 @@ public class PartyCastingTests
         Assert.Equal(SpellOutcome.AlreadyAffected, Assert.Single(second.Hits).Outcome);
         Assert.Single(hurt.Effects.Effects);
         Assert.Equal(0, cleric.Book.Find("cure")!.Memorized);   // and both copies are gone
+    }
+
+    [Fact]
+    public void A_permanent_spell_can_be_cast_again_however_non_cumulative_it_is()
+    {
+        // The non-cumulative check looks for an existing effect FROM THIS SPELL, and a permanent
+        // spell leaves none -- so the flag simply does not bite on one. The reference has the same
+        // hole, and it is what lets a cure be cast over and over.
+        var cleric = Knowing(Member("Cleric"), "cure", memorized: 2);
+        var hurt = Member("Hurt");
+        var spell = Spell(duration: SpellDurationRate.Permanent, cumulative: 0);
+
+        Cast(cleric, [cleric, hurt], [hurt], spell);
+        var second = Cast(cleric, [cleric, hurt], [hurt], spell);
+
+        Assert.Equal(SpellOutcome.Applied, Assert.Single(second.Hits).Outcome);
+        Assert.Equal(14, hurt.HitPoints);
     }
 }

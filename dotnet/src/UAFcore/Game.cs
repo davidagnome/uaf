@@ -266,15 +266,19 @@ public sealed class Game
 
         Runner.ActiveCharacterOkay = () => Party.Active?.Status == CharacterStatus.Okay;
 
-        // FIX is held back deliberately, not forgotten. FixSpells.Run is complete and tested, but
-        // its loop is ended BY the casting -- healing until WantsFixing stops saying yes, and in
-        // camp spending a memorised copy each time. Wiring it to a cast that resolves nothing
-        // would spin forever on the first hurt character, so the two menu entries reach a call
-        // that declines rather than one that hangs. One line to switch on when spells resolve:
-        //
-        //   FixSpells.Run(FixSpellBook, Party.Members, environment, n => Dice.Next(n),
-        //                 (_, who, _) => FixSpells.WantsFixing(who), CastFixSpell, TempleBishop);
-        Runner.ApplyFix = _ => [];
+        // FIX runs now that a permanent spell writes hit points rather than layering an adjustment
+        // over them: healing raises the raw value, WantsFixing eventually stops saying yes, and
+        // the loop ends. In camp each cast also spends a memorised copy, which ends it a second
+        // way. See FixSpells for why both matter.
+        Runner.ApplyFix = environment => FixSpells.Run(
+            FixSpellBook, Party.Members, environment,
+            count => Dice(count) - 1,                      // randomMT() % n
+            (_, who, _) => FixSpells.WantsFixing(who),
+            (caster, spellId, target) => PartyCasting.Cast(
+                caster, Party.Members, [target], design.Spell(spellId), sides => Dice(sides),
+                NextActiveSpellKey, Minutes,
+                freeOfCharge: environment == FixEnvironment.Temple),
+            TempleBishop);
 
         // The design's moneyData.GetWeight(): how many coins make a unit of encumbrance.
         Runner.CanAfford = cost =>
@@ -557,6 +561,58 @@ public sealed class Game
 
     /// <summary>Game time in minutes, which <c>GLOBAL_STATS::startTime</c> seeds.</summary>
     public int Minutes { get; private set; }
+
+    // ---- FIX -----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The design's global fix spell book (<c>globalData.fixSpellBook</c>) — what FIX may cast.
+    /// </summary>
+    public IReadOnlyList<string> FixSpellBook =>
+        [.. (design.Globals.FixSpellBook?.Spells ?? []).Select(s => s.SpellId)];
+
+    private int activeSpellKey;
+
+    /// <summary><c>activeSpellList.GetNextKey()</c>. Keys start at 1, never 0.</summary>
+    private int NextActiveSpellKey() => ++activeSpellKey;
+
+    private Character? templeBishop;
+
+    /// <summary>
+    /// The temple's caster, built on first use (<c>Party.cpp:3898</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The reference synthesises a whole character</b>: a chaotic-neutral human
+    /// "Cleric/Magic User" named <c>@TempleBishop</c> with 18s across the board, run through
+    /// <c>generateNewCharacter</c>, given a copy of the fix spell book, and added to the design's
+    /// NPC list — then removed again when FIX finishes. The same one the temple's cast list uses.
+    /// </para>
+    /// <para>
+    /// <b>What matters here is only that it exists and is not the party's.</b> The temple's arm of
+    /// <see cref="FixSpells"/> never consults the caster's book — it casts free of charge — so the
+    /// abilities the reference so carefully sets are never read on this path. Built as a bare
+    /// character rather than a fake of one, and kept rather than added to the roster, so nothing
+    /// can see it.
+    /// </para>
+    /// </remarks>
+    private Character? TempleBishop()
+    {
+        templeBishop ??= new Character(
+            new CharacterRecord(
+                0, 0, (byte)CombatantKind.Npc, "Human", 0, "Cleric/Magic User", 0, 0, 0, "", 0,
+                "@TempleBishop", "@TempleBishop",
+                0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, new AbilityScores(18, 0, 18, 18, 18, 18, 18),
+                0, 0, 0, 0, 0, 0, [], [], [], 0, 0, 0, null, 0,
+                null, 0, 0, 0, 0, 0, "", 0, "",
+                design.Globals.FixSpellBook ?? new SpellBook(0, []), 0, 0, [], [],
+                new PicRecord(0, "", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+                new ItemList([], new ReadyItems([])),
+                new SpecabBlock([], [], []), []),
+            Money);
+
+        return templeBishop;
+    }
 
     public int Steps { get; private set; }
 

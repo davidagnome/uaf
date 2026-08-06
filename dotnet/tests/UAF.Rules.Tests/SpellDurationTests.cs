@@ -143,8 +143,11 @@ public class SpellDurationTests
     }
 
     [Fact]
-    public void Remove_all_clears_the_attribute_before_adding_itself()
+    public void Remove_all_clears_the_attribute_and_leaves_nothing_behind()
     {
+        // The reference's branch ends in `return TRUE` without reaching the add: the flag is an
+        // instruction to strip the attribute, not an effect to carry. It reports success even
+        // though the list is now shorter than before.
         var list = new SpellEffectList();
         list.Add(Effect("$CHAR_AC", -2, SpellEffectFlags.Cumulative));
         list.Add(Effect("$CHAR_AC", -3, SpellEffectFlags.Cumulative));
@@ -152,8 +155,20 @@ public class SpellDurationTests
         Assert.True(list.Add(Effect("$CHAR_AC", -1,
                                     SpellEffectFlags.Cumulative | SpellEffectFlags.RemoveAll)));
 
-        var remaining = Assert.Single(list.Effects);
-        Assert.Equal(-1, remaining.Effect.Change);
+        Assert.Empty(list.Effects);
+    }
+
+    [Fact]
+    public void Remove_all_leaves_other_attributes_alone()
+    {
+        var list = new SpellEffectList();
+        list.Add(Effect("$CHAR_AC", -2, SpellEffectFlags.Cumulative));
+        list.Add(Effect("$CHAR_THAC0", -3, SpellEffectFlags.Cumulative));
+
+        list.Add(Effect("$CHAR_AC", -1,
+                        SpellEffectFlags.Cumulative | SpellEffectFlags.RemoveAll));
+
+        Assert.Equal("$CHAR_THAC0", Assert.Single(list.Effects).Attribute);
     }
 
     [Fact]
@@ -166,8 +181,8 @@ public class SpellDurationTests
         list.Add(Effect("$CHAR_AC", -1,
                         SpellEffectFlags.Cumulative | SpellEffectFlags.RemoveAll));
 
-        Assert.Equal(2, list.Count);
         Assert.Contains(list.Effects, e => e.IsIntrinsic);
+        Assert.Single(list.Effects);
     }
 
     [Fact]
