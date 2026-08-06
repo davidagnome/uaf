@@ -326,6 +326,99 @@ public sealed class EventRunner
         [("HEAL", 0), ("DONATE", 0), ("VIEW", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
          ("EXIT", 1)];
 
+    // ---- APPRAISE ------------------------------------------------------------------------------
+
+    /// <summary>Whether the appraise picker is up.</summary>
+    public bool AppraiseOpen { get; private set; }
+
+    /// <summary>What has just been valued, or null when the evaluate screen is not up.</summary>
+    public (Valuable Kind, string Name, int Value)? Appraising { get; private set; }
+
+    /// <summary>The two names, the counts held and whether each is offered; set by the host.</summary>
+    public Func<Valuable, (string Name, int Held, bool Offered)>? AppraiseKind { get; set; }
+
+    /// <summary>Takes one piece out of the purse and values it; set by the host.</summary>
+    public Func<Valuable, int>? TakeForAppraisal { get; set; }
+
+    /// <summary>Applies the party's decision; set by the host.</summary>
+    public Action<Valuable, int, Appraised>? ApplyAppraisal { get; set; }
+
+    private (string Label, int Shortcut)[]? appraiseParent;
+
+    /// <summary>
+    /// <c>APPRAISE_SELECT_DATA</c> (<c>RunEvent.cpp:26715</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The two entries are renamed to the design's own words</b> for its gem and jewellery
+    /// types, so a design calling them "STONES" and "TRINKETS" says so on the bar.
+    /// </remarks>
+    private EventStep OpenAppraise((string Label, int Shortcut)[] parent)
+    {
+        appraiseParent = parent;
+        AppraiseOpen = true;
+
+        var gem = AppraiseKind?.Invoke(Valuable.Gem) ?? ("GEMS", 0, false);
+        var jewel = AppraiseKind?.Invoke(Valuable.Jewelry) ?? ("JEWELRY", 0, false);
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                       (gem.Name, 0), (jewel.Name, 0), ("EXIT", 1));
+        escapeSelects = 2;
+
+        Menu.SetItemEnabled(0, Appraisal.CanAppraise(gem.Offered, gem.Held));
+        Menu.SetItemEnabled(1, Appraisal.CanAppraise(jewel.Offered, jewel.Held));
+
+        ShowText($"YOU HAVE {gem.Held} {gem.Name} {jewel.Held} {jewel.Name} NOT YET APPRAISED");
+
+        return EventStep.Running;
+    }
+
+    private EventStep ChooseAppraise()
+    {
+        if (Menu.ActiveItem is 0 or 1)
+        {
+            var kind = Menu.ActiveItem == 0 ? Valuable.Gem : Valuable.Jewelry;
+            var (name, _, _) = AppraiseKind?.Invoke(kind) ?? ("", 0, false);
+
+            // Taken out of the purse first, then valued -- there is no way back to an unappraised
+            // piece.
+            int value = TakeForAppraisal?.Invoke(kind) ?? 0;
+            Appraising = (kind, name, value);
+
+            Menu.Reset();
+            SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                           ("SELL", 0), ("KEEP", 0));
+            escapeSelects = 1;
+            ShowText($"THIS {name} IS VALUED AT {value}");
+
+            return EventStep.Running;
+        }
+
+        var parent = appraiseParent;
+        AppraiseOpen = false;
+        appraiseParent = null;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, parent ?? TempleMenu);
+        escapeSelects = (parent?.Length ?? TempleMenu.Length) - 1;
+
+        return EventStep.Running;
+    }
+
+    private EventStep ChooseAppraised()
+    {
+        if (Appraising is { } piece)
+        {
+            ApplyAppraisal?.Invoke(piece.Kind, piece.Value,
+                                   Menu.ActiveItem == 0 ? Appraised.Sell : Appraised.Keep);
+        }
+
+        Appraising = null;
+
+        // Back to the picker, which re-counts what is left.
+        return OpenAppraise(appraiseParent ?? TempleMenu);
+    }
+
     /// <summary>The temple's heal menu (<c>TempleHealMenu</c>, <c>GameMenu.cpp:707</c>).</summary>
     public static readonly (string Label, int Shortcut)[] HealMenu =
         [("CAST", 0), ("VIEW", 0), ("FIX", 0), ("TAKE", 0), ("POOL", 0), ("SHARE", 0),
@@ -371,6 +464,9 @@ public sealed class EventRunner
                                ("CAST", 0), ("NEXT", 0), ("PREV", 0), ("EXIT", 1));
                 escapeSelects = 3;
                 return EventStep.Running;
+
+            case 6:
+                return OpenAppraise(HealMenu);
 
             case HealExit:
                 HealOpen = false;
@@ -493,6 +589,9 @@ public sealed class EventRunner
                 ShowText("HOW MUCH WILL YOU GIVE?");
                 return EventStep.Running;
 
+            case 3:
+                return OpenAppraise(DonateMenu);
+
             case DonateExit:
                 DonateOpen = false;
 
@@ -596,6 +695,16 @@ public sealed class EventRunner
     /// <summary><c>TEMPLE::OnKeypress</c> (<c>RunEvent.cpp:12588</c>).</summary>
     private EventStep ChooseTemple(TempleEvent temple)
     {
+        if (Appraising is not null)
+        {
+            return ChooseAppraised();
+        }
+
+        if (AppraiseOpen)
+        {
+            return ChooseAppraise();
+        }
+
         if (Giving is not null)
         {
             return CommitGive();

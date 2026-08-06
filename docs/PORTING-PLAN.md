@@ -3995,6 +3995,41 @@ makes with a different environment, so the two arrive together.
 > **A trigger of zero fires on every visit.** The total starts at zero and the test is <c>&gt;=</c>,
 > so a design that leaves the field unset chains every time the party walks out — donation or not.
 
+##### APPRAISE, and a value the party can never roll
+
+`APPRAISE_SELECT_DATA` (`RunEvent.cpp:26679`), `APPRAISE_EVALUATE_DATA` (`:26793`) and
+`GEM_CONFIG::GetAValue` (`Money.cpp:309`). `UAFcore/Appraisal.cs`, and the two screens on the
+runner. Reached from HEAL and from DONATE — **the same screen hangs off both of the temple's
+entries**, which is why the port wires it to `HealMenu` index 6 and `DonateMenu` index 3 rather
+than owning a menu of its own.
+
+> **The maximum is never rolled.** `GetAValue` rolls `|max − min|` sides and offsets by `min − 1`,
+> which spans `min` to `max − 1`. A design writing 10 to 100 gets 10 to 99. Transcribed rather than
+> corrected — every price in every shipped design was balanced against this arithmetic, and a gem
+> that suddenly hits its stated maximum is a different economy.
+
+> **A range of nothing is the maximum.** `sides <= 0` returns `maxValue` outright, which is how a
+> design pins a fixed value: set both ends the same. The guard is `<=` rather than `==` because the
+> width is an absolute value, so it can only ever be zero — the branch is there for a negative that
+> cannot arrive.
+
+> **The two entries are renamed to the design's own words.** Not "GEMS" and "JEWELRY": the labels
+> come from the design's gem and jewellery type names, so a design calling them STONES and TRINKETS
+> says so on the bar.
+
+> **Each entry needs the service and the purse to agree.** A shop that appraises gems still darkens
+> the entry for a party carrying none, and a party with a pocketful of them cannot appraise at a
+> service that does not offer it.
+
+> **The piece leaves the purse before it is valued.** Choosing a kind removes one immediately and
+> only then rolls what it was worth. There is no way back to an unappraised gem, and KEEP does not
+> put it back.
+
+> **Both outcomes spend it; they differ in what replaces it.** SELL adds the value in coins to the
+> active character. KEEP creates a *carried item* named for the design's gem or jewellery type,
+> worth the appraisal — so a kept gem stops being money and starts being inventory, and from then
+> on it weighs something.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7310,7 +7345,11 @@ What is left, in order:
      **HEAL runs too**, with the price scale the whole game shares (§HEAL). The temple is
      complete bar the casting.
 
-     **Next: the shop** — BUY and APPRAISE, which price items through that same scale.
+     ~~**Next: the shop** — BUY and APPRAISE, which price items through that same scale.~~
+     **APPRAISE runs** (§APPRAISE), off both of the temple's entries, including the value the
+     party can never roll.
+
+     **Next: BUY** — the shop's other entry, and the last town service that is only arithmetic.
 
 
 

@@ -196,6 +196,74 @@ public sealed class Game
         // Pooled money is the party's to give; otherwise it comes out of one purse.
         Runner.DonationMaximum = () => (int)DonatingPurse().Total();
 
+        Runner.AppraiseKind = kind =>
+        {
+            var purse = Party.Active?.Purse;
+            var config = kind == Valuable.Gem
+                ? design.Globals.Money?.Gems
+                : design.Globals.Money?.Jewelry;
+
+            int held = kind == Valuable.Gem
+                ? purse?.Gems.Count ?? 0
+                : purse?.Jewelry.Count ?? 0;
+
+            // Whether the *service* offers it is the caller's business; here it is the design
+            // having a config for that kind at all.
+            return (config?.Name ?? kind.ToString().ToUpperInvariant(), held, config is not null);
+        };
+
+        Runner.TakeForAppraisal = kind =>
+        {
+            if (Party.Active is not { } who)
+            {
+                return 0;
+            }
+
+            var config = kind == Valuable.Gem
+                ? design.Globals.Money?.Gems
+                : design.Globals.Money?.Jewelry;
+
+            if (config is null)
+            {
+                return 0;
+            }
+
+            if (kind == Valuable.Gem)
+            {
+                who.Purse.RemoveGems(1);
+            }
+            else
+            {
+                who.Purse.RemoveJewelry(1);
+            }
+
+            return Appraisal.Value(
+                config, (count, sides) => DiceExpression.Roll(count, sides, Dice));
+        };
+
+        Runner.ApplyAppraisal = (kind, value, decision) =>
+        {
+            if (Party.Active is not { } who)
+            {
+                return;
+            }
+
+            if (decision == Appraised.Sell)
+            {
+                who.Purse.Add(Money.BaseType, value);
+                return;
+            }
+
+            // KEEP makes it inventory rather than money: an item named after the design's own
+            // gem or jewellery type, worth what it appraised at.
+            var config = kind == Valuable.Gem
+                ? design.Globals.Money?.Gems
+                : design.Globals.Money?.Jewelry;
+
+            who.Items.Add(new ItemInstance(0, config?.Name ?? "", 0, Inventory.NotReady,
+                                           1, 1, value, 0, 0));
+        };
+
         Runner.TempleSpellsFor = () =>
         {
             if (Runner.Current is not TempleEvent temple)
