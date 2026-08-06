@@ -207,9 +207,9 @@ public sealed class Game
                 ? purse?.Gems.Count ?? 0
                 : purse?.Jewelry.Count ?? 0;
 
-            // Whether the *service* offers it is the caller's business; here it is the design
-            // having a config for that kind at all.
-            return (config?.Name ?? kind.ToString().ToUpperInvariant(), held, config is not null);
+            // Only the name and the count: whether the service offers this kind is the shop's
+            // flag, and the runner has it.
+            return (config?.Name ?? kind.ToString().ToUpperInvariant(), held);
         };
 
         Runner.TakeForAppraisal = kind =>
@@ -263,6 +263,20 @@ public sealed class Game
             who.Items.Add(new ItemInstance(0, config?.Name ?? "", 0, Inventory.NotReady,
                                            1, 1, value, 0, 0));
         };
+
+        Runner.ActiveCharacterOkay = () => Party.Active?.Status == CharacterStatus.Okay;
+
+        // The design's moneyData.GetWeight(): how many coins make a unit of encumbrance.
+        Runner.CanAfford = cost =>
+            Party.Active is { } who
+            && (Party.MoneyPooled != 0 && Party.Pooled.HaveEnough(Money.BaseType, cost)
+                || who.Purse.HaveEnough(Money.BaseType, cost));
+
+        Runner.BuyItem = (itemId, factor) =>
+            Party.Active is { } who
+                ? Shopping.Buy(who, Party, itemId, design.Item(itemId), factor,
+                               design.Globals.Money?.Weight ?? 0, design.Item)
+                : BuyRefusal.NotWell;
 
         Runner.TempleSpellsFor = () =>
         {

@@ -135,6 +135,10 @@ public sealed class EventRunner
         InventoryPage = 0;
         InventoryRowIndex = 0;
         LastRefusal = ReadyRefusal.None;
+        ShopRows = null;
+        ShopPage = 0;
+        ShopRowIndex = 0;
+        LastPurchase = BuyRefusal.None;
         PartyMenuOpen = false;
         partyMenuHall = null;
         LastTraining = null;
@@ -177,7 +181,7 @@ public sealed class EventRunner
             CampEvent camp => BeginCamp(camp, anchors),
             TrainingHallEvent hall => BeginTrainingHall(hall, anchors),
             TavernEvent tavern => BeginTownMenu(TavernMenu, tavern.Base.Text, anchors),
-            ShopEvent shop => BeginTownMenu(ShopMenu, shop.Base.Text, anchors),
+            ShopEvent shop => BeginShop(shop, anchors),
             VaultEvent vault => BeginTownMenu(VaultMenu, vault.Base.Text, anchors),
             TempleEvent temple => BeginTemple(temple, anchors),
             PasswordEvent password => BeginPassword(password, anchors),
@@ -334,8 +338,14 @@ public sealed class EventRunner
     /// <summary>What has just been valued, or null when the evaluate screen is not up.</summary>
     public (Valuable Kind, string Name, int Value)? Appraising { get; private set; }
 
-    /// <summary>The two names, the counts held and whether each is offered; set by the host.</summary>
-    public Func<Valuable, (string Name, int Held, bool Offered)>? AppraiseKind { get; set; }
+    /// <summary>
+    /// The design's name for a kind and how many the active character holds; set by the host.
+    /// </summary>
+    /// <remarks>
+    /// <b>Whether the service offers it is not asked here</b> — that is the caller's, because it
+    /// differs by service. See <see cref="OpenAppraise"/>.
+    /// </remarks>
+    public Func<Valuable, (string Name, int Held)>? AppraiseKind { get; set; }
 
     /// <summary>Takes one piece out of the purse and values it; set by the host.</summary>
     public Func<Valuable, int>? TakeForAppraisal { get; set; }
@@ -345,28 +355,42 @@ public sealed class EventRunner
 
     private (string Label, int Shortcut)[]? appraiseParent;
 
+    /// <summary>Which kinds the service that opened the picker actually appraises.</summary>
+    private (bool Gems, bool Jewels) appraiseOffers;
+
     /// <summary>
     /// <c>APPRAISE_SELECT_DATA</c> (<c>RunEvent.cpp:26715</c>).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>The two entries are renamed to the design's own words</b> for its gem and jewellery
-    /// types, so a design calling them "STONES" and "TRINKETS" says so on the bar.
+    /// types, so a design calling them "STONES" and "TRINKETS" says so on the bar. The names come
+    /// from the design whether the service offers that kind or not — only the enable state differs.
+    /// </para>
+    /// <para>
+    /// <b>Only the shop can refuse a kind.</b> The constructor's two flags default to TRUE
+    /// (<c>GameEvent.h:4590</c>) and the temple pushes the screen without them, so a temple
+    /// appraises both whatever its design says; the shop passes <c>canApprGems</c> and
+    /// <c>canApprJewels</c> and is the only service that can darken an entry outright.
+    /// </para>
     /// </remarks>
-    private EventStep OpenAppraise((string Label, int Shortcut)[] parent)
+    private EventStep OpenAppraise((string Label, int Shortcut)[] parent,
+                                   bool offerGems = true, bool offerJewels = true)
     {
         appraiseParent = parent;
+        appraiseOffers = (offerGems, offerJewels);
         AppraiseOpen = true;
 
-        var gem = AppraiseKind?.Invoke(Valuable.Gem) ?? ("GEMS", 0, false);
-        var jewel = AppraiseKind?.Invoke(Valuable.Jewelry) ?? ("JEWELRY", 0, false);
+        var gem = AppraiseKind?.Invoke(Valuable.Gem) ?? ("GEMS", 0);
+        var jewel = AppraiseKind?.Invoke(Valuable.Jewelry) ?? ("JEWELRY", 0);
 
         Menu.Reset();
         SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
                        (gem.Name, 0), (jewel.Name, 0), ("EXIT", 1));
         escapeSelects = 2;
 
-        Menu.SetItemEnabled(0, Appraisal.CanAppraise(gem.Offered, gem.Held));
-        Menu.SetItemEnabled(1, Appraisal.CanAppraise(jewel.Offered, jewel.Held));
+        Menu.SetItemEnabled(0, Appraisal.CanAppraise(offerGems, gem.Held));
+        Menu.SetItemEnabled(1, Appraisal.CanAppraise(offerJewels, jewel.Held));
 
         ShowText($"YOU HAVE {gem.Held} {gem.Name} {jewel.Held} {jewel.Name} NOT YET APPRAISED");
 
@@ -378,7 +402,7 @@ public sealed class EventRunner
         if (Menu.ActiveItem is 0 or 1)
         {
             var kind = Menu.ActiveItem == 0 ? Valuable.Gem : Valuable.Jewelry;
-            var (name, _, _) = AppraiseKind?.Invoke(kind) ?? ("", 0, false);
+            var (name, _) = AppraiseKind?.Invoke(kind) ?? ("", 0);
 
             // Taken out of the purse first, then valued -- there is no way back to an unappraised
             // piece.
@@ -402,6 +426,11 @@ public sealed class EventRunner
         SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, parent ?? TempleMenu);
         escapeSelects = (parent?.Length ?? TempleMenu.Length) - 1;
 
+        if (Current is ShopEvent shop && parent == ShopMenu)
+        {
+            UpdateShopMenu(shop);
+        }
+
         return EventStep.Running;
     }
 
@@ -416,7 +445,320 @@ public sealed class EventRunner
         Appraising = null;
 
         // Back to the picker, which re-counts what is left.
-        return OpenAppraise(appraiseParent ?? TempleMenu);
+        return OpenAppraise(appraiseParent ?? TempleMenu,
+                            appraiseOffers.Gems, appraiseOffers.Jewels);
+    }
+
+    // ---- BUY -----------------------------------------------------------------------------------
+
+    /// <summary>What the shop has on its shelf, priced, or null when BUY is not open.</summary>
+    public IReadOnlyList<InventoryRow>? ShopRows { get; private set; }
+
+    /// <summary>Whether the buy screen is the one on top.</summary>
+    public bool BuyOpen => ShopRows is not null;
+
+    /// <summary>Which page of the shelf is showing.</summary>
+    public int ShopPage { get; private set; }
+
+    /// <summary>Which row of the page the cursor is on (<c>party.activeItem</c>).</summary>
+    public int ShopRowIndex { get; private set; }
+
+    /// <summary>The rows on the page currently showing.</summary>
+    public IReadOnlyList<InventoryRow> ShopPageRows =>
+        ShopRows is null ? [] : [.. ShopRows.Skip(ShopPage * PageSize).Take(PageSize)];
+
+    /// <summary>What the last BUY did, or <see cref="BuyRefusal.None"/>.</summary>
+    public BuyRefusal LastPurchase { get; private set; }
+
+    /// <summary>Buys the named item for the active character; set by the host.</summary>
+    public Func<string, CostFactor, BuyRefusal>? BuyItem { get; set; }
+
+    /// <summary>Whether the active character could meet a price; set by the host.</summary>
+    public Func<int, bool>? CanAfford { get; set; }
+
+    /// <summary>
+    /// <c>BUY_SHOP_ITEMS_DATA</c> (<c>RunEvent.cpp:11085</c>) — the shop's shelf.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The shelf is the inventory screen with the columns swapped</b>: COST on, READY off, where
+    /// a pack shows the reverse. One list widget, two presentations, which is why this reuses
+    /// <see cref="Inventory.Rows"/> rather than building a list of its own.
+    /// </para>
+    /// <para>
+    /// <b>The reference identifies the shop's whole stock on open</b> — it walks <c>itemsAvail</c>
+    /// setting <c>identified = TRUE</c> on each entry, "shops disclose full name", writing into the
+    /// event rather than a copy. Nothing here needs to: <see cref="Inventory.Rows"/> takes every
+    /// name from the database and never consults the flag, so the shelf already shows true names.
+    /// The reference's write outlives the visit; this does not reproduce that, and nothing in the
+    /// port reads the flag back.
+    /// </para>
+    /// </remarks>
+    private EventStep OpenBuy(ShopEvent shop)
+    {
+        var factor = Prices.FactorOf(shop.CostFactor);
+
+        ShopPage = 0;
+        ShopRowIndex = 0;
+        LastPurchase = BuyRefusal.None;
+        ShopRows = Inventory.Rows(shop.ItemsAvailable, ItemNames,
+                                  id => ItemDatabase?.Invoke(id) is { } record
+                                            ? Shopping.Price(record, factor)
+                                            : 0);
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, Shopping.Menu);
+        escapeSelects = Shopping.Menu.Length - 1;
+
+        PopulateShopForm();
+        return EventStep.Running;
+    }
+
+    private void PopulateShopForm()
+    {
+        if (ShopRows is null)
+        {
+            return;
+        }
+
+        var page = ShopPageRows;
+
+        if (ShopRowIndex >= page.Count)
+        {
+            ShopRowIndex = Math.Max(page.Count - 1, 0);
+        }
+
+        Items = new ItemsForm(PageSize);
+        if (font is not null)
+        {
+            Items.Populate(font,
+                           [.. page.Select(r => new ItemsFormRow(
+                               string.Empty, r.Quantity.ToString(), r.Cost.ToString(), r.Name))],
+                           useReady: false, useCost: true);
+        }
+
+        if (page.Count > 0)
+        {
+            Items.Select(ShopRowIndex);
+        }
+
+        UpdateBuyMenu();
+    }
+
+    /// <summary>
+    /// <c>BUY_SHOP_ITEMS_DATA::OnUpdateUI</c> (<c>RunEvent.cpp:11144</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>BUY darkens on the price of the row the cursor is on, re-tested every frame.</b> So the
+    /// entry lights and darkens as the player moves down a shelf they can only half afford, and an
+    /// empty shop darkens it outright. An id the design has lost prices at 0, which is affordable —
+    /// the reference's <c>pItem == NULL</c> branch sets <c>costOfSelectedItem = 0</c> rather than
+    /// refusing, and <see cref="Shopping.Buy"/> is what actually turns it away.
+    /// </remarks>
+    private void UpdateBuyMenu()
+    {
+        var page = ShopPageRows;
+        int cost = ShopRowIndex >= 0 && ShopRowIndex < page.Count ? page[ShopRowIndex].Cost : 0;
+        int count = ShopRows?.Count ?? 0;
+
+        Menu.SetItemEnabled(0, count > 0 && CanAfford?.Invoke(cost) != false);
+        Menu.SetItemEnabled(1, AllowShopPage(+1));
+        Menu.SetItemEnabled(2, AllowShopPage(-1));
+    }
+
+    /// <summary>
+    /// <c>allowShopItemNextPage</c> / <c>allowShopItemPrevPage</c> (<c>Disptext.cpp:686</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Both answer no for a list that fits on one page</b>, before either end is considered —
+    /// so a shop with fewer items than a page darkens NEXT and PREV together.
+    /// </remarks>
+    private bool AllowShopPage(int delta)
+    {
+        int count = ShopRows?.Count ?? 0;
+        if (count <= PageSize)
+        {
+            return false;
+        }
+
+        int start = ShopPage * PageSize;
+        return delta > 0 ? start <= count - PageSize : start >= PageSize;
+    }
+
+    /// <summary><c>nextShopPage</c> / <c>prevShopPage</c> (<c>Disptext.cpp:651</c>).</summary>
+    /// <remarks>
+    /// <b>The page moves, then the cursor is clamped to what is left on it</b> — so paging onto a
+    /// short final page pulls the cursor up to its last row rather than leaving it pointing past
+    /// the end.
+    /// </remarks>
+    private void TurnShopPage(int delta)
+    {
+        int count = ShopRows?.Count ?? 0;
+
+        if (delta > 0 && (ShopPage + 1) * PageSize >= count)
+        {
+            return;
+        }
+
+        ShopPage = Math.Max(ShopPage + delta, 0);
+        PopulateShopForm();
+    }
+
+    private void MoveShopRow(int delta)
+    {
+        int onPage = ShopPageRows.Count;
+        if (onPage <= 0)
+        {
+            return;
+        }
+
+        ShopRowIndex = ((ShopRowIndex + delta) % onPage + onPage) % onPage;
+        Items?.Select(ShopRowIndex);
+        UpdateBuyMenu();
+    }
+
+    /// <summary>The shelf splits the keys the inventory's way: vertical here, horizontal to the menu.</summary>
+    private bool HandleShopKey(VirtualKey key)
+    {
+        switch (key)
+        {
+            case VirtualKey.Up:
+                MoveShopRow(-1);
+                return true;
+
+            case VirtualKey.Down:
+                MoveShopRow(+1);
+                return true;
+
+            case VirtualKey.PageDown:
+                TurnShopPage(+1);
+                return true;
+
+            case VirtualKey.PageUp:
+                TurnShopPage(-1);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary><c>BUY_SHOP_ITEMS_DATA::OnKeypress</c> (<c>RunEvent.cpp:11105</c>).</summary>
+    /// <remarks>
+    /// <b>The shelf does not shrink as things are bought.</b> A shop's stock is a list of what it
+    /// offers, not a count of what it has, so the same row can be bought until the party runs out
+    /// of money or of carrying capacity.
+    /// </remarks>
+    private EventStep ChooseBuy(ShopEvent shop)
+    {
+        switch (Menu.ActiveItem)
+        {
+            case 0:
+            {
+                var page = ShopPageRows;
+                if (ShopRowIndex < 0 || ShopRowIndex >= page.Count
+                    || ShopRows is null || ItemsSold(shop) is not { } stock)
+                {
+                    return EventStep.Running;
+                }
+
+                string itemId = stock[page[ShopRowIndex].Index].ItemId;
+                LastPurchase = BuyItem?.Invoke(itemId, Prices.FactorOf(shop.CostFactor))
+                               ?? BuyRefusal.None;
+
+                UpdateBuyMenu();
+                return EventStep.Running;
+            }
+
+            case 1:
+                TurnShopPage(+1);
+                return EventStep.Running;
+
+            case 2:
+                TurnShopPage(-1);
+                return EventStep.Running;
+
+            default:
+                ShopRows = null;
+                Items = null;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ShopMenu);
+                escapeSelects = ShopMenu.Length - 1;
+                UpdateShopMenu(shop);
+                return EventStep.Running;
+        }
+    }
+
+    private static IReadOnlyList<ItemInstance>? ItemsSold(ShopEvent shop) =>
+        shop.ItemsAvailable.Items;
+
+    /// <summary>Whether the active character is well enough to shop; set by the host.</summary>
+    public Func<bool>? ActiveCharacterOkay { get; set; }
+
+    /// <summary>
+    /// <c>SHOP::OnUpdateUI</c> (<c>RunEvent.cpp:11010</c>) — the two entries this port runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>BUY darkens for a character who is not <see cref="CharacterStatus.Okay"/>.</b> Buying is
+    /// the active character's, and TAB moves that around the party — so a shop's menu changes as
+    /// the player pages past a dead member. <c>buyItem</c> tests it a second time.
+    /// </para>
+    /// <para>
+    /// <b>APPRAISE darkens only when the shop offers neither kind.</b> A shop that appraises gems
+    /// but not jewellery keeps the entry lit and darkens the one kind inside.
+    /// </para>
+    /// <para>
+    /// <b>Not ported: TAKE, POOL and SHARE</b>, whose enable states turn on <c>party.moneyPooled</c>
+    /// — those three entries do nothing in this port yet, and darkening a name that does nothing
+    /// either way would hide which is which.
+    /// </para>
+    /// </remarks>
+    private void UpdateShopMenu(ShopEvent shop)
+    {
+        Menu.SetItemEnabled(0, ActiveCharacterOkay?.Invoke() != false);
+        Menu.SetItemEnabled(6, shop.CanAppraiseGems != 0 || shop.CanAppraiseJewels != 0);
+    }
+
+    /// <summary><c>SHOP::OnInitialEvent</c> (<c>RunEvent.cpp:10938</c>).</summary>
+    private EventStep BeginShop(ShopEvent shop, MenuAnchors anchors)
+    {
+        var step = BeginTownMenu(ShopMenu, shop.Base.Text, anchors);
+        UpdateShopMenu(shop);
+        return step;
+    }
+
+    /// <summary><c>SHOP::OnKeypress</c> (<c>RunEvent.cpp:10949</c>).</summary>
+    private EventStep ChooseShop(ShopEvent shop)
+    {
+        if (Appraising is not null)
+        {
+            return ChooseAppraised();
+        }
+
+        if (AppraiseOpen)
+        {
+            return ChooseAppraise();
+        }
+
+        if (BuyOpen)
+        {
+            return ChooseBuy(shop);
+        }
+
+        if (Menu.ActiveItem == 0)
+        {
+            return OpenBuy(shop);
+        }
+
+        if (Menu.ActiveItem == 6)
+        {
+            // The one service that can refuse a kind outright.
+            return OpenAppraise(ShopMenu, shop.CanAppraiseGems != 0, shop.CanAppraiseJewels != 0);
+        }
+
+        return ChooseTownItem(ShopMenu, shop.ForceExit);
     }
 
     /// <summary>The temple's heal menu (<c>TempleHealMenu</c>, <c>GameMenu.cpp:707</c>).</summary>
@@ -4140,6 +4482,12 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // So does the shop's shelf, which is the same widget with the columns swapped.
+        if (BuyOpen && input.Kind == InputEventKind.KeyDown && HandleShopKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // The GIVE screen takes digits and backspace; Return falls through and commits.
         if (Giving is not null && HandleGiveKey(input))
         {
@@ -4329,7 +4677,7 @@ public sealed class EventRunner
             CampEvent camp => ChooseCamp(camp),
             TrainingHallEvent hall => ChooseTrainingHall(hall),
             TavernEvent tavern => ChooseTavern(tavern),
-            ShopEvent shop => ChooseTownItem(ShopMenu, shop.ForceExit),
+            ShopEvent shop => ChooseShop(shop),
             VaultEvent vault => ChooseTownItem(VaultMenu, vault.ForceBackup),
             TempleEvent temple => ChooseTemple(temple),
             _ => Complete(happened: true),

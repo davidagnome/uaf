@@ -64,12 +64,18 @@ public class EventTownShellTests
         return runner;
     }
 
+    /// <summary>
+    /// Steps the cursor until it arrives, rather than counting presses — Right skips darkened
+    /// entries, so a fixed count overshoots the moment a menu darkens one.
+    /// </summary>
     private static EventStep Choose(EventRunner runner, int item)
     {
-        for (int i = 0; i < item; i++)
+        for (int i = 0; i < runner.Menu.Count && runner.Menu.ActiveItem != item; i++)
         {
             runner.Handle(InputEvent.KeyDown(VirtualKey.Right));
         }
+
+        Assert.Equal(item, runner.Menu.ActiveItem);
         return runner.Handle(InputEvent.KeyDown(VirtualKey.Return));
     }
 
@@ -190,13 +196,12 @@ public class EventTownShellTests
 
     // ---- what is not built yet -----------------------------------------------------------------
 
+    // BUY and APPRAISE are no longer here: both run. See EventBuyTests and EventAppraiseTests.
     [Theory]
-    [InlineData(0, "BUY")]
     [InlineData(1, "ITEMS")]
     [InlineData(3, "TAKE")]
     [InlineData(4, "POOL")]
     [InlineData(5, "SHARE")]
-    [InlineData(6, "APPRAISE")]
     public void A_shops_inner_screens_are_named(int item, string label)
     {
         var runner = Started(Shop());

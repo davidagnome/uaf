@@ -4030,6 +4030,74 @@ than owning a menu of its own.
 > worth the appraisal — so a kept gem stops being money and starts being inventory, and from then
 > on it weighs something.
 
+###### A correction: only the shop can refuse a kind
+
+I had the enable test wrong. `APPRAISE_SELECT_DATA`'s constructor takes `apprGems` and
+`apprJewels` and **both default to `TRUE`** (`GameEvent.h:4590`). The temple pushes the screen
+without them — twice, at `RunEvent.cpp:12743` and `:12894` — so **a temple appraises both kinds
+whatever its design says**. Only the shop passes `canApprGems` / `canApprJewels`
+(`RunEvent.cpp:10986`), so it is the one service that can darken an entry outright.
+
+What I wrote in the APPRAISE round asked the *host* whether a kind was offered and had it answer
+"the design has a config for it" — which is a different question with a different answer, and made
+a temple in a design with no jewellery config refuse jewellery. The offer is now a parameter of the
+screen and the host reports only the design's name and the count. Caught while porting BUY, because
+the shop is where the flags live.
+
+##### BUY, and the error a shop shows for the wrong reason
+
+`BUY_SHOP_ITEMS_DATA` (`RunEvent.cpp:11085`), `CHARACTER::buyItem` (`Char.cpp:6670`),
+`getItemEncumbrance` (`Items.cpp:602`) and `MONEY_SACK::GetTotalWeight` (`Money.cpp:2362`).
+`UAFcore/Shopping.cs`, and the shelf on the runner. **The shop now runs BUY and APPRAISE**, which
+is both of the entries it has that are only arithmetic.
+
+> **The shelf is the inventory screen with the columns swapped** — COST on, READY off, where a pack
+> shows the reverse. One list widget, two presentations.
+
+> **The reference identifies the shop's whole stock on open**, walking `itemsAvail` and writing
+> `identified = TRUE` into the *event* rather than a copy — "shops disclose full name". So an
+> unidentified item a designer put on a shelf is identified from the first time a player opens the
+> door and stays that way for the session. Nothing here needs it: the port's rows take every name
+> from the database and never read the flag.
+
+> **An item's stated encumbrance is for the whole bundle.** A quiver of 20 arrows weighing 2
+> divides to 0.1 each and the quantity multiplies back up — so the database field means something
+> different for a bundled item than for a single one. The division is floating-point and the result
+> truncates, so **part of a bundle can weigh nothing**: nine arrows out of that quiver are free to
+> carry and the tenth costs a whole unit.
+
+> **An empty purse weighs one unit.** `GetTotalWeight` floors the division at 1 without ever asking
+> whether there was anything to divide, so 0/100 is 1. Every character in a design that gives coins
+> a weight carries a unit of nothing. Coins, gems and jewellery are counted as one pile — a gem
+> weighs exactly as much as a copper piece, and its appraisal has nothing to do with it.
+
+> **The first weight test asks about one of them, not about the bundle** —
+> `getItemEncumbrance(itemID, 1)`, which for a bundled item is usually a fraction that truncates
+> away. Then `addCharacterItem` weighs it again properly, sets `TooMuchWeight`, and returns FALSE —
+> and `buyItem`'s `else` **overwrites that with `MaxItemsReached`**. So a purchase refused because
+> the party cannot carry it tells the player they are holding too many things. Reproduced: it is
+> the only way a shop reports weight on a bundle, and `MAX_ITEMS` is 0x00FFFFFF, so that message
+> can never be about item count.
+
+> **Nothing stacks.** `addItem` calls `AddItem(newItem, FALSE)` — auto-join off — so buying the
+> same dagger ten times leaves ten rows, each with its own key and its own paid price. JOIN on the
+> inventory menu is what merges them, by hand.
+
+> **The price paid is remembered on the item.** `paid` is what the shop charged after its cost
+> factor, not the database price, and it is what a buyback is computed from later.
+
+> **The shelf does not shrink as things are bought.** A shop's stock is a list of what it offers,
+> not a count of what it has.
+
+> **BUY darkens on the price of the row the cursor is on, re-tested every frame** — so the entry
+> lights and darkens as the player moves down a shelf they can only half afford. And on the shop's
+> own menu it darkens for an active character who is not `Okay`, which TAB can change under the
+> player's feet.
+
+**Not ported, and named:** SELL and the buyback percentage, `costToIdentify` and `canIdentify`, and
+`buyItemsSoldOnly` — the shop's other half, which lives on the inventory screen's SELL entry rather
+than on the shop's own menu.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7346,10 +7414,18 @@ What is left, in order:
      complete bar the casting.
 
      ~~**Next: the shop** — BUY and APPRAISE, which price items through that same scale.~~
-     **APPRAISE runs** (§APPRAISE), off both of the temple's entries, including the value the
-     party can never roll.
+     **APPRAISE runs** (§APPRAISE), off both of the temple's entries and the shop's, including the
+     value the party can never roll — and a correction to whose flag decides that a service will
+     not appraise a kind (§a correction).
 
-     **Next: BUY** — the shop's other entry, and the last town service that is only arithmetic.
+     ~~**Next: BUY** — the shop's other entry.~~ **BUY runs** (§BUY), with the encumbrance rules
+     the whole game shares and the wrong error a shop shows for a bundle it cannot carry. **The
+     shop is complete bar SELL**, which lives on the inventory screen rather than the shop's menu.
+
+     **Next: FIX** — `party.FixParty(0)` from camp and `FixParty(1)` from HEAL, the same call in
+     two environments, which is the last thing camp and the temple are waiting on. It needs the
+     fix spell book and the spell resolution layer, which the temple's own casting also waits on —
+     so the three arrive together.
 
 
 

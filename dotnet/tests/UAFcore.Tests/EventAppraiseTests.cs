@@ -43,7 +43,6 @@ public class EventAppraiseTests
     private const int HealAppraise = 6;
 
     private static EventRunner Started(int gems = 2, int jewels = 1,
-                                       bool offerGems = true, bool offerJewels = true,
                                        int value = 40,
                                        Action<Valuable, int, Appraised>? apply = null)
     {
@@ -54,8 +53,8 @@ public class EventAppraiseTests
         {
             IsValidEvent = _ => true,
             AppraiseKind = kind => kind == Valuable.Gem
-                ? ("STONES", gemsLeft, offerGems)
-                : ("TRINKETS", jewelsLeft, offerJewels),
+                ? ("STONES", gemsLeft)
+                : ("TRINKETS", jewelsLeft),
             TakeForAppraisal = kind =>
             {
                 if (kind == Valuable.Gem) { gemsLeft--; } else { jewelsLeft--; }
@@ -114,12 +113,16 @@ public class EventAppraiseTests
     }
 
     [Fact]
-    public void A_kind_the_service_does_not_offer_is_dark_however_many_are_held()
+    public void A_temple_appraises_both_kinds_whatever_its_design_says()
     {
-        var runner = Started(gems: 5, offerGems: false);
+        // The constructor's two flags default to TRUE and the temple pushes the screen without
+        // them, so nothing about a temple can darken a kind -- only the purse can. The shop is
+        // the one service that passes them; see EventBuyTests.
+        var runner = Started(gems: 5, jewels: 3);
         OpenIt(runner);
 
-        Assert.False(runner.Menu.Items[0].Enabled);
+        Assert.True(runner.Menu.Items[0].Enabled);
+        Assert.True(runner.Menu.Items[1].Enabled);
     }
 
     [Fact]

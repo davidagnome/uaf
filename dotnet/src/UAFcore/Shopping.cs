@@ -336,9 +336,10 @@ public static class Shopping
     /// Puts the bundle in the pack (<c>ITEM_LIST::addItem</c>, <c>Items.cpp:3612</c>).
     /// </summary>
     /// <remarks>
-    /// <b>A quantity above one on an unbundled item is silently reduced to one.</b> The reference
-    /// logs it and carries on, so a design that sets <c>Bundle_Qty</c> to 0 and expects a stack
-    /// gets a single item and no complaint.
+    /// <b>A quantity above one on an unbundled item is silently reduced to one</b> — the reference
+    /// logs it and carries on. Not reachable from <see cref="Buy"/>, which derives the quantity
+    /// from <c>Bundle_Qty</c> itself and so can never disagree with it; kept because this is
+    /// <c>addItem</c>'s own guard and the other callers of it do pass a quantity of their own.
     /// </remarks>
     private static bool Add(Character buyer, string itemId, ItemRecord record, int quantity,
                             int paid)
