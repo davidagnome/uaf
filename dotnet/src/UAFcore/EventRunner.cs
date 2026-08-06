@@ -135,6 +135,7 @@ public sealed class EventRunner
         InventoryPage = 0;
         InventoryRowIndex = 0;
         LastRefusal = ReadyRefusal.None;
+        LastFix = null;
         ShopRows = null;
         ShopPage = 0;
         ShopRowIndex = 0;
@@ -767,7 +768,36 @@ public sealed class EventRunner
          ("APPR", 0), ("EXIT", 1)];
 
     public const int HealCast = 0;
+    public const int HealFix = 2;
     public const int HealExit = 7;
+
+    // ---- FIX -----------------------------------------------------------------------------------
+
+    /// <summary>Runs FIX for the current environment; set by the host, which owns the party.</summary>
+    /// <remarks>
+    /// The runner does not own the fix spell book, the party or the spell machinery, so the whole
+    /// of <see cref="FixSpells.Run"/> lives on the host side of the callback. What is here is the
+    /// two menu entries that reach it and the fact that neither changes the screen.
+    /// </remarks>
+    public Func<FixEnvironment, IReadOnlyList<FixCast>>? ApplyFix { get; set; }
+
+    /// <summary>The casts the last FIX made, or null if FIX has not been used.</summary>
+    public IReadOnlyList<FixCast>? LastFix { get; private set; }
+
+    /// <summary>
+    /// <c>party.FixParty(environment)</c> — camp's entry (<c>RunEvent.cpp:9296</c>) and the
+    /// temple's (<c>:12878</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Neither entry pushes a screen or says anything.</b> Both are a bare call in the middle of
+    /// a menu switch, so the healing happens and the player is looking at the same menu they
+    /// pressed it on — the only feedback is the party's hit points changing on the status line.
+    /// </remarks>
+    private EventStep RunFix(FixEnvironment environment)
+    {
+        LastFix = ApplyFix?.Invoke(environment) ?? [];
+        return EventStep.Running;
+    }
 
     /// <summary>Whether the heal sub-menu is up.</summary>
     public bool HealOpen { get; private set; }
@@ -806,6 +836,9 @@ public sealed class EventRunner
                                ("CAST", 0), ("NEXT", 0), ("PREV", 0), ("EXIT", 1));
                 escapeSelects = 3;
                 return EventStep.Running;
+
+            case HealFix:
+                return RunFix(FixEnvironment.Temple);
 
             case 6:
                 return OpenAppraise(HealMenu);
@@ -1592,6 +1625,9 @@ public sealed class EventRunner
             case 5:
                 return OpenAlter();
 
+            case CampFix:
+                return RunFix(FixEnvironment.Encamp);
+
             case 8:
                 return OpenJournal(CampMenu);
 
@@ -1600,8 +1636,7 @@ public sealed class EventRunner
                 return Complete(happened: true);
 
             default:
-                // SAVE, LOAD, MAGIC, REST, ALTER, FIX, JOURNAL and QUIT each push a screen this
-                // port has not built.
+                // QUIT is the one entry left that pushes a screen this port has not built.
                 Unimplemented = $"[{LabelOf(Menu.ActiveItem)} here -- not implemented]";
                 return EventStep.Running;
         }

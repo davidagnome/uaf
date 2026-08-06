@@ -92,6 +92,23 @@ public class EventAppraiseTests
         [.. runner.Menu.Items.Select(i => BitmapFont.Decode(i.Text))];
 
     [Fact]
+    public void The_temples_fix_asks_for_the_temple_environment()
+    {
+        // The same call camp's FIX makes, with the one argument that changes who casts: camp draws
+        // on the party's own memorised spells, the temple on a bishop it synthesises.
+        var asked = new List<FixEnvironment>();
+
+        var runner = Started();
+        runner.ApplyFix = where => { asked.Add(where); return []; };
+
+        Choose(runner, TempleHeal);
+        Choose(runner, 2);                          // FIX
+
+        Assert.Equal([FixEnvironment.Temple], asked);
+        Assert.Equal(8, runner.Menu.Count);          // still the heal menu -- no screen is pushed
+    }
+
+    [Fact]
     public void The_entries_are_named_by_the_design()
     {
         // A design calling them STONES and TRINKETS says so on the bar.

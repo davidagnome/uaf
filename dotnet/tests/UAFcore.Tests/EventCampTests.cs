@@ -279,7 +279,6 @@ public class EventCampTests
     }
 
     [Theory]
-    [InlineData(6, "FIX")]
     [InlineData(11, "QUIT")]
     public void The_entries_that_push_unbuilt_screens_are_named(int item, string label)
     {
@@ -292,6 +291,40 @@ public class EventCampTests
 
         Assert.Equal(EventStepKind.Running, step.Kind);
         Assert.Contains(label, runner.Unimplemented);
+    }
+
+    [Fact]
+    public void Fix_heals_the_party_in_the_encamp_environment()
+    {
+        var asked = new List<FixEnvironment>();
+
+        var runner = new EventRunner
+        {
+            ApplyFix = where => { asked.Add(where); return []; },
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        var step = Choose(runner, 6);
+
+        Assert.Equal([FixEnvironment.Encamp], asked);
+        Assert.Equal(EventStepKind.Running, step.Kind);
+    }
+
+    [Fact]
+    public void Fix_stays_on_the_same_screen_and_says_nothing()
+    {
+        // party.FixParty(0) is a bare call in the middle of a menu switch -- it pushes no screen
+        // and prints no message, so the only feedback is the hit points on the status line.
+        var runner = new EventRunner
+        {
+            ApplyFix = _ => [],
+        };
+        runner.Begin(Camp(), Font(), Box, Anchors);
+
+        Choose(runner, 6);
+
+        Assert.Equal(12, runner.Menu.Count);          // still the encamp menu
+        Assert.Null(runner.Unimplemented);
     }
 
     // ---- the training hall ---------------------------------------------------------------------

@@ -4098,6 +4098,53 @@ is both of the entries it has that are only arithmetic.
 `buyItemsSoldOnly` — the shop's other half, which lives on the inventory screen's SELL entry rather
 than on the shop's own menu.
 
+##### FIX, and the script default that turns out to be the rule
+
+`PARTY::FixParty` (`Party.cpp:3961`) over `FIX_SPELL_LIST` (`:3818`) and `FIX_SPELL_ENTRY`
+(`:3681`). `UAFcore/FixSpells.cs`. Reached from camp (`FixParty(0)`, `RunEvent.cpp:9296`) and from
+the temple's heal menu (`FixParty(1)`, `:12878`) — **one routine, two environments, differing only
+in who casts.** Camp draws on the party's own memorised spells and spends them; the temple casts
+from the synthesised bishop, so the party's book is untouched and nothing limits how much it can be
+healed.
+
+> **The book is the design's global fix spell book**, not any character's. A design chooses what
+> FIX may cast by putting spells in it, and one that leaves it empty makes both entries do nothing.
+
+> **I expected the target test to be unportable, and it is not.** `RandomTarget` pre-loads
+> `hookParameters[0]` with `"1"` or `""` on whether the character is below their maximum hit
+> points, then runs the spell's `FIX_CHARACTER` scripts. With no such script,
+> `SPECIAL_ABILITIES::RunScripts` calls the callback with `CBF_DEFAULT` and returns
+> `hookParameters[0]` *unchanged* (`Specab.cpp:1955`), and `ScriptCallback_RunAllScripts` never
+> touches the result at all (`:1678`). So the engine's own answer, in every design without that
+> hook, is exactly **"below their maximum hit points"** — and a script overrides it rather than
+> supplying it. That is the opposite of `ClassChange`, where an absent script means no.
+
+> **Status is not consulted.** Only hit points. A dead character below their maximum is a
+> candidate; a petrified one at full health is not.
+
+> **A successful cast does not consume the entry.** The loop keeps returning the same spell for as
+> long as it can find a caster and a willing target, so one cure spell heals the whole party one
+> cast at a time. **The casting is the termination condition** — healing until nobody wants it, and
+> in camp spending a memorised copy each time until no one has one left.
+
+> **The pools are per-spell and never rebuilt.** Each spell keeps its own candidate casters and
+> candidate targets, and a candidate rejected once is dropped from that spell's list for the rest
+> of the visit. A character who was at full health when a cure spell first looked at them cannot be
+> healed by it later in the same FIX, however much damage they take meanwhile.
+
+> **Every party member is a target candidate, with no filter at all** — including whoever is
+> casting, so a lone cleric heals themselves.
+
+> **Neither menu entry pushes a screen or says anything.** Both are a bare call in the middle of a
+> menu switch, so the player is left looking at the menu they pressed it on and the only feedback
+> is the hit points on the status line.
+
+**Wired but held back, deliberately.** `FixSpells.Run` is complete and tested and both entries
+reach it, but `Game`'s callback returns nothing: the loop is ended *by* the casting, so handing it
+a cast that resolves nothing would spin forever on the first hurt character. One line switches it
+on when spells resolve, and the line is in the source. This is the same layer the temple's own
+casting waits on.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7422,10 +7469,19 @@ What is left, in order:
      the whole game shares and the wrong error a shop shows for a bundle it cannot carry. **The
      shop is complete bar SELL**, which lives on the inventory screen rather than the shop's menu.
 
-     **Next: FIX** — `party.FixParty(0)` from camp and `FixParty(1)` from HEAL, the same call in
-     two environments, which is the last thing camp and the temple are waiting on. It needs the
-     fix spell book and the spell resolution layer, which the temple's own casting also waits on —
-     so the three arrive together.
+     ~~**Next: FIX** — `party.FixParty(0)` from camp and `FixParty(1)` from HEAL, the same call in
+     two environments.~~ **FIX is ported and both entries reach it** (§FIX), including the script
+     default that turns out to be the engine's actual healing rule. It is **held back at the host**
+     until spells resolve, because the loop is ended by the casting and a cast that resolves
+     nothing never terminates — the reason is in the source, one line from switching on.
+
+     **Camp is at eleven of twelve entries** (QUIT alone is unbuilt) and the temple is complete
+     bar its own casting.
+
+     **Next: the spell resolution layer** — `CHARACTER::CastSpell` and the effect application
+     behind it. Three things are now queued on exactly this and nothing else: the temple's CAST,
+     FIX's casting, and MAGIC's own cast entry. It is the last shared gap in the town services and
+     the first real piece of Priority 3.
 
 
 

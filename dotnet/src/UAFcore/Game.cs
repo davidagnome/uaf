@@ -266,6 +266,16 @@ public sealed class Game
 
         Runner.ActiveCharacterOkay = () => Party.Active?.Status == CharacterStatus.Okay;
 
+        // FIX is held back deliberately, not forgotten. FixSpells.Run is complete and tested, but
+        // its loop is ended BY the casting -- healing until WantsFixing stops saying yes, and in
+        // camp spending a memorised copy each time. Wiring it to a cast that resolves nothing
+        // would spin forever on the first hurt character, so the two menu entries reach a call
+        // that declines rather than one that hangs. One line to switch on when spells resolve:
+        //
+        //   FixSpells.Run(FixSpellBook, Party.Members, environment, n => Dice.Next(n),
+        //                 (_, who, _) => FixSpells.WantsFixing(who), CastFixSpell, TempleBishop);
+        Runner.ApplyFix = _ => [];
+
         // The design's moneyData.GetWeight(): how many coins make a unit of encumbrance.
         Runner.CanAfford = cost =>
             Party.Active is { } who
