@@ -77,25 +77,15 @@ public sealed partial class ForthMachine
             () => m.Push(m.Cell(m.Cfa + 2)),                            // 51 docon
         ]);
 
-        // 52..72: the combat-summary words. Declared so that the kernel's PRIM lines bind to the
-        // right indices; each refuses when actually called. See RunTHINK, not yet ported.
-        foreach (string name in GameWords)
-        {
-            string refused = name;
-            primitives.Add(() => throw new NotSupportedException(
-                $"The Forth word '{refused}' reads the COMBAT_SUMMARY the AI script ranks actions " +
-                "from (Forth.cpp:2100-2250). The VM and its kernel are ported; these bindings and " +
-                "RunTHINK are not."));
-        }
+        AddGameWords();                                 // 52..72, see ForthGameWords
     }
 
     /// <summary>
     /// The twenty-one words that read a <c>COMBAT_SUMMARY</c>, in kernel order.
     /// </summary>
     /// <remarks>
-    /// <b>Present but refusing, deliberately.</b> They have to exist for the kernel to build — the
-    /// <c>PRIM</c> lines that name them assign indices to everything after them — but nothing in
-    /// the kernel calls one, so the dictionary builds and ordinary Forth runs without them.
+    /// The order is the contract: the kernel's <c>PRIM</c> lines name them in exactly this
+    /// sequence, so this list is what a test can check the dictionary against.
     /// </remarks>
     public static readonly string[] GameWords =
     [
