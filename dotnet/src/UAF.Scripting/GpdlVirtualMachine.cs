@@ -940,6 +940,17 @@ public sealed class GpdlVirtualMachine
                 // that were tested against that.
                 _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
                 break;
+            case SubOp.SUBOP_SA_ITEM_GET:
+            case SubOp.SUBOP_SA_CHARACTER_GET:
+            case SubOp.SUBOP_SA_COMBATANT_GET:
+            case SubOp.SUBOP_SA_CLASS_GET:
+            case SubOp.SUBOP_SA_BASECLASS_GET:
+            case SubOp.SUBOP_SA_SPELL_GET:
+            case SubOp.SUBOP_SA_MONSTERTYPE_GET:
+            case SubOp.SUBOP_SA_RACE_GET:
+            case SubOp.SUBOP_SA_ABILITY_GET:
+                PushSp(_host.Context.Ability(SaRecordOf(op), PopSp()));
+                break;
             case SubOp.SUBOP_SA_NAME:
                 PushSp(_host.Context.AbilityName);
                 break;
@@ -1192,6 +1203,21 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which record's ability list a lookup reads.</summary>
+    private static GpdlSaRecord SaRecordOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_SA_ITEM_GET => GpdlSaRecord.Item,
+        SubOp.SUBOP_SA_CHARACTER_GET => GpdlSaRecord.Character,
+        SubOp.SUBOP_SA_COMBATANT_GET => GpdlSaRecord.Combatant,
+        SubOp.SUBOP_SA_CLASS_GET => GpdlSaRecord.Class,
+        SubOp.SUBOP_SA_BASECLASS_GET => GpdlSaRecord.Baseclass,
+        SubOp.SUBOP_SA_SPELL_GET => GpdlSaRecord.Spell,
+        SubOp.SUBOP_SA_MONSTERTYPE_GET => GpdlSaRecord.MonsterType,
+        SubOp.SUBOP_SA_RACE_GET => GpdlSaRecord.Race,
+        SubOp.SUBOP_SA_ABILITY_GET => GpdlSaRecord.Ability,
+        _ => GpdlSaRecord.Ability,
     };
 
     /// <summary>Which ambient actor a context call asks for.</summary>

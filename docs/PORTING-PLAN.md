@@ -4561,10 +4561,45 @@ carries the specab pair rather than just its name.
 > **`SA_Param`'s "NULL SA List" complaint is a `static bool`** — logged once per process, not once
 > per call. A design with a broken lookup in a loop gets one line and then silence.
 
-**Not ported, and named:** the `SA_<record>_GET` lookups and `GET/SET/DELETE_<record>_SA`, which
-read another record's ability list rather than the running one — they need a specab store the port
-can address by record, and `$SA_REMOVE` records its request rather than writing for the same
-reason.
+**Not ported, and named:** `GET/SET/DELETE_<record>_SA` — see the next section, which does the
+context-driven half and explains why the actor-driven half waits.
+
+##### Nine lookups of one shape, and an uninitialised push
+
+`$SA_<record>_GET` (`GPDLexec.cpp:3253`) over `SA_Param` (`:1988`). **Nine more, 187 → 196**, and
+the character block's family is now complete on the reading side.
+
+> **Nine records, one shape.** Item, character, combatant, class, baseclass, spell, monster type,
+> race and ability: each call is the same `SA_Param` over a different member of the ambient
+> context. They differ in nothing but which list.
+
+> **An absent list and an absent ability answer the same thing** — `NO_SUCH_SA`. The reference
+> distinguishes them only in what it logs, and **it logs the missing list once per process**: the
+> guard is a `static bool error`, so a design with a broken lookup in a loop gets one line and then
+> silence.
+
+> **`SUBOP_SA_COMBATANT_GET`'s whole body is inside `#ifdef UAFEngine`**, so in the editor build it
+> neither pops its argument nor pushes a result. Not reachable from the engine, but it is the third
+> build-conditional stack imbalance this port has met.
+
+###### Why the actor-driven half waits, and a bug worth naming first
+
+`$GET_CHARACTER_SA(actor, name)` and its siblings read a *named* record rather than the ambient
+one, so they need a specab store the port can address by record — `Character.Record.SpecialAbilities`
+is immutable, and `$SET_CHARACTER_SA` and `$SA_REMOVE` both want to write. That store is the next
+round.
+
+Worth recording now, because it is the reason to be careful when that round comes:
+**`GET_CHARACTER_SA` pushes `m_string3` without initialising it.** When the actor names nobody the
+`if` is skipped and whatever the last opcode left in that member is pushed instead — a stale value,
+not an empty string. `DELETE_CHARACTER_SA` has the same hole. This port's VM keeps its temporaries
+as locals rather than as members, so the garbage is not reproducible here and the divergence is
+deliberate: it will answer the empty string and say so.
+
+**One difference in this round, named.** The reference holds these lists as pointers on the
+`SCRIPT_CONTEXT`, so they follow the frame; the port has no record-addressed store to point at, so
+they are held until replaced. A nested script therefore sees the outer one's record lists where the
+reference would have shown it none.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -7956,12 +7991,14 @@ What is left, in order:
      ~~**Next: the special-ability sub-opcodes**~~ **The introspection half is in** (§what a script
      can learn): 6 more, **181 → 187**, and the specab pair now reaches the script that reads it.
 
-     **Next: the `SA_<record>_GET` lookups and their setters** — the other half of the family, and
-     the first thing that needs a specab store the port can address *by record* rather than only
-     the one currently running. `$SA_REMOVE` records its request rather than writing for exactly
-     that reason, so the same piece unblocks both. After it: auras, the `DAT_*` database reads,
-     and the script-calling opcodes (`ForEachPartyMember`, `ForEachPossession`) that drive
-     `SpecabScripts` over a collection.
+     ~~**Next: the `SA_<record>_GET` lookups and their setters**~~ **The lookups are in**
+     (§nine lookups of one shape): 9 more, **187 → 196**.
+
+     **Next: a specab store addressable by record** — what `$GET/SET/DELETE_<record>_SA` and
+     `$SA_REMOVE`'s actual write all wait on, and the one piece of new machinery left in the
+     family. There is a reference bug to be careful of when it lands (§why the actor-driven half
+     waits). After it: auras, the `DAT_*` database reads, and the script-calling opcodes
+     (`ForEachPartyMember`, `ForEachPossession`) that drive `SpecabScripts` over a collection.
 
 
 

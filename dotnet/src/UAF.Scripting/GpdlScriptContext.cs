@@ -25,6 +25,28 @@ public enum GpdlScriptSource
     EventTrigger,
 }
 
+/// <summary>
+/// Which record's ability list a <c>$SA_&lt;record&gt;_GET</c> call reads
+/// (<c>GPDLexec.cpp:3253</c>).
+/// </summary>
+/// <remarks>
+/// <b>Nine records, one shape.</b> Each call is <c>SA_Param</c> over a different member of the
+/// ambient context — the ability name is popped, looked up in that record's list, and its value
+/// pushed. They differ in nothing but which list.
+/// </remarks>
+public enum GpdlSaRecord
+{
+    Item,
+    Character,
+    Combatant,
+    Class,
+    Baseclass,
+    Spell,
+    MonsterType,
+    Race,
+    Ability,
+}
+
 /// <summary>Which actor a context call is asking for.</summary>
 public enum GpdlContext
 {
@@ -235,6 +257,71 @@ public sealed class GpdlScriptContext
     /// silently dropped.
     /// </remarks>
     public IReadOnlyList<string> Removed => removed;
+
+    // ---- other records' abilities ----------------------------------------------------------------
+
+    private readonly Dictionary<GpdlSaRecord, IReadOnlyDictionary<string, string>> lists = [];
+
+    /// <summary>
+    /// Puts a record's ability list on the context, for <c>$SA_&lt;record&gt;_GET</c> to read.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not scoped to a frame, unlike the actors.</b> The reference keeps these as pointers on
+    /// the same <c>SCRIPT_CONTEXT</c>, so they follow the frame — but a caller sets them once and
+    /// the port has no record-addressed store to point at, so they are held here until replaced.
+    /// Named because it is a real difference: a nested script sees the outer one's record lists
+    /// where the reference would have shown it none.
+    /// </remarks>
+    public void SetAbilities(GpdlSaRecord record, IReadOnlyDictionary<string, string>? abilities)
+    {
+        if (abilities is null)
+        {
+            lists.Remove(record);
+        }
+        else
+        {
+            lists[record] = abilities;
+        }
+    }
+
+    /// <summary>
+    /// One named ability's value off a record's list (<c>SA_Param</c>, <c>GPDLexec.cpp:1988</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A list that is not there and an ability that is not in it give the same answer</b> —
+    /// <see cref="NoSuchAbility"/>. The reference distinguishes them only in what it logs.
+    /// </para>
+    /// <para>
+    /// <b>And it logs the missing list once per process, not once per call.</b> The guard is a
+    /// <c>static bool error</c> (<c>GPDLexec.cpp:1990</c>), so a design with a broken lookup in a
+    /// loop gets one line and then silence. <see cref="MissingLists"/> keeps that shape.
+    /// </para>
+    /// </remarks>
+    public string Ability(GpdlSaRecord record, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (!lists.TryGetValue(record, out var abilities))
+        {
+            if (!loggedMissingList)
+            {
+                loggedMissingList = true;
+                missingLists.Add(record);
+            }
+
+            return NoSuchAbility;
+        }
+
+        return abilities.TryGetValue(name, out string? value) ? value : NoSuchAbility;
+    }
+
+    private bool loggedMissingList;
+
+    private readonly List<GpdlSaRecord> missingLists = [];
+
+    /// <inheritdoc cref="Ability"/>
+    public IReadOnlyList<GpdlSaRecord> MissingLists => missingLists;
 
     /// <summary>What kind of record this script came from.</summary>
     public GpdlScriptSource Source { get; set; }

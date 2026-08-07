@@ -287,4 +287,84 @@ public class GpdlScriptContextTests
 
         Assert.Equal("Bless", Run("""$RETURN $SA_SOURCE_NAME();""", host));
     }
+
+    // ---- other records' abilities -----------------------------------------------------------------
+
+    [Theory]
+    [InlineData("$SA_ITEM_GET", GpdlSaRecord.Item)]
+    [InlineData("$SA_CHARACTER_GET", GpdlSaRecord.Character)]
+    [InlineData("$SA_COMBATANT_GET", GpdlSaRecord.Combatant)]
+    [InlineData("$SA_CLASS_GET", GpdlSaRecord.Class)]
+    [InlineData("$SA_BASECLASS_GET", GpdlSaRecord.Baseclass)]
+    [InlineData("$SA_SPELL_GET", GpdlSaRecord.Spell)]
+    [InlineData("$SA_MONSTERTYPE_GET", GpdlSaRecord.MonsterType)]
+    [InlineData("$SA_RACE_GET", GpdlSaRecord.Race)]
+    [InlineData("$SA_ABILITY_GET", GpdlSaRecord.Ability)]
+    public void Each_lookup_reads_its_own_records_list(string call, GpdlSaRecord record)
+    {
+        // Nine calls of identical shape, which is exactly where a crossed pair hides.
+        var host = new Echoing();
+        host.Context.SetAbilities(record, new Dictionary<string, string> { ["Ward"] = "7" });
+
+        Assert.Equal("7", Run($"""$RETURN {call}("Ward");""", host));
+    }
+
+    [Fact]
+    public void A_lookup_on_another_records_list_does_not_see_this_one()
+    {
+        var host = new Echoing();
+        host.Context.SetAbilities(GpdlSaRecord.Item,
+                                  new Dictionary<string, string> { ["Ward"] = "7" });
+
+        Assert.Equal("-?-?-", Run("""$RETURN $SA_CLASS_GET("Ward");""", host));
+    }
+
+    [Fact]
+    public void An_absent_ability_and_an_absent_list_answer_the_same_thing()
+    {
+        // The reference distinguishes them only in what it logs.
+        var host = new Echoing();
+        host.Context.SetAbilities(GpdlSaRecord.Item, new Dictionary<string, string>());
+
+        Assert.Equal("-?-?-", Run("""$RETURN $SA_ITEM_GET("Ward");""", host));
+        Assert.Equal("-?-?-", Run("""$RETURN $SA_RACE_GET("Ward");""", host));
+    }
+
+    [Fact]
+    public void A_blank_value_is_not_the_sentinel()
+    {
+        var host = new Echoing();
+        host.Context.SetAbilities(GpdlSaRecord.Item,
+                                  new Dictionary<string, string> { ["Ward"] = "" });
+
+        Assert.Equal("", Run("""$RETURN $SA_ITEM_GET("Ward");""", host));
+    }
+
+    [Fact]
+    public void The_missing_list_complaint_is_made_once_per_process_not_once_per_call()
+    {
+        // The guard is a `static bool error`, so a design with a broken lookup in a loop gets one
+        // line and then silence.
+        var context = new GpdlScriptContext();
+
+        context.Ability(GpdlSaRecord.Item, "Ward");
+        context.Ability(GpdlSaRecord.Class, "Ward");
+        context.Ability(GpdlSaRecord.Race, "Ward");
+
+        Assert.Single(context.MissingLists);
+    }
+
+    [Fact]
+    public void Clearing_a_list_puts_it_back_to_absent()
+    {
+        var context = new GpdlScriptContext();
+        context.SetAbilities(GpdlSaRecord.Item,
+                             new Dictionary<string, string> { ["Ward"] = "7" });
+
+        Assert.Equal("7", context.Ability(GpdlSaRecord.Item, "Ward"));
+
+        context.SetAbilities(GpdlSaRecord.Item, null);
+
+        Assert.Equal("-?-?-", context.Ability(GpdlSaRecord.Item, "Ward"));
+    }
 }
