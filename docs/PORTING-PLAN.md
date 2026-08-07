@@ -13,7 +13,8 @@ written whole; **30 of the 44 event types write, covering every one of the 4,705
 shipped level**. The remaining 14 event types appear in no shipped design at all.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
 running engine: it opens a design, walks a level, renders the viewport, reads **42 of the 44** event
-types — the other two have no readable body in any loadable design — and **executes 38** of them, presents the treasure and character screens, and sets up a
+types — the other two have no readable body in any loadable design — and **executes 39** of them,
+including **every type any shipped design uses**, presents the treasure and character screens, and sets up a
 combat encounter with the party and monsters placed, and **a combat that plays itself to a
 conclusion** — round clock, AI, pathing, movement, attacks, the dying clock and attacks of
 opportunity — with spell durations and stacking under it, and **combat: walking onto a combat
@@ -26,7 +27,7 @@ load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, 
 picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
 combat as well as in it.** **225 of GPDL's 387 sub-opcodes run** against real game state; the aura
 family is the largest group left. Phases 5–7 have not started.
-**3,886 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,890 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -7382,6 +7383,10 @@ letters.
 Running: `TextStatement`, `QuestionButton`, `QuestionList`, `QuestionYesNo`, `NPCSays` (text and a
 menu) plus `PassTime` and same-level `Teleporter` (no input at all). 18 tests.
 
+> **That list is the state this section was written in, and it is long out of date** — 39 of the
+> 44 types execute now. See §what the corpus proves about event coverage, below, for the measured
+> figure and the test that keeps it honest. The observations under it are still current.
+
 Verified against `SomethingWild`: a real `TextStatement` wraps, pages at its `/N`, and shows the
 `EXIT` / `PRESS ENTER TO CONTINUE` bar with both shortcut letters picked out; the `QuestionList` it
 chains to renders its five real options at the textbox anchor.
@@ -7422,6 +7427,43 @@ chains to renders its five real options at the textbox anchor.
 > This is the fourth instance in this port of a conclusion drawn from a plausible first reading
 > rather than from the source, and the third caught by rendering output rather than by a test. The
 > full suite was green before and after; only the picture was wrong.
+
+##### What the corpus proves about event coverage
+
+`UAFcore.Tests/EventTypeCoverageTests.cs`. Not a port — a measurement, written because **the count
+in §11 had been wrong twice and would have drifted again**. It runs every event of every level of
+every corpus design through `Game.StartEvent` and records the type of anything that lands in the
+runner's fallthrough. 4,705 events, four tests, about a second.
+
+**The result: nothing. No event type any shipped design uses is inert.** The corpus exercises 26 of
+the 44 types and every one of them executes. The other 18 appear in no shipped design at all.
+
+> **The guarantee is deliberately about the corpus rather than the enum.** "26 of 44" sounds worse
+> than "39 of 44 dispatch", and both are true, but neither is the number a player feels. The 18
+> unused types cannot break anybody's game, and the three inert ones — `EncounterEvent`,
+> `TavernTales`, `PlayMovieEvent` — are all in that group.
+
+Three things went wrong writing it, and each is worth keeping:
+
+> **Sweeping through `EventRunner.Begin` reported seven working types as inert.** `Game` dispatches
+> combat, chains, flow control, the clock, transfers, experience and the utilities *before* the
+> runner is asked, so a runner-only sweep never sees them and its fallthrough never fires for them.
+> **The runner is not the only dispatcher.** The sweep has to enter at `Game.StartEvent`.
+
+> **A `Game` per event took 16 seconds a level; a `Game` per level takes one.** Constructing one
+> reloads the level. `StartEvent` resets the runner on its own, so per-level is both faster and
+> the same measurement.
+
+> **A corpus `LogicBlock` threw `NotSupportedException` from a script.** That is a sub-opcode gap,
+> not an event-type gap, and letting the two share a bucket would have made this test fail for the
+> wrong reason for as long as GPDL is unfinished. Caught and asserted separately, so finishing
+> GPDL empties one list without touching the other.
+
+And the discrepancy that started it: the previous round's hand-count listed `GuidedTour` as inert.
+`Game.cs:2250` dispatches it. **The record type is `GuidedTour`, not `GuidedTourEvent`** — every
+other event record carries the suffix, the eye supplied it, and the grep behind the claim was
+written for the name that does not exist. The same shape as the `head -8` that hid `BeginResting`:
+**a search for the wrong string and a search that finds nothing look identical in the output.**
 
 ##### Party and world state, as ported
 
@@ -7943,18 +7985,24 @@ sections under §7 Phase 4 before touching any of it.
 What is left, in order:
 
 1. **The event layer's engine half.** ~~The largest user-visible gap.~~ **Largely closed.**
-   Counted from the code rather than by hand (2026-08-06): of the 44 types, **38 execute**, **4 are
-   inert** — `GuidedTour`, `EncounterEvent`, `TavernTales` and `PlayMovieEvent` — and **2 have no
+   Measured, not counted (2026-08-06, `EventTypeCoverageTests`): of the 44 types, **39 execute**,
+   **3 are inert** — `EncounterEvent`, `TavernTales` and `PlayMovieEvent` — and **2 have no
    readable body at all**: `InnEvent` and `GPDLEvent` return null from `EventBodyReader`, because
    neither can occur in a design the reference could load, so there is no shape to read and no gap
    to close.
 
-   > **The counting is not obvious and an earlier figure here was wrong.** Enum entries and record
-   > types are not one-to-one: `Stairs`, `Teleporter` and `TransferModule` all read into
-   > `TransferEvent`; `QuestionButton` and `QuestionList` both into `QuestionEvent`;
-   > `PickOneCombat` into `CombatEvent`. Counting dispatch arms undercounts by five. **This is a
-   > hand-count and will drift again** — a test that enumerates the enum and asserts which types
-   > reach `BeginUnsupported` would stop that, and is worth building.
+   > **None of the three inert types appears in any shipped design.** That is the guarantee the
+   > test actually makes, and it is the stronger one: it runs every event of every level of every
+   > corpus design through `Game.StartEvent` and asserts that nothing lands in the runner's
+   > fallthrough. The 26 types the corpus does use all execute.
+
+   > **Two hand-counts here were wrong, in opposite directions.** Enum entries and record types are
+   > not one-to-one: `Stairs`, `Teleporter` and `TransferModule` all read into `TransferEvent`;
+   > `QuestionButton` and `QuestionList` both into `QuestionEvent`; `PickOneCombat` into
+   > `CombatEvent` — so counting dispatch arms undercounts. The second count then listed
+   > `GuidedTour` as inert, because its record type is `GuidedTour` and not `GuidedTourEvent` and
+   > the eye slid past `Game.cs`'s arm for it. **Do not re-count this by hand.** The figures above
+   > come from `EventTypeCoverageTests`, which also guards them.
 
    In corpus frequency order, and with what each is actually waiting on:
    - ~~**`LogicBlock` (52)**~~ — **done, and running** (§a logic block, running). The gate
@@ -8230,7 +8278,7 @@ the round both call and neither has.
 |---|---|---|
 | ~~**`ArchiveWriter`**~~ | **Done.** All six record types, every shared leaf, both halves of the `CAR` write path, 30 of the 44 event bodies, and the four whole-file framings — `.chr`, `.lvl`, `game.dat`, `.pty`. Three shipped databases are reproduced byte for byte and everything else round-trips. **Phase 1's exit criterion is met**, and Phase 5 is unblocked | — |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **4 event types are read but not executed** | **38 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `GuidedTour`, `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter). The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
+| **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
 | **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
 | **162 GPDL sub-opcodes, and the Forth VM** | **225 of 387 are implemented.** Of the rest, 148 are callable and 14 of those are the aura family — the only group needing an object model built from nothing. Each unimplemented one throws `NotSupportedException` naming its source line. The Forth VM is not started | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
