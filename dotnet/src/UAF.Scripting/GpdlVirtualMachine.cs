@@ -940,6 +940,57 @@ public sealed class GpdlVirtualMachine
                 // that were tested against that.
                 _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
                 break;
+            case SubOp.SUBOP_GetCombatRound:
+                PushSp(_host.CombatRound.ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_GetCombatantState:
+                PushSp(_host.CombatantState(PopSp()));
+                break;
+            case SubOp.SUBOP_CombatantLocation:
+                {
+                    // Axis first, then the id.
+                    string axis = PopSp();
+                    PushSp(_host.CombatantLocation(PopInteger(), axis)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_COMBATANT_AVAILATTACKS:
+                {
+                    int function = PopInteger();
+                    int value = PopInteger();
+                    PushSp(_host.AvailableAttacks(PopSp(), function, value)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_TeleportCombatant:
+                {
+                    int y = PopInteger();
+                    int x = PopInteger();
+                    _host.TeleportCombatant(PopInteger(), x, y);
+                    PushSp(string.Empty);
+                    break;
+                }
+            case SubOp.SUBOP_NEAREST_TO:
+            case SubOp.SUBOP_NEAREST_ENEMY_TO:
+            case SubOp.SUBOP_LAST_ATTACKER_OF:
+                // Out of combat the reference pushes the null actor and breaks BEFORE popping its
+                // argument (GPDLexec.cpp:4907), so the call leaves the stack one deeper than it
+                // found it. Transcribed -- see the remarks on IGpdlHost.NearestTo.
+                if (!_host.InCombat)
+                {
+                    PushSp(_host.NullActor);
+                    break;
+                }
+
+                PushSp(_host.NearestTo(PopSp(), CombatantQueryOf(op)));
+                break;
+            case SubOp.SUBOP_MOST_DAMAGED_ENEMY:
+            case SubOp.SUBOP_MOST_DAMAGED_FRIENDLY:
+            case SubOp.SUBOP_LEAST_DAMAGED_ENEMY:
+            case SubOp.SUBOP_LEAST_DAMAGED_FRIENDLY:
+                // These take no argument, so the same early exit is balanced here.
+                PushSp(_host.InCombat ? _host.MostDamaged(DamageQueryOf(op)) : _host.NullActor);
+                break;
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
@@ -1111,6 +1162,23 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which combatant a selector wants.</summary>
+    private static GpdlCombatantQuery CombatantQueryOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_NEAREST_TO => GpdlCombatantQuery.Nearest,
+        SubOp.SUBOP_NEAREST_ENEMY_TO => GpdlCombatantQuery.NearestEnemy,
+        _ => GpdlCombatantQuery.LastAttacker,
+    };
+
+    /// <summary>Which end of the wound scale, and which side, a selector wants.</summary>
+    private static GpdlDamageQuery DamageQueryOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_MOST_DAMAGED_ENEMY => GpdlDamageQuery.MostDamagedEnemy,
+        SubOp.SUBOP_MOST_DAMAGED_FRIENDLY => GpdlDamageQuery.MostDamagedFriendly,
+        SubOp.SUBOP_LEAST_DAMAGED_ENEMY => GpdlDamageQuery.LeastDamagedEnemy,
+        _ => GpdlDamageQuery.LeastDamagedFriendly,
     };
 
     /// <summary>Which party value a sub-opcode reads or writes.</summary>

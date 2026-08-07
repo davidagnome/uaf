@@ -4440,6 +4440,39 @@ here.
 its example of something unported — which this round ported, so the test started failing for the
 right reason. It now points at `$GET_CHAR_EFFAC`, and says so.
 
+##### The combat queries, and an imbalance in the other direction
+
+`GetCombatRound` (`GPDLexec.cpp:5858`), `GetCombatantState` (`:5277`), `CombatantLocation`
+(`:5887`), `COMBATANT_AVAILATTACKS` (`:6253`), `TeleportCombatant` (`:5868`) and the seven
+selectors (`:4578`, `:4849`, `:4904`, `:4944`). **Twelve more, taking the VM from 165 to 177.**
+
+> **Out of combat, `NEAREST_TO` pushes without popping.** The early exit runs
+> `m_pushString2(); break;` — *before* the `m_popString1()` two lines below it — so the call leaves
+> its argument on the stack and adds a result: one deeper than it found it.
+> `NEAREST_ENEMY_TO` and `LAST_ATTACKER_OF` do the same. This is the mirror of
+> `SET_PARTY_FACING`'s missing push, and worse for being **conditional**: the same script is
+> balanced inside a fight and not outside one. The four damage selectors take no argument, so
+> their identical early exit is harmless.
+
+> **Any axis but `"X"` is taken as Y.** `CombatantLocation` tests for the one string and falls
+> through, so a typo'd axis silently answers the other one. It answers −1 for no fight or an id
+> that names nobody.
+
+> **`COMBATANT_AVAILATTACKS` is a read, an assign and an add in one call**, chosen by a trailing
+> function argument: 0 assigns, 1 adds, and **any other value only reads**.
+
+> **`GetCombatRound` has a hardcoded 3 in the editor build.** Not reachable from the engine, but it
+> is what the `#else` answers, and a reader diffing the two builds will meet it.
+
+###### The actor type is enforced in both directions
+
+Writing the tests turned up a language rule worth recording: `systemfunctions[]`'s type flags are
+checked on the **return** *and* on each **parameter**. A selector returns an *actor*, so `$RETURN`
+refuses it outright; and an actor-typed parameter refuses a string literal, so
+`$GetCombatantState("hero")` does not compile either. An actor can therefore only come from another
+call — and the only actor producers that need no actor themselves are the four damage selectors.
+Every combat script in a design is built up from one of those four or from a context call.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7816,9 +7849,16 @@ What is left, in order:
      ~~**Next: the party and combat families**~~ **The party block is in** (§the party block):
      17 more, **148 → 165**, including a setter that pushes nothing where all its siblings do.
 
-     **Next: the combat family** — the largest remaining group, and the one that needs a fight to
-     be the thing a script is running inside. `Combatant` and `CombatSession` already exist, so
-     what is missing is the context a script resolves an actor against, not the state itself.
+     ~~**Next: the combat family**~~ **The combat queries are in** (§the combat queries): 12 more,
+     **165 → 177**, including a stack imbalance that is the mirror of the party block's and is
+     *conditional* on whether a fight is running.
+
+     **Next: two things, in this order.** First **the context calls** —
+     `AttackerContext`, `TargetContext`, `CombatantContext`, `MonsterTypeContext` — because the
+     actor type is enforced in both directions (§the actor type) and those four are how a real
+     script names anybody. Then **`GameScriptHost`'s combat side**, which is presently the
+     unhosted default: the opcodes are wired, but a running `CombatSession` is not yet what they
+     ask.
 
 
 

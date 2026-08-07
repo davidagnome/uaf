@@ -465,6 +465,141 @@ public class GpdlAttributeTests
         Assert.Equal("", Run("""$RETURN $SET_PARTY_XY("3", "7");""", Host()));
     }
 
+    // ---- combat ----------------------------------------------------------------------------------
+
+    /// <summary>A host with a fight running and canned answers.</summary>
+    private sealed class Fighting : GpdlUnhostedEnvironment
+    {
+        public override bool InCombat => true;
+
+        public override int CombatRound => 4;
+
+        public override string NullActor => "-";
+
+        public override string CombatantState(string actor) => actor;
+
+        public override int CombatantLocation(int combatant, string axis) =>
+            axis == "X" ? 100 + combatant : 200 + combatant;
+
+        public override int AvailableAttacks(string actor, int function, int value) =>
+            function * 1000 + value;
+
+        public override string NearestTo(string actor, GpdlCombatantQuery query) =>
+            $"{query}:{actor}";
+
+        public override string MostDamaged(GpdlDamageQuery query) => query.ToString();
+
+        /// <summary>Echoes whatever actor string it was handed, so a selector's result is visible.</summary>
+        public override string GetCharStat(string actor, GpdlCharStat stat) => actor;
+    }
+
+    /// <summary>
+    /// Wraps a selector in a call that accepts an actor.
+    /// </summary>
+    /// <remarks>
+    /// <b>The actor type is enforced in both directions.</b> A selector is typed as <i>returning
+    /// an actor</i>, so <c>$RETURN</c> refuses it; and an actor-typed <i>parameter</i> refuses a
+    /// string literal — <c>$GetCombatantState("hero")</c> does not compile. So an actor can only
+    /// come from another call, and the only actor producers taking no actor themselves are the
+    /// four damage selectors. Every composition below is built on one.
+    /// </remarks>
+    private static string Selected(string call, GpdlUnhostedEnvironment host) =>
+        Run($"""$RETURN $GetCombatantState({call});""", host);
+
+    /// <summary>An actor produced without needing one, to feed the calls that want one.</summary>
+    private const string AnActor = "$MOST_DAMAGED_ENEMY()";
+
+    [Fact]
+    public void The_round_number_comes_off_the_fight()
+    {
+        Assert.Equal("4", Run("""$RETURN $GetCombatRound();""", new Fighting()));
+    }
+
+    [Fact]
+    public void A_combatants_state_comes_back_as_a_string()
+    {
+        // The actor has to come from a call: an actor-typed parameter refuses a literal.
+        Assert.Equal("MostDamagedEnemy", Selected(AnActor, new Fighting()));
+    }
+
+    [Fact]
+    public void The_location_takes_the_id_before_the_axis()
+    {
+        Assert.Equal("107", Run("""$RETURN $CombatantLocation("7", "X");""", new Fighting()));
+    }
+
+    [Fact]
+    public void Any_axis_but_x_is_taken_as_y()
+    {
+        // The reference tests only for "X" and falls through, so a typo'd axis silently answers
+        // the other one.
+        Assert.Equal("207", Run("""$RETURN $CombatantLocation("7", "Y");""", new Fighting()));
+        Assert.Equal("207", Run("""$RETURN $CombatantLocation("7", "z");""", new Fighting()));
+    }
+
+    [Fact]
+    public void Available_attacks_takes_the_actor_then_the_value_then_the_function()
+    {
+        Assert.Equal("1005",
+                     Run($"""$RETURN $COMBATANT_AVAILATTACKS({AnActor}, "5", "1");""",
+                         new Fighting()));
+    }
+
+    [Fact]
+    public void Teleport_takes_the_id_then_x_then_y_and_yields_nothing()
+    {
+        var host = new Fighting();
+
+        Assert.Equal("", Run("""$RETURN $TeleportCombatant("2", "3", "4");""", host));
+        Assert.Equal((2, 3, 4), host.Teleported);
+    }
+
+    [Theory]
+    [InlineData("$NEAREST_TO", GpdlCombatantQuery.Nearest)]
+    [InlineData("$NEAREST_ENEMY_TO", GpdlCombatantQuery.NearestEnemy)]
+    [InlineData("$LAST_ATTACKER_OF", GpdlCombatantQuery.LastAttacker)]
+    public void Each_selector_asks_its_own_question(string call, GpdlCombatantQuery query)
+    {
+        Assert.Equal($"{query}:MostDamagedEnemy", Selected($"{call}({AnActor})", new Fighting()));
+    }
+
+    [Theory]
+    [InlineData("$MOST_DAMAGED_ENEMY", GpdlDamageQuery.MostDamagedEnemy)]
+    [InlineData("$MOST_DAMAGED_FRIENDLY", GpdlDamageQuery.MostDamagedFriendly)]
+    [InlineData("$LEAST_DAMAGED_ENEMY", GpdlDamageQuery.LeastDamagedEnemy)]
+    [InlineData("$LEAST_DAMAGED_FRIENDLY", GpdlDamageQuery.LeastDamagedFriendly)]
+    public void Each_damage_selector_asks_its_own_question(string call, GpdlDamageQuery query)
+    {
+        Assert.Equal(query.ToString(), Selected($"{call}()", new Fighting()));
+    }
+
+    [Fact]
+    public void Out_of_combat_a_damage_selector_is_the_null_actor()
+    {
+        // No argument, so this early exit is balanced.
+        Assert.Equal("", Selected("$MOST_DAMAGED_ENEMY()", Host()));
+    }
+
+    [Fact]
+    public void Out_of_combat_a_nearest_selector_pushes_without_popping()
+    {
+        // The reference's early exit breaks BEFORE m_popString1 (GPDLexec.cpp:4907), so the call
+        // leaves its argument on the stack AND adds a result -- one deeper than it found it. The
+        // consequence: what $RETURN sees is the pushed null actor, and the argument is stranded
+        // below it. Transcribed, because a design tested against the reference was tested against
+        // this.
+        Assert.Equal("", Selected($"$NEAREST_TO({AnActor})", Host()));
+    }
+
+    [Fact]
+    public void In_combat_the_same_call_pops_its_argument()
+    {
+        // Which is what makes the imbalance conditional rather than constant: the same script is
+        // balanced inside a fight and not outside one.
+        Assert.Equal("Nearest:MostDamagedEnemy",
+                     Selected($"$NEAREST_TO({AnActor})", new Fighting()));
+    }
+
     [Fact]
     public void The_percentile_is_its_own_score_not_a_part_of_strength()
     {

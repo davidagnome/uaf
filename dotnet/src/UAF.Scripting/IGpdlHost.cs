@@ -225,6 +225,28 @@ public enum GpdlPartyValue
     Facing,
 }
 
+/// <summary>Which combatant a selector wants (the <c>NEAREST</c>/<c>DAMAGED</c> family).</summary>
+public enum GpdlCombatantQuery
+{
+    /// <summary>The closest combatant of any side (<c>GetNearestTo</c>).</summary>
+    Nearest,
+
+    /// <summary>The closest on the other side (<c>GetNearestEnemyTo</c>).</summary>
+    NearestEnemy,
+
+    /// <summary>Whoever last struck this one (<c>LAST_ATTACKER_OF</c>).</summary>
+    LastAttacker,
+}
+
+/// <summary>Which side, and which end of the wound scale, a damage selector wants.</summary>
+public enum GpdlDamageQuery
+{
+    MostDamagedEnemy,
+    MostDamagedFriendly,
+    LeastDamagedEnemy,
+    LeastDamagedFriendly,
+}
+
 /// <summary>Which attribute store a GPDL script is reaching for.</summary>
 public enum GpdlAslScope
 {
@@ -438,6 +460,60 @@ public interface IGpdlHost
     /// </remarks>
     void SetPartyXY(int x, int y);
 
+    // ---- combat ---------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Whether a fight is running (<c>IsCombatActive</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Load-bearing for the stack, not just for the answer.</b> Several combat opcodes take an
+    /// early exit when this is false that <i>pushes a result without popping its argument</i> —
+    /// see <see cref="NearestTo"/>.
+    /// </remarks>
+    bool InCombat { get; }
+
+    /// <summary>Which round the fight is on (<c>GetCombatRound</c>).</summary>
+    /// <remarks>The editor build answers a hardcoded 3; this is the engine's own count.</remarks>
+    int CombatRound { get; }
+
+    /// <summary>
+    /// A combatant's state as its display word (<c>CombatantStateText</c>).
+    /// </summary>
+    string CombatantState(string actor);
+
+    /// <summary>
+    /// A combatant's position (<c>$CombatantLocation</c>, <c>GPDLexec.cpp:5887</c>).
+    /// </summary>
+    /// <param name="axis">
+    /// <c>"X"</c> for the column. <b>Anything else is taken as Y</b> — the reference tests only for
+    /// <c>"X"</c> and falls through, so a typo'd axis silently answers the other one.
+    /// </param>
+    /// <returns>−1 when no fight is running or the id names nobody.</returns>
+    int CombatantLocation(int combatant, string axis);
+
+    /// <summary>
+    /// Reads, sets or adds to a combatant's remaining attacks
+    /// (<c>$COMBATANT_AVAILATTACKS</c>, <c>GPDLexec.cpp:6253</c>).
+    /// </summary>
+    /// <param name="function">0 assigns, 1 adds. <b>Any other value only reads.</b></param>
+    /// <returns>The count after the change.</returns>
+    int AvailableAttacks(string actor, int function, int value);
+
+    /// <summary>Moves a combatant (<c>$TeleportCombatant</c>).</summary>
+    void TeleportCombatant(int combatant, int x, int y);
+
+    /// <summary>
+    /// Finds a combatant relative to another (<c>$NEAREST_TO</c> and its two siblings).
+    /// </summary>
+    /// <returns>The actor string, or the null actor when there is nobody.</returns>
+    string NearestTo(string actor, GpdlCombatantQuery query);
+
+    /// <summary>Finds the most or least wounded combatant on a side.</summary>
+    string MostDamaged(GpdlDamageQuery query);
+
+    /// <summary>The actor string that means nobody (<c>NULL_ACTOR</c>).</summary>
+    string NullActor { get; }
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -522,6 +598,37 @@ public class GpdlUnhostedEnvironment : IGpdlHost
         new(StringComparer.Ordinal);
 
     /// <inheritdoc/>
+    /// <inheritdoc/>
+    public virtual bool InCombat => false;
+
+    /// <inheritdoc/>
+    public virtual int CombatRound => 0;
+
+    /// <inheritdoc/>
+    public virtual string CombatantState(string actor) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual int CombatantLocation(int combatant, string axis) => -1;
+
+    /// <inheritdoc/>
+    public virtual int AvailableAttacks(string actor, int function, int value) => 0;
+
+    /// <summary>The last <c>$TeleportCombatant</c>, or null.</summary>
+    public (int Combatant, int X, int Y)? Teleported { get; private set; }
+
+    /// <inheritdoc/>
+    public virtual void TeleportCombatant(int combatant, int x, int y) =>
+        Teleported = (combatant, x, y);
+
+    /// <inheritdoc/>
+    public virtual string NearestTo(string actor, GpdlCombatantQuery query) => NullActor;
+
+    /// <inheritdoc/>
+    public virtual string MostDamaged(GpdlDamageQuery query) => NullActor;
+
+    /// <inheritdoc/>
+    public virtual string NullActor => string.Empty;
+
     /// <summary>Party values this environment is holding.</summary>
     public Dictionary<GpdlPartyValue, string> PartyValues { get; } = [];
 
