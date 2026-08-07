@@ -198,15 +198,17 @@ public class ForthMachineTests
     }
 
     [Fact]
-    public void The_game_words_are_present_and_refuse()
+    public void The_game_words_are_present_and_refuse_outside_RunThink()
     {
         var forth = Booted();
 
         // They have to be in the dictionary for the kernel to build -- the PRIM lines that name
-        // them hand out the indices -- but nothing in the kernel calls one.
-        var thrown = Assert.Throws<NotSupportedException>(() => forth.Evaluate("C:Distance"));
+        // them hand out the indices -- but nothing in the kernel calls one. Reached outside a
+        // RunThink there is no summary to read, and the reader words say so rather than
+        // inventing one.
+        var thrown = Assert.Throws<InvalidOperationException>(() => forth.Evaluate("C:Distance"));
 
-        Assert.Contains("COMBAT_SUMMARY", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("RunThink", thrown.Message, StringComparison.Ordinal);
     }
 
     [Fact]
