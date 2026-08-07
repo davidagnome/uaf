@@ -601,6 +601,18 @@ public interface IGpdlHost
     /// </remarks>
     string ClassBaseclasses(string classId);
 
+    /// <summary>
+    /// Runs a global script once per party member (<c>PARTY::ForEachPartyMember</c>,
+    /// <c>Party.cpp:2528</c>).
+    /// </summary>
+    /// <param name="ability">The special ability the script hangs off.</param>
+    /// <param name="script">The script's name within it.</param>
+    /// <returns>
+    /// <b>Only the last run's answer</b> — and since the loop counts <i>down</i>, that is the
+    /// answer for party member zero. Every earlier member's result is overwritten and lost.
+    /// </returns>
+    string ForEachPartyMember(string ability, string script);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -721,6 +733,16 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <summary>Ability lists this environment is holding, by record and name.</summary>
     public Dictionary<(GpdlSaRecord Record, string Who), SpecabList> AbilityLists { get; } = [];
+
+    /// <summary>Each <c>$ForEachPartyMember</c> this environment was asked to run.</summary>
+    public List<(string Ability, string Script)> PartyWalks { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual string ForEachPartyMember(string ability, string script)
+    {
+        PartyWalks.Add((ability, script));
+        return string.Empty;
+    }
 
     /// <summary>Item fields this environment is holding, by id and field.</summary>
     public Dictionary<(string Item, GpdlItemField Field), string> ItemFields { get; } = [];

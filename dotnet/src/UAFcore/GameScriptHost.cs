@@ -151,6 +151,114 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         }
     }
 
+    // ---- the databases --------------------------------------------------------------------------
+
+    /// <inheritdoc/>
+    public override string ItemField(string itemId, GpdlItemField field)
+    {
+        if (game.Design.Item(itemId) is not { } item)
+        {
+            return string.Empty;
+        }
+
+        return field switch
+        {
+            GpdlItemField.CommonName => item.Names.UniqueName,
+            GpdlItemField.IdName => item.Names.IdName,
+            GpdlItemField.MaxRange => Text(item.Tail.RangeMax),
+            GpdlItemField.AttackBonus => Text(item.Scalars.AttackBonus),
+
+            // "$dice$sides$bonus" -- the delimiter leads, as it does for a class's baseclasses.
+            GpdlItemField.DamageSmall =>
+                $"${item.Combat.NbrDiceSm}${item.Combat.DmgDiceSm}${item.Combat.DmgBonusSm}",
+            GpdlItemField.DamageLarge =>
+                $"${item.Combat.NbrDiceLg}${item.Combat.DmgDiceLg}${item.Combat.DmgBonusLg}",
+
+            // The AI priority and the two shorter ranges are read from members this port's item
+            // record does not carry -- m_priorityAI, RangeMedium and RangeShort are engine-side
+            // fields rather than serialized ones. Zero rather than a guess.
+            _ => Text(0),
+        };
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Rolled on every call</b>, as the reference rolls the race's dice — two asks about the
+    /// same character give two answers.
+    /// </remarks>
+    public override int RaceMeasurement(string actor, bool weight)
+    {
+        if (Resolve(actor) is not { } character
+            || game.Design.Races?.GetValueOrDefault(character.Race) is not { } race)
+        {
+            return 0;
+        }
+
+        return NewCharacter.Roll(weight ? race.Weight : race.Height,
+                                 (count, sides) => DiceExpression.Roll(count, sides, game.Dice),
+                                 _ => null, out _) ?? 0;
+    }
+
+    /// <inheritdoc/>
+    public override int BaseclassProgression(string baseclassId, int value, bool wantExperience) =>
+        game.Design.Baseclasses?.GetValueOrDefault(baseclassId) is { } baseclass
+            ? BaseclassTable.Read(baseclass.ExperienceLevels, value, wantExperience)
+            : 0;
+
+    /// <inheritdoc/>
+    public override string ClassBaseclasses(string classId)
+    {
+        if (game.Design.Classes?.GetValueOrDefault(classId) is not { } found)
+        {
+            return string.Empty;
+        }
+
+        // The delimiter leads: one baseclass is "$fighter", never a bare name.
+        var text = new System.Text.StringBuilder();
+        foreach (string baseclass in found.Baseclasses)
+        {
+            text.Append('$').Append(baseclass);
+        }
+
+        return text.ToString();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The loop counts down, and only the last answer survives.</b> `for (i = numCharacters-1;
+    /// i >= 0; i--)` with `result =` on every pass — so what comes back is party member <i>zero</i>'s
+    /// answer, and everyone else's is overwritten. A design using this for a yes/no test is really
+    /// asking the first member.
+    /// </para>
+    /// <para>
+    /// <b>One context frame for the whole walk, not one per member.</b> Each member's character
+    /// context replaces the previous rather than nesting, so a script cannot reach the member
+    /// before it.
+    /// </para>
+    /// <para>
+    /// <b>It sets a source type the name lookup cannot name.</b>
+    /// <c>ScriptSourceType_ForEachPrtyMember</c> has no case in <c>GetSourceTypeName</c>
+    /// (<c>Specab.cpp:231</c>), so a script asking <c>$SA_SOURCE_TYPE()</c> inside this walk is
+    /// told "Unknown".
+    /// </para>
+    /// </remarks>
+    public override string ForEachPartyMember(string ability, string script)
+    {
+        string result = string.Empty;
+
+        using var frame = Context.Push();
+        Context.Source = GpdlScriptSource.Unknown;
+
+        for (int i = game.Party.Count - 1; i >= 0; i--)
+        {
+            Context.Set(GpdlContext.Combatant, game.Party.Members[i].CharacterId);
+            result = game.Scripts.Run(ability, script, this);
+        }
+
+        return result;
+    }
+
     // ---- combat ---------------------------------------------------------------------------------
 
     /// <inheritdoc/>

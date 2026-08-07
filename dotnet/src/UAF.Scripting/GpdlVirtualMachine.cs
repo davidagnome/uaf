@@ -951,6 +951,13 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_DAT_Item_AttackBonus:
                 PushSp(_host.ItemField(PopSp(), ItemFieldOf(op)));
                 break;
+            case SubOp.SUBOP_ForEachPartyMember:
+                {
+                    // Script name first, then the ability.
+                    string script = PopSp();
+                    PushSp(_host.ForEachPartyMember(PopSp(), script));
+                    break;
+                }
             case SubOp.SUBOP_DAT_Race_Height:
                 PushSp(_host.RaceMeasurement(PopSp(), weight: false)
                             .ToString(CultureInfo.InvariantCulture));

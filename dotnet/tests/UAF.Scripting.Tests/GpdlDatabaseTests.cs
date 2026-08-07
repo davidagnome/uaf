@@ -137,4 +137,25 @@ public class GpdlDatabaseTests
     {
         Assert.Equal("", Run("""$RETURN $DAT_Class_Baseclasses("ghost");""", new Database()));
     }
+
+    // ---- walking the party -------------------------------------------------------------------
+
+    [Fact]
+    public void For_each_party_member_takes_the_ability_then_the_script()
+    {
+        var host = new Database();
+
+        Run("""$ForEachPartyMember("Blessing", "Tick");""", host);
+
+        Assert.Equal([("Blessing", "Tick")], host.PartyWalks);
+    }
+
+    [Fact]
+    public void For_each_party_member_yields_what_the_walk_left()
+    {
+        // Only the last run's answer survives -- and since the reference counts down, that is
+        // party member zero's.
+        Assert.Equal("", Run("""$RETURN $ForEachPartyMember("Blessing", "Tick");""",
+                             new Database()));
+    }
 }

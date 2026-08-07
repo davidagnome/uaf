@@ -637,6 +637,9 @@ public sealed class Game
 
     public Facing Facing { get; private set; }
 
+    /// <summary>The design this game is running, for a host that needs its databases.</summary>
+    public LoadedDesign Design => design;
+
     /// <summary>Game time in minutes, which <c>GLOBAL_STATS::startTime</c> seeds.</summary>
     public int Minutes { get; private set; }
 

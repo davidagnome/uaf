@@ -4639,9 +4639,38 @@ call; auras are now the last group.
 > empty string — where `GET_CHARACTER_SA`, written by the same hand, pushes whatever was left over.
 > The two are four thousand lines apart.
 
-**Not ported, and named:** `DAT_Item_AttackBonus` is wired but the host answers from its own table
-rather than a database, as do all fourteen — `GameScriptHost` does not override them yet, so in a
-running game they are empty. Same shape as the combat calls two rounds before they were backed.
+##### Backing the reads, and a walk that throws away every answer but one
+
+`GameScriptHost`'s database side, `UAFcore/BaseclassTable.cs`, and `$ForEachPartyMember`
+(`Party.cpp:2528`). **One more, 223 → 224**, and the fourteen reads now answer from the design.
+
+> **`$ForEachPartyMember` counts down and keeps only the last answer.**
+> `for (i = numCharacters-1; i >= 0; i--)` with `result =` on every pass — so what comes back is
+> party member *zero*'s answer and everyone else's is overwritten. A design using it as a yes/no
+> test is really asking the first member.
+
+> **One context frame for the whole walk, not one per member.** Each member's context replaces the
+> previous rather than nesting, so a script cannot reach the member before it.
+
+> **It sets a source type the name lookup cannot name.**
+> `ScriptSourceType_ForEachPrtyMember` has no case in `GetSourceTypeName`, so a script asking
+> `$SA_SOURCE_TYPE()` inside the walk is told `"Unknown"`.
+
+> **The experience table answers two questions from one array.** A level's entry is what it costs
+> to reach, so the cost of a level is that entry and the level for an experience is how many
+> entries it has passed. **Exactly meeting an entry reaches that level** (the test is `>=`), a
+> negative experience reaches level *zero* rather than one — the first entry costs nothing but
+> still has to be paid — and a mis-sorted table is read only as far as its first fall.
+
+**Three item fields answer zero and say why.** `m_priorityAI`, `RangeMedium` and `RangeShort` are
+engine-side members rather than serialized ones, so this port's item record does not carry them.
+Zero rather than a guess.
+
+**Not ported, and named:** `$ForEachPossession`. It marks every item unprocessed and then loops
+until a pass processes nothing — because an item a script *adds* during the walk is marked
+processed on insertion, so the restart makes the walk safe against its own mutations
+(`Char.cpp:11594`). It needs the item-context plumbing (`SetItemContext`, `SetItemContextKey`)
+that nothing else has wanted yet.
 
 ###### The bug this round did not reproduce
 
@@ -8056,11 +8085,13 @@ What is left, in order:
      ~~**Next: the aura family**~~ — deferred, and §the database reads says why. **The `DAT_*`
      reads are in** instead: 14 more, **209 → 223**.
 
-     **Next: `GameScriptHost`'s database side and the two `ForEach` opcodes** — the reads are wired
-     to the interface but the game host does not override them, so in a running design they answer
-     empty; and `ForEachPartyMember`/`ForEachPossession` drive `SpecabScripts` over a collection,
-     which is a walk that already exists. Both are cheap. **The auras are then the only group
-     left**, and the only one needing a live object model built from nothing.
+     ~~**Next: `GameScriptHost`'s database side and the two `ForEach` opcodes**~~ **The reads are
+     backed and the party walk runs** (§backing the reads): **223 → 224**, with the experience
+     table extracted as a rule of its own.
+
+     **Next: `$ForEachPossession`** — the last non-aura opcode, and worth its own round for the
+     re-entrancy design it carries (§backing the reads). Then **the auras**, fourteen opcodes and
+     the only group needing a live object model built from nothing.
 
 
 
