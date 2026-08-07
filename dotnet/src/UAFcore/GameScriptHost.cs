@@ -151,6 +151,119 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         }
     }
 
+    // ---- combat ---------------------------------------------------------------------------------
+
+    /// <inheritdoc/>
+    public override bool InCombat => game.InCombat;
+
+    /// <inheritdoc/>
+    public override int CombatRound => game.Combat?.Round.Round ?? 0;
+
+    /// <summary>
+    /// The combatant an actor string names, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>By list index, which is what an actor string carries for a combatant.</b> The reference
+    /// packs a source flag and an instance into <c>ActorType</c> and unpacks it with
+    /// <c>m_StringToActor</c>; the port has no fight-independent combatant identity, so the index
+    /// is the identity — and it is only meaningful while this fight is running.
+    /// </remarks>
+    private Combatant? Fighter(string actor) =>
+        game.Combat is { } session
+        && int.TryParse(actor, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out int index)
+        && index >= 0 && index < session.Combatants.Count
+            ? session.Combatants[index]
+            : null;
+
+    private static string ActorOf(Combatant? who) =>
+        who is null ? string.Empty : Text(who.Index);
+
+    /// <inheritdoc/>
+    public override string CombatantState(string actor) =>
+        Fighter(actor) is { } who ? who.State.ToString() : string.Empty;
+
+    /// <inheritdoc/>
+    public override int CombatantLocation(int combatant, string axis)
+    {
+        if (game.Combat is not { } session
+            || combatant < 0 || combatant >= session.Combatants.Count)
+        {
+            return -1;
+        }
+
+        // Only "X" is tested; anything else falls through to Y.
+        return axis == "X" ? session.Combatants[combatant].X : session.Combatants[combatant].Y;
+    }
+
+    /// <inheritdoc/>
+    public override int AvailableAttacks(string actor, int function, int value)
+    {
+        if (Fighter(actor) is not { } who)
+        {
+            return 0;
+        }
+
+        switch (function)
+        {
+            case 0: who.AvailableAttacks = value; break;
+            case 1: who.AvailableAttacks += value; break;
+        }
+
+        return (int)who.AvailableAttacks;
+    }
+
+    /// <inheritdoc/>
+    public override void TeleportCombatant(int combatant, int x, int y)
+    {
+        if (game.Combat is { } session
+            && combatant >= 0 && combatant < session.Combatants.Count)
+        {
+            session.Combatants[combatant].X = x;
+            session.Combatants[combatant].Y = y;
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b><c>LAST_ATTACKER_OF</c> is not ported.</b> The port keeps no per-combatant record of who
+    /// struck last, and inventing one would be a rule rather than a transcription. It answers the
+    /// null actor, which is also what the reference answers out of combat. The other two are
+    /// <see cref="CombatSelectors"/>, quirks and all.
+    /// </remarks>
+    public override string NearestTo(string actor, GpdlCombatantQuery query)
+    {
+        if (game.Combat is not { } session || Fighter(actor) is not { } from)
+        {
+            return NullActor;
+        }
+
+        return ActorOf(query switch
+        {
+            GpdlCombatantQuery.Nearest => CombatSelectors.Nearest(session.Combatants, from),
+            GpdlCombatantQuery.NearestEnemy =>
+                CombatSelectors.NearestEnemy(session.Combatants, from),
+            _ => null,
+        });
+    }
+
+    /// <inheritdoc/>
+    public override string MostDamaged(GpdlDamageQuery query)
+    {
+        if (game.Combat is not { } session)
+        {
+            return NullActor;
+        }
+
+        bool friendly = query is GpdlDamageQuery.MostDamagedFriendly
+                              or GpdlDamageQuery.LeastDamagedFriendly;
+
+        bool lowest = query is GpdlDamageQuery.MostDamagedEnemy
+                            or GpdlDamageQuery.MostDamagedFriendly;
+
+        return ActorOf(CombatSelectors.ByHitPoints(session.Combatants, friendly, lowest));
+    }
+
     // ---- the party ------------------------------------------------------------------------------
 
     /// <summary>Ten thousand and forty minutes in a day, as the reference splits them.</summary>

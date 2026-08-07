@@ -4502,6 +4502,39 @@ that makes the other combat calls usable at all.
 producers were the four damage selectors; now a script can name its attacker, its target and
 itself, which is what every real hook does. `CanCastSpells` and `FIX_CHARACTER` set theirs.
 
+##### Backing the combat calls with a real fight — and two selectors that do not do what they say
+
+`GetNearestTo` and its neighbours (`Combatants.cpp:7500`–`:7700`), behind `GameScriptHost`'s
+combat members. `UAFcore/CombatSelectors.cs`. No new sub-opcodes: this is the half that turns last
+round's plumbing into behaviour.
+
+> **`GetNearestTo` never excludes the combatant it was asked about, so it always answers that
+> one.** The loop has no `i != self` guard, the distance from anyone to themselves is zero, and
+> the comparison is strictly `<` — nothing can beat it. The function is useless as written.
+> Transcribed, because a design's script was written against what it does rather than what it is
+> called.
+
+> **"Enemy" means *not friendly* in absolute terms, not "the other side from you".**
+> `GetNearestEnemyTo` filters on `!GetIsFriendly()` with no reference to the asker, so a monster
+> asking for its nearest enemy is handed the nearest *monster* — and, by the rule above, itself.
+> Only a party member gets the answer the name promises.
+
+> **"Most damaged" means lowest hit points, not most damage taken.** The comparison is on
+> `GetAdjHitPoints` alone with no reference to the maximum, so a goblin at full health with four
+> hit points is "more damaged" than a fighter on 60 of 100. **The first of a tie wins** in both
+> directions, since the comparisons are strict.
+
+> **Nothing filters on being alive.** A combatant on negative hit points is still the most damaged
+> candidate on its side.
+
+**Not ported, and named:** `LAST_ATTACKER_OF`. The port keeps no per-combatant record of who struck
+last, and inventing one would be a rule rather than a transcription; it answers the null actor,
+which is what the reference answers out of combat anyway.
+
+**A combatant's actor string is its list index here**, where the reference packs a source flag and
+an instance into `ActorType`. There is no fight-independent combatant identity in this port, so the
+index is the identity — and it means only what it means while that fight is running.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7885,10 +7918,15 @@ What is left, in order:
      ~~**Next: two things, in this order.** First **the context calls**…~~ **The contexts are in**
      (§the script context): 4 more, **177 → 181**, and the two live hooks set theirs.
 
-     **Next: `GameScriptHost`'s combat side.** The combat opcodes are wired to the interface but
-     `GameScriptHost` still inherits the unhosted defaults, so in a running game they answer "no
-     fight". Backing them with the live `CombatSession` is the remaining half of that family, and
-     it is what turns the last two rounds from plumbing into behaviour.
+     ~~**Next: `GameScriptHost`'s combat side.**~~ **Done** (§backing the combat calls): the
+     opcodes now answer from the live `CombatSession`, and two of the selectors turn out not to do
+     what their names say.
+
+     **Next: the special-ability sub-opcodes** — the `SA_*`, `GET/SET/DELETE_COMBATANT_SA` and
+     `GET_MONSTERTYPE_SA` group, 15 of the ~215 still unported and the last family with a clear
+     shape. After that what is left is the long tail: auras, the `DAT_*` database reads, and the
+     script-calling opcodes (`ForEachPartyMember`, `ForEachPossession`) that need
+     `SpecabScripts` driven over a collection.
 
 
 
