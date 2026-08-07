@@ -519,6 +519,18 @@ public interface IGpdlHost
     /// </summary>
     GpdlScriptContext Context { get; }
 
+    /// <summary>
+    /// A named record's special abilities (<c>$GET/SET/DELETE_&lt;record&gt;_SA</c>,
+    /// <c>GPDLexec.cpp:2449</c>).
+    /// </summary>
+    /// <param name="who">
+    /// The actor or database id. <b>Not the ambient context</b> — these thirteen calls name their
+    /// record, where the nine <c>$SA_&lt;record&gt;_GET</c> lookups read whatever the context
+    /// carries.
+    /// </param>
+    /// <returns>Null when the name reaches nothing, which the caller reports as the sentinel.</returns>
+    SpecabList? Abilities(GpdlSaRecord record, string who);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -636,6 +648,13 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();
+
+    /// <summary>Ability lists this environment is holding, by record and name.</summary>
+    public Dictionary<(GpdlSaRecord Record, string Who), SpecabList> AbilityLists { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual SpecabList? Abilities(GpdlSaRecord record, string who) =>
+        AbilityLists.TryGetValue((record, who), out var list) ? list : null;
 
     /// <summary>Party values this environment is holding.</summary>
     public Dictionary<GpdlPartyValue, string> PartyValues { get; } = [];

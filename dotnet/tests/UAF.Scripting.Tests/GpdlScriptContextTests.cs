@@ -150,6 +150,18 @@ public class GpdlScriptContextTests
     private sealed class Echoing : GpdlUnhostedEnvironment
     {
         public override string CombatantState(string actor) => actor;
+
+        /// <summary>
+        /// An actor producer, since a literal cannot satisfy an actor-typed parameter.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="InCombat"/> has to be true with it: the selector takes an early exit out of
+        /// combat that answers the null actor without ever asking the host.
+        /// </remarks>
+        public override string MostDamaged(GpdlDamageQuery query) => query.ToString();
+
+        /// <inheritdoc cref="MostDamaged"/>
+        public override bool InCombat => true;
     }
 
     [Theory]
@@ -352,6 +364,109 @@ public class GpdlScriptContextTests
         context.Ability(GpdlSaRecord.Race, "Ward");
 
         Assert.Single(context.MissingLists);
+    }
+
+    // ---- naming the record instead of the context -------------------------------------------------
+
+    private static Echoing WithList(GpdlSaRecord record, string who, SpecabList list)
+    {
+        var host = new Echoing();
+        host.AbilityLists[(record, who)] = list;
+        return host;
+    }
+
+    /// <summary>
+    /// An actor produced by a call, since an actor-typed parameter refuses a literal.
+    /// </summary>
+    /// <remarks>
+    /// The character and combatant variants take an actor; the database ones take a plain id
+    /// string. Two shapes in what looks like one family, and the compiler is what says so.
+    /// </remarks>
+    private const string AnActor = "$MOST_DAMAGED_ENEMY()";
+
+    /// <summary>What <see cref="Echoing.MostDamaged"/> answers for that call.</summary>
+    private const string ActorName = "MostDamagedEnemy";
+
+    [Theory]
+    [InlineData("$GET_CHARACTER_SA", GpdlSaRecord.Character)]
+    [InlineData("$GET_COMBATANT_SA", GpdlSaRecord.Combatant)]
+    public void Each_actor_typed_getter_reaches_its_own_record(string call, GpdlSaRecord record)
+    {
+        var host = WithList(record, ActorName,
+                            new SpecabList(false, [new KeyValuePair<string, string>("Ward", "7")]));
+
+        Assert.Equal("7", Run($"""$RETURN {call}({AnActor}, "Ward");""", host));
+    }
+
+    [Theory]
+    [InlineData("$GET_ITEM_SA", GpdlSaRecord.Item)]
+    [InlineData("$GET_SPELL_SA", GpdlSaRecord.Spell)]
+    [InlineData("$GET_MONSTERTYPE_SA", GpdlSaRecord.MonsterType)]
+    [InlineData("$GET_RACE_SA", GpdlSaRecord.Race)]
+    [InlineData("$GET_ABILITY_SA", GpdlSaRecord.Ability)]
+    [InlineData("$GET_CLASS_SA", GpdlSaRecord.Class)]
+    [InlineData("$GET_BASECLASS_SA", GpdlSaRecord.Baseclass)]
+    public void Each_database_getter_reaches_its_own_record(string call, GpdlSaRecord record)
+    {
+        var host = WithList(record, "hero",
+                            new SpecabList(false, [new KeyValuePair<string, string>("Ward", "7")]));
+
+        Assert.Equal("7", Run($"""$RETURN {call}("hero", "Ward");""", host));
+    }
+
+    [Fact]
+    public void A_record_that_names_nothing_answers_the_sentinel()
+    {
+        // The reference pushes m_string3 without initialising it here, so it answers whatever the
+        // last opcode left behind. This VM keeps its temporaries as locals, so it cannot reproduce
+        // the garbage -- it answers the sentinel and the divergence is deliberate.
+        Assert.Equal("-?-?-",
+                     Run($"""$RETURN $GET_CHARACTER_SA({AnActor}, "Ward");""", new Echoing()));
+    }
+
+    [Fact]
+    public void Setting_a_named_records_ability_yields_the_value()
+    {
+        var list = new SpecabList();
+        var host = WithList(GpdlSaRecord.Character, ActorName, list);
+
+        Assert.Equal("9", Run($"""$RETURN $SET_CHARACTER_SA({AnActor}, "Ward", "9");""", host));
+        Assert.Equal("9", list.Get("Ward"));
+    }
+
+    [Fact]
+    public void The_value_is_popped_before_the_name_and_the_name_before_the_record()
+    {
+        // Getting this order wrong writes an ability called "9" onto a character called "Ward".
+        var list = new SpecabList();
+        var host = WithList(GpdlSaRecord.Character, ActorName, list);
+
+        Run($"""$SET_CHARACTER_SA({AnActor}, "Ward", "9");""", host);
+
+        Assert.Equal(["Ward"], list.Abilities.Keys);
+    }
+
+    [Fact]
+    public void Deleting_a_named_records_ability_yields_what_was_there()
+    {
+        var list = new SpecabList(false, [new KeyValuePair<string, string>("Ward", "7")]);
+        var host = WithList(GpdlSaRecord.Character, ActorName, list);
+
+        Assert.Equal("7", Run($"""$RETURN $DELETE_CHARACTER_SA({AnActor}, "Ward");""", host));
+        Assert.Empty(list.Abilities);
+    }
+
+    [Fact]
+    public void A_script_cannot_write_a_database_records_abilities()
+    {
+        // The definition is shared by every copy of that item in the design, so the list is
+        // read-only -- and the refusal is silent.
+        var list = new SpecabList(readOnly: true);
+        var host = WithList(GpdlSaRecord.Character, ActorName, list);
+
+        Assert.Equal("9", Run($"""$RETURN $SET_CHARACTER_SA({AnActor}, "Ward", "9");""", host));
+        Assert.Empty(list.Abilities);
+        Assert.Equal(1, list.Refused);
     }
 
     [Fact]

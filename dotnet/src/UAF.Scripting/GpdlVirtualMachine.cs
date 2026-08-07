@@ -940,6 +940,42 @@ public sealed class GpdlVirtualMachine
                 // that were tested against that.
                 _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
                 break;
+            case SubOp.SUBOP_GET_CHARACTER_SA:
+            case SubOp.SUBOP_GET_COMBATANT_SA:
+            case SubOp.SUBOP_GET_ITEM_SA:
+            case SubOp.SUBOP_GET_SPELL_SA:
+            case SubOp.SUBOP_GET_MONSTERTYPE_SA:
+            case SubOp.SUBOP_GET_RACE_SA:
+            case SubOp.SUBOP_GET_ABILITY_SA:
+            case SubOp.SUBOP_GET_CLASS_SA:
+            case SubOp.SUBOP_GET_BASECLASS_SA:
+                {
+                    // Name first, then the record. A record that names nothing answers the
+                    // sentinel -- see the note on GET_CHARACTER_SA's uninitialised push.
+                    string wanted = PopSp();
+                    PushSp(_host.Abilities(RecordOf(op), PopSp())?.Get(wanted)
+                           ?? GpdlScriptContext.NoSuchAbility);
+                    break;
+                }
+            case SubOp.SUBOP_SET_CHARACTER_SA:
+            case SubOp.SUBOP_SET_COMBATANT_SA:
+                {
+                    // Value, then name, then the record -- and the value is pushed back, so this
+                    // setter is an expression like $SA_PARAM_SET and unlike the character ones.
+                    string value = PopSp();
+                    string named = PopSp();
+                    _host.Abilities(RecordOf(op), PopSp())?.Set(named, value);
+                    PushSp(value);
+                    break;
+                }
+            case SubOp.SUBOP_DELETE_CHARACTER_SA:
+            case SubOp.SUBOP_DELETE_COMBATANT_SA:
+                {
+                    string named = PopSp();
+                    PushSp(_host.Abilities(RecordOf(op), PopSp())?.Delete(named)
+                           ?? GpdlScriptContext.NoSuchAbility);
+                    break;
+                }
             case SubOp.SUBOP_SA_ITEM_GET:
             case SubOp.SUBOP_SA_CHARACTER_GET:
             case SubOp.SUBOP_SA_COMBATANT_GET:
@@ -1203,6 +1239,23 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which record a named-record call reaches.</summary>
+    private static GpdlSaRecord RecordOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_GET_CHARACTER_SA => GpdlSaRecord.Character,
+        SubOp.SUBOP_GET_COMBATANT_SA => GpdlSaRecord.Combatant,
+        SubOp.SUBOP_GET_ITEM_SA => GpdlSaRecord.Item,
+        SubOp.SUBOP_GET_SPELL_SA => GpdlSaRecord.Spell,
+        SubOp.SUBOP_GET_MONSTERTYPE_SA => GpdlSaRecord.MonsterType,
+        SubOp.SUBOP_GET_RACE_SA => GpdlSaRecord.Race,
+        SubOp.SUBOP_GET_ABILITY_SA => GpdlSaRecord.Ability,
+        SubOp.SUBOP_GET_CLASS_SA => GpdlSaRecord.Class,
+        SubOp.SUBOP_GET_BASECLASS_SA => GpdlSaRecord.Baseclass,
+        SubOp.SUBOP_SET_COMBATANT_SA or SubOp.SUBOP_DELETE_COMBATANT_SA
+            => GpdlSaRecord.Combatant,
+        _ => GpdlSaRecord.Character,
     };
 
     /// <summary>Which record's ability list a lookup reads.</summary>

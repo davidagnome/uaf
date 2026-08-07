@@ -4582,24 +4582,52 @@ the character block's family is now complete on the reading side.
 > neither pops its argument nor pushes a result. Not reachable from the engine, but it is the third
 > build-conditional stack imbalance this port has met.
 
-###### Why the actor-driven half waits, and a bug worth naming first
+##### The record-addressed store, and a guard with no braces
 
-`$GET_CHARACTER_SA(actor, name)` and its siblings read a *named* record rather than the ambient
-one, so they need a specab store the port can address by record — `Character.Record.SpecialAbilities`
-is immutable, and `$SET_CHARACTER_SA` and `$SA_REMOVE` both want to write. That store is the next
-round.
+`SPECIAL_ABILITIES`' read-only rule (`Specab.cpp:975`) and the thirteen callable
+`GET/SET/DELETE_<record>_SA` opcodes (`GPDLexec.cpp:2449`). `UAF.Scripting/SpecabList.cs`.
+**Thirteen more, 196 → 209** — the special-ability family is complete.
 
-Worth recording now, because it is the reason to be careful when that round comes:
+> **A database record's ability list is read-only and a live one's is not.** Items, monsters,
+> spells, classes and abilities all construct theirs with `readOnly = true` (`Items.h:628`,
+> `Monster.h:342`, `Spell.h:419`, `class.cpp:2857`); characters and combatants do not. So a script
+> may give a character an ability and may not give one to the item it is holding — the definition
+> is shared by every copy of that item in the design.
+
+> **A refused write is silent.** Insert does nothing; delete answers `NO_SUCH_SA` — which is also
+> what an absent ability answers, so a script cannot tell "you may not" from "there was none".
+
+> **The suppression guard has no braces.** It reads
+> `if (!debugStrings.AlreadyNoted(…)) writeDebugDialog = …; WriteDebugString(…);` — so only the
+> dialog flag is conditional and the log line runs on **every** refusal. The indentation says
+> otherwise. And the message on the delete path says "Attempt to *Insert* SA in read-only
+> structure", copied from the insert one.
+
+> **`SET_CHARACTER_SA` pushes the value back**, like `$SA_PARAM_SET` and unlike every character
+> and party setter. Two conventions in one opcode set, and the split is by family rather than by
+> anything a reader could guess.
+
+> **`SUBOP_GET_CHAR_SA` and `SUBOP_SET_CHAR_SA` are dead enum members** — no case in the
+> interpreter and no entry in `systemfunctions[]`, so nothing can call them and nothing would
+> happen if it did. Not to be confused with `GET_CHARACTER_SA`, which is the real one.
+
+> **The family splits by argument type, not by name.** The character and combatant calls take an
+> *actor*; the nine database ones take a plain id string. The compiler enforces the difference, so
+> what looks like thirteen of a kind is really two shapes.
+
+###### The bug this round did not reproduce
+
 **`GET_CHARACTER_SA` pushes `m_string3` without initialising it.** When the actor names nobody the
 `if` is skipped and whatever the last opcode left in that member is pushed instead — a stale value,
 not an empty string. `DELETE_CHARACTER_SA` has the same hole. This port's VM keeps its temporaries
 as locals rather than as members, so the garbage is not reproducible here and the divergence is
-deliberate: it will answer the empty string and say so.
+deliberate: **it answers `NO_SUCH_SA`**, which is what the same call gives for an ability that is
+simply absent.
 
-**One difference in this round, named.** The reference holds these lists as pointers on the
-`SCRIPT_CONTEXT`, so they follow the frame; the port has no record-addressed store to point at, so
-they are held until replaced. A nested script therefore sees the outer one's record lists where the
-reference would have shown it none.
+**One difference in the lookups, named.** The reference holds the context's lists as pointers on
+the `SCRIPT_CONTEXT`, so they follow the frame; the port has no record-addressed store to point at
+there, so they are held until replaced. A nested script therefore sees the outer one's record lists
+where the reference would have shown it none.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -7994,11 +8022,13 @@ What is left, in order:
      ~~**Next: the `SA_<record>_GET` lookups and their setters**~~ **The lookups are in**
      (§nine lookups of one shape): 9 more, **187 → 196**.
 
-     **Next: a specab store addressable by record** — what `$GET/SET/DELETE_<record>_SA` and
-     `$SA_REMOVE`'s actual write all wait on, and the one piece of new machinery left in the
-     family. There is a reference bug to be careful of when it lands (§why the actor-driven half
-     waits). After it: auras, the `DAT_*` database reads, and the script-calling opcodes
-     (`ForEachPartyMember`, `ForEachPossession`) that drive `SpecabScripts` over a collection.
+     ~~**Next: a specab store addressable by record**~~ **Done** (§the record-addressed store):
+     13 more, **196 → 209**, and **the special-ability family is complete**.
+
+     **Next: the aura family** — eight opcodes and the largest single group left, and the one that
+     needs a live object model the port does not have at all yet. After it: the `DAT_*` database
+     reads, and the script-calling opcodes (`ForEachPartyMember`, `ForEachPossession`) that drive
+     `SpecabScripts` over a collection — those two are now cheap, since the walk they need exists.
 
 
 
