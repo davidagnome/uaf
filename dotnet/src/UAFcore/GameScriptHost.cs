@@ -508,22 +508,66 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// A live fight, as an aura sees it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <b>Facing is <c>MoveDirection</c>, not <c>Facing</c>.</b> The reference compares
     /// <c>m_iMoveDir</c> — the eight-way direction of the last step — where the port's
     /// <see cref="Combatant.Facing"/> only ever flips east or west for drawing. An aura attached
     /// with <c>CombatantFacing</c> turns with the walk, not with the sprite.
+    /// </para>
+    /// <para>
+    /// <b>And it has to be translated, not cast.</b> <c>m_iMoveDir</c> holds <c>FACE_*</c> values
+    /// (<c>Externs.h:1039</c>), which run <c>N, E, S, W, NW, NE, SW, SE</c>;
+    /// <see cref="PathDirection"/> runs clockwise round the compass. The two agree only on north.
+    /// Casting one to the other survives every equality test in the placement check and then
+    /// rotates an annular wedge to the wrong quarter of the map.
+    /// </para>
     /// </remarks>
     private sealed class CombatAuraWorld(CombatSession session, GameScriptHost host) : IAuraWorld
     {
         public int MapWidth => session.Map.Width;
 
+        public int MapHeight => session.Map.Height;
+
         public int CombatantCount => session.Combatants.Count;
 
-        public (int X, int Y, int Facing) Combatant(int index) =>
+        public (int X, int Y, AuraFacing Facing) Combatant(int index) =>
             index >= 0 && index < session.Combatants.Count
                 ? (session.Combatants[index].X, session.Combatants[index].Y,
-                   (int)session.Combatants[index].MoveDirection)
-                : (-1, -1, 0);
+                   Facing(session.Combatants[index].MoveDirection))
+                : (-1, -1, AuraFacing.North);
+
+        /// <inheritdoc cref="CombatAuraWorld"/>
+        private static AuraFacing Facing(PathDirection direction) => direction switch
+        {
+            PathDirection.North => AuraFacing.North,
+            PathDirection.NorthEast => AuraFacing.NorthEast,
+            PathDirection.East => AuraFacing.East,
+            PathDirection.SouthEast => AuraFacing.SouthEast,
+            PathDirection.South => AuraFacing.South,
+            PathDirection.SouthWest => AuraFacing.SouthWest,
+            PathDirection.West => AuraFacing.West,
+            PathDirection.NorthWest => AuraFacing.NorthWest,
+
+            // PathDirection.None has no FACE_* counterpart. The reference initialises m_iMoveDir
+            // to 0, which is FACE_NORTH, so an unmoved combatant faces north to an aura.
+            _ => AuraFacing.North,
+        };
+
+        public (int Width, int Height) CombatantFootprint(int index) =>
+            index >= 0 && index < session.Combatants.Count
+                ? (session.Combatants[index].Icon.Width, session.Combatants[index].Icon.Height)
+                : (1, 1);
+
+        public AuraObstacle Obstacle(int x, int y) =>
+            session.Map.Obstacle(x, y, 1, 1, checkOccupants: true,
+                                 ignoreCombatant: CombatMap.NoDude) switch
+            {
+                ObstacleType.Wall => AuraObstacle.Wall,
+                ObstacleType.Occupied => AuraObstacle.Occupied,
+                ObstacleType.OffMap => AuraObstacle.OffMap,
+                ObstacleType.LingeringSpell => AuraObstacle.LingeringSpell,
+                _ => AuraObstacle.None,
+            };
 
         public void RunAuraScript(Aura aura, string scriptName, int combatantIndex)
         {

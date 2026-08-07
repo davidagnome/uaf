@@ -966,9 +966,23 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     {
         public int MapWidth => DefaultAuraMapWidth;
 
+        public int MapHeight => DefaultAuraMapHeight;
+
         public int CombatantCount => 0;
 
-        public (int X, int Y, int Facing) Combatant(int index) => (-1, -1, 0);
+        public (int X, int Y, AuraFacing Facing) Combatant(int index) =>
+            (-1, -1, AuraFacing.North);
+
+        public (int Width, int Height) CombatantFootprint(int index) => (1, 1);
+
+        /// <summary>
+        /// Open ground everywhere, so an unhosted annular aura draws its full wedge with nothing
+        /// to stop it. That is a real shape, not a stub — the geometry needs no game.
+        /// </summary>
+        public AuraObstacle Obstacle(int x, int y) =>
+            x >= 0 && y >= 0 && x < DefaultAuraMapWidth && y < DefaultAuraMapHeight
+                ? AuraObstacle.None
+                : AuraObstacle.OffMap;
 
         public void RunAuraScript(Aura aura, string scriptName, int combatantIndex)
         {

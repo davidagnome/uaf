@@ -25,9 +25,9 @@ area geometry and effect application.
 **The town services are complete**: all seven shells and their inner screens — inventory, save,
 load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, fix and the target
 picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
-combat as well as in it.** **239 of GPDL's 387 sub-opcodes run** against real game state, including the
-whole aura family bar its geometry. Phases 5–7 have not started.
-**3,936 tests, green on macOS, Linux and Windows; both CI workflows green.**
+combat as well as in it.** **239 of GPDL's 387 sub-opcodes run** against real game state, the aura family
+and its geometry among them. Phases 5–7 have not started.
+**3,952 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -4814,11 +4814,7 @@ different answers to the same question.
 
 ###### Not ported, and named
 
-**`AURA_SHAPE_ANNULARSECTOR` coverage** — `DetermineAnnularCoverage` (`Combatants.cpp:8182`),
-`LocateAuraCenters` and the two octant walkers, about 830 lines, and **the only shape that computes
-anything**. `AuraCoverage` throws for it rather than covering nothing, because an empty mask would
-be indistinguishable from a working aura that happens to reach nobody. This is the natural next
-round.
+~~**`AURA_SHAPE_ANNULARSECTOR` coverage**~~ **Done** — see §the annular sector, below.
 
 > **`AURA_SHAPE_GLOBAL` computes nothing in the reference either** —
 > `DetermineGlobalCoverage` is `NotImplemented(0x321abe, false)` and returns without touching a
@@ -4828,6 +4824,72 @@ round.
 
 **The sprite.** `AddSprite`/`RemoveSprite` paint the aura's spell art over every covered cell; that
 needs the combat renderer's animation list and no rule depends on it.
+
+##### The annular sector, and a hole that was never there
+
+`DetermineAnnularCoverage` (`Combatants.cpp:8182`), `LocateAuraCenters` (`:7823`) and the two octant
+walkers (`:7871`, `:8025`). `UAF.Scripting/AnnularCoverage.cs`. **The last shaped gap in GPDL.**
+17 tests, several of which assert a whole picture.
+
+The four sizes are `minRadius`, `maxRadius`, `startAngle`, `sectorSize` — so `$AURA_Size(2, 8, 90,
+45)` reads "radius 2 to 8, a 45° wedge starting at 90°", angles counter-clockwise from east. For
+each cell on the rim of the max-radius circle that falls inside the wedge, a Bresenham ray is run
+from the centre outwards, marking two cells per step and stopping at whatever the light runs into.
+
+> **The inner radius does nothing.** Both walkers compute `minD2 = minRadius*minRadius` and then
+> never read it. Every annular sector the engine has ever drawn is a **solid wedge from the centre
+> out** — there is no hole, and there never was one. The parameter is validated, passed down through
+> two call layers, squared, and discarded. The test that pins this asserts that `$AURA_Size(3,4,…)`
+> and `$AURA_Size(0,4,…)` produce byte-identical masks; they do.
+
+> **Bad sizes freeze the aura rather than clearing it.** All four guards `return` *before* the
+> `memset` at `:8225`, so a negative radius or a zero sector leaves the previous coverage standing.
+> The same trap as `AURA_SHAPE_GLOBAL`, reached from the other side.
+
+> **An unattached aura covers nothing however large its radius.** `LocateAuraCenters` adds no
+> centres for `AURA_ATTACH_NONE`, so the walk runs zero times. `$AURA_Attach` is not optional.
+
+> **A combatant-attached aura radiates from every cell of its perimeter**, not from its square and
+> not from its centre — a 3×3 monster runs eight independent walks and unions them, which is what
+> lets its aura reach round a corner the middle cannot see. An out-of-range combatant index yields
+> **no** centres: the reference assigns a (0,0) point on that path and then returns without adding
+> it, so the assignment is dead and the aura goes dark rather than lighting up the corner.
+
+> **Wavelength is what stops a ray.** Visible stops at walls *and* at occupied squares — combatants
+> cast aura shadows — X-ray stops only at walls, and neutrino stops at nothing at all. The
+> occupied test carries a `dx != 0` guard on the first of the two cells marked per step and none on
+> the second, so a combatant standing on the centre does not shadow their own aura and one a square
+> out does.
+
+> **Off-map squares are marked, not skipped.** Only a wall stops a ray, and `OBSTICAL_offMap` is not
+> a wall — so the mark that follows indexes the cell array with a coordinate outside the map and
+> writes past the end of it. An aura near a corner corrupts the heap in the reference. Guarded in
+> the port and named here, because it is the one place the transcription could not be literal.
+
+> **`y` is never reset between columns.** The outer loop counts `x` down from `maxRadius` while the
+> inner counts `y` up, and neither resets the other, so this is one continuous sweep around the arc.
+> Resetting `y` to 0 each time — which is what the loop nesting suggests — would walk the whole
+> quarter-disc instead of its rim, and the port would be quietly slower and differently shaped.
+
+> **The per-octant epsilons are not uniform and are transcribed as written.** Four octants floor the
+> minimum tangent at `0`, `0.0`, `0.000000` and `0.000001`; four cap the maximum at `1.0` where the
+> others use `0.999999`. They decide which ray lands on a shared octant boundary. Rounding them to
+> one value would move cells.
+
+###### The bug this round found in last round's work
+
+**`m_iMoveDir` holds `FACE_*` values, and `FACE_*` is not the compass order.** `Externs.h:1039`
+declares it `NORTH, EAST, SOUTH, WEST, NW, NE, SW, SE` — cardinals first, diagonals appended — where
+`UAFcore`'s `PathDirection` runs clockwise round the compass. The two agree on north and on nothing
+else. Last round's `CombatAuraWorld` cast one to the other, which passes every equality test in the
+placement check and then, the moment geometry existed to read it, would have rotated a
+facing-attached wedge to the wrong quarter of the map. Now an `AuraFacing` enum with the reference's
+own ordinals, translated at the host boundary.
+
+> **A cast between two enums that both mean "direction" is worth suspecting on sight.** This one
+> survived a round and 46 tests because nothing yet *interpreted* the value — only compared it. The
+> lesson is the same one the `RemoveAll` divergence taught: a value that is only ever compared can
+> be wrong for as long as nobody reads it.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -8311,9 +8373,15 @@ What is left, in order:
      lines, and the interesting part turned out to be that **none of their error branches balances
      the stack**, in four different ways.
 
-     **Next: annular-sector coverage** — `DetermineAnnularCoverage` (`Combatants.cpp:8182`),
-     `LocateAuraCenters` and the two octant walkers. ~830 lines, the only shape that computes
-     anything, and the last shaped gap in GPDL. `AuraCoverage` throws for it today.
+     ~~**Next: annular-sector coverage**~~ **Done, 2026-08-07** (§the annular sector): the last
+     shaped gap in GPDL. **The inner radius turns out to do nothing** — `minD2` is computed in both
+     walkers and never read — so every annulus the engine drew was a solid wedge. It also found a
+     real defect in the previous round: `m_iMoveDir` is `FACE_*`-ordered, not compass-ordered, and
+     the cast that survived 46 tests would have rotated every facing-attached wedge.
+
+     **Next: what is left is scattered.** 134 callable sub-opcodes with no group among them, the
+     Forth VM, `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped
+     design uses. The next round is a judgement call rather than an obvious pick.
 
 
 
@@ -8351,8 +8419,7 @@ What is left, in order:
    > Phase 4 were current throughout; it was this summary that drifted.
 
    Still wanting state the port does not have: `$GET_CHAR_EFFAC` needs the attacker as well as the
-   target. The aura family runs (§the auras), but an `AnnularSector` aura throws until its geometry
-   is ported — about 830 lines, and the natural next round.
+   target. The aura family runs whole, geometry included (§the auras, §the annular sector).
 4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
@@ -8396,7 +8463,7 @@ the round both call and neither has.
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
 | **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
-| **148 GPDL sub-opcodes, and the Forth VM** | **239 of 387 are implemented**, the aura family among them. Of the rest, 134 are callable and none of them forms a group — they are scattered singles. Each unimplemented one throws `NotSupportedException` naming its source line. **Annular-sector aura coverage is the one shaped gap left** (~830 lines of geometry). The Forth VM is not started | Medium |
+| **148 GPDL sub-opcodes, and the Forth VM** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. The Forth VM is not started | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |

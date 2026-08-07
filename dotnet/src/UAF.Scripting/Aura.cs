@@ -57,6 +57,47 @@ public enum AuraAttachment
 }
 
 /// <summary>
+/// The eight-way facing an aura reads off the combatant it is attached to
+/// (<c>m_iMoveDir</c>, whose values are the <c>FACE_*</c> enum at <c>Externs.h:1039</c>).
+/// </summary>
+/// <remarks>
+/// <b>These ordinals are not the compass order and not <c>UAFcore</c>'s <c>PathDirection</c>.</b>
+/// The reference declares them <c>NORTH, EAST, SOUTH, WEST, NW, NE, SW, SE</c> — the four cardinals
+/// first and the diagonals appended afterwards, in an order of their own. A port that casts a
+/// compass-ordered direction to an int and calls it a facing gets a working equality test and a
+/// silently wrong rotation, which is exactly what
+/// <see cref="AnnularCoverage"/> would have inherited.
+/// </remarks>
+public enum AuraFacing
+{
+    North = 0,
+    East = 1,
+    South = 2,
+    West = 3,
+    NorthWest = 4,
+    NorthEast = 5,
+    SouthWest = 6,
+    SouthEast = 7,
+}
+
+/// <summary>
+/// What a square holds, as an aura's line-of-sight walk cares about it
+/// (<c>OBSTICAL_TYPE</c>, <c>Drawtile.h:96</c>).
+/// </summary>
+/// <remarks>
+/// Declared here rather than reused from <c>UAFcore</c>'s <c>ObstacleType</c> because the
+/// dependency runs the other way. The values match, and the host maps between them.
+/// </remarks>
+public enum AuraObstacle
+{
+    None = 0,
+    Wall = 1,
+    Occupied = 2,
+    OffMap = 3,
+    LingeringSpell = 4,
+}
+
+/// <summary>
 /// One buffer of an aura's placement properties — see <see cref="Aura"/> for why there are two.
 /// </summary>
 public sealed class AuraProperties
@@ -187,7 +228,7 @@ public sealed class Aura
     /// <summary>
     /// The facing copied off an attached combatant, single-buffered. See the class remarks.
     /// </summary>
-    public int Facing { get; set; }
+    public AuraFacing Facing { get; set; }
 
     private static string[] CreateUserData()
     {

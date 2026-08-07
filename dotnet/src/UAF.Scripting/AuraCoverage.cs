@@ -20,11 +20,8 @@ namespace UAF.Scripting;
 /// <see cref="AuraOps.SetShape"/> cannot produce a fourth.
 /// </para>
 /// <para>
-/// <b>Annular sector coverage is not ported yet.</b> It is ~830 lines across
-/// <c>DetermineAnnularCoverage</c>, <c>LocateAuraCenters</c> and the two octant walkers, and it is
-/// the only shape that computes anything. Until it lands, an annular aura throws rather than
-/// quietly covering nothing — a silent empty mask would look exactly like a working
-/// <c>Global</c>.
+/// <b>The third shape is the whole subject</b> — see <see cref="AnnularCoverage"/>, which is where
+/// all the geometry lives.
 /// </para>
 /// </remarks>
 public static class AuraCoverage
@@ -36,9 +33,10 @@ public static class AuraCoverage
     /// Reads <see cref="Aura.Current"/>, never <see cref="Aura.Pending"/> — the placement check
     /// commits first and computes after.
     /// </remarks>
-    public static void Determine(Aura aura)
+    public static void Determine(Aura aura, IAuraWorld world)
     {
         ArgumentNullException.ThrowIfNull(aura);
+        ArgumentNullException.ThrowIfNull(world);
 
         switch (aura.Current.Shape)
         {
@@ -52,12 +50,8 @@ public static class AuraCoverage
                 break;
 
             case AuraShape.AnnularSector:
-                throw new NotSupportedException(
-                    "AURA_SHAPE_ANNULARSECTOR needs DetermineAnnularCoverage (Combatants.cpp:8182) " +
-                    "with LocateAuraCenters and the AnnularOctantX/Y walkers -- about 830 lines of " +
-                    "geometry, not yet ported. Throwing rather than covering nothing, because an " +
-                    "empty mask is indistinguishable from a working aura that happens to reach " +
-                    "nobody.");
+                AnnularCoverage.Determine(aura, world);
+                break;
 
             default:
                 Array.Clear(aura.Cells);

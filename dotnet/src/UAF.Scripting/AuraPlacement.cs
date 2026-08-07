@@ -16,10 +16,32 @@ public interface IAuraWorld
     int CombatantCount { get; }
 
     /// <summary>
+    /// <c>MAX_TERRAIN_HEIGHT</c>. Only the coverage walk needs it, to stay inside the mask where
+    /// the reference does not — see <see cref="AnnularCoverage"/>.
+    /// </summary>
+    int MapHeight { get; }
+
+    /// <summary>
     /// One combatant's square and facing. <b>A negative X means "not on the map"</b> and the sweep
     /// skips them, which is how the dead and the not-yet-placed stay out of every aura.
     /// </summary>
-    (int X, int Y, int Facing) Combatant(int index);
+    (int X, int Y, AuraFacing Facing) Combatant(int index);
+
+    /// <summary>
+    /// How many squares a combatant occupies (<c>width</c> and <c>height</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>An aura attached to a combatant is centred on their whole perimeter, not their square.</b>
+    /// See <see cref="AnnularCoverage.Centers"/>: a 3×3 monster radiates from each of the eight
+    /// cells of its outline.
+    /// </remarks>
+    (int Width, int Height) CombatantFootprint(int index);
+
+    /// <summary>
+    /// What stands at a square (<c>ObsticalType(x, y, 1, 1, true, false, NULL)</c>), which is how
+    /// the coverage walk decides where a ray stops.
+    /// </summary>
+    AuraObstacle Obstacle(int x, int y);
 
     /// <summary>
     /// Runs one of the aura's own scripts — <c>AURA_Create</c>, <c>AURA_Enter</c> or
@@ -139,7 +161,7 @@ public static class AuraPlacement
         if (ShouldRecompute(aura, world, moved))
         {
             Commit(aura, world);
-            AuraCoverage.Determine(aura);
+            AuraCoverage.Determine(aura, world);
         }
 
         Reconcile(store, aura, world);

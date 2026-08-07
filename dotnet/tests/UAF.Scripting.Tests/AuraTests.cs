@@ -9,14 +9,40 @@ public class AuraTests
     // ---- a combat to place auras in -------------------------------------------------------------
 
     /// <summary>A fixed set of combatants, and a log of every aura script that ran.</summary>
-    private sealed class World(params (int X, int Y, int Facing)[] combatants) : IAuraWorld
+    private sealed class World(params (int X, int Y, AuraFacing Facing)[] combatants) : IAuraWorld
     {
         public int MapWidth { get; init; } = 10;
 
+        public int MapHeight { get; init; } = 10;
+
         public int CombatantCount => combatants.Length;
 
-        public (int X, int Y, int Facing) Combatant(int index) =>
-            index >= 0 && index < combatants.Length ? combatants[index] : (-1, -1, 0);
+        public (int X, int Y, AuraFacing Facing) Combatant(int index) =>
+            index >= 0 && index < combatants.Length
+                ? combatants[index] : (-1, -1, AuraFacing.North);
+
+        /// <summary>Every combatant is 1×1 unless a test says otherwise.</summary>
+        public (int Width, int Height) Footprint { get; init; } = (1, 1);
+
+        public (int Width, int Height) CombatantFootprint(int index) => Footprint;
+
+        /// <summary>Squares the test has walled off, as "x,y".</summary>
+        public HashSet<(int X, int Y)> Walls { get; } = [];
+
+        /// <summary>Squares a combatant is standing on, for the shadow rules.</summary>
+        public HashSet<(int X, int Y)> Occupied { get; } = [];
+
+        public AuraObstacle Obstacle(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= MapWidth || y >= MapHeight)
+            {
+                return AuraObstacle.OffMap;
+            }
+
+            if (Walls.Contains((x, y))) { return AuraObstacle.Wall; }
+
+            return Occupied.Contains((x, y)) ? AuraObstacle.Occupied : AuraObstacle.None;
+        }
 
         /// <summary>What ran, as "script:combatant".</summary>
         public List<string> Ran { get; } = [];
@@ -33,7 +59,7 @@ public class AuraTests
         public void Move(int index, int x, int y) =>
             combatants[index] = (x, y, combatants[index].Facing);
 
-        public void Turn(int index, int facing) =>
+        public void Turn(int index, AuraFacing facing) =>
             combatants[index] = (combatants[index].X, combatants[index].Y, facing);
     }
 
@@ -122,7 +148,7 @@ public class AuraTests
     public void The_create_script_runs_before_the_aura_is_placed()
     {
         var store = Store();
-        var world = new World((2, 2, 0));
+        var world = new World((2, 2, AuraFacing.North));
         AuraShape? shapeWhenTheScriptRan = null;
 
         world.OnScript = (aura, script) =>
@@ -183,7 +209,7 @@ public class AuraTests
     public void The_reference_stack_is_pushed_around_the_enter_and_exit_scripts()
     {
         var store = Store();
-        var world = new World((1, 1, 0));
+        var world = new World((1, 1, AuraFacing.North));
         var aura = store.Create("a", "", "", "", "");
         CoverOnly(aura, 1, 1, world.MapWidth);
         aura.Current.Shape = AuraShape.Global;      // so Determine leaves the mask alone
@@ -313,7 +339,7 @@ public class AuraTests
     public void An_attached_aura_takes_its_position_and_facing_from_its_combatant()
     {
         var store = Store();
-        var world = new World((3, 4, 6));
+        var world = new World((3, 4, AuraFacing.SouthWest));
         var aura = store.Create("a", "", "", "", "");
         AuraOps.SetAttachment(aura, "CombatantFacing");
         aura.Pending.CombatantIndex = 0;
@@ -323,37 +349,37 @@ public class AuraTests
         AuraPlacement.Check(store, aura, world, moved: false);
 
         Assert.Equal((3, 4), (aura.Current.X, aura.Current.Y));
-        Assert.Equal(6, aura.Facing);
+        Assert.Equal(AuraFacing.SouthWest, aura.Facing);
     }
 
     [Fact]
     public void A_facing_attached_aura_recomputes_when_its_combatant_turns_on_the_spot()
     {
         var store = Store();
-        var world = new World((3, 4, 6));
+        var world = new World((3, 4, AuraFacing.SouthWest));
         var aura = store.Create("a", "", "", "", "");
         AuraOps.SetAttachment(aura, "CombatantFacing");
         AuraPlacement.Check(store, aura, world, moved: false);
 
         aura.Cells[0] = 1;
-        world.Turn(0, 2);
+        world.Turn(0, AuraFacing.South);
         AuraPlacement.Check(store, aura, world, moved: false);
 
         Assert.Equal(0, aura.Cells[0]);
-        Assert.Equal(2, aura.Facing);
+        Assert.Equal(AuraFacing.South, aura.Facing);
     }
 
     [Fact]
     public void A_plain_combatant_attachment_ignores_the_turn()
     {
         var store = Store();
-        var world = new World((3, 4, 6));
+        var world = new World((3, 4, AuraFacing.SouthWest));
         var aura = store.Create("a", "", "", "", "");
         AuraOps.SetAttachment(aura, "Combatant");
         AuraPlacement.Check(store, aura, world, moved: false);
 
         aura.Cells[0] = 1;
-        world.Turn(0, 2);
+        world.Turn(0, AuraFacing.South);
         AuraPlacement.Check(store, aura, world, moved: false);
 
         // Only CombatantFacing compares the facing, so this one takes the early exit.
@@ -370,7 +396,7 @@ public class AuraTests
         aura.Current.Shape = AuraShape.Global;
         aura.Cells[7] = 1;
 
-        AuraCoverage.Determine(aura);
+        AuraCoverage.Determine(aura, new World());
 
         // DetermineGlobalCoverage is NotImplemented and touches no cell -- so "Global" does not
         // mean everywhere, it means "leave it exactly as it was".
@@ -384,20 +410,28 @@ public class AuraTests
         var aura = store.Create("a", "", "", "", "");
         aura.Cells[7] = 1;
 
-        AuraCoverage.Determine(aura);
+        AuraCoverage.Determine(aura, new World());
 
         Assert.Equal(0, aura.Cells[7]);
     }
 
     [Fact]
-    public void The_annular_sector_is_not_ported_and_says_so()
+    public void The_annular_sector_goes_to_the_geometry()
     {
         var store = Store();
+        var world = new World();
         var aura = store.Create("a", "", "", "", "");
         aura.Current.Shape = AuraShape.AnnularSector;
+        aura.Current.Attachment = AuraAttachment.Xy;
+        aura.Current.X = 5;
+        aura.Current.Y = 5;
+        aura.Current.Size2 = 3;
+        aura.Current.Size4 = 360;
 
-        var thrown = Assert.Throws<NotSupportedException>(() => AuraCoverage.Determine(aura));
-        Assert.Contains("DetermineAnnularCoverage", thrown.Message, StringComparison.Ordinal);
+        AuraCoverage.Determine(aura, world);
+
+        // The shape itself is AnnularCoverageTests' subject; this only checks the dispatch.
+        Assert.Contains(aura.Cells, cell => (cell & 1) != 0);
     }
 
     // ---- enter and exit ---------------------------------------------------------------------------
@@ -406,7 +440,7 @@ public class AuraTests
     public void A_combatant_inside_the_mask_gets_one_enter_script_and_not_a_second()
     {
         var store = Store();
-        var world = new World((1, 1, 0), (5, 5, 0));
+        var world = new World((1, 1, AuraFacing.North), (5, 5, AuraFacing.North));
         var aura = store.Create("a", "", "", "", "");
         aura.Current.Shape = AuraShape.Global;
         aura.Pending.Shape = AuraShape.Global;
@@ -423,7 +457,7 @@ public class AuraTests
     public void Walking_out_runs_the_exit_script()
     {
         var store = Store();
-        var world = new World((1, 1, 0));
+        var world = new World((1, 1, AuraFacing.North));
         var aura = store.Create("a", "", "", "", "");
         aura.Current.Shape = AuraShape.Global;
         aura.Pending.Shape = AuraShape.Global;
@@ -441,7 +475,7 @@ public class AuraTests
     public void A_combatant_who_is_not_on_the_map_is_skipped_entirely()
     {
         var store = Store();
-        var world = new World((-1, -1, 0));
+        var world = new World((-1, -1, AuraFacing.North));
         var aura = store.Create("a", "", "", "", "");
         aura.Current.Shape = AuraShape.Global;
         aura.Pending.Shape = AuraShape.Global;
@@ -622,7 +656,7 @@ public class AuraTests
     public void Destroying_an_aura_runs_the_exit_script_for_everybody_inside_it()
     {
         var store = Store();
-        var world = new World((1, 1, 0));
+        var world = new World((1, 1, AuraFacing.North));
         var aura = store.Create("a", "", "", "", "");
         aura.Current.Shape = AuraShape.Global;
         aura.Pending.Shape = AuraShape.Global;
@@ -645,7 +679,7 @@ public class AuraTests
     public void A_create_script_may_destroy_the_aura_it_is_creating()
     {
         var store = Store();
-        var world = new World((1, 1, 0));
+        var world = new World((1, 1, AuraFacing.North));
 
         world.OnScript = (aura, script) =>
         {
