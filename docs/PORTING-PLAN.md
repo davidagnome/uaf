@@ -27,7 +27,7 @@ load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, 
 picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
 combat as well as in it.** **239 of GPDL's 387 sub-opcodes run** against real game state, the aura family
 and its geometry among them. Phases 5–7 have not started.
-**3,952 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**3,966 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -508,7 +508,7 @@ dotnet/
                                  Also holds the record model — see below
     UAF.Data/                    config.txt (DesignConfig)                    ✅ see below
     UAF.Rules/                   Money. GameRules, combat math, progression   ✅ money only
-    UAF.Scripting/               GPDL compiler + VM. Forth VM                 ✅ GPDL only
+    UAF.Scripting/               GPDL compiler + VM. Forth VM                 ✅ GPDL, Forth kernel
     UAF.Media/                   blitter, surfaces, sprites, fonts, audio,    ✅
                                  movie player, PNG loader
     UAF.Media.Sdl/               SDL3 presentation + input + audio + image    ✅
@@ -1381,7 +1381,7 @@ Delivered: `dotnet/src/UAF.Scripting/` and `dotnet/tools/gpdlc/`, with 201 tests
 | `$GREP` / `$WIGGLE` | **Not ported** — needs the vendored Spencer engine (`regexp.cpp`); routed through `IGpdlHost` |
 | `CompileScript` embedded-script blob and `BINOP_FETCHTEXT` | **Not ported** — a second, different container (SERIALIZATION.md §11) |
 | `RDRCOMP`/`RDREXEC` (GPDLcomp.cpp:4131, GPDLexec.cpp:8249) | **Not ported** — a separate byte-coded expression language that happens to live in the same files |
-| Forth VM (`UAFWin/Forth.cpp`) | Not started |
+| Forth VM (`UAFWin/Forth.cpp`) | **Kernel runs** — memory, dictionary, both interpreters, 51 core primitives; the 21 combat-summary words and `RunTHINK` remain (§the Forth VM) |
 
 **Exit criterion 1 is not met, and cannot be met from this platform.** Byte-identity needs the
 reference `GPDLcomp.exe`, which only the Windows oracle can run. The diff harness is in place —
@@ -4890,6 +4890,77 @@ own ordinals, translated at the host boundary.
 > survived a round and 46 tests because nothing yet *interpreted* the value — only compared it. The
 > lesson is the same one the `RemoveAll` divergence taught: a value that is only ever compared can
 > be wrong for as long as nobody reads it.
+
+##### The Forth VM, which builds itself
+
+`UAFWin/Forth.cpp`. `UAF.Scripting/ForthMemory.cs`, `ForthMachine.cs`, `ForthPrimitives.cs`,
+`ForthKernel.cs`. 14 tests. **The machine runs and its kernel builds its own dictionary.**
+
+Ten thousand bytes addressed as signed 16-bit cells, two stacks growing down from the top, and a
+dictionary in between. That is the whole machine.
+
+> **The dictionary is not built by C — it is built by interpreting a string.** `char m[MAX_MEM]` is
+> initialised with Forth *source*, which ships inside the memory array it is about to be compiled
+> into. `ExpandKernel` moves the text up below the data stack, clears the bottom, hand-compiles
+> exactly two words — `CREATE` and `+p` — and then lets the outer interpreter read the rest. `:`,
+> `;`, `CONSTANT`, `IMMEDIATE` and `[']` are all defined in that text. A port that reimplemented
+> the dictionary in C# would be porting the wrong thing; the kernel source is carried across as
+> data.
+
+> **Most of `Forth.cpp` is commented out.** Of the 1,415 lines the initialiser spans, **181 are
+> live** — the rest is an earlier kernel and a reference copy of `THINK`, both inside `/* … */`.
+> The live text is 697 words, extracted with the `sm_*` macros expanded, which is what the
+> preprocessor hands the compiler.
+
+> **The `PRIM` lines and the primitive table are one ordered pair, bound by position and nothing
+> else.** `+p` stamps `nextPrim++` into whatever `CREATE` just made, so the *n*th `PRIM` in the
+> source becomes index *n* in `Kf[]`. Inserting a word on either side silently rebinds everything
+> after it. A test asserts the two agree at four fixed points and across all 21 game words.
+
+> **The inner interpreter is C recursion, not a threaded loop.** `docolon` runs a `for(;;)` over the
+> body and calls each child directly; a child that is itself a colon word re-enters `docolon`. So
+> the Forth return stack and the host call stack grow together, and `EXIT` has to be a flag rather
+> than a jump.
+
+> **`EXIT` and `ABORT` are one mechanism at two magnitudes.** `EXIT` sets the flag to 1; `docolon`
+> breaks and decrements it back to 0, so one level returns. `ABORT` sets it to **999999**, and every
+> level in turn breaks and decrements — the count is a depth budget and the unwind is the only one
+> there is.
+
+> **Every colon word is stack-effect checked at run time.** A definition declares its effect with
+> `n SP+-`, which writes `-n*2` into the header; `docolon` records `SP + effect` on entry and
+> compares on exit, and a mismatch calls `die()`. That is what all the `1 SP+-` tails in the kernel
+> are for, and it is why a mistyped AI script fails loudly instead of drifting. Ported as an
+> exception, named after the offending word exactly as the reference names it.
+
+> **A word that is neither defined nor a number aborts the whole buffer.** There is no
+> skip-and-continue path, so one typo in `AI_Script.BLK` stops the script rather than quietly
+> changing what the monsters do. And `AI_Script.BLK` is not optional — `ExpandKernel` calls `die()`
+> when the file is missing.
+
+> **`docon` rebinds its own code field.** `PRIM docon` creates it at index 51, and the line that
+> follows reads that index back out of its own header, compiles it as a literal into a fresh body,
+> and stamps `docolon`'s index over the top. So `docon` ends up a colon word that pushes 51, and the
+> primitive at 51 is reachable only through what `docon` compiles. `CONSTANT` is built on it. This
+> caught a wrong assertion in the first draft of the test, which expected the obvious answer.
+
+> **`HIDE` writes a flag that nothing reads.** `:` sets bit 2 of the header while a definition is
+> being compiled and `;` clears it, but `FIND` does not test it — so a word can find itself
+> mid-definition, and recursion compiles rather than referring to the previous meaning. The flag is
+> documentation with a write side.
+
+**Not ported, and named:** the 21 words that read a `COMBAT_SUMMARY` — `Me`, `He`, `A`, `B`, the
+`A:`/`W:`/`C:` families, `Shield.Next`, `Shield.Ready!` and `Fleeing@` — and `RunTHINK`. They are in
+the dictionary, at the right indices, refusing with a citation when called; nothing in the kernel
+calls one, so it builds and runs without them.
+
+> **Three of the four first-draft test failures were my Forth, not the port's.** `9 5 -` is 4;
+> `1 2 3 ROT` leaves 1 on top and 2 at the bottom; and a word that consumes one value and leaves one
+> declares `0 SP+-`, not `1`. The fourth was real: `?NUMBER` pushes **two** items on failure, not
+> three, and the extra one made the error message read `?` instead of naming the word. Reading the
+> reference's own signature comment — `counted-addr … d -1 | c-addr 0` — settled all four, and
+> reading the rest of that function found the `D'` and `O'` prefixes and the `+` sign that the
+> first draft had missed.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -8420,10 +8491,15 @@ What is left, in order:
 
    Still wanting state the port does not have: `$GET_CHAR_EFFAC` needs the attacker as well as the
    target. The aura family runs whole, geometry included (§the auras, §the annular sector).
-4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
-   is a script that is the same in every shipped design bar one line
-   (§the monster AI's priority ordering), and that script's decision function now runs in combat.
-   What still needs it: a design that edits `AI_Script.BLK`,
+4. **The Forth VM.** ~~A real subsystem.~~ **The machine runs and builds its own dictionary**
+   (§the Forth VM): memory, stacks, both interpreters and the 51 core primitives, with the kernel
+   source carried across as data because that is what it is. What is left is the seam to the game:
+   the 21 words that read a `COMBAT_SUMMARY`, and `RunTHINK` itself. They are present in the
+   dictionary and refuse when called, so the kernel builds and ordinary Forth runs without them.
+
+   Its only consumer is a script that is the same in every shipped design bar one line
+   (§the monster AI's priority ordering), and that script's decision function already runs in
+   combat, transcribed directly. What still wants the VM: a design that edits `AI_Script.BLK`,
    the `TURN_ATTEMPT` hook that turning undead depends on
    (§turning, delaying and automatic), and a monster's own choice of spell targets
    (§choosing a spell's targets).
@@ -8463,7 +8539,7 @@ the round both call and neither has.
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
 | **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
-| **148 GPDL sub-opcodes, and the Forth VM** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. The Forth VM is not started | Medium |
+| **148 GPDL sub-opcodes, and the Forth VM** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. **The Forth VM's kernel runs**; its combat-summary bindings and `RunTHINK` do not | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
