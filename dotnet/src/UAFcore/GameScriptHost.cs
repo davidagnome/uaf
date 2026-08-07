@@ -1,3 +1,4 @@
+using UAF.Rules;
 using UAF.Scripting;
 
 namespace UAFcore;
@@ -102,7 +103,8 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
             GpdlCharStat.Experience => Text(character.TotalExperience),
             GpdlCharStat.ReadyToTrain => Text(character.ReadyToTrain ? 1 : 0),
             GpdlCharStat.Gender => Text((int)character.Gender),
-            _ => string.Empty,
+
+            _ => AbilityLayers.Read(character, stat) is { } score ? Text(score) : string.Empty,
         };
     }
 

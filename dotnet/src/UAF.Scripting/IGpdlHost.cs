@@ -91,6 +91,48 @@ public enum GpdlCharStat
 
     /// <summary>The character's gender, as the serialized numbering.</summary>
     Gender,
+
+    // ---- the ability scores, in three layers each ------------------------------------------------
+    //
+    // GPDL exposes every score as PERM, ADJ and LIMITED (GPDLexec.cpp:3696-3717): the stored
+    // value, that value with spell effects applied, and the adjusted one clamped to the score's
+    // own range. A script asking for the wrong layer gets a real but different answer -- the
+    // adjusted form is unbounded and the limited one is what the rules read.
+
+    PermanentStrength,
+    AdjustedStrength,
+    LimitedStrength,
+
+    /// <summary>
+    /// The strength percentile — a separate score with its own range, not a derived one.
+    /// </summary>
+    PermanentStrengthMod,
+
+    /// <inheritdoc cref="PermanentStrengthMod"/>
+    AdjustedStrengthMod,
+
+    /// <inheritdoc cref="PermanentStrengthMod"/>
+    LimitedStrengthMod,
+
+    PermanentIntelligence,
+    AdjustedIntelligence,
+    LimitedIntelligence,
+
+    PermanentWisdom,
+    AdjustedWisdom,
+    LimitedWisdom,
+
+    PermanentDexterity,
+    AdjustedDexterity,
+    LimitedDexterity,
+
+    PermanentConstitution,
+    AdjustedConstitution,
+    LimitedConstitution,
+
+    PermanentCharisma,
+    AdjustedCharisma,
+    LimitedCharisma,
 }
 
 /// <summary>Which attribute store a GPDL script is reaching for.</summary>

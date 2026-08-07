@@ -827,6 +827,27 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_CHAR_MAXHITPOINTS:
             case SubOp.SUBOP_GET_CHAR_RDYTOTRAIN:
             case SubOp.SUBOP_GET_CHAR_GENDER:
+            case SubOp.SUBOP_GET_CHAR_PERM_STR:
+            case SubOp.SUBOP_GET_CHAR_ADJ_STR:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_STR:
+            case SubOp.SUBOP_GET_CHAR_PERM_STRMOD:
+            case SubOp.SUBOP_GET_CHAR_ADJ_STRMOD:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_STRMOD:
+            case SubOp.SUBOP_GET_CHAR_PERM_INT:
+            case SubOp.SUBOP_GET_CHAR_ADJ_INT:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_INT:
+            case SubOp.SUBOP_GET_CHAR_PERM_WIS:
+            case SubOp.SUBOP_GET_CHAR_ADJ_WIS:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_WIS:
+            case SubOp.SUBOP_GET_CHAR_PERM_DEX:
+            case SubOp.SUBOP_GET_CHAR_ADJ_DEX:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_DEX:
+            case SubOp.SUBOP_GET_CHAR_PERM_CON:
+            case SubOp.SUBOP_GET_CHAR_ADJ_CON:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_CON:
+            case SubOp.SUBOP_GET_CHAR_PERM_CHA:
+            case SubOp.SUBOP_GET_CHAR_ADJ_CHA:
+            case SubOp.SUBOP_GET_CHAR_LIMITED_CHA:
                 PushSp(_host.GetCharStat(PopSp(), StatOf(op)));
                 break;
             case SubOp.SUBOP_GREP:
@@ -919,6 +940,27 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_GET_CHAR_MAXHITPOINTS => GpdlCharStat.MaxHitPoints,
         SubOp.SUBOP_GET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         SubOp.SUBOP_GET_CHAR_GENDER => GpdlCharStat.Gender,
+        SubOp.SUBOP_GET_CHAR_PERM_STR => GpdlCharStat.PermanentStrength,
+        SubOp.SUBOP_GET_CHAR_ADJ_STR => GpdlCharStat.AdjustedStrength,
+        SubOp.SUBOP_GET_CHAR_LIMITED_STR => GpdlCharStat.LimitedStrength,
+        SubOp.SUBOP_GET_CHAR_PERM_STRMOD => GpdlCharStat.PermanentStrengthMod,
+        SubOp.SUBOP_GET_CHAR_ADJ_STRMOD => GpdlCharStat.AdjustedStrengthMod,
+        SubOp.SUBOP_GET_CHAR_LIMITED_STRMOD => GpdlCharStat.LimitedStrengthMod,
+        SubOp.SUBOP_GET_CHAR_PERM_INT => GpdlCharStat.PermanentIntelligence,
+        SubOp.SUBOP_GET_CHAR_ADJ_INT => GpdlCharStat.AdjustedIntelligence,
+        SubOp.SUBOP_GET_CHAR_LIMITED_INT => GpdlCharStat.LimitedIntelligence,
+        SubOp.SUBOP_GET_CHAR_PERM_WIS => GpdlCharStat.PermanentWisdom,
+        SubOp.SUBOP_GET_CHAR_ADJ_WIS => GpdlCharStat.AdjustedWisdom,
+        SubOp.SUBOP_GET_CHAR_LIMITED_WIS => GpdlCharStat.LimitedWisdom,
+        SubOp.SUBOP_GET_CHAR_PERM_DEX => GpdlCharStat.PermanentDexterity,
+        SubOp.SUBOP_GET_CHAR_ADJ_DEX => GpdlCharStat.AdjustedDexterity,
+        SubOp.SUBOP_GET_CHAR_LIMITED_DEX => GpdlCharStat.LimitedDexterity,
+        SubOp.SUBOP_GET_CHAR_PERM_CON => GpdlCharStat.PermanentConstitution,
+        SubOp.SUBOP_GET_CHAR_ADJ_CON => GpdlCharStat.AdjustedConstitution,
+        SubOp.SUBOP_GET_CHAR_LIMITED_CON => GpdlCharStat.LimitedConstitution,
+        SubOp.SUBOP_GET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
+        SubOp.SUBOP_GET_CHAR_ADJ_CHA => GpdlCharStat.AdjustedCharisma,
+        SubOp.SUBOP_GET_CHAR_LIMITED_CHA => GpdlCharStat.LimitedCharisma,
         _ => GpdlCharStat.Name,
     };
 

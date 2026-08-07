@@ -4345,8 +4345,35 @@ walk runs the ones that do and hands each answer to a callback. `FIX_CHARACTER` 
 > keeps scanning, so which are dropped depends on the order the record lists them.
 
 **Where this leaves Priority 3.** The harness is now ported; the remaining gap is the opcodes the
-scripts themselves use — 83 of ~387 sub-opcodes are implemented in the VM. A design whose hooks
-stay inside those 83 works today.
+scripts themselves use — 83 of ~387 sub-opcodes were implemented in the VM when this was written.
+A design whose hooks stay inside them works today.
+
+##### The ability scores, which a script sees three ways
+
+`GET_CHAR_PERM_*` / `ADJ_*` / `LIMITED_*` (`GPDLexec.cpp:3696`–`:3717`), `LimitAb`
+(`Char.cpp:13599`) and the bounds at `Globals.cpp:506`. `UAF.Rules/AbilityBounds.cs` and
+`UAFcore/AbilityLayers.cs`. **Twenty-one sub-opcodes**, taking the VM from 83 to 104.
+
+> **A character carries three versions of every score and they are not interchangeable.**
+> Permanent is what the record stores; adjusted is that plus spell effects and is **unbounded**;
+> limited is the adjusted one clamped. GPDL exposes all three by name, so a script can see the raw
+> sum a clamp would have hidden — that is the point of having three rather than a bug.
+
+> **The spell-effect key is `CHAR_ADJUSTED_STR`, not `CHAR_STR`.** The commented-out line directly
+> above it used `"$CHAR_STR"` and does not any more, so an effect written against the plain name
+> reaches nothing at all.
+
+> **Every score shares one range except the strength percentile** — five run 3 to 25, the
+> percentile 0 to 100, because it is a percentage and not a score. It is a separate score with its
+> own three layers, not a part of strength.
+
+> **`P1` of the parameter fossils has a cousin here**: `UAF.Rules.AbilityScore` is deliberately
+> *not* `UAFcore.Ability`. The latter is the design's wire ordinal for a WHO_TRIES check and has
+> six members; this one adds the percentile. Two lists that look alike and answer different
+> questions.
+
+**Not ported, and named:** the seven `SET_CHAR_PERM_*` setters, which need a `SetCharStat` the host
+interface does not yet have. Same family, opposite direction.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -7711,11 +7738,16 @@ What is left, in order:
      record's real abilities, and the callback that decides how a hook chains turns out to be dead
      code in one of its two forms.
 
-     **Next: the sub-opcodes themselves** — 83 of ~387 are implemented in the VM, and that count
-     is now the whole of Priority 3. The rest of the named hooks
-     (`DOES_SPELL_ATTACK_SUCCEED`, `SPELL_CASTER_LEVEL`, the spell begin/end scripts,
-     `SCRIBE_OR_WHATEVER`) are one call each on top of `SpecabScripts`, so the useful order is
-     opcodes first and hooks as they are needed.
+     ~~**Next: the sub-opcodes themselves** — 83 of ~387.~~ **The ability-score family is in**
+     (§the ability scores): 21 opcodes, taking the VM to **104**, with the three layers a script
+     reads a score through. The rest of the named hooks (`DOES_SPELL_ATTACK_SUCCEED`,
+     `SPELL_CASTER_LEVEL`, the spell begin/end scripts, `SCRIBE_OR_WHATEVER`) are one call each on
+     top of `SpecabScripts`, so the useful order stays opcodes first and hooks as they are needed.
+
+     **Next: the rest of `GET_CHAR_*` and the `SET_CHAR_*` setters** — age, encumbrance, movement,
+     morale, class, race, size, status and the seven perm setters. The getters are the same shape
+     as the twenty-one just done; the setters need a `SetCharStat` on the host interface, which is
+     the only new machinery left in the family.
 
 
 

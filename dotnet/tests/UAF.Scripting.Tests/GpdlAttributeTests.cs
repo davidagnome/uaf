@@ -257,4 +257,62 @@ public class GpdlAttributeTests
     {
         Assert.Equal("", Run("""$RETURN $GET_CHAR_NAME("nobody");""", Host()));
     }
+
+    // ---- the ability scores, in three layers each ------------------------------------------------
+
+    [Theory]
+    [InlineData("$GET_CHAR_PERM_STR", GpdlCharStat.PermanentStrength)]
+    [InlineData("$GET_CHAR_ADJ_STR", GpdlCharStat.AdjustedStrength)]
+    [InlineData("$GET_CHAR_LIMITED_STR", GpdlCharStat.LimitedStrength)]
+    [InlineData("$GET_CHAR_PERM_STRMOD", GpdlCharStat.PermanentStrengthMod)]
+    [InlineData("$GET_CHAR_ADJ_STRMOD", GpdlCharStat.AdjustedStrengthMod)]
+    [InlineData("$GET_CHAR_LIMITED_STRMOD", GpdlCharStat.LimitedStrengthMod)]
+    [InlineData("$GET_CHAR_PERM_INT", GpdlCharStat.PermanentIntelligence)]
+    [InlineData("$GET_CHAR_ADJ_INT", GpdlCharStat.AdjustedIntelligence)]
+    [InlineData("$GET_CHAR_LIMITED_INT", GpdlCharStat.LimitedIntelligence)]
+    [InlineData("$GET_CHAR_PERM_WIS", GpdlCharStat.PermanentWisdom)]
+    [InlineData("$GET_CHAR_ADJ_WIS", GpdlCharStat.AdjustedWisdom)]
+    [InlineData("$GET_CHAR_LIMITED_WIS", GpdlCharStat.LimitedWisdom)]
+    [InlineData("$GET_CHAR_PERM_DEX", GpdlCharStat.PermanentDexterity)]
+    [InlineData("$GET_CHAR_ADJ_DEX", GpdlCharStat.AdjustedDexterity)]
+    [InlineData("$GET_CHAR_LIMITED_DEX", GpdlCharStat.LimitedDexterity)]
+    [InlineData("$GET_CHAR_PERM_CON", GpdlCharStat.PermanentConstitution)]
+    [InlineData("$GET_CHAR_ADJ_CON", GpdlCharStat.AdjustedConstitution)]
+    [InlineData("$GET_CHAR_LIMITED_CON", GpdlCharStat.LimitedConstitution)]
+    [InlineData("$GET_CHAR_PERM_CHA", GpdlCharStat.PermanentCharisma)]
+    [InlineData("$GET_CHAR_ADJ_CHA", GpdlCharStat.AdjustedCharisma)]
+    [InlineData("$GET_CHAR_LIMITED_CHA", GpdlCharStat.LimitedCharisma)]
+    public void Every_ability_layer_reaches_its_own_stat(string call, GpdlCharStat stat)
+    {
+        // Twenty-one sub-opcodes of identical shape, which is exactly the population where a
+        // crossed pair would go unnoticed. Each is given a value nothing else has.
+        var host = WithStats("hero", (stat, "13"));
+
+        Assert.Equal("13", Run($"""$RETURN {call}("hero");""", host));
+    }
+
+    [Fact]
+    public void The_three_layers_of_one_score_are_three_separate_reads()
+    {
+        // Permanent, adjusted and limited are different questions about the same score, and a
+        // script asking the wrong one gets a real but different answer.
+        var host = WithStats("hero",
+                             (GpdlCharStat.PermanentStrength, "18"),
+                             (GpdlCharStat.AdjustedStrength, "31"),
+                             (GpdlCharStat.LimitedStrength, "25"));
+
+        Assert.Equal("18", Run("""$RETURN $GET_CHAR_PERM_STR("hero");""", host));
+        Assert.Equal("31", Run("""$RETURN $GET_CHAR_ADJ_STR("hero");""", host));
+        Assert.Equal("25", Run("""$RETURN $GET_CHAR_LIMITED_STR("hero");""", host));
+    }
+
+    [Fact]
+    public void The_percentile_is_its_own_score_not_a_part_of_strength()
+    {
+        var host = WithStats("hero",
+                             (GpdlCharStat.PermanentStrength, "18"),
+                             (GpdlCharStat.PermanentStrengthMod, "75"));
+
+        Assert.Equal("75", Run("""$RETURN $GET_CHAR_PERM_STRMOD("hero");""", host));
+    }
 }
