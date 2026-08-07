@@ -191,6 +191,40 @@ public enum GpdlCharStat
     NumberOfAttacks,
 }
 
+/// <summary>
+/// A value a script can read or write about the party (the <c>GET/SET_PARTY_*</c> family,
+/// <c>GPDLexec.cpp:5551</c> onward).
+/// </summary>
+public enum GpdlPartyValue
+{
+    /// <summary>Days elapsed (<c>party.days</c>).</summary>
+    Days,
+
+    /// <summary>Hours (<c>party.hours</c>). <b>Not clamped on write</b> — see the setter.</summary>
+    Hours,
+
+    /// <summary>Minutes (<c>party.minutes</c>). Also unclamped.</summary>
+    Minutes,
+
+    /// <summary>
+    /// The whole clock as minutes: <c>(days * 24 + hours) * 60 + minutes</c>. Writing it
+    /// decomposes back into the three.
+    /// </summary>
+    Time,
+
+    /// <summary>
+    /// Which member is active. <b>Read and written in different units</b> — see
+    /// <see cref="IGpdlHost.GetPartyValue"/>.
+    /// </summary>
+    ActiveCharacter,
+
+    /// <summary>How many are in the party (<c>PARTYSIZE</c>).</summary>
+    Size,
+
+    /// <summary>Which way the party faces (<c>party.facing</c>).</summary>
+    Facing,
+}
+
 /// <summary>Which attribute store a GPDL script is reaching for.</summary>
 public enum GpdlAslScope
 {
@@ -348,6 +382,62 @@ public interface IGpdlHost
     /// </remarks>
     void SetCharStat(string actor, GpdlCharStat stat, string value);
 
+    /// <summary>
+    /// Reads a party value.
+    /// </summary>
+    /// <remarks>
+    /// <b><see cref="GpdlPartyValue.ActiveCharacter"/> is read and written in different units.</b>
+    /// Reading gives the active member's <c>uniquePartyID</c>; writing takes an <i>index</i> and
+    /// wraps it with <c>% numCharacters</c> (<c>GPDLexec.cpp:5588</c>). So a script cannot round-trip
+    /// it, and feeding a read straight back into the write lands somewhere arbitrary.
+    /// </remarks>
+    string GetPartyValue(GpdlPartyValue value);
+
+    /// <summary>
+    /// Writes a party value.
+    /// </summary>
+    /// <remarks>
+    /// <b>The clock fields are not clamped.</b> <c>SET_LITERAL_INT</c> assigns straight through, so
+    /// a script may set hours to 99 or minutes to −5 and the party's clock simply holds it.
+    /// <see cref="GpdlPartyValue.Facing"/> is the one that clamps, and
+    /// <see cref="GpdlPartyValue.Size"/> cannot be written at all.
+    /// </remarks>
+    void SetPartyValue(GpdlPartyValue value, string setting);
+
+    /// <summary>
+    /// Where the party is, as <c>"/level/x/y"</c> (<c>GPDLexec.cpp:5551</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A string with a leading slash, and the level is one-based</b> — <c>party.level + 1</c>,
+    /// where every other level reference in the engine is zero-based.
+    /// </remarks>
+    string PartyLocation { get; }
+
+    /// <summary>
+    /// Every character's money, totalled and optionally converted
+    /// (<c>$GET_PARTY_MONEYAVAILABLE</c>, <c>GPDLexec.cpp:4215</c>).
+    /// </summary>
+    /// <param name="coinType">
+    /// 0 for the raw total in the base coin; 1 to 10 to convert into that denomination.
+    /// <b>Anything else answers zero</b> rather than falling back to the total.
+    /// </param>
+    int MoneyAvailable(int coinType);
+
+    /// <summary>Whether an actor is in the party (<c>$InParty</c>, <c>GPDLexec.cpp:4483</c>).</summary>
+    /// <remarks>An actor that resolves to nobody is false, not an error.</remarks>
+    bool IsInParty(string actor);
+
+    /// <summary>
+    /// Moves the party (<c>$SET_PARTY_XY</c>, <c>GPDLexec.cpp:5287</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Queued rather than done.</b> The reference posts <c>TASKMSG_SetPartyXY</c> and the move
+    /// happens when the task queue next runs — which is why the callers that care test
+    /// <c>setPartyXY_x &gt;= 0</c> afterwards to see whether a script moved the party out from
+    /// under them.
+    /// </remarks>
+    void SetPartyXY(int x, int y);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -432,6 +522,32 @@ public class GpdlUnhostedEnvironment : IGpdlHost
         new(StringComparer.Ordinal);
 
     /// <inheritdoc/>
+    /// <summary>Party values this environment is holding.</summary>
+    public Dictionary<GpdlPartyValue, string> PartyValues { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual string GetPartyValue(GpdlPartyValue value) =>
+        PartyValues.TryGetValue(value, out string? held) ? held : "0";
+
+    /// <inheritdoc/>
+    public virtual void SetPartyValue(GpdlPartyValue value, string setting) =>
+        PartyValues[value] = setting;
+
+    /// <inheritdoc/>
+    public virtual string PartyLocation => "/1/0/0";
+
+    /// <inheritdoc/>
+    public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual bool IsInParty(string actor) => false;
+
+    /// <summary>The last <c>$SET_PARTY_XY</c>, or null.</summary>
+    public (int X, int Y)? PartyMovedTo { get; private set; }
+
+    /// <inheritdoc/>
+    public virtual void SetPartyXY(int x, int y) => PartyMovedTo = (x, y);
+
     /// <inheritdoc/>
     public virtual void SetCharStat(string actor, GpdlCharStat stat, string value)
     {

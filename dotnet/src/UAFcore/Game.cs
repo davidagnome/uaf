@@ -640,6 +640,37 @@ public sealed class Game
     /// <summary>Game time in minutes, which <c>GLOBAL_STATS::startTime</c> seeds.</summary>
     public int Minutes { get; private set; }
 
+    // ---- what a script may change -----------------------------------------------------------------
+
+    /// <summary>Sets the clock outright, as <c>$SET_PARTY_TIME</c> and its three fields do.</summary>
+    public void SetMinutes(int minutes) => Minutes = minutes;
+
+    /// <summary>Turns the party, as <c>$SET_PARTY_FACING</c> does.</summary>
+    public void SetFacing(Facing facing) => Facing = facing;
+
+    /// <summary>
+    /// Where <c>$SET_PARTY_XY</c> asked the party to go, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>Queued rather than done, as the reference queues it.</b> It posts
+    /// <c>TASKMSG_SetPartyXY</c> and the move happens when the task queue next runs; the callers
+    /// that care test <c>setPartyXY_x &gt;= 0</c> afterwards to see whether a script moved the
+    /// party out from under them. This port has no task queue, so the request is recorded and the
+    /// same test is available to whoever asked.
+    /// </remarks>
+    public (int X, int Y)? RequestedPartyMove { get; private set; }
+
+    /// <inheritdoc cref="RequestedPartyMove"/>
+    public void QueuePartyMove(int x, int y) => RequestedPartyMove = (x, y);
+
+    /// <summary>Takes the queued move, clearing it.</summary>
+    public (int X, int Y)? TakeRequestedPartyMove()
+    {
+        var move = RequestedPartyMove;
+        RequestedPartyMove = null;
+        return move;
+    }
+
     // ---- FIX -----------------------------------------------------------------------------------
 
     /// <summary>

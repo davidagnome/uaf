@@ -827,6 +827,7 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_CHAR_MAXHITPOINTS:
             case SubOp.SUBOP_GET_CHAR_RDYTOTRAIN:
             case SubOp.SUBOP_GET_CHAR_GENDER:
+            case SubOp.SUBOP_GET_CHAR_SEX:
             case SubOp.SUBOP_GET_CHAR_PERM_STR:
             case SubOp.SUBOP_GET_CHAR_ADJ_STR:
             case SubOp.SUBOP_GET_CHAR_LIMITED_STR:
@@ -915,6 +916,48 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_FACING:
                 PushSp(_host.PartyFacing.ToString());
                 break;
+            case SubOp.SUBOP_GET_PARTY_DAYS:
+            case SubOp.SUBOP_GET_PARTY_HOURS:
+            case SubOp.SUBOP_GET_PARTY_MINUTES:
+            case SubOp.SUBOP_GET_PARTY_TIME:
+            case SubOp.SUBOP_GET_PARTY_ACTIVECHAR:
+            case SubOp.SUBOP_PARTYSIZE:
+                PushSp(_host.GetPartyValue(PartyValueOf(op)));
+                break;
+            case SubOp.SUBOP_SET_PARTY_DAYS:
+            case SubOp.SUBOP_SET_PARTY_HOURS:
+            case SubOp.SUBOP_SET_PARTY_MINUTES:
+            case SubOp.SUBOP_SET_PARTY_TIME:
+            case SubOp.SUBOP_SET_PARTY_ACTIVECHAR:
+                _host.SetPartyValue(PartyValueOf(op), PopSp());
+                PushSp(string.Empty);
+                break;
+            case SubOp.SUBOP_SET_PARTY_FACING:
+                // No push. Every sibling setter ends in m_pushEmptyString; this one was inlined
+                // from m_setPartyValue and lost it (GPDLexec.cpp:5557), so it consumes one stack
+                // slot and produces none. Transcribed -- a script using it is unbalanced in the
+                // reference too, and "fixing" it here would make this VM disagree with designs
+                // that were tested against that.
+                _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
+                break;
+            case SubOp.SUBOP_GET_PARTY_LOCATION:
+                PushSp(_host.PartyLocation);
+                break;
+            case SubOp.SUBOP_GET_PARTY_MONEYAVAILABLE:
+                PushSp(_host.MoneyAvailable(PopInteger())
+                            .ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_InParty:
+                PushSp(_host.IsInParty(PopSp()) ? True : False);
+                break;
+            case SubOp.SUBOP_SET_PARTY_XY:
+                {
+                    // y is popped first, so the call reads $SET_PARTY_XY(x, y).
+                    int y = PopInteger();
+                    _host.SetPartyXY(PopInteger(), y);
+                    PushSp(string.Empty);
+                    break;
+                }
             case SubOp.SUBOP_MonsterPlacement:
                 PushSp(_host.MonsterPlacement(PopSp()));
                 break;
@@ -991,7 +1034,7 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_GET_CHAR_HITPOINTS => GpdlCharStat.HitPoints,
         SubOp.SUBOP_GET_CHAR_MAXHITPOINTS => GpdlCharStat.MaxHitPoints,
         SubOp.SUBOP_GET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
-        SubOp.SUBOP_GET_CHAR_GENDER => GpdlCharStat.Gender,
+        SubOp.SUBOP_GET_CHAR_GENDER or SubOp.SUBOP_GET_CHAR_SEX => GpdlCharStat.Gender,
         SubOp.SUBOP_GET_CHAR_PERM_STR => GpdlCharStat.PermanentStrength,
         SubOp.SUBOP_GET_CHAR_ADJ_STR => GpdlCharStat.AdjustedStrength,
         SubOp.SUBOP_GET_CHAR_LIMITED_STR => GpdlCharStat.LimitedStrength,
@@ -1068,6 +1111,19 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which party value a sub-opcode reads or writes.</summary>
+    private static GpdlPartyValue PartyValueOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_GET_PARTY_DAYS or SubOp.SUBOP_SET_PARTY_DAYS => GpdlPartyValue.Days,
+        SubOp.SUBOP_GET_PARTY_HOURS or SubOp.SUBOP_SET_PARTY_HOURS => GpdlPartyValue.Hours,
+        SubOp.SUBOP_GET_PARTY_MINUTES or SubOp.SUBOP_SET_PARTY_MINUTES => GpdlPartyValue.Minutes,
+        SubOp.SUBOP_GET_PARTY_TIME or SubOp.SUBOP_SET_PARTY_TIME => GpdlPartyValue.Time,
+        SubOp.SUBOP_GET_PARTY_ACTIVECHAR or SubOp.SUBOP_SET_PARTY_ACTIVECHAR
+            => GpdlPartyValue.ActiveCharacter,
+        SubOp.SUBOP_PARTYSIZE => GpdlPartyValue.Size,
+        _ => GpdlPartyValue.Facing,
     };
 
     /// <summary>Which attribute store a sub-opcode reaches for.</summary>

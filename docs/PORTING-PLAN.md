@@ -4402,6 +4402,44 @@ still yields the empty string, so a script cannot tell from inside. And a non-nu
 *ignored* rather than written as zero: the reference pops through `atoi` and would zero the stat,
 and silently zeroing a character's strength on a script typo is worse than doing nothing.
 
+##### The party block, and a setter that pushes nothing
+
+`GET/SET_PARTY_*` (`GPDLexec.cpp:5551` onward), `$PARTYSIZE` (`:5074`), `$InParty` (`:4483`) and
+`$GET_PARTY_MONEYAVAILABLE` (`:4215`). **Seventeen more, taking the VM from 148 to 165.**
+
+> **`SET_PARTY_FACING` pushes nothing, where every sibling setter pushes the empty string.** The
+> commented-out line above it shows it used to be `m_setPartyValue(PARTY_FACING)`, which went
+> through `m_SetLiteralInt` and ended in `m_pushEmptyString`; inlining it lost that. So it consumes
+> a stack slot and produces none, and a script using it is unbalanced. Transcribed — a design
+> tested against the reference was tested against that.
+
+> **`ACTIVECHAR` is read and written in different units.** Reading gives the active member's
+> `uniquePartyID`; writing takes an *index* and wraps it with `% numCharacters`. A script cannot
+> round-trip it, and feeding a read straight back into the write lands somewhere arbitrary.
+
+> **The clock fields are not clamped on write.** `SET_LITERAL_INT` assigns straight through, so a
+> script may set hours to 99 and the party's clock holds it. `SET_PARTY_FACING` is the only one
+> that clamps.
+
+> **`GET_PARTY_LOCATION` is a string, and its level is one-based** — `"/level+1/x/y"`, where every
+> other level reference in the engine counts from zero.
+
+> **`MONEYAVAILABLE`'s out-of-range argument answers zero, not the total.** 0 means the raw sum in
+> the base coin and 1–10 name a denomination; anything else falls through to `m_Integer2 = 0`.
+
+> **`SET_PARTY_XY` is queued, not done.** It posts `TASKMSG_SetPartyXY` and the move happens when
+> the task queue next runs, which is why callers test `setPartyXY_x >= 0` afterwards to find out
+> whether a script moved the party out from under them.
+
+**One divergence, named in the source.** This port keeps the clock as a single minute count where
+the reference keeps three independent ints, so an out-of-range hour folds into the day here rather
+than being held. A script that writes 99 hours and reads them back sees 99 in the reference and 3
+here.
+
+**A stale test found in passing.** `An_unported_subop_throws_with_a_citation` used `$PARTYSIZE` as
+its example of something unported — which this round ported, so the test started failing for the
+right reason. It now points at `$GET_CHAR_EFFAC`, and says so.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7775,9 +7813,12 @@ What is left, in order:
      character block): 44 more, **104 → 148**, and the character block is complete apart from the
      per-baseclass calls that take an argument.
 
-     **Next: the party and combat families** — the two largest remaining groups of the ~240 still
-     unported. Neither needs new machinery: `IGpdlHost` already reaches the party, and the combat
-     ones can follow the same shape once a fight is the thing a script is running inside.
+     ~~**Next: the party and combat families**~~ **The party block is in** (§the party block):
+     17 more, **148 → 165**, including a setter that pushes nothing where all its siblings do.
+
+     **Next: the combat family** — the largest remaining group, and the one that needs a fight to
+     be the thing a script is running inside. `Combatant` and `CombatSession` already exist, so
+     what is missing is the context a script resolves an actor against, not the state itself.
 
 
 

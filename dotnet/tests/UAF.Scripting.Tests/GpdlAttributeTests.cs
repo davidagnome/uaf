@@ -387,6 +387,84 @@ public class GpdlAttributeTests
         Assert.Equal("0", host.GetCharStat("hero", GpdlCharStat.Gender));
     }
 
+    // ---- the party -------------------------------------------------------------------------------
+
+    private static GpdlUnhostedEnvironment WithParty(
+        params (GpdlPartyValue Value, string Held)[] values)
+    {
+        var host = Host();
+        foreach (var (value, held) in values)
+        {
+            host.PartyValues[value] = held;
+        }
+        return host;
+    }
+
+    [Theory]
+    [InlineData("$GET_PARTY_DAYS", GpdlPartyValue.Days)]
+    [InlineData("$GET_PARTY_HOURS", GpdlPartyValue.Hours)]
+    [InlineData("$GET_PARTY_MINUTES", GpdlPartyValue.Minutes)]
+    [InlineData("$GET_PARTY_TIME", GpdlPartyValue.Time)]
+    [InlineData("$GET_PARTY_ACTIVECHAR", GpdlPartyValue.ActiveCharacter)]
+    [InlineData("$PARTYSIZE", GpdlPartyValue.Size)]
+    public void Each_party_getter_reaches_its_own_value(string call, GpdlPartyValue value)
+    {
+        var host = WithParty((value, "5"));
+
+        Assert.Equal("5", Run($"""$RETURN {call}();""", host));
+    }
+
+    [Theory]
+    [InlineData("$SET_PARTY_DAYS", GpdlPartyValue.Days)]
+    [InlineData("$SET_PARTY_HOURS", GpdlPartyValue.Hours)]
+    [InlineData("$SET_PARTY_MINUTES", GpdlPartyValue.Minutes)]
+    [InlineData("$SET_PARTY_TIME", GpdlPartyValue.Time)]
+    [InlineData("$SET_PARTY_ACTIVECHAR", GpdlPartyValue.ActiveCharacter)]
+    public void Each_party_setter_writes_its_own_value(string call, GpdlPartyValue value)
+    {
+        var host = Host();
+
+        Run($"""{call}("11");""", host);
+
+        Assert.Equal("11", host.GetPartyValue(value));
+    }
+
+    [Fact]
+    public void Set_party_facing_pushes_nothing_where_every_sibling_pushes_the_empty_string()
+    {
+        // Inlined from m_setPartyValue and lost its m_pushEmptyString (GPDLexec.cpp:5557), so it
+        // consumes a stack slot and produces none. Transcribed: a script using it is unbalanced in
+        // the reference too. Here that shows up as the RETURN finding the caller's own frame
+        // marker rather than an empty string.
+        var host = Host();
+
+        Assert.Equal("11", Run("""$SET_PARTY_FACING("11"); $RETURN "11";""", host));
+        Assert.Equal("11", host.GetPartyValue(GpdlPartyValue.Facing));
+    }
+
+    [Fact]
+    public void The_location_is_a_string_with_a_leading_slash()
+    {
+        Assert.Equal("/1/0/0", Run("""$RETURN $GET_PARTY_LOCATION();""", Host()));
+    }
+
+    [Fact]
+    public void Set_party_xy_takes_x_before_y()
+    {
+        // y is popped first, so the call reads $SET_PARTY_XY(x, y).
+        var host = Host();
+
+        Run("""$SET_PARTY_XY("3", "7");""", host);
+
+        Assert.Equal((3, 7), host.PartyMovedTo);
+    }
+
+    [Fact]
+    public void Set_party_xy_yields_the_empty_string()
+    {
+        Assert.Equal("", Run("""$RETURN $SET_PARTY_XY("3", "7");""", Host()));
+    }
+
     [Fact]
     public void The_percentile_is_its_own_score_not_a_part_of_strength()
     {

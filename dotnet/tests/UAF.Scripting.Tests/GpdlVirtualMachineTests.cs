@@ -355,12 +355,14 @@ public class GpdlVirtualMachineTests
     public void An_unported_subop_throws_with_a_citation_rather_than_returning_a_plausible_value()
     {
         // The whole point of the boundary: a script reaching an unimplemented engine call must fail
-        // loudly, not quietly answer "0".
+        // loudly, not quietly answer "0". The example has to be something still unported -- this
+        // test used $PARTYSIZE until that one landed.
         var compiler = new GpdlCompiler();
-        Assert.Equal(0, compiler.Compile("$PUBLIC $FUNC f() { $RETURN $PARTYSIZE(); } f;"));
+        Assert.Equal(0, compiler.Compile(
+            """$PUBLIC $FUNC f() { $RETURN $GET_CHAR_EFFAC("hero"); } f;"""));
         var vm = new GpdlVirtualMachine(GpdlProgram.FromCompiler(compiler));
         var ex = Assert.Throws<NotSupportedException>(() => vm.Execute("f"));
-        Assert.Contains("$PARTYSIZE", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("$GET_CHAR_EFFAC", ex.Message, StringComparison.Ordinal);
         Assert.Contains("GPDLexec.cpp", ex.Message, StringComparison.Ordinal);
     }
 

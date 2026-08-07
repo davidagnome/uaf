@@ -151,6 +151,107 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         }
     }
 
+    // ---- the party ------------------------------------------------------------------------------
+
+    /// <summary>Ten thousand and forty minutes in a day, as the reference splits them.</summary>
+    private const int MinutesPerHour = 60;
+
+    /// <inheritdoc/>
+    public override string GetPartyValue(GpdlPartyValue value) => value switch
+    {
+        GpdlPartyValue.Days => Text(game.Minutes / (24 * MinutesPerHour)),
+        GpdlPartyValue.Hours => Text(game.Minutes / MinutesPerHour % 24),
+        GpdlPartyValue.Minutes => Text(game.Minutes % MinutesPerHour),
+        GpdlPartyValue.Time => Text(game.Minutes),
+        GpdlPartyValue.Size => Text(game.Party.Count),
+        GpdlPartyValue.Facing => Text((int)game.Facing),
+
+        // The uniquePartyID, not the index -- see IGpdlHost.GetPartyValue.
+        _ => game.Party.Active is { } who ? who.Record.UniquePartyId.ToString() : "0",
+    };
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The clock is one number here, so the three fields are not independently writable.</b>
+    /// The reference holds days, hours and minutes as separate ints and lets a script set any of
+    /// them past its range; <see cref="Game.Minutes"/> is a single total, so setting hours means
+    /// rewriting the whole clock and an out-of-range hour folds into the day rather than being
+    /// held. Named rather than worked around: the reference's unclamped fields are visible only
+    /// through the same three getters, so a script that writes 99 hours and reads them back would
+    /// see 99 there and 3 here.
+    /// </remarks>
+    public override void SetPartyValue(GpdlPartyValue value, string setting)
+    {
+        if (!int.TryParse(setting, System.Globalization.NumberStyles.Integer,
+                          System.Globalization.CultureInfo.InvariantCulture, out int number))
+        {
+            return;
+        }
+
+        switch (value)
+        {
+            case GpdlPartyValue.Time:
+                game.SetMinutes(number);
+                break;
+
+            case GpdlPartyValue.Days:
+                game.SetMinutes(number * 24 * MinutesPerHour
+                                + game.Minutes % (24 * MinutesPerHour));
+                break;
+
+            case GpdlPartyValue.Hours:
+                game.SetMinutes(game.Minutes / (24 * MinutesPerHour) * 24 * MinutesPerHour
+                                + number * MinutesPerHour
+                                + game.Minutes % MinutesPerHour);
+                break;
+
+            case GpdlPartyValue.Minutes:
+                game.SetMinutes(game.Minutes / MinutesPerHour * MinutesPerHour + number);
+                break;
+
+            case GpdlPartyValue.ActiveCharacter:
+                // Modulo, so an out-of-range index wraps rather than being refused.
+                game.Party.ActiveCharacter =
+                    game.Party.Count > 0 ? ((number % game.Party.Count) + game.Party.Count)
+                                           % game.Party.Count
+                                         : 0;
+                break;
+
+            case GpdlPartyValue.Facing:
+                game.SetFacing((Facing)Math.Clamp(number, 0, 7));
+                break;
+        }
+    }
+
+    /// <inheritdoc/>
+    public override string PartyLocation =>
+        $"/{game.LevelIndex + 1}/{game.X}/{game.Y}";
+
+    /// <inheritdoc/>
+    public override int MoneyAvailable(int coinType)
+    {
+        double total = game.Party.Members.Sum(m => m.Purse.Total());
+
+        if (coinType == 0)
+        {
+            return (int)total;
+        }
+
+        if (coinType is < 1 or > MoneyRules.MaxCoinTypes)
+        {
+            return 0;
+        }
+
+        return (int)game.Money.Convert(total, game.Money.BaseType,
+                                       MoneyRules.ClassOf(coinType - 1));
+    }
+
+    /// <inheritdoc/>
+    public override bool IsInParty(string actor) => Resolve(actor) is not null;
+
+    /// <inheritdoc/>
+    public override void SetPartyXY(int x, int y) => game.QueuePartyMove(x, y);
+
     /// <summary>One score replaced, since the scores are an immutable record.</summary>
     private static AbilityScores Written(AbilityScores scores, AbilityScore ability, int value) =>
         ability switch
