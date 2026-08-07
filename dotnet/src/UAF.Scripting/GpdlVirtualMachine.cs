@@ -940,6 +940,39 @@ public sealed class GpdlVirtualMachine
                 // that were tested against that.
                 _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
                 break;
+            case SubOp.SUBOP_DAT_Item_CommonName:
+            case SubOp.SUBOP_DAT_Item_IDName:
+            case SubOp.SUBOP_DAT_Item_Priority:
+            case SubOp.SUBOP_DAT_Item_MaxRange:
+            case SubOp.SUBOP_DAT_Item_MediumRange:
+            case SubOp.SUBOP_DAT_Item_ShortRange:
+            case SubOp.SUBOP_DAT_Item_DamageSmall:
+            case SubOp.SUBOP_DAT_Item_DamageLarge:
+            case SubOp.SUBOP_DAT_Item_AttackBonus:
+                PushSp(_host.ItemField(PopSp(), ItemFieldOf(op)));
+                break;
+            case SubOp.SUBOP_DAT_Race_Height:
+                PushSp(_host.RaceMeasurement(PopSp(), weight: false)
+                            .ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_DAT_Race_Weight:
+                PushSp(_host.RaceMeasurement(PopSp(), weight: true)
+                            .ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_DAT_Baseclass_Level:
+            case SubOp.SUBOP_DAT_Baseclass_Experience:
+                {
+                    // The number first, then the baseclass.
+                    int given = PopInteger();
+                    PushSp(_host.BaseclassProgression(
+                               PopSp(), given,
+                               op == SubOp.SUBOP_DAT_Baseclass_Experience)
+                           .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_DAT_Class_Baseclasses:
+                PushSp(_host.ClassBaseclasses(PopSp()));
+                break;
             case SubOp.SUBOP_GET_CHARACTER_SA:
             case SubOp.SUBOP_GET_COMBATANT_SA:
             case SubOp.SUBOP_GET_ITEM_SA:
@@ -1239,6 +1272,21 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which field of an item's record a call reads.</summary>
+    private static GpdlItemField ItemFieldOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_DAT_Item_CommonName => GpdlItemField.CommonName,
+        SubOp.SUBOP_DAT_Item_IDName => GpdlItemField.IdName,
+        SubOp.SUBOP_DAT_Item_Priority => GpdlItemField.Priority,
+        SubOp.SUBOP_DAT_Item_MaxRange => GpdlItemField.MaxRange,
+        SubOp.SUBOP_DAT_Item_MediumRange => GpdlItemField.MediumRange,
+        SubOp.SUBOP_DAT_Item_ShortRange => GpdlItemField.ShortRange,
+        SubOp.SUBOP_DAT_Item_DamageSmall => GpdlItemField.DamageSmall,
+        SubOp.SUBOP_DAT_Item_DamageLarge => GpdlItemField.DamageLarge,
+        SubOp.SUBOP_DAT_Item_AttackBonus => GpdlItemField.AttackBonus,
+        _ => GpdlItemField.CommonName,
     };
 
     /// <summary>Which record a named-record call reaches.</summary>

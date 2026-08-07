@@ -247,6 +247,37 @@ public enum GpdlDamageQuery
     LeastDamagedFriendly,
 }
 
+/// <summary>
+/// A field of an item's database record a script can read (the <c>DAT_Item_*</c> family,
+/// <c>GPDLexec.cpp:6471</c>).
+/// </summary>
+public enum GpdlItemField
+{
+    /// <summary>The name shown before the item is identified.</summary>
+    CommonName,
+
+    /// <summary>The name shown after it is.</summary>
+    IdName,
+
+    /// <summary>The AI's use priority.</summary>
+    Priority,
+
+    MaxRange,
+    MediumRange,
+    ShortRange,
+
+    /// <summary>
+    /// Damage against a small target, as <c>"$dice$sides$bonus"</c> — three numbers in one
+    /// <c>$</c>-delimited string.
+    /// </summary>
+    DamageSmall,
+
+    /// <inheritdoc cref="DamageSmall"/>
+    DamageLarge,
+
+    AttackBonus,
+}
+
 /// <summary>Which attribute store a GPDL script is reaching for.</summary>
 public enum GpdlAslScope
 {
@@ -531,6 +562,45 @@ public interface IGpdlHost
     /// <returns>Null when the name reaches nothing, which the caller reports as the sentinel.</returns>
     SpecabList? Abilities(GpdlSaRecord record, string who);
 
+    // ---- the databases --------------------------------------------------------------------------
+
+    /// <summary>
+    /// A field off an item's database record (<c>DAT_Item_*</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>An id the design does not define answers the empty string.</b> The reference clears its
+    /// scratch string in <c>m_GetItemData</c> before the lookup (<c>GPDLexec.cpp:1162</c>) — the
+    /// guard that <c>GET_CHARACTER_SA</c> forgets — so this family is safe where that one is not.
+    /// </remarks>
+    string ItemField(string itemId, GpdlItemField field);
+
+    /// <summary>
+    /// A character's race height or weight (<c>DAT_Race_Height</c>, <c>Char.cpp:4591</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Rolled, not looked up.</b> The race's height is a dice field and this rolls it, so two
+    /// calls about the same character give two answers. A script wanting a stable number has to
+    /// keep the first one.
+    /// </remarks>
+    int RaceMeasurement(string actor, bool weight);
+
+    /// <summary>
+    /// The level a baseclass reaches at some experience, or the experience a level needs
+    /// (<c>DAT_Baseclass_Level</c> and <c>_Experience</c>, <c>GPDLexec.cpp:4081</c>).
+    /// </summary>
+    int BaseclassProgression(string baseclassId, int value, bool wantExperience);
+
+    /// <summary>
+    /// A class's baseclasses, as a <c>$</c>-delimited string (<c>GPDLexec.cpp:4058</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The delimiter leads rather than separates.</b> Each name is appended after a <c>$</c>,
+    /// so one baseclass is <c>"$fighter"</c> and a class the design does not define is <c>""</c> —
+    /// never a bare name. The same convention carries the three numbers of
+    /// <see cref="GpdlItemField.DamageSmall"/>.
+    /// </remarks>
+    string ClassBaseclasses(string classId);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -651,6 +721,23 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <summary>Ability lists this environment is holding, by record and name.</summary>
     public Dictionary<(GpdlSaRecord Record, string Who), SpecabList> AbilityLists { get; } = [];
+
+    /// <summary>Item fields this environment is holding, by id and field.</summary>
+    public Dictionary<(string Item, GpdlItemField Field), string> ItemFields { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual string ItemField(string itemId, GpdlItemField field) =>
+        ItemFields.TryGetValue((itemId, field), out string? value) ? value : string.Empty;
+
+    /// <inheritdoc/>
+    public virtual int RaceMeasurement(string actor, bool weight) => 0;
+
+    /// <inheritdoc/>
+    public virtual int BaseclassProgression(string baseclassId, int value, bool wantExperience) =>
+        0;
+
+    /// <inheritdoc/>
+    public virtual string ClassBaseclasses(string classId) => string.Empty;
 
     /// <inheritdoc/>
     public virtual SpecabList? Abilities(GpdlSaRecord record, string who) =>

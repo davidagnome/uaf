@@ -4615,6 +4615,34 @@ the character block's family is now complete on the reading side.
 > *actor*; the nine database ones take a plain id string. The compiler enforces the difference, so
 > what looks like thirteen of a kind is really two shapes.
 
+##### The database reads, and a delimiter that leads
+
+The fourteen `DAT_*` sub-opcodes (`GPDLexec.cpp:4058` and `:6459`). **Fourteen more, 209 → 223.**
+
+**Taken before the auras, and the plan said otherwise last round.** The aura family needs a live
+object model this port has nothing of — shape, wavelength, cell mask, attachment, per-aura specab
+list and its own script source type — which is several rounds. The `DAT_*` reads are uniform and
+the port already holds every record they touch. Doing the cheap useful ones first was the better
+call; auras are now the last group.
+
+> **The `$` delimiter leads rather than separates.** `DAT_Class_Baseclasses` appends each name
+> *after* a `$`, so one baseclass is `"$fighter"` and a class the design does not define is `""` —
+> never a bare name. `DamageSmall` and `DamageLarge` use the same shape for three numbers,
+> `"$dice$sides$bonus"`. That convention is why `$DelimitedStringFilter` exists in the opcode set.
+
+> **A race measurement is rolled, not looked up.** `DAT_Race_Height` rolls the race's height dice
+> (`Char.cpp:4600`), so two calls about the same character give two answers. A script wanting a
+> stable number has to keep the first.
+
+> **This family remembered the guard the SA family forgot.** `m_GetItemData` clears its scratch
+> string before the lookup (`GPDLexec.cpp:1162`), so an item the design does not define answers the
+> empty string — where `GET_CHARACTER_SA`, written by the same hand, pushes whatever was left over.
+> The two are four thousand lines apart.
+
+**Not ported, and named:** `DAT_Item_AttackBonus` is wired but the host answers from its own table
+rather than a database, as do all fourteen — `GameScriptHost` does not override them yet, so in a
+running game they are empty. Same shape as the combat calls two rounds before they were backed.
+
 ###### The bug this round did not reproduce
 
 **`GET_CHARACTER_SA` pushes `m_string3` without initialising it.** When the actor names nobody the
@@ -8025,10 +8053,14 @@ What is left, in order:
      ~~**Next: a specab store addressable by record**~~ **Done** (§the record-addressed store):
      13 more, **196 → 209**, and **the special-ability family is complete**.
 
-     **Next: the aura family** — eight opcodes and the largest single group left, and the one that
-     needs a live object model the port does not have at all yet. After it: the `DAT_*` database
-     reads, and the script-calling opcodes (`ForEachPartyMember`, `ForEachPossession`) that drive
-     `SpecabScripts` over a collection — those two are now cheap, since the walk they need exists.
+     ~~**Next: the aura family**~~ — deferred, and §the database reads says why. **The `DAT_*`
+     reads are in** instead: 14 more, **209 → 223**.
+
+     **Next: `GameScriptHost`'s database side and the two `ForEach` opcodes** — the reads are wired
+     to the interface but the game host does not override them, so in a running design they answer
+     empty; and `ForEachPartyMember`/`ForEachPossession` drive `SpecabScripts` over a collection,
+     which is a walk that already exists. Both are cheap. **The auras are then the only group
+     left**, and the only one needing a live object model built from nothing.
 
 
 
