@@ -490,6 +490,64 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// <inheritdoc/>
     public override void SetPartyXY(int x, int y) => game.QueuePartyMove(x, y);
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The fight's own store, or the unhosted one when there is no fight.</b> The reference has
+    /// a single global <c>combatData</c> whose aura list is simply empty out of combat; here the
+    /// list belongs to the <see cref="CombatSession"/>, so out of combat the base class's store
+    /// stands in. Either way an aura opcode outside combat finds nothing current and takes its
+    /// error branch, which is what the reference does too.
+    /// </remarks>
+    public override AuraStore Auras => game.Combat?.Auras ?? base.Auras;
+
+    /// <inheritdoc/>
+    public override IAuraWorld AuraWorld =>
+        game.Combat is { } session ? new CombatAuraWorld(session, this) : base.AuraWorld;
+
+    /// <summary>
+    /// A live fight, as an aura sees it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Facing is <c>MoveDirection</c>, not <c>Facing</c>.</b> The reference compares
+    /// <c>m_iMoveDir</c> — the eight-way direction of the last step — where the port's
+    /// <see cref="Combatant.Facing"/> only ever flips east or west for drawing. An aura attached
+    /// with <c>CombatantFacing</c> turns with the walk, not with the sprite.
+    /// </remarks>
+    private sealed class CombatAuraWorld(CombatSession session, GameScriptHost host) : IAuraWorld
+    {
+        public int MapWidth => session.Map.Width;
+
+        public int CombatantCount => session.Combatants.Count;
+
+        public (int X, int Y, int Facing) Combatant(int index) =>
+            index >= 0 && index < session.Combatants.Count
+                ? (session.Combatants[index].X, session.Combatants[index].Y,
+                   (int)session.Combatants[index].MoveDirection)
+                : (-1, -1, 0);
+
+        public void RunAuraScript(Aura aura, string scriptName, int combatantIndex)
+        {
+            using var frame = host.Context.Push();
+
+            if (combatantIndex >= 0 && combatantIndex < session.Combatants.Count)
+            {
+                // The reference sets the combatant context before the run so that the script can
+                // ask who crossed the edge (Combatants.cpp:8785). The create hook has nobody.
+                host.Context.Set(GpdlContext.Combatant, Text(combatantIndex));
+            }
+
+            // An aura's abilities are reached through $AURA_GetSA off the current aura, not through
+            // the context's record lists -- so unlike the item and character walks there is nothing
+            // to put on the context here.
+            SpecabScripts.Run(Pairs(aura), scriptName, host.game.Scripts, host,
+                              ScriptCallbacks.RunAll);
+        }
+
+        /// <summary>The aura's ability list in the order-preserving shape the runner wants.</summary>
+        private static List<SpecabPair> Pairs(Aura aura) =>
+            [.. aura.Abilities.Abilities.Select(a => new SpecabPair(a.Key, a.Value))];
+    }
+
     /// <summary>One score replaced, since the scores are an immutable record.</summary>
     private static AbilityScores Written(AbilityScores scores, AbilityScore ability, int value) =>
         ability switch

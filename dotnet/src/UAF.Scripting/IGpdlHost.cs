@@ -641,6 +641,23 @@ public interface IGpdlHost
 
     /// <summary><c>$DebugWrite(x)</c> — logs without consuming the stack (GPDLexec.cpp:3355).</summary>
     void DebugWrite(string message);
+
+    // ---- auras ----------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The combat's auras and its aura reference stack (<c>COMBAT_DATA</c>'s aura members).
+    /// </summary>
+    /// <remarks>
+    /// <b>Thirteen of the fourteen opcodes read <see cref="AuraStore.Current"/> and nothing else.</b>
+    /// Outside an aura script it is null, and each of them then takes a different malformed
+    /// path — see the arms in <c>GpdlVirtualMachine</c>.
+    /// </remarks>
+    AuraStore Auras { get; }
+
+    /// <summary>
+    /// The combat an aura is placed in, for the create and placement sequences.
+    /// </summary>
+    IAuraWorld AuraWorld { get; }
 }
 
 /// <summary>
@@ -915,4 +932,46 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual void DebugWrite(string message) => DebugLog.Add(message);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>A real store, not a refusal.</b> An aura is self-contained — a mask, an ability list and
+    /// ten strings — so the whole family works unhosted except for the parts that need combatants,
+    /// which <see cref="AuraWorld"/> supplies.
+    /// </remarks>
+    public virtual AuraStore Auras { get; } = new(DefaultAuraCells);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// An empty combat: no combatants, so no aura ever fires an enter or exit script. Override to
+    /// give a test some.
+    /// </remarks>
+    public virtual IAuraWorld AuraWorld => emptyCombat;
+
+    /// <summary>
+    /// The default mask size, <c>50 × 50</c> — what <c>MAX_TERRAIN_WIDTH</c> and
+    /// <c>MAX_TERRAIN_HEIGHT</c> take when the design's config names neither
+    /// (<c>Globals.cpp:2861</c>). The reference then clamps both to <c>[25, 500]</c>.
+    /// </summary>
+    public const int DefaultAuraMapWidth = 50;
+
+    /// <inheritdoc cref="DefaultAuraMapWidth"/>
+    public const int DefaultAuraMapHeight = 50;
+
+    private const int DefaultAuraCells = DefaultAuraMapWidth * DefaultAuraMapHeight;
+
+    private readonly EmptyCombat emptyCombat = new();
+
+    private sealed class EmptyCombat : IAuraWorld
+    {
+        public int MapWidth => DefaultAuraMapWidth;
+
+        public int CombatantCount => 0;
+
+        public (int X, int Y, int Facing) Combatant(int index) => (-1, -1, 0);
+
+        public void RunAuraScript(Aura aura, string scriptName, int combatantIndex)
+        {
+        }
+    }
 }

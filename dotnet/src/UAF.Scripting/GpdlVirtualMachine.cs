@@ -1171,6 +1171,185 @@ public sealed class GpdlVirtualMachine
                 _host.DebugWrite(_dataStack[_sp] + "\n");
                 break;
 
+            // ---- the aura family ----------------------------------------------------------------
+            //
+            // Read the remarks on AuraOps and AuraPlacement first. Two things about these fourteen
+            // arms are not obvious and are transcribed rather than tidied:
+            //
+            //   1. THEY DO NOT BALANCE THE STACK, and each one fails to differently. $AURA_Create
+            //      pops its five arguments and pushes nothing. $AURA_Destroy pushes "OK" only when
+            //      it FAILS. $AURA_Size pops three of its four arguments on the error path.
+            //      $AURA_SetData pops neither of its two on either path. Every declaration in
+            //      systemfunctions[] says the call returns STRING. GPDLexec.cpp:934.
+            //
+            //   2. The error path is "no aura is current", which happens whenever one of these is
+            //      called outside an aura script -- and also for the rest of a script that has just
+            //      called $AURA_Destroy on itself, since the destroyed aura leaves the list while
+            //      its id stays on the reference stack.
+            case SubOp.SUBOP_AURA_Create:
+                {
+                    // Popped in reverse, so arg1 is the first written argument.
+                    string arg5 = PopSp();
+                    string arg4 = PopSp();
+                    string arg3 = PopSp();
+                    string arg2 = PopSp();
+                    string arg1 = PopSp();
+
+                    // The new id is discarded here exactly as the reference discards it.
+                    AuraPlacement.Create(_host.Auras, _host.AuraWorld,
+                                         arg1, arg2, arg3, arg4, arg5);
+
+                    // And nothing is pushed. See note 1 above.
+                    break;
+                }
+            case SubOp.SUBOP_AURA_Destroy:
+                {
+                    var aura = _host.Auras.Current;
+                    if (aura is null)
+                    {
+                        PushSp("OK");
+                        break;
+                    }
+
+                    aura.Pending.Shape = AuraShape.Null;
+                    _host.Auras.Delete(aura);
+
+                    // Placed one more time AFTER being taken off the list, on the object the list
+                    // no longer holds -- which is how every combatant inside gets an AURA_Exit. In
+                    // the reference this is a use-after-free that happens to work because
+                    // CList::RemoveAt destroys its copy only when the list is destroyed.
+                    AuraPlacement.Check(_host.Auras, aura, _host.AuraWorld, moved: false);
+                    break;
+                }
+            case SubOp.SUBOP_AURA_AddSA:
+                {
+                    var aura = _host.Auras.Current;
+                    if (aura is null)
+                    {
+                        PopSp();                    // one of two, and no result
+                        break;
+                    }
+
+                    string parameter = PopSp();
+                    string name = PopSp();
+                    aura.Abilities.Set(name, parameter);
+                    PushSp(name);
+                    break;
+                }
+            case SubOp.SUBOP_AURA_GetSA:
+                if (_host.Auras.Current is { } getFrom)
+                {
+                    PushSp(getFrom.Abilities.Get(PopSp()));
+                }
+                break;
+            case SubOp.SUBOP_AURA_RemoveSA:
+                if (_host.Auras.Current is { } removeFrom)
+                {
+                    PushSp(removeFrom.Abilities.Delete(PopSp()));
+                }
+                break;
+            case SubOp.SUBOP_AURA_Attach:
+                if (_host.Auras.Current is { } toAttach)
+                {
+                    s1 = PopSp();
+                    if (!AuraOps.SetAttachment(toAttach, s1))
+                    {
+                        _host.Debug("Illegal AURA Attachment Parameter\n");
+                    }
+                    PushSp(s1);
+                }
+                break;
+            case SubOp.SUBOP_AURA_Combatant:
+                if (_host.Auras.Current is { } toIndex)
+                {
+                    toIndex.Pending.CombatantIndex = PopInteger();
+
+                    // Empty, where its neighbours push back their argument or "OK". Three
+                    // conventions across thirteen opcodes.
+                    PushSp(string.Empty);
+                }
+                break;
+            case SubOp.SUBOP_AURA_Wavelength:
+                if (_host.Auras.Current is { } toTune)
+                {
+                    s1 = PopSp();
+                    AuraOps.SetWavelength(toTune, s1);   // an unknown name is silently ignored
+                    PushSp(s1);
+                }
+                break;
+            case SubOp.SUBOP_AURA_Size:
+                {
+                    var aura = _host.Auras.Current;
+                    if (aura is null)
+                    {
+                        PopInteger();               // three of four, and no result
+                        PopInteger();
+                        PopInteger();
+                        break;
+                    }
+
+                    aura.Pending.Size4 = PopInteger();
+                    aura.Pending.Size3 = PopInteger();
+                    aura.Pending.Size2 = PopInteger();
+                    aura.Pending.Size1 = PopInteger();
+                    PushSp("OK");
+                    break;
+                }
+            case SubOp.SUBOP_AURA_Shape:
+                if (_host.Auras.Current is { } toShape)
+                {
+                    s1 = PopSp();
+                    if (!AuraOps.SetShape(toShape, s1))
+                    {
+                        _host.Debug("Illegal AURA shape\n");
+                    }
+                    PushSp(s1);
+                }
+                break;
+            case SubOp.SUBOP_AURA_Spell:
+                if (_host.Auras.Current is { } toEnchant)
+                {
+                    s1 = PopSp();
+                    toEnchant.Pending.SpellId = s1;
+                    PushSp(s1);
+                }
+                break;
+            case SubOp.SUBOP_AURA_Location:
+                {
+                    // ALONE IN THE FAMILY, this one has no `if (!error)` guard (GPDLexec.cpp:1120).
+                    // The reference dereferences the aura pointer unconditionally, so calling it
+                    // outside an aura script is a null dereference rather than a quiet mistake.
+                    // Not reproducible here and not worth reproducing: the arguments are consumed
+                    // and the write is dropped, which is the shape the call would have had.
+                    int y = PopInteger();
+                    int x = PopInteger();
+
+                    if (_host.Auras.Current is { } toPlace)
+                    {
+                        toPlace.Pending.Y = y;
+                        toPlace.Pending.X = x;
+                    }
+
+                    PushSp("OK");
+                    break;
+                }
+            case SubOp.SUBOP_AURA_SetData:
+                // NotImplemented(0x49a73b, false) in the reference -- a message box, once, and then
+                // on with the script. Both its arguments stay on the stack and nothing is pushed.
+                // The only one of the fourteen that the original never finished.
+                _host.Debug("$AURA_SetData is NotImplemented(0x49a73b) in the reference\n");
+                break;
+            case SubOp.SUBOP_AURA_GetData:
+                if (_host.Auras.Current is { } toRead)
+                {
+                    // The reference indexes userData[10] with no bounds check in either direction
+                    // (GPDLexec.cpp:1143). Out of range reads adjacent object memory there; empty
+                    // here, as with $GET_HOOK_PARAM.
+                    i1 = PopInteger();
+                    PushSp(i1 >= 0 && i1 < Aura.UserDataSlots ? toRead.UserData[i1] : string.Empty);
+                }
+                break;
+
             default:
                 throw new NotSupportedException(BuildUnportedMessage(op));
         }

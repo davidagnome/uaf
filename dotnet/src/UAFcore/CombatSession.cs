@@ -1,4 +1,5 @@
 using UAF.Media;
+using UAF.Scripting;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -109,6 +110,22 @@ public sealed class CombatSession
 
     /// <summary>Whose turn it is, or <see cref="CombatMap.NoDude"/>.</summary>
     public int Acting { get; private set; } = CombatMap.NoDude;
+
+    /// <summary>
+    /// The auras placed on this map, and the reference stack their scripts run under.
+    /// </summary>
+    /// <remarks>
+    /// <b>Per fight, like the reference's.</b> <c>m_auras</c> and <c>m_nextAuraID</c> are
+    /// <c>COMBAT_DATA</c> members reset with the rest of it, so ids start at 1 in every fight and
+    /// no aura outlives the combat that made it.
+    /// <para>
+    /// Each aura's cell mask is one byte per square of this map — which is the reference's
+    /// <c>MAX_TERRAIN_WIDTH × MAX_TERRAIN_HEIGHT</c>, since the combat map <i>is</i> that size.
+    /// </para>
+    /// </remarks>
+    public AuraStore Auras => auras ??= new AuraStore(Map.Width * Map.Height);
+
+    private AuraStore? auras;
 
     /// <summary>How it ended, or <see cref="CombatOutcome.Running"/>.</summary>
     public CombatOutcome Outcome { get; private set; } = CombatOutcome.Running;

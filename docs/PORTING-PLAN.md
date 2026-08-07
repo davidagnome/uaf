@@ -25,9 +25,9 @@ area geometry and effect application.
 **The town services are complete**: all seven shells and their inner screens — inventory, save,
 load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, fix and the target
 picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
-combat as well as in it.** **225 of GPDL's 387 sub-opcodes run** against real game state; the aura
-family is the largest group left. Phases 5–7 have not started.
-**3,890 tests, green on macOS, Linux and Windows; both CI workflows green.**
+combat as well as in it.** **239 of GPDL's 387 sub-opcodes run** against real game state, including the
+whole aura family bar its geometry. Phases 5–7 have not started.
+**3,936 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1377,7 +1377,7 @@ Delivered: `dotnet/src/UAF.Scripting/` and `dotnet/tools/gpdlc/`, with 201 tests
 | `talk.bin` writer and reader | Complete |
 | Assembly listing (`GPDLCOMP::list`) | Complete — the highest-value oracle artefact, since a mismatch names an address and a mnemonic |
 | VM control flow, frame protocol, both arithmetic families, string and delimited-string ops | Complete |
-| 162 remaining sub-opcodes, 14 of them the aura family | **225 of 387 ported** as of 2026-08-06 — the character, party, combat, context, special-ability and `DAT_*` families all run. Each unported one throws `NotSupportedException` citing its source line |
+| 148 remaining sub-opcodes | **239 of 387 ported** as of 2026-08-06 — the character, party, combat, context, special-ability, `DAT_*` and aura families all run. Each unported one throws `NotSupportedException` citing its source line |
 | `$GREP` / `$WIGGLE` | **Not ported** — needs the vendored Spencer engine (`regexp.cpp`); routed through `IGpdlHost` |
 | `CompileScript` embedded-script blob and `BINOP_FETCHTEXT` | **Not ported** — a second, different container (SERIALIZATION.md §11) |
 | `RDRCOMP`/`RDREXEC` (GPDLcomp.cpp:4131, GPDLexec.cpp:8249) | **Not ported** — a separate byte-coded expression language that happens to live in the same files |
@@ -4634,7 +4634,8 @@ The fourteen `DAT_*` sub-opcodes (`GPDLexec.cpp:4058` and `:6459`). **Fourteen m
 object model this port has nothing of — shape, wavelength, cell mask, attachment, per-aura specab
 list and its own script source type — which is several rounds. The `DAT_*` reads are uniform and
 the port already holds every record they touch. Doing the cheap useful ones first was the better
-call; auras are now the last group.
+call; auras are now the last group. **They landed a few rounds later, in one round rather than the
+several predicted here** (§the auras) — the object model is real but small.
 
 > **The `$` delimiter leads rather than separates.** `DAT_Class_Baseclasses` appends each name
 > *after* a `$`, so one baseclass is `"$fighter"` and a class the design does not define is `""` —
@@ -4720,6 +4721,113 @@ simply absent.
 the `SCRIPT_CONTEXT`, so they follow the frame; the port has no record-addressed store to point at
 there, so they are held until replaced. A nested script therefore sees the outer one's record lists
 where the reference would have shown it none.
+
+##### The auras, and four ways to get a stack wrong
+
+The last group: fourteen sub-opcodes (`GPDLexec.cpp:6311` and the `AURA_FUNCTION` body at `:934`),
+`struct AURA` (`Combatants.h:290`), and the placement machinery in `Combatants.cpp`. **225 → 239.**
+`UAF.Scripting/Aura.cs`, `AuraStore.cs`, `AuraOps.cs`, `AuraCoverage.cs`, `AuraPlacement.cs`.
+46 tests.
+
+An aura is a region of a combat map that runs its own scripts on whoever walks in or out of it. It
+has a shape, a wavelength, a size, an attachment, a cell mask, ten user strings, its own writable
+ability list and its own script source type — the live object model this plan has been calling
+"several rounds" for. It is one, because most of the fourteen opcodes are two lines each.
+
+> **Every placement property is double-buffered, and every setter writes the back buffer.** They are
+> declared as two-element arrays with the comment "[0] is the current value, [1] is the new value",
+> and all thirteen setters assign `[1]`. Nothing takes effect until `CheckAuraPlacement` compares
+> the buffers and copies pending over current. **There is no getter for any of them** — a script
+> cannot read back what it just set. The ten user slots are an aura's only readable state.
+
+> **Thirteen of the fourteen take no aura argument.** They act on whichever id is on top of the
+> reference stack, which only the engine pushes: around a create, and around the enter/exit sweep.
+> So a script can talk about its own aura and no other, and there is no opcode that reaches a
+> different one at all.
+
+###### The error branch is not a no-op, and it is different every time
+
+`AURA_FUNCTION` opens by looking up the current aura and setting `error` if there is none. Every arm
+then has an `if (!error) … else …`, and **not one of the else branches balances the stack**. Every
+declaration in `systemfunctions[]` says these calls return `STRING`.
+
+| Call | Success | Failure |
+|---|---|---|
+| `$AURA_Create` (5 args) | pops 5, **pushes nothing** | — (no guard) |
+| `$AURA_Destroy` (0 args) | **pushes nothing** | pushes `"OK"` |
+| `$AURA_Size` (4 args) | pops 4, pushes `"OK"` | **pops 3**, pushes nothing |
+| `$AURA_AddSA` (2 args) | pops 2, pushes the name | **pops 1**, pushes nothing |
+| the eight 1-arg calls | pops 1, pushes something | **pops 0**, pushes nothing |
+| `$AURA_SetData` (2 args) | **`NotImplemented`** | pops 0, pushes nothing |
+| `$AURA_Location` (2 args) | pops 2, pushes `"OK"` | **no guard — null dereference** |
+
+**What that does to a design is concrete, and the tests assert it as strings.** Outside an aura
+script, `$AURA_GetSA("xyz")` returns `"xyz"`; `$AURA_Shape("Global")` returns `"Global"`;
+`$AURA_Size(1,2,3,4)` returns `"1"`, the *first* argument, because three of four were popped. The
+call hands back an argument as if it were an answer and nothing reports a failure.
+
+> **`$AURA_Create` is the worst of them.** It pushes no result, so a caller that uses the value pops
+> straight past its own arguments into the frame beneath. In this port's VM that reads the call
+> marker: `$RETURN($AURA_Create(…))` answers `"f(0)"`. That is a transcription, not a port
+> artefact — the reference reads whatever its stack holds at that depth.
+
+> **`$AURA_Destroy` has it exactly backwards**: the failure path is the one that answers `"OK"`.
+
+> **`$AURA_SetData` was never implemented in the reference either** — `NotImplemented(0x49a73b,
+> false)`, a message box and on with the script. One of the fourteen is dead on arrival, and the
+> ten user slots are therefore write-once, at create, three of them.
+
+> **A script that destroys its own aura keeps running in the error branch.** `DeleteAura` takes it
+> off the list and leaves its id on the reference stack, and the lookup is by id through the list —
+> so every remaining call in that script silently echoes its argument.
+
+###### The shape names, and one that fails quietly
+
+`$AURA_Shape` falls back to `NULL` and logs; `$AURA_Attach` falls back to `NONE` and logs;
+**`$AURA_Wavelength` does neither.** It is three bare `if`s with no `else`, so a misspelled
+wavelength leaves the previous value standing and says nothing. Three sibling setters, three
+different answers to the same question.
+
+> **`"XY"` also blanks the pending coordinate to (-1,-1)**, where the other two attachments leave it
+> alone and take their position off the combatant. So attaching to XY and forgetting
+> `$AURA_Location` puts the aura off the map rather than at the origin.
+
+###### The placement check, and a return value nobody reads
+
+> **An XY-attached aura recomputes on every single check.** The "nothing moved" test enumerates
+> `COMBATANT`, `COMBATANT_FACING` and `NONE`, and simply omits `XY` — so that early exit can never
+> be taken for one. It reads like an oversight and it is load-bearing: nothing else would notice a
+> `$AURA_Location` that moved the aura and changed no other property.
+
+> **A move forces a recompute only for a *visible* aura.** An X-ray or neutrino one keeps its mask
+> when somebody walks, because the recompute exists to redraw.
+
+> **The `bool` return is dead.** It is `false` on every path, and both callers loop on it —
+> `while (CheckAuraPlacement(pAURA, NULL)){}` in `CreateAura`, and a `do…while(redraw)` in
+> `CheckAllAuraPlacements` carrying the comment "Why do we need to call 'CheckAuraPlacement' more
+> than once?". You do not. Both loops run exactly once.
+
+> **`$AURA_Destroy` places the aura one more time after taking it off the list**, on the object the
+> list no longer holds — which is how everyone inside gets their `AURA_Exit`. In the reference that
+> is a use-after-free that happens to work. `CreateAura` returns the new id with the comment "May be
+> gone!!!" for the same reason: the create script may already have destroyed it.
+
+###### Not ported, and named
+
+**`AURA_SHAPE_ANNULARSECTOR` coverage** — `DetermineAnnularCoverage` (`Combatants.cpp:8182`),
+`LocateAuraCenters` and the two octant walkers, about 830 lines, and **the only shape that computes
+anything**. `AuraCoverage` throws for it rather than covering nothing, because an empty mask would
+be indistinguishable from a working aura that happens to reach nobody. This is the natural next
+round.
+
+> **`AURA_SHAPE_GLOBAL` computes nothing in the reference either** —
+> `DetermineGlobalCoverage` is `NotImplemented(0x321abe, false)` and returns without touching a
+> cell. So "Global" does not mean everywhere; it means *leave the mask exactly as it was*. On a new
+> aura that is all zeroes. Transcribed as written, since a design balanced against the shipped
+> engine got nothing from it.
+
+**The sprite.** `AddSprite`/`RemoveSprite` paint the aura's spell art over every covered cell; that
+needs the combat renderer's animation list and no rule depends on it.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -8192,12 +8300,20 @@ What is left, in order:
      the sub-opcode counts in three places, Phase 1's unread-database row, and
      `GameScriptHost`'s own summary comment. Each correction says what it used to claim.
 
-     **Next: the auras** — fourteen opcodes, the only group left, and the only one needing a live
-     object model built from nothing: shape, wavelength, size, attachment, a cell mask, ten
-     user-data slots, a per-aura ability list and its own script source type. Expect several
-     rounds. **Worth doing first, and cheap: a test that enumerates `EventType` and asserts which
-     types reach `BeginUnsupported`** — the count above is a hand-count, it has been wrong once,
-     and it will drift again.
+     ~~**Next, and cheap: a test that enumerates `EventType`**~~ **Done, 2026-08-06**
+     (§what the corpus proves about event coverage). `EventTypeCoverageTests` sweeps the whole
+     corpus through `Game.StartEvent`: **no event type any shipped design uses is inert**, 39 of 44
+     dispatch, and the hand-count it replaced was wrong about `GuidedTour`. The figures in this
+     section are now measured and guarded.
+
+     ~~**Next: the auras**~~ **Done, 2026-08-06** (§the auras): **225 → 239**, the whole group in
+     one round rather than the several this note predicted — most of the fourteen opcodes are two
+     lines, and the interesting part turned out to be that **none of their error branches balances
+     the stack**, in four different ways.
+
+     **Next: annular-sector coverage** — `DetermineAnnularCoverage` (`Combatants.cpp:8182`),
+     `LocateAuraCenters` and the two octant walkers. ~830 lines, the only shape that computes
+     anything, and the last shaped gap in GPDL. `AuraCoverage` throws for it today.
 
 
 
@@ -8220,11 +8336,10 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **225 of 387 are implemented** (2026-08-06, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. Of the 162 left, **148 are
+3. **The rest of the GPDL sub-opcodes.** **239 of 387 are implemented** (2026-08-06, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. Of the 148 left, **134 are
    callable at all** — the others have no `systemfunctions[]` entry and are compiler-internal or
-   dead — and **14 of those are the aura family**, the only remaining group that needs a live
-   object model built from nothing.
+   dead. **No callable group remains**: what is left is scattered singles.
 
    Done and backed by real game state: the attribute family (global, party, per-character), the
    whole character block including the three ability-score layers, the party block, the combat
@@ -8236,7 +8351,8 @@ What is left, in order:
    > Phase 4 were current throughout; it was this summary that drifted.
 
    Still wanting state the port does not have: `$GET_CHAR_EFFAC` needs the attacker as well as the
-   target, and the aura family needs the aura object.
+   target. The aura family runs (§the auras), but an `AnnularSector` aura throws until its geometry
+   is ported — about 830 lines, and the natural next round.
 4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
@@ -8280,7 +8396,7 @@ the round both call and neither has.
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
 | **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
-| **162 GPDL sub-opcodes, and the Forth VM** | **225 of 387 are implemented.** Of the rest, 148 are callable and 14 of those are the aura family — the only group needing an object model built from nothing. Each unimplemented one throws `NotSupportedException` naming its source line. The Forth VM is not started | Medium |
+| **148 GPDL sub-opcodes, and the Forth VM** | **239 of 387 are implemented**, the aura family among them. Of the rest, 134 are callable and none of them forms a group — they are scattered singles. Each unimplemented one throws `NotSupportedException` naming its source line. **Annular-sector aura coverage is the one shaped gap left** (~830 lines of geometry). The Forth VM is not started | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
