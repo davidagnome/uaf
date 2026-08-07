@@ -127,18 +127,19 @@ public class EventDonateTests
     }
 
     [Fact]
-    public void The_casting_itself_is_named_rather_than_done()
+    public void The_temples_cast_opens_the_spell_list()
     {
-        // The reference synthesises a max-level bishop and casts through the ordinary spell
-        // machinery -- the same layer FIX waits on.
         var runner = Started();
         runner.TempleSpellsFor = () => [new TempleSpell("cure", "Cure", 1, 50)];
+        runner.CastableSpells = () => [new SpellListEntry("cure", 1) { Memorized = 1 }];
 
         Choose(runner, TempleHeal);
         Choose(runner, EventRunner.HealCast);
         Press(runner, VirtualKey.Return);
 
-        Assert.Contains("casting", runner.Unimplemented);
+        Assert.True(runner.CastOpen);
+        Assert.Equal(["CAST", "NEXT", "PREV", "EXIT"],
+                     runner.Menu.Items.Select(i => BitmapFont.Decode(i.Text)));
     }
 
     [Fact]

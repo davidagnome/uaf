@@ -4239,6 +4239,47 @@ spells and spends them, the temple casts from the bishop and spends nothing, and
 terminates because the healing moves the value the target test reads. Proven end to end rather than
 argued — three tests drive `FixSpells.Run` through the actual `PartyCasting.Cast`.
 
+##### The cast list, and one field that means four things
+
+`CAST_MENU_DATA` (`RunEvent.cpp:25754`), `CAST_NON_COMBAT_SPELL_MENU_DATA` (`:25924`),
+`FillCastSpellListText` (`Spell.cpp:8912`) and the four target accessors (`:4787`–`:4905`).
+`UAFcore/NonCombatCast.cs`, `UAFcore/SpellParameters.cs`, and the cast screen on the runner.
+**MAGIC's CAST and the temple's CAST both open it.**
+
+> **One dice field means different things to different spells.** `P1` is the target *count* for a
+> spell that picks units and the area *width* for one that covers ground; `P2` is the height,
+> except in a circle where it is the width again — which is what makes a circle a circle, and what
+> frees `P1` to be its count. Four accessors read six fields through four switch tables and the
+> targeting mode is the only key.
+
+> **The field names are fossils and will actively mislead.** They are called `P1`…`P6` *because*
+> they were renamed away from what they meant, and the header still carries `//Was NumTargets` on
+> `P1` and `//Was TargetRange` on `P2`. Neither is true: the range comes from **`P3`**. This
+> port's own reader repeats those stale comments where it names the fields.
+
+> **The restriction flags are permissions, not prohibitions** — despite a commented-out
+> `NotInCombat`/`NotInCamp` pair sitting directly above them that reads the other way round. A
+> spell with neither flag set can be cast nowhere at all.
+
+> **Three environments, two flags.** `CAST_ENV_ADVENTURE` is filtered by the *camp* flag, so a
+> design cannot allow a spell while camping but forbid it while walking around.
+
+> **Every refusal is silent.** Six guards pop the pushed screen with nothing but a debug string —
+> a combat-only spell, a lost id, a caster who cannot cast. The player presses CAST and the screen
+> goes away. Reproduced; a message where the reference has none is a change to the game.
+
+> **Outside combat every area shape becomes the whole party.** `NeedSpellTargeting` answers no for
+> all five, and the caller's `else` adds every party member — so a fireball cast in camp hits
+> everyone the party has. Only self, and only self, targets one person without asking.
+
+> **A cast with no targets costs nothing.** That branch never reaches `CastSpell`, so the
+> memorised copy is not spent — the one path where pressing CAST is free.
+
+**Not ported, and named:** the target picker for the three modes that need one
+(`TARGET_SELECT_NONCOMBAT_EVENT_DATA`), and the `SPELL_CASTER_LEVEL` script. The host declines a
+spell that needs selection rather than casting it at the whole party, which is what silently
+treating it as a non-selecting mode would amount to.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7585,9 +7626,16 @@ What is left, in order:
 
      **Camp is complete bar QUIT, and the temple bar its own CAST.**
 
-     **Next: the temple's CAST and MAGIC's cast entry** — the two remaining screens that reach
-     casting, now that the casting itself resolves. Both are target selection over
-     `PartyCasting.Cast`, which is the piece `SpellTargets` was built for.
+     ~~**Next: the temple's CAST and MAGIC's cast entry**~~ **Both open the cast list now**
+     (§the cast list), along with the parameter aliasing that decides what a spell's dice fields
+     mean — where the field *names* turn out to be fossils that point at the wrong ones.
+
+     **Camp is complete bar QUIT and DISPLAY**, and the temple is complete.
+
+     **Next: the non-combat target picker** (`TARGET_SELECT_NONCOMBAT_EVENT_DATA`) — the last
+     thing between the cast list and a working spell for the three modes that pick their targets.
+     `SpellTargetSelection` already holds the rules; what is missing is the screen that drives it
+     over the party rather than over a fight.
 
 
 

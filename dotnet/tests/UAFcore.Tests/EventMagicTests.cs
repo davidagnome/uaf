@@ -200,8 +200,8 @@ public class EventMagicTests
     [Fact]
     public void The_unbuilt_entries_are_named()
     {
-        foreach ((int item, string label) in new[]
-                 { (0, "CAST"), (3, "DISPLAY") })
+        // CAST is no longer here -- it opens the spell list.
+        foreach ((int item, string label) in new[] { (3, "DISPLAY") })
         {
             var runner = Started();
             Choose(runner, CampMagic);
@@ -209,5 +209,68 @@ public class EventMagicTests
 
             Assert.Contains(label, runner.Unimplemented);
         }
+    }
+
+    [Fact]
+    public void Cast_opens_the_spell_list()
+    {
+        var runner = Started();
+        runner.CastableSpells = () => [new SpellListEntry("cure", 1) { Memorized = 2 }];
+
+        Choose(runner, CampMagic);
+        Choose(runner, 0);
+
+        Assert.True(runner.CastOpen);
+        Assert.Equal(["CAST", "NEXT", "PREV", "EXIT"],
+                     runner.Menu.Items.Select(i => BitmapFont.Decode(i.Text)));
+        Assert.Equal("cure", Assert.Single(runner.CastPageRows).SpellId);
+    }
+
+    [Fact]
+    public void A_character_who_cannot_cast_never_sees_the_list()
+    {
+        // OnInitialEvent pops before drawing anything, so the entry looks like it did nothing
+        // rather than like it failed.
+        var runner = Started();
+        runner.CanCastSpells = () => false;
+        runner.CastableSpells = () => [new SpellListEntry("cure", 1) { Memorized = 2 }];
+
+        Choose(runner, CampMagic);
+
+        // The menu darkens CAST too, so reach it directly rather than through the cursor.
+        runner.Menu.SetItemEnabled(0, true);
+        Choose(runner, 0);
+
+        Assert.False(runner.CastOpen);
+        Assert.Equal(CastRefusal.CannotCast, runner.LastCast);
+    }
+
+    [Fact]
+    public void Casting_reports_what_the_host_refused()
+    {
+        var runner = Started();
+        runner.CastableSpells = () => [new SpellListEntry("fireball", 3) { Memorized = 1 }];
+        runner.CastSpell = _ => CastRefusal.CombatOnly;
+
+        Choose(runner, CampMagic);
+        Choose(runner, 0);
+        Choose(runner, 0);
+
+        Assert.Equal(CastRefusal.CombatOnly, runner.LastCast);
+        Assert.True(runner.CastOpen);            // and the list stays up
+    }
+
+    [Fact]
+    public void Leaving_the_cast_list_returns_to_the_magic_menu()
+    {
+        var runner = Started();
+        runner.CastableSpells = () => [new SpellListEntry("cure", 1) { Memorized = 1 }];
+
+        Choose(runner, CampMagic);
+        Choose(runner, 0);
+        Press(runner, VirtualKey.Escape);
+
+        Assert.False(runner.CastOpen);
+        Assert.Equal(6, runner.Menu.Count);       // the magic menu
     }
 }

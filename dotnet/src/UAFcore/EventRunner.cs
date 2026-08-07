@@ -136,6 +136,11 @@ public sealed class EventRunner
         InventoryRowIndex = 0;
         LastRefusal = ReadyRefusal.None;
         LastFix = null;
+        CastChoices = null;
+        castParent = null;
+        CastPage = 0;
+        CastIndex = 0;
+        LastCast = CastRefusal.None;
         ShopRows = null;
         ShopPage = 0;
         ShopRowIndex = 0;
@@ -448,6 +453,168 @@ public sealed class EventRunner
         // Back to the picker, which re-counts what is left.
         return OpenAppraise(appraiseParent ?? TempleMenu,
                             appraiseOffers.Gems, appraiseOffers.Jewels);
+    }
+
+    // ---- CAST ----------------------------------------------------------------------------------
+
+    /// <summary>The caster's castable spells, or null when the cast list is not up.</summary>
+    public IReadOnlyList<SpellListEntry>? CastChoices { get; private set; }
+
+    /// <summary>Whether the cast list is the screen on top.</summary>
+    public bool CastOpen => CastChoices is not null;
+
+    /// <summary>Which row the cursor is on.</summary>
+    public int CastIndex { get; private set; }
+
+    /// <summary>Why the last CAST did nothing, or <see cref="CastRefusal.None"/>.</summary>
+    public CastRefusal LastCast { get; private set; }
+
+    /// <summary>The spells the active character can cast here; set by the host.</summary>
+    public Func<IReadOnlyList<SpellListEntry>>? CastableSpells { get; set; }
+
+    /// <summary>
+    /// Casts the named spell for the active character; set by the host. Returns why it did not.
+    /// </summary>
+    public Func<string, CastRefusal>? CastSpell { get; set; }
+
+    private (string Label, int Shortcut)[]? castParent;
+
+    /// <summary>
+    /// <c>CAST_MENU_DATA</c> (<c>RunEvent.cpp:25832</c>) — the caster's memorised spells.
+    /// </summary>
+    /// <remarks>
+    /// <b>A character who cannot cast never sees it.</b> <c>OnInitialEvent</c> pops the screen
+    /// before drawing anything, which lands the player back on the menu underneath — so the entry
+    /// looks like it did nothing rather than like it failed.
+    /// </remarks>
+    private EventStep OpenCast((string Label, int Shortcut)[] parent)
+    {
+        if (CanCastSpells?.Invoke() == false)
+        {
+            LastCast = CastRefusal.CannotCast;
+            return EventStep.Running;
+        }
+
+        castParent = parent;
+        CastIndex = 0;
+        LastCast = CastRefusal.None;
+        CastChoices = CastableSpells?.Invoke() ?? [];
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, NonCombatCast.Menu);
+        escapeSelects = NonCombatCast.Menu.Length - 1;
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>CAST_MENU_DATA::OnKeypress</c> (<c>RunEvent.cpp:25754</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Every refusal is silent.</b> The reference pops the pushed screen with nothing but a
+    /// debug line for each of its six guards, so a player who casts a combat-only spell sees the
+    /// screen go away and nothing else. <see cref="LastCast"/> records which, for a caller that
+    /// wants to say more than the reference does.
+    /// </remarks>
+    private EventStep ChooseCast()
+    {
+        switch (Menu.ActiveItem)
+        {
+            case 0:
+            {
+                var page = CastPageRows;
+                if (CastIndex >= 0 && CastIndex < page.Count)
+                {
+                    LastCast = CastSpell?.Invoke(page[CastIndex].SpellId) ?? CastRefusal.None;
+
+                    // The list is rebuilt because casting spent a copy, which can empty a row.
+                    CastChoices = CastableSpells?.Invoke() ?? [];
+                    if (CastIndex >= CastPageRows.Count)
+                    {
+                        CastIndex = Math.Max(CastPageRows.Count - 1, 0);
+                    }
+                }
+
+                return EventStep.Running;
+            }
+
+            case 1:
+                TurnCastPage(+1);
+                return EventStep.Running;
+
+            case 2:
+                TurnCastPage(-1);
+                return EventStep.Running;
+
+            default:
+            {
+                var parent = castParent;
+                CastChoices = null;
+                castParent = null;
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                               parent ?? MagicMenu);
+                escapeSelects = (parent?.Length ?? MagicMenu.Length) - 1;
+                return EventStep.Running;
+            }
+        }
+    }
+
+    /// <summary>Which page of the spell list is showing.</summary>
+    public int CastPage { get; private set; }
+
+    /// <summary>The rows on the page currently showing.</summary>
+    public IReadOnlyList<SpellListEntry> CastPageRows =>
+        CastChoices is null ? [] : [.. CastChoices.Skip(CastPage * PageSize).Take(PageSize)];
+
+    private void TurnCastPage(int delta)
+    {
+        int count = CastChoices?.Count ?? 0;
+
+        if (delta > 0 && (CastPage + 1) * PageSize >= count)
+        {
+            return;
+        }
+
+        CastPage = Math.Max(CastPage + delta, 0);
+
+        if (CastIndex >= CastPageRows.Count)
+        {
+            CastIndex = Math.Max(CastPageRows.Count - 1, 0);
+        }
+    }
+
+    /// <summary>The spell list takes the vertical keys; the menu keeps left and right.</summary>
+    private bool HandleCastKey(VirtualKey key)
+    {
+        int onPage = CastPageRows.Count;
+        if (onPage <= 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                CastIndex = ((CastIndex - 1) % onPage + onPage) % onPage;
+                return true;
+
+            case VirtualKey.Down:
+                CastIndex = (CastIndex + 1) % onPage;
+                return true;
+
+            case VirtualKey.PageDown:
+                TurnCastPage(+1);
+                return true;
+
+            case VirtualKey.PageUp:
+                TurnCastPage(-1);
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     // ---- BUY -----------------------------------------------------------------------------------
@@ -874,8 +1041,7 @@ public sealed class EventRunner
         switch (Menu.ActiveItem)
         {
             case 0:
-                Unimplemented = "[the temple's casting here -- not implemented]";
-                return EventStep.Running;
+                return OpenCast(HealMenu);
 
             case 1:
             case 2:
@@ -2267,6 +2433,9 @@ public sealed class EventRunner
             // cast, which lands back on the magic menu still sitting underneath.
             case MagicMemorize:
                 return OpenMemorize();
+
+            case MagicCast:
+                return OpenCast(MagicMenu);
 
             case MagicRest:
                 MagicOpen = false;
@@ -4523,6 +4692,12 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // And the cast list, which splits them the same way again.
+        if (CastOpen && input.Kind == InputEventKind.KeyDown && HandleCastKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // The GIVE screen takes digits and backspace; Return falls through and commits.
         if (Giving is not null && HandleGiveKey(input))
         {
@@ -4660,6 +4835,12 @@ public sealed class EventRunner
         if (Memorizing is not null)
         {
             return ChooseMemorize();
+        }
+
+        // The cast list sits over both the magic hub and the temple's, so it answers before either.
+        if (CastOpen)
+        {
+            return ChooseCast();
         }
 
         if (MagicOpen)

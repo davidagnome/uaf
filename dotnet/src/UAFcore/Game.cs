@@ -266,6 +266,34 @@ public sealed class Game
 
         Runner.ActiveCharacterOkay = () => Party.Active?.Status == CharacterStatus.Okay;
 
+        Runner.CastableSpells = () => Party.Active is { } who
+            ? NonCombatCast.Castable(who.Book, CastingEnvironment.Camp, design.Spell)
+            : [];
+
+        Runner.CastSpell = spellId =>
+        {
+            if (Party.Active is not { } who)
+            {
+                return CastRefusal.CannotCast;
+            }
+
+            var record = design.Spell(spellId);
+            var plan = NonCombatCast.Plan(who, Party.Members, record,
+                                          who.Book.Find(spellId) is { Memorized: > 0 });
+
+            if (plan.Refusal is not CastRefusal.None || plan.NeedsSelection)
+            {
+                // The target picker is not built, so a spell that needs one is declined rather
+                // than cast at everybody -- which is what casting it at the whole party would be.
+                return plan.NeedsSelection ? CastRefusal.NoTargets : plan.Refusal;
+            }
+
+            PartyCasting.Cast(who, Party.Members, plan.Targets, record, sides => Dice(sides),
+                              NextActiveSpellKey, Minutes, castingLevel: plan.CasterLevel);
+
+            return CastRefusal.None;
+        };
+
         // FIX runs now that a permanent spell writes hit points rather than layering an adjustment
         // over them: healing raises the raw value, WantsFixing eventually stops saying yes, and
         // the loop ends. In camp each cast also spends a memorised copy, which ends it a second
