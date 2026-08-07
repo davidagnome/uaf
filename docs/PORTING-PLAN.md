@@ -4473,6 +4473,35 @@ refuses it outright; and an actor-typed parameter refuses a string literal, so
 call — and the only actor producers that need no actor themselves are the four damage selectors.
 Every combat script in a design is built up from one of those four or from a context call.
 
+##### The script context, which is a stack that inherits nothing
+
+`$AttackerContext`, `$TargetContext`, `$CombatantContext` (`GPDLexec.cpp:5683`),
+`$MonsterTypeContext` (`:4744`) and the `SCRIPT_CONTEXT` they read (`Specab.h:817`,
+`Specab.cpp:324`). `UAF.Scripting/GpdlScriptContext.cs`. **Four more, 177 → 181** — and the piece
+that makes the other combat calls usable at all.
+
+> **The context is a stack, and its frames are RAII.** Constructing a `SCRIPT_CONTEXT` pushes it
+> onto the global `pScriptContext`; the destructor pops it. Every hook in the engine declares one
+> on the stack, so the declaration *is* the scope. Modelled here as a `using`.
+
+> **A new frame inherits nothing.** The constructor nulls every field rather than copying the frame
+> below, so a script that pushes a context and asks for an attacker its caller had set gets
+> nothing. That is why the hooks set the same two or three contexts over and over — it looks like
+> redundancy and is not.
+
+> **`$MonsterTypeContext` is not actor-typed.** It pushes the monster's database id, so its type
+> flag is 0 and it can be returned like any other string; the other three are actors and cannot.
+> Four calls that look like one family are two.
+
+> **A missing context is an error box and then the empty string.** The reference alerts and carries
+> on. There is no dialog here, so the complaints are collected instead — a script reaching for a
+> context nobody set is broken in a way silently answering `""` would hide.
+
+**Why this mattered before the rest of combat.** The actor type is enforced in both directions
+(§the actor type), so an actor can only come from a call. Before this round the only actor
+producers were the four damage selectors; now a script can name its attacker, its target and
+itself, which is what every real hook does. `CanCastSpells` and `FIX_CHARACTER` set theirs.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7853,12 +7882,13 @@ What is left, in order:
      **165 → 177**, including a stack imbalance that is the mirror of the party block's and is
      *conditional* on whether a fight is running.
 
-     **Next: two things, in this order.** First **the context calls** —
-     `AttackerContext`, `TargetContext`, `CombatantContext`, `MonsterTypeContext` — because the
-     actor type is enforced in both directions (§the actor type) and those four are how a real
-     script names anybody. Then **`GameScriptHost`'s combat side**, which is presently the
-     unhosted default: the opcodes are wired, but a running `CombatSession` is not yet what they
-     ask.
+     ~~**Next: two things, in this order.** First **the context calls**…~~ **The contexts are in**
+     (§the script context): 4 more, **177 → 181**, and the two live hooks set theirs.
+
+     **Next: `GameScriptHost`'s combat side.** The combat opcodes are wired to the interface but
+     `GameScriptHost` still inherits the unhosted defaults, so in a running game they answer "no
+     fight". Backing them with the live `CombatSession` is the remaining half of that family, and
+     it is what turns the last two rounds from plumbing into behaviour.
 
 
 

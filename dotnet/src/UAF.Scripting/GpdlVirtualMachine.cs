@@ -940,6 +940,12 @@ public sealed class GpdlVirtualMachine
                 // that were tested against that.
                 _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
                 break;
+            case SubOp.SUBOP_AttackerContext:
+            case SubOp.SUBOP_TargetContext:
+            case SubOp.SUBOP_CombatantContext:
+            case SubOp.SUBOP_MonsterTypeContext:
+                PushSp(_host.Context.Get(ContextOf(op)));
+                break;
             case SubOp.SUBOP_GetCombatRound:
                 PushSp(_host.CombatRound.ToString(CultureInfo.InvariantCulture));
                 break;
@@ -1162,6 +1168,15 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which ambient actor a context call asks for.</summary>
+    private static GpdlContext ContextOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_AttackerContext => GpdlContext.Attacker,
+        SubOp.SUBOP_TargetContext => GpdlContext.Target,
+        SubOp.SUBOP_CombatantContext => GpdlContext.Combatant,
+        _ => GpdlContext.MonsterType,
     };
 
     /// <summary>Which combatant a selector wants.</summary>

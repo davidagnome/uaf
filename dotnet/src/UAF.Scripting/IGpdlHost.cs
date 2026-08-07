@@ -514,6 +514,11 @@ public interface IGpdlHost
     /// <summary>The actor string that means nobody (<c>NULL_ACTOR</c>).</summary>
     string NullActor { get; }
 
+    /// <summary>
+    /// The ambient actors a script reads with <c>$AttackerContext()</c> and its siblings.
+    /// </summary>
+    GpdlScriptContext Context { get; }
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -628,6 +633,9 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual string NullActor => string.Empty;
+
+    /// <inheritdoc/>
+    public GpdlScriptContext Context { get; } = new();
 
     /// <summary>Party values this environment is holding.</summary>
     public Dictionary<GpdlPartyValue, string> PartyValues { get; } = [];

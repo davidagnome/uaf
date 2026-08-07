@@ -697,6 +697,12 @@ public sealed class Game
     {
         ScriptHost.SetHookParam(GpdlHookParameters.ResultSlot, string.Empty);
 
+        // The reference declares a SCRIPT_CONTEXT on the stack and sets the character on it, so
+        // the script may reach itself with $CombatantContext(). A frame is per-call and inherits
+        // nothing, which is why it is opened here rather than once.
+        using var frame = ScriptHost.Context.Push();
+        ScriptHost.Context.Set(GpdlContext.Combatant, who.CharacterId);
+
         return SpecabScripts.Run(who.Record.SpecialAbilities, "CanCastSpells", Scripts,
                                  ScriptHost, ScriptCallbacks.RunAll)
                             .StartsWith('N');
@@ -722,6 +728,11 @@ public sealed class Game
         ScriptHost.SetHookParam(GpdlHookParameters.ResultSlot,
                                 FixSpells.WantsFixing(who) ? "1" : "");
         ScriptHost.SetHookParam(5, FixSpells.Where(where));
+
+        // RandomTarget sets the spell and the candidate on its context, so the script can ask who
+        // it is being offered to.
+        using var frame = ScriptHost.Context.Push();
+        ScriptHost.Context.Set(GpdlContext.Target, who.CharacterId);
 
         string answer = SpecabScripts.Run(spell.SpecialAbilities, "FIX_CHARACTER", Scripts,
                                           ScriptHost, ScriptCallbacks.RunAll);
