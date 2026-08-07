@@ -4311,6 +4311,43 @@ drives. **The three picking modes now cast**, so every non-combat spell in a des
 > **A target that exactly spends the hit-dice budget lands and ends the selection**; only one that
 > would exceed it is refused.
 
+##### Running a record's own scripts, and a callback that is entirely dead code
+
+`SPECIAL_ABILITIES::RunScripts` (`Specab.cpp:1876`) and its callbacks (`:1678` onwards).
+`UAFcore/SpecabScripts.cs`. **This is the shape every named hook in the engine goes through** — a
+record carries ability names, each named ability may define a script under the hook's name, the
+walk runs the ones that do and hands each answer to a callback. `FIX_CHARACTER` and
+`CanCastSpells` now run for real.
+
+> **The answer lives in hook parameter 0 and is both input and output.** The caller seeds it and
+> reads it back; each script that runs overwrites it. A walk that runs no scripts leaves the seed
+> untouched — which is the mechanism behind every "script-backed default" in this plan, including
+> the `FIX_CHARACTER` finding two sections up.
+
+> **`ScriptCallback_RunAllScripts` is entirely dead code.** It opens with an unconditional
+> `return CBR_CONTINUE;`, and everything after it — a Y/N accumulator and an `ENDOFSCRIPTS` arm
+> that would blank the result and stop — is unreachable. Fifteen call sites name it. What it
+> actually does is: every script runs, nothing stops the walk, nothing rewrites the answer, and
+> the last script wins.
+
+> **`ScriptCallback_LookForChar` is the one that differs, and the difference is the ending.** It
+> stops at the first answer containing one of the wanted characters and **trims the answer to that
+> single character** — so a script replying in a sentence still satisfies a `result[0] == 'N'`
+> test. An exhausted search **blanks** the result, where run-all leaves it, which is what lets
+> `DOES_SPELL_ATTACK_SUCCEED` chain to the next source on an empty answer. And "no scripts at all"
+> is a third outcome again: the seed survives.
+
+> **`FindOneOf` scans the whole answer, so an ordinary word is read as a verdict.** A script
+> answering `MAYBE` is taken as `Y`. Found by writing a test fixture that meant to match nothing
+> and matched.
+
+> **Abilities past `MAX_SPEC_AB` are skipped, not a stopping point** — the reference's `continue`
+> keeps scanning, so which are dropped depends on the order the record lists them.
+
+**Where this leaves Priority 3.** The harness is now ported; the remaining gap is the opcodes the
+scripts themselves use — 83 of ~387 sub-opcodes are implemented in the VM. A design whose hooks
+stay inside those 83 works today.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7669,10 +7706,16 @@ What is left, in order:
      **The town services are done.** Camp is complete bar QUIT and DISPLAY; the temple, the shop,
      the vault, the tavern and the training hall are complete.
 
-     **Next: Priority 3** — the ~250 GPDL sub-opcodes and the Forth VM. Every remaining hole in
-     the services is a script hook: `SPELL_CASTER_LEVEL`, `DOES_SPELL_ATTACK_SUCCEED`, the
-     spell begin/end scripts, `FIX_CHARACTER`, `CanCastSpells`, `SCRIBE_OR_WHATEVER`. They stopped
-     being separate gaps some rounds ago and are now one.
+     ~~**Next: Priority 3** — the ~250 GPDL sub-opcodes and the Forth VM.~~ **The hook harness is
+     ported** (§running a record's own scripts): `FIX_CHARACTER` and `CanCastSpells` run against a
+     record's real abilities, and the callback that decides how a hook chains turns out to be dead
+     code in one of its two forms.
+
+     **Next: the sub-opcodes themselves** — 83 of ~387 are implemented in the VM, and that count
+     is now the whole of Priority 3. The rest of the named hooks
+     (`DOES_SPELL_ATTACK_SUCCEED`, `SPELL_CASTER_LEVEL`, the spell begin/end scripts,
+     `SCRIBE_OR_WHATEVER`) are one call each on top of `SpecabScripts`, so the useful order is
+     opcodes first and hooks as they are needed.
 
 
 

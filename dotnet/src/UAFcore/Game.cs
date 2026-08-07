@@ -1,6 +1,7 @@
 using UAF.Data;
 using UAF.Media;
 using UAF.Rules;
+using UAF.Scripting;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -184,7 +185,7 @@ public sealed class Game
         Runner.ZoneHere = ZoneHere;
         Runner.InCombat = () => Combat is not null;
         Runner.CanCastSpells = () =>
-            Party.Active is { } who && SpellPermissions.CanCast(who);
+            Party.Active is { } who && SpellPermissions.CanCast(who, DeniedByScript(who));
         Runner.CanMemorizeSpells = () =>
             Party.Active is { } who
             && SpellPermissions.CanMemorize(who, SpellPermissions.ForTheMagicMenu);
@@ -350,7 +351,7 @@ public sealed class Game
         Runner.ApplyFix = environment => FixSpells.Run(
             FixSpellBook, Party.Members, environment,
             count => Dice(count) - 1,                      // randomMT() % n
-            (_, who, _) => FixSpells.WantsFixing(who),
+            (spellId, who, where) => WantsFixing(spellId, who, where),
             (caster, spellId, target) => PartyCasting.Cast(
                 caster, Party.Members, [target], design.Spell(spellId), sides => Dice(sides),
                 NextActiveSpellKey, Minutes,
@@ -651,6 +652,51 @@ public sealed class Game
 
     /// <summary><c>activeSpellList.GetNextKey()</c>. Keys start at 1, never 0.</summary>
     private int NextActiveSpellKey() => ++activeSpellKey;
+
+    /// <summary>
+    /// Whether a character's own <c>CanCastSpells</c> hook says no (<c>Char.cpp:7987</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the character's own abilities are consulted here.</b> The reference also tries the
+    /// combatant's and the class's — but the class arm is tested with <c>if (!RunClassScripts(…))</c>
+    /// on a <c>CString</c>, whose buffer is never null, so that branch is dead; see
+    /// <see cref="SpellPermissions.CanCast"/>. The combatant's is a fight's business.
+    /// </remarks>
+    private bool DeniedByScript(Character who)
+    {
+        ScriptHost.SetHookParam(GpdlHookParameters.ResultSlot, string.Empty);
+
+        return SpecabScripts.Run(who.Record.SpecialAbilities, "CanCastSpells", Scripts,
+                                 ScriptHost, ScriptCallbacks.RunAll)
+                            .StartsWith('N');
+    }
+
+    /// <summary>
+    /// Whether a character wants a fix spell — the spell's <c>FIX_CHARACTER</c> hook, over the
+    /// engine's own answer (<c>Party.cpp:3787</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The hook overrides the default rather than supplying it.</b> Hook parameter 0 is seeded
+    /// with the engine's answer before the scripts run, and a design with no such script gets it
+    /// back untouched — see <see cref="FixSpells.WantsFixing"/>. Parameter 5 carries which service
+    /// asked, for a spell that behaves differently in a camp and in a temple.
+    /// </remarks>
+    private bool WantsFixing(string spellId, Character who, FixEnvironment where)
+    {
+        if (design.Spell(spellId) is not { } spell)
+        {
+            return FixSpells.WantsFixing(who);
+        }
+
+        ScriptHost.SetHookParam(GpdlHookParameters.ResultSlot,
+                                FixSpells.WantsFixing(who) ? "1" : "");
+        ScriptHost.SetHookParam(5, FixSpells.Where(where));
+
+        string answer = SpecabScripts.Run(spell.SpecialAbilities, "FIX_CHARACTER", Scripts,
+                                          ScriptHost, ScriptCallbacks.RunAll);
+
+        return answer.Length > 0 && answer != "0";
+    }
 
     private Character? templeBishop;
 
