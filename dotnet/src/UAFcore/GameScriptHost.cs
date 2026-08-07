@@ -14,10 +14,16 @@ namespace UAFcore;
 /// and writes reach the design's global store and the party's own.
 /// </para>
 /// <para>
-/// <b>What is still unhosted.</b> Everything inherited from the base — discourse, <c>$GREP</c>,
-/// randomness — plus the roughly 250 character, party and combat sub-opcodes the VM refuses with a
-/// citation. This closes the attribute family only, which is the one a design uses to remember
-/// things between scripts.
+/// <b>What this host answers.</b> The attribute stores, the whole character block, the party
+/// block, the combat queries against a live <see cref="CombatSession"/>, the database reads, and
+/// both collection walks.
+/// </para>
+/// <para>
+/// <b>What is still unhosted.</b> Everything inherited from the base that has no game behind it —
+/// discourse, <c>$GREP</c> — and the sub-opcodes the VM itself refuses with a citation, of which
+/// the aura family is the largest group. Three item fields
+/// (<c>m_priorityAI</c>, <c>RangeMedium</c>, <c>RangeShort</c>) answer zero because they are
+/// engine-side members this port's item record does not carry.
 /// </para>
 /// </remarks>
 public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment

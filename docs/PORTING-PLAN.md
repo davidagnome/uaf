@@ -2,7 +2,7 @@
 
 **Targets:** `UAFWin` → **UAFcore** (game engine + player), `UAFWinEd` → **UAFedit** (design editor)
 **Stack:** .NET 10, C#, Avalonia 11.x (editor) + SDL3 (game), cross-platform (Windows / macOS / Linux)
-**Date:** 2026-08-03
+**Date:** 2026-08-06
 
 **Status.** Phase 0 complete. **Phase 1 complete** — for reading and for writing. Every design
 file in the fixture corpus parses, diffed against the oracle, and **every file kind the format has
@@ -12,15 +12,21 @@ shipped databases are reproduced **byte for byte**; `.chr`, `.lvl`, `game.dat` a
 written whole; **30 of the 44 event types write, covering every one of the 4,705 events in every
 shipped level**. The remaining 14 event types appear in no shipped design at all.
 Phases 2 and 3 are substantially delivered with named gaps. Phase 4 has a
-running engine: it opens a design, walks a level, renders the viewport, reads **all 44**
-event types and executes thirty-four of them, presents the treasure and character screens, and sets up a combat encounter with the
-party and monsters placed, and **a combat that plays itself to a conclusion** — round clock, AI,
-pathing, movement, attacks, the dying clock and attacks of opportunity — with spell durations and
-stacking under it, and **combat: walking onto a combat event starts a fight that runs to a
-verdict, drawn on screen with real icons, and a player who can move, aim, attack, guard, bandage
-and cast** — spells run the full casting clock, saving throw, area geometry and effect
-application. Phases 5–7 have not started.
-**3,499 tests, green on macOS, Linux and Windows; both CI workflows green.**
+running engine: it opens a design, walks a level, renders the viewport, reads **42 of the 44** event
+types — the other two have no readable body in any loadable design — and **executes 38** of them, presents the treasure and character screens, and sets up a
+combat encounter with the party and monsters placed, and **a combat that plays itself to a
+conclusion** — round clock, AI, pathing, movement, attacks, the dying clock and attacks of
+opportunity — with spell durations and stacking under it, and **combat: walking onto a combat
+event starts a fight that runs to a verdict, drawn on screen with real icons, and a player who can
+move, aim, attack, guard, bandage and cast** — spells run the full casting clock, saving throw,
+area geometry and effect application.
+
+**The town services are complete**: all seven shells and their inner screens — inventory, save,
+load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, fix and the target
+picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
+combat as well as in it.** **225 of GPDL's 387 sub-opcodes run** against real game state; the aura
+family is the largest group left. Phases 5–7 have not started.
+**3,886 tests, green on macOS, Linux and Windows; both CI workflows green.**
 
 ### Where to pick up
 
@@ -1316,7 +1322,7 @@ order. A third overload at `GlobalData.cpp:4960` has an identical signature and 
 | `CHARACTER` | Done. The format's largest record; 6 and 23 characters decode on the 2.53 and 3.55 designs, multiclass baseclass counts self-consistent |
 | `PARTY` / savegames, `.CHAR`, cell contents | Done — `SaveGameReader`, `CharacterFileReader`, `CellContentsReaders`. (An earlier revision listed all three as remaining; they landed and the row was not updated.) |
 | Writers | Byte layer, `CAR` write path and every shared leaf done. **`MONSTER_DATA`, `ITEM_DATA`, `SPELL_DATA` and `CHARACTER` write**, and all three of `ci-tier3`'s databases are reproduced byte for byte. `LEVEL` and the savegames do not |
-| Tagged databases | Framing done for all six. `baseclass.dat` (`Bcd5`) and `classes.dat` (`CL5`) read completely — 57 and 98 records across five designs, all to exact EOF. `ability.dat`, `races.dat`, `spellgroups.dat`, `traits.dat` unread |
+| Tagged databases | Framing done for all six. `baseclass.dat` (`Bcd5`), `classes.dat` (`CL5`), `races.dat` and `ability.dat` read completely. `spellgroups.dat` and `traits.dat` unread — this row named four unread databases until 2026-08-06 and was stale |
 | Event readers | 13 types have none: `Damage`, `EncounterEvent`, `EnterPassword`, `GPDLEvent`, `HealParty`, `InnEvent`, `JournalEvent`, `PlayMovieEvent`, `SmallTown`, `TakePartyItems`, `TavernTales`, `Vault`, `WhoTries` |
 
 The pattern is established and mechanical: extend the dumper for a type → write the C# reader
@@ -1370,7 +1376,7 @@ Delivered: `dotnet/src/UAF.Scripting/` and `dotnet/tools/gpdlc/`, with 201 tests
 | `talk.bin` writer and reader | Complete |
 | Assembly listing (`GPDLCOMP::list`) | Complete — the highest-value oracle artefact, since a mismatch names an address and a mnemonic |
 | VM control flow, frame protocol, both arithmetic families, string and delimited-string ops | Complete |
-| ~250 character / party / combat / special-ability sub-opcodes | **Not ported** — each throws `NotSupportedException` citing its source line |
+| 162 remaining sub-opcodes, 14 of them the aura family | **225 of 387 ported** as of 2026-08-06 — the character, party, combat, context, special-ability and `DAT_*` families all run. Each unported one throws `NotSupportedException` citing its source line |
 | `$GREP` / `$WIGGLE` | **Not ported** — needs the vendored Spencer engine (`regexp.cpp`); routed through `IGpdlHost` |
 | `CompileScript` embedded-script blob and `BINOP_FETCHTEXT` | **Not ported** — a second, different container (SERIALIZATION.md §11) |
 | `RDRCOMP`/`RDREXEC` (GPDLcomp.cpp:4131, GPDLexec.cpp:8249) | **Not ported** — a separate byte-coded expression language that happens to live in the same files |
@@ -3422,6 +3428,10 @@ alignment check and the minimum-15-in-your-prime-ability checks are all `/* … 
 > that has not written these hooks has a permanently dark CHANGE CLASS entry — in the reference as
 > much as here.** `ClassChange.NoScripts` is therefore not a placeholder standing in for a rule; it
 > *is* the rule until the scripting phase lands, and the seam for when it does.
+
+> **Update (2026-08-06): the seam is now filled.** `SpecabScripts` runs a record's own abilities
+> through the reference's callbacks, so `CanChangeToClass` can be wired the way `CanCastSpells`
+> and `FIX_CHARACTER` already are — a call site's worth of work rather than a missing layer.
 
 Everything around the hook is deterministic and ported: not a monster, the race's
 `m_canChangeClass` flag set, a race the design actually has (a missing one refuses rather than
@@ -7932,9 +7942,20 @@ sections under §7 Phase 4 before touching any of it.
 
 What is left, in order:
 
-1. **The event layer's engine half — the largest user-visible gap.** Every one of the 44 types now
-   reads (§the event layer), and thirty-five execute. The other 9 draw
-   `[<name> here -- not implemented]`, which is honest but is most of what a design author writes.
+1. **The event layer's engine half.** ~~The largest user-visible gap.~~ **Largely closed.**
+   Counted from the code rather than by hand (2026-08-06): of the 44 types, **38 execute**, **4 are
+   inert** — `GuidedTour`, `EncounterEvent`, `TavernTales` and `PlayMovieEvent` — and **2 have no
+   readable body at all**: `InnEvent` and `GPDLEvent` return null from `EventBodyReader`, because
+   neither can occur in a design the reference could load, so there is no shape to read and no gap
+   to close.
+
+   > **The counting is not obvious and an earlier figure here was wrong.** Enum entries and record
+   > types are not one-to-one: `Stairs`, `Teleporter` and `TransferModule` all read into
+   > `TransferEvent`; `QuestionButton` and `QuestionList` both into `QuestionEvent`;
+   > `PickOneCombat` into `CombatEvent`. Counting dispatch arms undercounts by five. **This is a
+   > hand-count and will drift again** — a test that enumerates the enum and asserts which types
+   > reach `BeginUnsupported` would stop that, and is worth building.
+
    In corpus frequency order, and with what each is actually waiting on:
    - ~~**`LogicBlock` (52)**~~ — **done, and running** (§a logic block, running). The gate
      network, the sixteen terminals, the twelve actions and the runner wiring, with a
@@ -8117,11 +8138,18 @@ What is left, in order:
      port had the re-entrancy rule backwards until a test written from the reference's own comment
      caught it.
 
-     **Next: a sweep of this section and the standing-gaps table.** Both have fallen behind the
-     GPDL rounds — §11 still says the ability-score calls need a `baseclass.dat` reader that now
-     exists, and the gaps table lists eight town screens that now run. Worth correcting before more
-     work lands on top of it. Then **the auras**: fourteen opcodes, the only group left, and the
-     only one needing a live object model built from nothing.
+     ~~**Next: a sweep of this section and the standing-gaps table.**~~ **Done, 2026-08-06.** Six
+     stale claims corrected against the code: the event-type counts here and in the status block,
+     priority 3's `baseclass.dat` blocker (which had a reader), the gaps table's town-screen list,
+     the sub-opcode counts in three places, Phase 1's unread-database row, and
+     `GameScriptHost`'s own summary comment. Each correction says what it used to claim.
+
+     **Next: the auras** — fourteen opcodes, the only group left, and the only one needing a live
+     object model built from nothing: shape, wavelength, size, attachment, a cell mask, ten
+     user-data slots, a per-aura ability list and its own script source type. Expect several
+     rounds. **Worth doing first, and cheap: a test that enumerates `EventType` and asserts which
+     types reach `BeginUnsupported`** — the count above is a hand-count, it has been wrong once,
+     and it will drift again.
 
 
 
@@ -8144,15 +8172,23 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** The attribute family now runs against real game state
-   (§a script that can reach game state) and is the proof the seam works; the other ~250 calls —
-   character stats, party queries, combat state — still throw with a citation. They are individually
-   small and collectively large, and each needs the port to have the state it asks about.
-   The attribute family is done — global, party and per-character — and nine character stats with
-   it, including both adjusted forms now that characters carry spell effects
-   (§spell effects on a character outside combat). What is left in this family wants state the port
-   does not have: the ability-score calls need `baseclass.dat`, which has no reader, and
-   `$GET_CHAR_EFFAC` needs the attacker as well as the target.
+3. **The rest of the GPDL sub-opcodes.** **225 of 387 are implemented** (2026-08-06, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. Of the 162 left, **148 are
+   callable at all** — the others have no `systemfunctions[]` entry and are compiler-internal or
+   dead — and **14 of those are the aura family**, the only remaining group that needs a live
+   object model built from nothing.
+
+   Done and backed by real game state: the attribute family (global, party, per-character), the
+   whole character block including the three ability-score layers, the party block, the combat
+   queries, the script contexts, the entire special-ability family, and the `DAT_*` database reads.
+
+   > **This paragraph was stale for several rounds and said the opposite.** It claimed the
+   > ability-score calls were blocked on a `baseclass.dat` reader "which has no reader" — that
+   > reader exists, and those calls landed. Corrected 2026-08-06. The per-section entries under
+   > Phase 4 were current throughout; it was this summary that drifted.
+
+   Still wanting state the port does not have: `$GET_CHAR_EFFAC` needs the attacker as well as the
+   target, and the aura family needs the aura object.
 4. **The Forth VM** — a real subsystem, and now a smaller prize than it looked: its only consumer
    is a script that is the same in every shipped design bar one line
    (§the monster AI's priority ordering), and that script's decision function now runs in combat.
@@ -8194,10 +8230,10 @@ the round both call and neither has.
 |---|---|---|
 | ~~**`ArchiveWriter`**~~ | **Done.** All six record types, every shared leaf, both halves of the `CAR` write path, 30 of the 44 event bodies, and the four whole-file framings — `.chr`, `.lvl`, `game.dat`, `.pty`. Three shipped databases are reproduced byte for byte and everything else round-trips. **Phase 1's exit criterion is met**, and Phase 5 is unblocked | — |
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
-| **10 event types are read but not executed** | Every type now has a reader and 34 execute. **All seven town-service shells run.** What is left is the roughly dozen **inner** screens behind them — save, load, magic, rest, alter, journal, character-picking, items, buy, appraise, heal, donate — plus `EnterPassword` (needs text entry), `EncounterEvent` (the monsters-approaching loop) and `PlayMovieEvent` (the FFmpeg adapter) | Large |
-| **`ability.dat`, `spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them | Small |
-| **~250 GPDL sub-opcodes, and the Forth VM** | Each throws `NotSupportedException` naming its source line. The Forth VM is not started | Large |
-| **Global script hooks** | **`CombatPlacement` is done** — the parser, `RunGlobalScript`, both sub-opcodes and the call site. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes now that the bridge exists | Small |
+| **4 event types are read but not executed** | **38 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `GuidedTour`, `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter). The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
+| **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
+| **162 GPDL sub-opcodes, and the Forth VM** | **225 of 387 are implemented.** Of the rest, 148 are callable and 14 of those are the aura family — the only group needing an object model built from nothing. Each unimplemented one throws `NotSupportedException` naming its source line. The Forth VM is not started | Medium |
+| **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |
