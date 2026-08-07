@@ -133,6 +133,62 @@ public enum GpdlCharStat
     PermanentCharisma,
     AdjustedCharisma,
     LimitedCharisma,
+
+    // ---- the rest of the character block ---------------------------------------------------------
+
+    /// <summary>Current age (<c>GetAdjAge</c>), with spell effects.</summary>
+    Age,
+
+    /// <summary>The age at which the character dies of it (<c>GetAdjMaxAge</c>).</summary>
+    MaxAge,
+
+    /// <summary>What is being carried (<c>GetEncumbrance</c>). <b>Not adjusted</b>.</summary>
+    Encumbrance,
+
+    /// <summary>What may be carried (<c>GetAdjMaxEncumbrance</c>).</summary>
+    MaxEncumbrance,
+
+    /// <summary>Movement rate (<c>GetAdjMaxMovement_GPDL</c>).</summary>
+    MaxMovement,
+
+    /// <summary>Morale (<c>GetAdjMorale</c>).</summary>
+    Morale,
+
+    /// <summary>Percentage magic resistance (<c>GetAdjMagicResistance</c>).</summary>
+    MagicResistance,
+
+    /// <summary>Damage bonus (<c>GetAdjDmgBonus</c>).</summary>
+    DamageBonus,
+
+    /// <summary>To-hit bonus (<c>GetAdjHitBonus</c>).</summary>
+    HitBonus,
+
+    /// <summary>Which portrait (<c>GetIconIndex</c>).</summary>
+    IconIndex,
+
+    /// <summary>The class id, as a string (<c>GetClass</c>).</summary>
+    Class,
+
+    /// <summary>The undead type, as a string (<c>GetUndeadType</c>).</summary>
+    UndeadType,
+
+    /// <summary>Alignment, as its ordinal (<c>GetAdjAlignment</c>).</summary>
+    Alignment,
+
+    /// <summary>Condition, as its ordinal (<c>GetAdjStatus</c>).</summary>
+    Status,
+
+    /// <summary>Creature size, as its ordinal (<c>GetAdjSize</c>).</summary>
+    Size,
+
+    /// <summary>
+    /// Hit dice (<c>GetNbrHD</c>). <b>Formatted to eight decimal places</b> — see
+    /// <c>GET_CHAR_FLOAT</c>, <c>GPDLexec.cpp:2285</c>.
+    /// </summary>
+    HitDice,
+
+    /// <inheritdoc cref="HitDice"/>
+    NumberOfAttacks,
 }
 
 /// <summary>Which attribute store a GPDL script is reaching for.</summary>
@@ -280,6 +336,18 @@ public interface IGpdlHost
     /// </returns>
     string GetCharStat(string actor, GpdlCharStat stat);
 
+    /// <summary>
+    /// Writes a stat back to a character (the <c>SET_CHAR_*</c> family, <c>GPDLexec.cpp:5417</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The value arrives as text, because the stack holds nothing else</b> — the reference pops
+    /// it through <c>m_popInteger1</c> for the numeric setters and <c>m_popString1</c> for the
+    /// others, and the sub-opcode is what decides which. A host that cannot write the named stat
+    /// does nothing; the call still yields the empty string either way, because
+    /// <c>m_SetCharInt</c> ends in <c>m_pushEmptyString</c>.
+    /// </remarks>
+    void SetCharStat(string actor, GpdlCharStat stat, string value);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -362,6 +430,19 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     /// <summary>Stat values by actor, for a script running with no game behind it.</summary>
     public Dictionary<string, Dictionary<GpdlCharStat, string>> CharacterStats { get; } =
         new(StringComparer.Ordinal);
+
+    /// <inheritdoc/>
+    /// <inheritdoc/>
+    public virtual void SetCharStat(string actor, GpdlCharStat stat, string value)
+    {
+        if (!CharacterStats.TryGetValue(actor, out var stats))
+        {
+            stats = [];
+            CharacterStats[actor] = stats;
+        }
+
+        stats[stat] = value;
+    }
 
     /// <inheritdoc/>
     public virtual string GetCharStat(string actor, GpdlCharStat stat) =>

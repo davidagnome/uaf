@@ -848,8 +848,60 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_CHAR_PERM_CHA:
             case SubOp.SUBOP_GET_CHAR_ADJ_CHA:
             case SubOp.SUBOP_GET_CHAR_LIMITED_CHA:
+            case SubOp.SUBOP_GET_CHAR_AGE:
+            case SubOp.SUBOP_GET_CHAR_MAXAGE:
+            case SubOp.SUBOP_GET_CHAR_ENC:
+            case SubOp.SUBOP_GET_CHAR_MAXENC:
+            case SubOp.SUBOP_GET_CHAR_MAXMOVE:
+            case SubOp.SUBOP_GET_CHAR_MORALE:
+            case SubOp.SUBOP_GET_CHAR_MAGICRESIST:
+            case SubOp.SUBOP_GET_CHAR_DAMAGEBONUS:
+            case SubOp.SUBOP_GET_CHAR_HITBONUS:
+            case SubOp.SUBOP_GET_CHAR_ICON_INDEX:
+            case SubOp.SUBOP_GET_CHAR_CLASS:
+            case SubOp.SUBOP_GET_CHAR_UNDEAD:
+            case SubOp.SUBOP_GET_CHAR_ALIGNMENT:
+            case SubOp.SUBOP_GET_CHAR_STATUS:
+            case SubOp.SUBOP_GET_CHAR_SIZE:
+            case SubOp.SUBOP_GET_CHAR_NBRHITDICE:
+            case SubOp.SUBOP_GET_CHAR_NBRATTACKS:
                 PushSp(_host.GetCharStat(PopSp(), StatOf(op)));
                 break;
+            case SubOp.SUBOP_SET_CHAR_HITPOINTS:
+            case SubOp.SUBOP_SET_CHAR_MAXHITPOINTS:
+            case SubOp.SUBOP_SET_CHAR_AC:
+            case SubOp.SUBOP_SET_CHAR_THAC0:
+            case SubOp.SUBOP_SET_CHAR_MORALE:
+            case SubOp.SUBOP_SET_CHAR_STATUS:
+            case SubOp.SUBOP_SET_CHAR_AGE:
+            case SubOp.SUBOP_SET_CHAR_MAXAGE:
+            case SubOp.SUBOP_SET_CHAR_MAXENC:
+            case SubOp.SUBOP_SET_CHAR_MAXMOVE:
+            case SubOp.SUBOP_SET_CHAR_MAGICRESIST:
+            case SubOp.SUBOP_SET_CHAR_DAMAGEBONUS:
+            case SubOp.SUBOP_SET_CHAR_HITBONUS:
+            case SubOp.SUBOP_SET_CHAR_ICON_INDEX:
+            case SubOp.SUBOP_SET_CHAR_ALIGNMENT:
+            case SubOp.SUBOP_SET_CHAR_SIZE:
+            case SubOp.SUBOP_SET_CHAR_UNDEAD:
+            case SubOp.SUBOP_SET_CHAR_GENDER:
+            case SubOp.SUBOP_SET_CHAR_SEX:
+            case SubOp.SUBOP_SET_CHAR_PERM_STR:
+            case SubOp.SUBOP_SET_CHAR_PERM_STRMOD:
+            case SubOp.SUBOP_SET_CHAR_PERM_INT:
+            case SubOp.SUBOP_SET_CHAR_PERM_WIS:
+            case SubOp.SUBOP_SET_CHAR_PERM_DEX:
+            case SubOp.SUBOP_SET_CHAR_PERM_CON:
+            case SubOp.SUBOP_SET_CHAR_PERM_CHA:
+            case SubOp.SUBOP_SET_CHAR_RDYTOTRAIN:
+                {
+                    // Value first, then the actor -- m_SetCharInt pops in that order -- and the
+                    // call yields the empty string because it ends in m_pushEmptyString.
+                    string value = PopSp();
+                    _host.SetCharStat(PopSp(), SetStatOf(op), value);
+                    PushSp(string.Empty);
+                    break;
+                }
             case SubOp.SUBOP_GREP:
                 {
                     string text = PopSp();
@@ -961,6 +1013,60 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_GET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
         SubOp.SUBOP_GET_CHAR_ADJ_CHA => GpdlCharStat.AdjustedCharisma,
         SubOp.SUBOP_GET_CHAR_LIMITED_CHA => GpdlCharStat.LimitedCharisma,
+        SubOp.SUBOP_GET_CHAR_AGE => GpdlCharStat.Age,
+        SubOp.SUBOP_GET_CHAR_MAXAGE => GpdlCharStat.MaxAge,
+        SubOp.SUBOP_GET_CHAR_ENC => GpdlCharStat.Encumbrance,
+        SubOp.SUBOP_GET_CHAR_MAXENC => GpdlCharStat.MaxEncumbrance,
+        SubOp.SUBOP_GET_CHAR_MAXMOVE => GpdlCharStat.MaxMovement,
+        SubOp.SUBOP_GET_CHAR_MORALE => GpdlCharStat.Morale,
+        SubOp.SUBOP_GET_CHAR_MAGICRESIST => GpdlCharStat.MagicResistance,
+        SubOp.SUBOP_GET_CHAR_DAMAGEBONUS => GpdlCharStat.DamageBonus,
+        SubOp.SUBOP_GET_CHAR_HITBONUS => GpdlCharStat.HitBonus,
+        SubOp.SUBOP_GET_CHAR_ICON_INDEX => GpdlCharStat.IconIndex,
+        SubOp.SUBOP_GET_CHAR_CLASS => GpdlCharStat.Class,
+        SubOp.SUBOP_GET_CHAR_UNDEAD => GpdlCharStat.UndeadType,
+        SubOp.SUBOP_GET_CHAR_ALIGNMENT => GpdlCharStat.Alignment,
+        SubOp.SUBOP_GET_CHAR_STATUS => GpdlCharStat.Status,
+        SubOp.SUBOP_GET_CHAR_SIZE => GpdlCharStat.Size,
+        SubOp.SUBOP_GET_CHAR_NBRHITDICE => GpdlCharStat.HitDice,
+        SubOp.SUBOP_GET_CHAR_NBRATTACKS => GpdlCharStat.NumberOfAttacks,
+        _ => GpdlCharStat.Name,
+    };
+
+    /// <summary>Which stat a <c>SET_CHAR_*</c> sub-opcode writes.</summary>
+    /// <remarks>
+    /// <b><c>SET_CHAR_SEX</c> and <c>SET_CHAR_GENDER</c> are the same call</b> — two names for one
+    /// <c>SetGender</c>, kept because designs authored against either.
+    /// </remarks>
+    private static GpdlCharStat SetStatOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_SET_CHAR_HITPOINTS => GpdlCharStat.HitPoints,
+        SubOp.SUBOP_SET_CHAR_MAXHITPOINTS => GpdlCharStat.MaxHitPoints,
+        SubOp.SUBOP_SET_CHAR_AC => GpdlCharStat.ArmorClass,
+        SubOp.SUBOP_SET_CHAR_THAC0 => GpdlCharStat.Thac0,
+        SubOp.SUBOP_SET_CHAR_MORALE => GpdlCharStat.Morale,
+        SubOp.SUBOP_SET_CHAR_STATUS => GpdlCharStat.Status,
+        SubOp.SUBOP_SET_CHAR_AGE => GpdlCharStat.Age,
+        SubOp.SUBOP_SET_CHAR_MAXAGE => GpdlCharStat.MaxAge,
+        SubOp.SUBOP_SET_CHAR_MAXENC => GpdlCharStat.MaxEncumbrance,
+        SubOp.SUBOP_SET_CHAR_MAXMOVE => GpdlCharStat.MaxMovement,
+        SubOp.SUBOP_SET_CHAR_MAGICRESIST => GpdlCharStat.MagicResistance,
+        SubOp.SUBOP_SET_CHAR_DAMAGEBONUS => GpdlCharStat.DamageBonus,
+        SubOp.SUBOP_SET_CHAR_HITBONUS => GpdlCharStat.HitBonus,
+        SubOp.SUBOP_SET_CHAR_ICON_INDEX => GpdlCharStat.IconIndex,
+        SubOp.SUBOP_SET_CHAR_ALIGNMENT => GpdlCharStat.Alignment,
+        SubOp.SUBOP_SET_CHAR_SIZE => GpdlCharStat.Size,
+        SubOp.SUBOP_SET_CHAR_UNDEAD => GpdlCharStat.UndeadType,
+        SubOp.SUBOP_SET_CHAR_GENDER => GpdlCharStat.Gender,
+        SubOp.SUBOP_SET_CHAR_SEX => GpdlCharStat.Gender,
+        SubOp.SUBOP_SET_CHAR_PERM_STR => GpdlCharStat.PermanentStrength,
+        SubOp.SUBOP_SET_CHAR_PERM_STRMOD => GpdlCharStat.PermanentStrengthMod,
+        SubOp.SUBOP_SET_CHAR_PERM_INT => GpdlCharStat.PermanentIntelligence,
+        SubOp.SUBOP_SET_CHAR_PERM_WIS => GpdlCharStat.PermanentWisdom,
+        SubOp.SUBOP_SET_CHAR_PERM_DEX => GpdlCharStat.PermanentDexterity,
+        SubOp.SUBOP_SET_CHAR_PERM_CON => GpdlCharStat.PermanentConstitution,
+        SubOp.SUBOP_SET_CHAR_PERM_CHA => GpdlCharStat.PermanentCharisma,
+        SubOp.SUBOP_SET_CHAR_RDYTOTRAIN => GpdlCharStat.ReadyToTrain,
         _ => GpdlCharStat.Name,
     };
 

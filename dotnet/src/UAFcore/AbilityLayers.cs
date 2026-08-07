@@ -14,6 +14,26 @@ namespace UAFcore;
 public static class AbilityLayers
 {
     /// <summary>
+    /// Which score a <c>PERM</c> stat names, or null if it names none.
+    /// </summary>
+    /// <remarks>
+    /// Only the permanent layer, because only it is writable: there is no
+    /// <c>SET_CHAR_ADJ_STR</c> — an adjusted score is the sum of effects and a script changes it
+    /// by adding one, not by assignment.
+    /// </remarks>
+    public static AbilityScore? PermanentScore(GpdlCharStat stat) => stat switch
+    {
+        GpdlCharStat.PermanentStrength => AbilityScore.Strength,
+        GpdlCharStat.PermanentStrengthMod => AbilityScore.StrengthMod,
+        GpdlCharStat.PermanentIntelligence => AbilityScore.Intelligence,
+        GpdlCharStat.PermanentWisdom => AbilityScore.Wisdom,
+        GpdlCharStat.PermanentDexterity => AbilityScore.Dexterity,
+        GpdlCharStat.PermanentConstitution => AbilityScore.Constitution,
+        GpdlCharStat.PermanentCharisma => AbilityScore.Charisma,
+        _ => null,
+    };
+
+    /// <summary>
     /// An ability score in one of its three layers
     /// (<c>GetPerm…</c> / <c>GetAdj…</c> / <c>GetLimited…</c>, <c>Char.cpp:13610</c> onwards).
     /// </summary>

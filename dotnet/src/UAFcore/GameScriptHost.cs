@@ -1,5 +1,6 @@
 using UAF.Rules;
 using UAF.Scripting;
+using UAF.Serialization;
 
 namespace UAFcore;
 
@@ -107,6 +108,61 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
             _ => AbilityLayers.Read(character, stat) is { } score ? Text(score) : string.Empty,
         };
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Only the stats this port keeps as live state are written.</b> A <see cref="Character"/>
+    /// reads age, movement, alignment, size, the two combat bonuses and the portrait index off its
+    /// immutable record, so a script setting one of those changes nothing here where the reference
+    /// would have changed it. The call still yields the empty string, as it does there — the
+    /// reference's own setters end in <c>m_pushEmptyString</c> and report nothing either way, so a
+    /// script cannot tell the difference from inside.
+    /// </para>
+    /// <para>
+    /// <b>A value that is not a number is ignored rather than written as zero.</b> The reference
+    /// pops through <c>m_popInteger1</c>, which is <c>atoi</c> and would give it a zero; refusing
+    /// is the one deliberate divergence here, because silently zeroing a character's strength on a
+    /// script typo is worse than doing nothing.
+    /// </para>
+    /// </remarks>
+    public override void SetCharStat(string actor, GpdlCharStat stat, string value)
+    {
+        if (Resolve(actor) is not { } character
+            || !int.TryParse(value, System.Globalization.NumberStyles.Integer,
+                             System.Globalization.CultureInfo.InvariantCulture, out int number))
+        {
+            return;
+        }
+
+        switch (stat)
+        {
+            case GpdlCharStat.HitPoints: character.HitPoints = number; break;
+            case GpdlCharStat.MaxHitPoints: character.MaxHitPoints = number; break;
+            case GpdlCharStat.Morale: character.Morale = number; break;
+            case GpdlCharStat.Status: character.Status = (CharacterStatus)number; break;
+
+            default:
+                if (AbilityLayers.PermanentScore(stat) is { } ability)
+                {
+                    character.Abilities = Written(character.Abilities, ability, number);
+                }
+                break;
+        }
+    }
+
+    /// <summary>One score replaced, since the scores are an immutable record.</summary>
+    private static AbilityScores Written(AbilityScores scores, AbilityScore ability, int value) =>
+        ability switch
+        {
+            AbilityScore.Strength => scores with { Strength = value },
+            AbilityScore.StrengthMod => scores with { StrengthMod = value },
+            AbilityScore.Intelligence => scores with { Intelligence = value },
+            AbilityScore.Wisdom => scores with { Wisdom = value },
+            AbilityScore.Dexterity => scores with { Dexterity = value },
+            AbilityScore.Constitution => scores with { Constitution = value },
+            _ => scores with { Charisma = value },
+        };
 
     private static string Text(int value) =>
         value.ToString(System.Globalization.CultureInfo.InvariantCulture);

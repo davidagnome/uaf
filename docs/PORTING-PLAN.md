@@ -4372,8 +4372,35 @@ A design whose hooks stay inside them works today.
 > six members; this one adds the percentile. Two lists that look alike and answer different
 > questions.
 
-**Not ported, and named:** the seven `SET_CHAR_PERM_*` setters, which need a `SetCharStat` the host
-interface does not yet have. Same family, opposite direction.
+##### The rest of the character block, and writing back
+
+The remaining `GET_CHAR_*` (`GPDLexec.cpp:3691`–`:3753`) and the whole `SET_CHAR_*` family
+(`:5417`). **Forty-four more sub-opcodes, taking the VM from 104 to 148** — the character block is
+now complete apart from the per-baseclass calls that take an argument.
+
+> **A setter pops the value before the actor.** `m_SetCharInt` is
+> `m_popInteger1(); Dude(msg)->f(...)` — actor pushed first, value second. Getting it backwards
+> writes the stat onto a character named "9" and leaves the real one untouched, silently.
+
+> **Every setter yields the empty string.** They end in `m_pushEmptyString`, so the call is an
+> expression with no value — and the compiler depends on it leaving exactly one thing on the stack.
+
+> **`SET_CHAR_SEX` and `SET_CHAR_GENDER` are the same call**, two names for one `SetGender`, kept
+> because designs were authored against either.
+
+> **`GET_CHAR_FLOAT` formats to eight decimal places.** Hit dice and number of attacks come back as
+> `"1.00000000"`, not `"1"` — so a script comparing either against a plain literal never matches.
+
+> **`SUBOP_SET_CHAR_MAGICRESIST`'s diagnostic string is misspelled** — `"$SET_CHAR_<AGICRESIST()"`,
+> an `M` that became a `<`. Cosmetic, and only visible in an error message, but it is the sort of
+> thing a transcription should not silently tidy.
+
+**Two deliberate divergences, both named in the source.** A `Character` here reads age, movement,
+alignment, size, the two combat bonuses and the portrait index off its immutable record, so a
+script setting one of those changes nothing where the reference would have changed it — the call
+still yields the empty string, so a script cannot tell from inside. And a non-numeric value is
+*ignored* rather than written as zero: the reference pops through `atoi` and would zero the stat,
+and silently zeroing a character's strength on a script typo is worse than doing nothing.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -7744,10 +7771,13 @@ What is left, in order:
      `SPELL_CASTER_LEVEL`, the spell begin/end scripts, `SCRIBE_OR_WHATEVER`) are one call each on
      top of `SpecabScripts`, so the useful order stays opcodes first and hooks as they are needed.
 
-     **Next: the rest of `GET_CHAR_*` and the `SET_CHAR_*` setters** — age, encumbrance, movement,
-     morale, class, race, size, status and the seven perm setters. The getters are the same shape
-     as the twenty-one just done; the setters need a `SetCharStat` on the host interface, which is
-     the only new machinery left in the family.
+     ~~**Next: the rest of `GET_CHAR_*` and the `SET_CHAR_*` setters**~~ **Done** (§the rest of the
+     character block): 44 more, **104 → 148**, and the character block is complete apart from the
+     per-baseclass calls that take an argument.
+
+     **Next: the party and combat families** — the two largest remaining groups of the ~240 still
+     unported. Neither needs new machinery: `IGpdlHost` already reaches the party, and the combat
+     ones can follow the same shape once a fight is the thing a script is running inside.
 
 
 

@@ -306,6 +306,87 @@ public class GpdlAttributeTests
         Assert.Equal("25", Run("""$RETURN $GET_CHAR_LIMITED_STR("hero");""", host));
     }
 
+    [Theory]
+    [InlineData("$GET_CHAR_AGE", GpdlCharStat.Age)]
+    [InlineData("$GET_CHAR_MAXAGE", GpdlCharStat.MaxAge)]
+    [InlineData("$GET_CHAR_ENC", GpdlCharStat.Encumbrance)]
+    [InlineData("$GET_CHAR_MAXENC", GpdlCharStat.MaxEncumbrance)]
+    [InlineData("$GET_CHAR_MAXMOVE", GpdlCharStat.MaxMovement)]
+    [InlineData("$GET_CHAR_MORALE", GpdlCharStat.Morale)]
+    [InlineData("$GET_CHAR_MAGICRESIST", GpdlCharStat.MagicResistance)]
+    [InlineData("$GET_CHAR_DAMAGEBONUS", GpdlCharStat.DamageBonus)]
+    [InlineData("$GET_CHAR_HITBONUS", GpdlCharStat.HitBonus)]
+    [InlineData("$GET_CHAR_ICON_INDEX", GpdlCharStat.IconIndex)]
+    [InlineData("$GET_CHAR_CLASS", GpdlCharStat.Class)]
+    [InlineData("$GET_CHAR_UNDEAD", GpdlCharStat.UndeadType)]
+    [InlineData("$GET_CHAR_ALIGNMENT", GpdlCharStat.Alignment)]
+    [InlineData("$GET_CHAR_STATUS", GpdlCharStat.Status)]
+    [InlineData("$GET_CHAR_SIZE", GpdlCharStat.Size)]
+    [InlineData("$GET_CHAR_NBRHITDICE", GpdlCharStat.HitDice)]
+    [InlineData("$GET_CHAR_NBRATTACKS", GpdlCharStat.NumberOfAttacks)]
+    public void The_rest_of_the_character_block_reaches_its_own_stat(string call,
+                                                                    GpdlCharStat stat)
+    {
+        var host = WithStats("hero", (stat, "7"));
+
+        Assert.Equal("7", Run($"""$RETURN {call}("hero");""", host));
+    }
+
+    // ---- writing back ----------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("$SET_CHAR_HITPOINTS", GpdlCharStat.HitPoints)]
+    [InlineData("$SET_CHAR_MORALE", GpdlCharStat.Morale)]
+    [InlineData("$SET_CHAR_STATUS", GpdlCharStat.Status)]
+    [InlineData("$SET_CHAR_AGE", GpdlCharStat.Age)]
+    [InlineData("$SET_CHAR_PERM_STR", GpdlCharStat.PermanentStrength)]
+    [InlineData("$SET_CHAR_PERM_CHA", GpdlCharStat.PermanentCharisma)]
+    [InlineData("$SET_CHAR_MAXENC", GpdlCharStat.MaxEncumbrance)]
+    [InlineData("$SET_CHAR_ALIGNMENT", GpdlCharStat.Alignment)]
+    public void Each_setter_writes_its_own_stat(string call, GpdlCharStat stat)
+    {
+        var host = Host();
+
+        Run($"""{call}("hero", "9");""", host);
+
+        Assert.Equal("9", host.GetCharStat("hero", stat));
+    }
+
+    [Fact]
+    public void A_setter_yields_the_empty_string()
+    {
+        // m_SetCharInt ends in m_pushEmptyString, so the call is an expression with no value --
+        // and the compiler relies on it leaving exactly one thing on the stack.
+        var host = Host();
+
+        Assert.Equal("", Run("""$RETURN $SET_CHAR_MORALE("hero", "40");""", host));
+    }
+
+    [Fact]
+    public void The_value_is_popped_before_the_actor()
+    {
+        // Actor pushed first, value second. Getting this backwards writes the stat onto a
+        // character named "9" and leaves the real one alone.
+        var host = Host();
+
+        Run("""$SET_CHAR_MORALE("hero", "9");""", host);
+
+        Assert.Equal("9", host.GetCharStat("hero", GpdlCharStat.Morale));
+        Assert.Equal("", host.GetCharStat("9", GpdlCharStat.Morale));
+    }
+
+    [Fact]
+    public void Sex_and_gender_are_two_names_for_one_setter()
+    {
+        var host = Host();
+
+        Run("""$SET_CHAR_SEX("hero", "1");""", host);
+        Assert.Equal("1", host.GetCharStat("hero", GpdlCharStat.Gender));
+
+        Run("""$SET_CHAR_GENDER("hero", "0");""", host);
+        Assert.Equal("0", host.GetCharStat("hero", GpdlCharStat.Gender));
+    }
+
     [Fact]
     public void The_percentile_is_its_own_score_not_a_part_of_strength()
     {
