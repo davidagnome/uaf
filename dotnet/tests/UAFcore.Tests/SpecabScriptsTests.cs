@@ -204,6 +204,45 @@ public class SpecabScriptsTests
     // ---- the block overload ---------------------------------------------------------------------
 
     [Fact]
+    public void The_running_ability_is_on_the_context_for_the_script_to_read()
+    {
+        // $SA_NAME() and $SA_PARAM_GET() are how a script tells which of a record's abilities is
+        // running it, and what that ability was configured with. The parameter is the specab
+        // pair's value -- the record's own, not the ability definition's.
+        var host = Host();
+        using var frame = host.Context.Push();
+
+        var scripts = Scripts(new SpecialAbility(
+            "Ward",
+            [new SpecialAbilityEntry("HOOK", "$RETURN $SA_NAME() + \"/\" + $SA_PARAM_GET();",
+                                     SpecialAbilityEntryKind.Script)]));
+
+        Assert.Equal("Ward/7",
+                     SpecabScripts.Run([new SpecabPair("Ward", "7")], "HOOK", scripts, host,
+                                       ScriptCallbacks.RunAll));
+    }
+
+    [Fact]
+    public void Each_script_sees_its_own_ability_rather_than_the_first()
+    {
+        var host = Host();
+        using var frame = host.Context.Push();
+
+        var scripts = Scripts(
+            new SpecialAbility("First",
+                [new SpecialAbilityEntry("HOOK", "$RETURN $SA_NAME();",
+                                         SpecialAbilityEntryKind.Script)]),
+            new SpecialAbility("Second",
+                [new SpecialAbilityEntry("HOOK", "$RETURN $SA_NAME();",
+                                         SpecialAbilityEntryKind.Script)]));
+
+        // Run-all lets the last one win, so what comes back is the second ability's own name.
+        Assert.Equal("Second",
+                     SpecabScripts.Run(Carrying("First", "Second"), "HOOK", scripts, host,
+                                       ScriptCallbacks.RunAll));
+    }
+
+    [Fact]
     public void A_record_with_no_block_at_all_runs_nothing()
     {
         var host = Host("1");

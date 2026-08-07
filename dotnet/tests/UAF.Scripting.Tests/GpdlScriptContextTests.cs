@@ -187,4 +187,104 @@ public class GpdlScriptContextTests
         Assert.Equal("", Run("""$RETURN $GetCombatantState($AttackerContext());""", host));
         Assert.Single(host.Context.Missing);
     }
+
+    // ---- the ability that is running --------------------------------------------------------------
+
+    [Fact]
+    public void A_script_can_read_the_ability_that_is_running_it()
+    {
+        var host = new Echoing();
+        using var frame = host.Context.Push();
+        host.Context.SetAbility("Regeneration", "3");
+
+        Assert.Equal("Regeneration", Run("""$RETURN $SA_NAME();""", host));
+        Assert.Equal("3", Run("""$RETURN $SA_PARAM_GET();""", host));
+    }
+
+    [Fact]
+    public void With_no_ability_running_both_answer_the_sentinel()
+    {
+        // A five-character sentinel, not an empty string -- which is how a script tells "no such
+        // ability" from "the parameter is blank".
+        var host = new Echoing();
+        using var frame = host.Context.Push();
+
+        Assert.Equal("-?-?-", Run("""$RETURN $SA_NAME();""", host));
+        Assert.Equal("-?-?-", Run("""$RETURN $SA_PARAM_GET();""", host));
+        Assert.Equal("-?-?-", GpdlScriptContext.NoSuchAbility);
+    }
+
+    [Fact]
+    public void Setting_the_parameter_yields_what_it_was_given()
+    {
+        // The reference pushes the value back, where the character and party setters push the
+        // empty string -- so this one setter is usable as an expression.
+        var host = new Echoing();
+        using var frame = host.Context.Push();
+        host.Context.SetAbility("Regeneration", "3");
+
+        Assert.Equal("7", Run("""$RETURN $SA_PARAM_SET("7");""", host));
+        Assert.Equal("7", host.Context.AbilityParameter);
+    }
+
+    [Fact]
+    public void A_blank_parameter_is_not_the_sentinel()
+    {
+        var host = new Echoing();
+        using var frame = host.Context.Push();
+        host.Context.SetAbility("Regeneration", "");
+
+        Assert.Equal("", Run("""$RETURN $SA_PARAM_GET();""", host));
+    }
+
+    [Fact]
+    public void Removing_the_running_ability_yields_its_value()
+    {
+        var host = new Echoing();
+        using var frame = host.Context.Push();
+        host.Context.SetAbility("Regeneration", "3");
+
+        Assert.Equal("3", Run("""$RETURN $SA_REMOVE();""", host));
+        Assert.Equal(["Regeneration"], host.Context.Removed);
+        Assert.Equal("-?-?-", host.Context.AbilityName);
+    }
+
+    [Fact]
+    public void Removing_when_nothing_is_running_answers_the_sentinel()
+    {
+        var host = new Echoing();
+        using var frame = host.Context.Push();
+
+        Assert.Equal("-?-?-", Run("""$RETURN $SA_REMOVE();""", host));
+        Assert.Empty(host.Context.Removed);
+    }
+
+    // ---- where the script came from ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData(GpdlScriptSource.Class, "CLASS")]
+    [InlineData(GpdlScriptSource.Spell, "SPELL")]
+    [InlineData(GpdlScriptSource.Combatant, "COMBATANT")]
+    [InlineData(GpdlScriptSource.EventTrigger, "EVENT TRIGGER")]
+    [InlineData(GpdlScriptSource.Unknown, "Unknown")]
+    public void The_source_type_is_a_word_a_design_compares_against(GpdlScriptSource source,
+                                                                    string word)
+    {
+        // "EVENT TRIGGER" keeps its space and "Unknown" its capitalisation: these literals are the
+        // wire format as far as a script is concerned.
+        var host = new Echoing();
+        host.Context.Source = source;
+
+        Assert.Equal(word, Run("""$RETURN $SA_SOURCE_TYPE();""", host));
+        Assert.Equal(word, GpdlScriptContext.NameOf(source));
+    }
+
+    [Fact]
+    public void The_source_name_comes_off_the_context()
+    {
+        var host = new Echoing();
+        host.Context.SourceName = "Bless";
+
+        Assert.Equal("Bless", Run("""$RETURN $SA_SOURCE_NAME();""", host));
+    }
 }

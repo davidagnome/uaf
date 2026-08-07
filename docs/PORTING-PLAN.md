@@ -4535,6 +4535,37 @@ which is what the reference answers out of combat anyway.
 an instance into `ActorType`. There is no fight-independent combatant identity in this port, so the
 index is the identity — and it means only what it means while that fight is running.
 
+##### What a script can learn about the ability running it
+
+`$SA_NAME`, `$SA_PARAM_GET/SET`, `$SA_SOURCE_TYPE/NAME`, `$SA_REMOVE` (`GPDLexec.cpp:3215`, and
+`SA_Name`/`SA_Param` at `:1957`). **Six more, 181 → 187**, and the reason `SpecabScripts` now
+carries the specab pair rather than just its name.
+
+> **The ability is a key/value pair, and the value is the parameter.** `$SA_NAME()` and
+> `$SA_PARAM_GET()` are the two halves of the specab entry that triggered the script — so one
+> script shared by three abilities can tell which of them is running it and what each was
+> configured with. That is what makes a design's "Regeneration 3" and "Regeneration 5" one script.
+
+> **A missing ability answers a sentinel, not an empty string.** `NO_SUCH_SA` is `-?-?-`, five
+> characters a design compares against — which is how a script distinguishes "no such ability" from
+> "the parameter is blank". Both are reachable and they mean different things.
+
+> **`$SA_PARAM_SET` yields what it was given.** It pushes the same value back, where every
+> character and party setter pushes the empty string — so this one setter is usable as an
+> expression, and the asymmetry is not an accident of inlining like `SET_PARTY_FACING`'s was.
+
+> **The source-type words are the wire format.** `"EVENT TRIGGER"` keeps its space and an
+> unrecognised type is `"Unknown"` with that capitalisation, because a design compares
+> `$SA_SOURCE_TYPE()` against the literals.
+
+> **`SA_Param`'s "NULL SA List" complaint is a `static bool`** — logged once per process, not once
+> per call. A design with a broken lookup in a loop gets one line and then silence.
+
+**Not ported, and named:** the `SA_<record>_GET` lookups and `GET/SET/DELETE_<record>_SA`, which
+read another record's ability list rather than the running one — they need a specab store the port
+can address by record, and `$SA_REMOVE` records its request rather than writing for the same
+reason.
+
 ##### What opening a rest does — and a claim I got wrong
 
 Wiring memorisation into the resting cycle meant reading `REST_MENU_DATA::OnInitialEvent`
@@ -7922,11 +7953,15 @@ What is left, in order:
      opcodes now answer from the live `CombatSession`, and two of the selectors turn out not to do
      what their names say.
 
-     **Next: the special-ability sub-opcodes** — the `SA_*`, `GET/SET/DELETE_COMBATANT_SA` and
-     `GET_MONSTERTYPE_SA` group, 15 of the ~215 still unported and the last family with a clear
-     shape. After that what is left is the long tail: auras, the `DAT_*` database reads, and the
-     script-calling opcodes (`ForEachPartyMember`, `ForEachPossession`) that need
-     `SpecabScripts` driven over a collection.
+     ~~**Next: the special-ability sub-opcodes**~~ **The introspection half is in** (§what a script
+     can learn): 6 more, **181 → 187**, and the specab pair now reaches the script that reads it.
+
+     **Next: the `SA_<record>_GET` lookups and their setters** — the other half of the family, and
+     the first thing that needs a specab store the port can address *by record* rather than only
+     the one currently running. `$SA_REMOVE` records its request rather than writing for exactly
+     that reason, so the same piece unblocks both. After it: auras, the `DAT_*` database reads,
+     and the script-calling opcodes (`ForEachPartyMember`, `ForEachPossession`) that drive
+     `SpecabScripts` over a collection.
 
 
 

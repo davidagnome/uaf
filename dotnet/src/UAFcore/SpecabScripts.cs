@@ -171,7 +171,9 @@ public static class SpecabScripts
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(callback);
 
-        var found = new List<string>();
+        // The pair, not just the name: the ability's own value is its parameter, and a script
+        // reads it with $SA_PARAM_GET().
+        var found = new List<(string Name, string Parameter)>();
 
         foreach (var ability in abilities)
         {
@@ -182,7 +184,7 @@ public static class SpecabScripts
 
             if (scripts.Has(ability.Key, scriptName))
             {
-                found.Add(ability.Key);
+                found.Add((ability.Key, ability.Value));
             }
         }
 
@@ -195,8 +197,14 @@ public static class SpecabScripts
             return result;
         }
 
-        foreach (string ability in found)
+        foreach (var (ability, parameter) in found)
         {
+            // The reference sets the pair on the context before each script
+            // (SPECIAL_ABILITIES::RunScripts, Specab.cpp:1929), which is what $SA_NAME() and
+            // $SA_PARAM_GET() read -- so a script can tell which of a record's abilities is
+            // running it, and what that ability was configured with.
+            host.Context.SetAbility(ability, parameter);
+
             result = scripts.Run(ability, scriptName, host);
 
             if (callback(ScriptCallbackKind.ExamineScript, ref result)

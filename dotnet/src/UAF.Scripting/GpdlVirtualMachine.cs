@@ -940,6 +940,30 @@ public sealed class GpdlVirtualMachine
                 // that were tested against that.
                 _host.SetPartyValue(GpdlPartyValue.Facing, PopSp());
                 break;
+            case SubOp.SUBOP_SA_NAME:
+                PushSp(_host.Context.AbilityName);
+                break;
+            case SubOp.SUBOP_SA_PARAM_GET:
+                PushSp(_host.Context.AbilityParameter);
+                break;
+            case SubOp.SUBOP_SA_PARAM_SET:
+                {
+                    // Pushes the value back rather than the empty string, so unlike the character
+                    // and party setters this one is usable as an expression.
+                    string parameter = PopSp();
+                    _host.Context.SetAbilityParameter(parameter);
+                    PushSp(parameter);
+                    break;
+                }
+            case SubOp.SUBOP_SA_SOURCE_TYPE:
+                PushSp(GpdlScriptContext.NameOf(_host.Context.Source));
+                break;
+            case SubOp.SUBOP_SA_SOURCE_NAME:
+                PushSp(_host.Context.SourceName);
+                break;
+            case SubOp.SUBOP_SA_REMOVE:
+                PushSp(_host.Context.RemoveAbility());
+                break;
             case SubOp.SUBOP_AttackerContext:
             case SubOp.SUBOP_TargetContext:
             case SubOp.SUBOP_CombatantContext:
