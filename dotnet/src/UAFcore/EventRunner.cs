@@ -141,6 +141,9 @@ public sealed class EventRunner
         CastPage = 0;
         CastIndex = 0;
         LastCast = CastRefusal.None;
+        Aiming = null;
+        AimingSpell = null;
+        AimCursor = 0;
         ShopRows = null;
         ShopPage = 0;
         ShopRowIndex = 0;
@@ -525,7 +528,14 @@ public sealed class EventRunner
                 var page = CastPageRows;
                 if (CastIndex >= 0 && CastIndex < page.Count)
                 {
-                    LastCast = CastSpell?.Invoke(page[CastIndex].SpellId) ?? CastRefusal.None;
+                    string spellId = page[CastIndex].SpellId;
+                    LastCast = CastSpell?.Invoke(spellId) ?? CastRefusal.None;
+
+                    // A spell that names its own targets hands the player the picker instead.
+                    if (LastCast == CastRefusal.NeedsTargets)
+                    {
+                        return OpenAiming(spellId);
+                    }
 
                     // The list is rebuilt because casting spent a copy, which can empty a row.
                     CastChoices = CastableSpells?.Invoke() ?? [];
@@ -610,6 +620,179 @@ public sealed class EventRunner
 
             case VirtualKey.PageUp:
                 TurnCastPage(-1);
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    // ---- the non-combat target picker -----------------------------------------------------------
+
+    /// <summary>The menu (<c>TargetSelectNonCombatMenu</c>, <c>GameMenu.cpp:197</c>).</summary>
+    public static readonly (string Label, int Shortcut)[] AimMenu =
+        [("CAST SPELL ON?", 0), ("EXIT", 1)];
+
+    /// <summary>The selection in progress, or null when the picker is not up.</summary>
+    public SpellTargetSelection? Aiming { get; private set; }
+
+    /// <summary>The spell the picker is aiming.</summary>
+    public string? AimingSpell { get; private set; }
+
+    /// <summary>Which party member the cursor is on (<c>party.activeCharacter</c>).</summary>
+    public int AimCursor { get; private set; }
+
+    /// <summary>
+    /// The active party member the picker started from, put back when it closes.
+    /// </summary>
+    /// <remarks>
+    /// <b>Choosing targets really does move the active character.</b> The reference walks
+    /// <c>party.activeCharacter</c> with the arrow keys and reads <c>GetActiveChar</c> as the
+    /// selected target — which is why <c>CAST_NON_COMBAT_SPELL_MENU_DATA</c> saves it into
+    /// <c>tempActive</c> before pushing this and restores it on every exit path.
+    /// </remarks>
+    private int aimReturnsTo;
+
+    /// <summary>Begins a selection; set by the host, which owns the spell and the party.</summary>
+    /// <remarks>Returning null means the spell cannot be aimed and the picker never opens.</remarks>
+    public Func<string, SpellTargetSelection?>? BeginAiming { get; set; }
+
+    /// <summary>The hit dice of a party member, for the hit-dice budget; set by the host.</summary>
+    public Func<int, double>? HitDiceOf { get; set; }
+
+    /// <summary>Casts at the chosen targets; set by the host.</summary>
+    public Action<string, IReadOnlyList<int>>? CastAtTargets { get; set; }
+
+    /// <summary>
+    /// <c>TARGET_SELECT_NONCOMBAT_EVENT_DATA::OnInitialEvent</c> (<c>RunEvent.cpp:25428</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A selection with no valid target count pops before drawing.</b> So a spell whose
+    /// targeting the engine cannot make sense of never shows a picker at all.
+    /// </remarks>
+    private EventStep OpenAiming(string spellId)
+    {
+        if (BeginAiming?.Invoke(spellId) is not { } selection || !selection.IsValid)
+        {
+            return EventStep.Running;
+        }
+
+        Aiming = selection;
+        AimingSpell = spellId;
+        aimReturnsTo = AimCursor;
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, selection.RemainingText(), MenuOrientation.Horizontal,
+                       AimMenu);
+        escapeSelects = 1;
+        UpdateAimMenu();
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// <c>OnUpdateUI</c> (<c>RunEvent.cpp:25489</c>) — SELECT darkens when there is nothing left
+    /// to choose.
+    /// </summary>
+    private void UpdateAimMenu() =>
+        Menu.SetItemEnabled(0, Aiming is { IsValid: true, AllChosen: false });
+
+    /// <summary>
+    /// <c>OnKeypress</c> (<c>RunEvent.cpp:25449</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The last target chosen closes the picker by itself.</b> There is no confirmation step —
+    /// <c>AllTargetsChosen</c> pops immediately, so a one-target spell is aimed with a single
+    /// press.
+    /// </para>
+    /// <para>
+    /// <b>EXIT casts at whatever has been chosen so far rather than abandoning.</b> The picker
+    /// simply pops, and the screen underneath casts if <c>NumTargets() &gt; 0</c> — so leaving a
+    /// three-target spell after one pick casts it at one. The <i>combat</i> picker asks before
+    /// abandoning an empty selection; this one never asks at all.
+    /// </para>
+    /// <para>
+    /// <b>The same member cannot be chosen twice</b> — <c>STD_AddTarget</c> refuses a duplicate,
+    /// and the reference logs the failure and carries on with the menu still up.
+    /// </para>
+    /// </remarks>
+    private EventStep ChooseAiming()
+    {
+        if (Aiming is not { } selection)
+        {
+            return EventStep.Running;
+        }
+
+        if (Menu.ActiveItem == 0)
+        {
+            selection.Add(AimCursor, HitDiceOf?.Invoke(AimCursor) ?? 0);
+
+            if (!selection.AllChosen)
+            {
+                // Re-titled rather than rebuilt: the reference calls setTitle on the menu it
+                // already has, so what is left to choose is on the menu bar and not in the text
+                // box.
+                Menu.SetTitle(selection.RemainingText());
+                UpdateAimMenu();
+                return EventStep.Running;
+            }
+        }
+
+        return CloseAiming(selection);
+    }
+
+    private EventStep CloseAiming(SpellTargetSelection selection)
+    {
+        string? spellId = AimingSpell;
+
+        Aiming = null;
+        AimingSpell = null;
+        AimCursor = aimReturnsTo;
+
+        if (spellId is not null && selection.Targets.Count > 0)
+        {
+            CastAtTargets?.Invoke(spellId, selection.Targets);
+        }
+
+        // Back to the cast list, which the picker was pushed over.
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, NonCombatCast.Menu);
+        escapeSelects = NonCombatCast.Menu.Length - 1;
+
+        CastChoices = CastableSpells?.Invoke() ?? [];
+        if (CastIndex >= CastPageRows.Count)
+        {
+            CastIndex = Math.Max(CastPageRows.Count - 1, 0);
+        }
+
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// The picker moves the party cursor, and the menu keeps left and right
+    /// (<c>HMenuVPartyKeyboardAction</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The mirror of the party menu's split.</b> There the menu takes the vertical keys and the
+    /// party the horizontal ones; here it is the other way round, because the menu is horizontal.
+    /// </remarks>
+    private bool HandleAimKey(VirtualKey key)
+    {
+        int size = PartySize?.Invoke() ?? 0;
+        if (size <= 0)
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case VirtualKey.Up:
+                AimCursor = ((AimCursor - 1) % size + size) % size;
+                return true;
+
+            case VirtualKey.Down:
+                AimCursor = (AimCursor + 1) % size;
                 return true;
 
             default:
@@ -4692,6 +4875,13 @@ public sealed class EventRunner
             return EventStep.Running;
         }
 
+        // The target picker sits over the cast list and moves the party cursor with the same two
+        // keys the list uses for its rows, so it has to answer first.
+        if (Aiming is not null && input.Kind == InputEventKind.KeyDown && HandleAimKey(input.Key))
+        {
+            return EventStep.Running;
+        }
+
         // And the cast list, which splits them the same way again.
         if (CastOpen && input.Kind == InputEventKind.KeyDown && HandleCastKey(input.Key))
         {
@@ -4835,6 +5025,12 @@ public sealed class EventRunner
         if (Memorizing is not null)
         {
             return ChooseMemorize();
+        }
+
+        // The picker sits over the cast list, so it answers before it.
+        if (Aiming is not null)
+        {
+            return ChooseAiming();
         }
 
         // The cast list sits over both the magic hub and the temple's, so it answers before either.

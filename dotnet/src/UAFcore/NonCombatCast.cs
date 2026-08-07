@@ -35,6 +35,16 @@ public enum CastRefusal
 
     /// <summary>Targeting produced nobody, so nothing was cast.</summary>
     NoTargets,
+
+    /// <summary>
+    /// The spell names its own targets: the player has to pick them
+    /// (<c>TARGET_SELECT_NONCOMBAT_EVENT_DATA</c>).
+    /// </summary>
+    /// <remarks>
+    /// Not a refusal in the reference — it pushes a screen — but it is the same answer to the
+    /// caller: nothing has been cast yet.
+    /// </remarks>
+    NeedsTargets,
 }
 
 /// <summary>

@@ -4275,10 +4275,41 @@ argued — three tests drive `FixSpells.Run` through the actual `PartyCasting.Ca
 > **A cast with no targets costs nothing.** That branch never reaches `CastSpell`, so the
 > memorised copy is not spent — the one path where pressing CAST is free.
 
-**Not ported, and named:** the target picker for the three modes that need one
-(`TARGET_SELECT_NONCOMBAT_EVENT_DATA`), and the `SPELL_CASTER_LEVEL` script. The host declines a
-spell that needs selection rather than casting it at the whole party, which is what silently
-treating it as a non-selecting mode would amount to.
+**Not ported, and named:** the `SPELL_CASTER_LEVEL` script. (The target picker was the next round
+— see below.)
+
+##### The target picker, which is a party cursor with two menu entries
+
+`TARGET_SELECT_NONCOMBAT_EVENT_DATA` (`RunEvent.cpp:25408`) and `STD_AddTarget`
+(`Spell.cpp:7503`). The screen on the runner; `SpellTargetSelection` already held every rule it
+drives. **The three picking modes now cast**, so every non-combat spell in a design resolves.
+
+> **There is no target list.** The screen is two menu entries — `CAST SPELL ON?` and `EXIT` — and
+> the target is whichever party member the cursor happens to be on. `HMenuVPartyKeyboardAction`
+> gives the menu the horizontal keys and the party the vertical ones, the mirror of the party
+> menu's split, because this menu is horizontal.
+
+> **Choosing targets really moves the active character.** The picker walks
+> `party.activeCharacter` and reads `GetActiveChar` as the selection, which is why
+> `CAST_NON_COMBAT_SPELL_MENU_DATA` saves it into `tempActive` before pushing this and restores it
+> on every exit path.
+
+> **What is still wanted goes on the menu's title, not in the text box** — `menu.setTitle` on the
+> menu already up, re-called after each pick rather than rebuilding the screen.
+
+> **The last target closes the picker by itself.** No confirmation: `AllTargetsChosen` pops
+> immediately, so a one-target spell is aimed with a single press.
+
+> **EXIT casts at whatever has been chosen rather than abandoning.** The picker just pops, and the
+> screen underneath casts if it has any targets — so leaving a three-target spell after one pick
+> casts it at one. The *combat* picker asks before abandoning an empty selection; this one never
+> asks at all.
+
+> **The same member cannot be chosen twice** — `STD_AddTarget` refuses a duplicate, logs it, and
+> leaves the menu up looking unchanged.
+
+> **A target that exactly spends the hit-dice budget lands and ends the selection**; only one that
+> would exceed it is refused.
 
 ##### What opening a rest does — and a claim I got wrong
 
@@ -7632,10 +7663,16 @@ What is left, in order:
 
      **Camp is complete bar QUIT and DISPLAY**, and the temple is complete.
 
-     **Next: the non-combat target picker** (`TARGET_SELECT_NONCOMBAT_EVENT_DATA`) — the last
-     thing between the cast list and a working spell for the three modes that pick their targets.
-     `SpellTargetSelection` already holds the rules; what is missing is the screen that drives it
-     over the party rather than over a fight.
+     ~~**Next: the non-combat target picker**~~ **It runs** (§the target picker), and with it
+     **every non-combat spell in a design resolves** — the three picking modes included.
+
+     **The town services are done.** Camp is complete bar QUIT and DISPLAY; the temple, the shop,
+     the vault, the tavern and the training hall are complete.
+
+     **Next: Priority 3** — the ~250 GPDL sub-opcodes and the Forth VM. Every remaining hole in
+     the services is a script hook: `SPELL_CASTER_LEVEL`, `DOES_SPELL_ATTACK_SUCCEED`, the
+     spell begin/end scripts, `FIX_CHARACTER`, `CanCastSpells`, `SCRIBE_OR_WHATEVER`. They stopped
+     being separate gaps some rounds ago and are now one.
 
 
 

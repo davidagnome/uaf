@@ -281,17 +281,66 @@ public sealed class Game
             var plan = NonCombatCast.Plan(who, Party.Members, record,
                                           who.Book.Find(spellId) is { Memorized: > 0 });
 
-            if (plan.Refusal is not CastRefusal.None || plan.NeedsSelection)
+            if (plan.NeedsSelection)
             {
-                // The target picker is not built, so a spell that needs one is declined rather
-                // than cast at everybody -- which is what casting it at the whole party would be.
-                return plan.NeedsSelection ? CastRefusal.NoTargets : plan.Refusal;
+                return CastRefusal.NeedsTargets;
+            }
+
+            if (plan.Refusal is not CastRefusal.None)
+            {
+                return plan.Refusal;
             }
 
             PartyCasting.Cast(who, Party.Members, plan.Targets, record, sides => Dice(sides),
                               NextActiveSpellKey, Minutes, castingLevel: plan.CasterLevel);
 
             return CastRefusal.None;
+        };
+
+        Runner.BeginAiming = spellId =>
+        {
+            if (design.Spell(spellId) is not { } record || Party.Active is not { } who)
+            {
+                return null;
+            }
+
+            var targeting = (SpellTargeting)record.Targeting;
+
+            // The reference evaluates each parameter as class dice through EvalDiceAsClass; the
+            // only symbol any shipped spell uses is `level`, which DiceSymbols resolves.
+            int Roll(DicePlus dice) =>
+                NewCharacter.Roll(dice, (count, sides) => DiceExpression.Roll(count, sides, Dice),
+                                  new DiceSymbols(true, null, who.ClassId,
+                                                  PartyCasting.CasterLevel(who)).Resolver,
+                                  out _) ?? 0;
+
+            return new SpellTargetSelection(
+                targeting,
+                SpellTargets.Setup(targeting,
+                                   SpellParameters.Quantity(record, Roll),
+                                   SpellParameters.Range(record, Roll),
+                                   SpellParameters.Width(record, Roll),
+                                   SpellParameters.Height(record, Roll),
+                                   Party.Count, inCombat: false),
+                Party.Count);
+        };
+
+        Runner.HitDiceOf = slot =>
+            slot >= 0 && slot < Party.Count ? Party.Members[slot].Record.NumberOfHitDice : 0;
+
+        Runner.CastAtTargets = (spellId, slots) =>
+        {
+            if (Party.Active is not { } who)
+            {
+                return;
+            }
+
+            var chosen = slots.Where(s => s >= 0 && s < Party.Count)
+                              .Select(s => Party.Members[s])
+                              .ToList();
+
+            PartyCasting.Cast(who, Party.Members, chosen, design.Spell(spellId),
+                              sides => Dice(sides), NextActiveSpellKey, Minutes);
         };
 
         // FIX runs now that a permanent spell writes hit points rather than layering an adjustment
