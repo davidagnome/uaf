@@ -259,6 +259,17 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         return result;
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>An actor that names nobody carries nothing</b>, which is the same answer as an empty
+    /// pack — the reference errors into the interpreter and pushes false, and there is no
+    /// interpreter error channel here.
+    /// </remarks>
+    public override string ForEachPossession(string actor, string script) =>
+        Resolve(actor) is { } who
+            ? PossessionWalk.Run(who.Items, script, game.Design.Item, game.Scripts, this)
+            : string.Empty;
+
     // ---- combat ---------------------------------------------------------------------------------
 
     /// <inheritdoc/>

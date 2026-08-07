@@ -151,6 +151,16 @@ public class GpdlDatabaseTests
     }
 
     [Fact]
+    public void For_each_possession_takes_the_actor_then_the_script()
+    {
+        var host = new Database();
+
+        Run($"""$ForEachPossession({AnActor}, "Tick");""", host);
+
+        Assert.Equal([("hero", "Tick")], host.PossessionWalks);
+    }
+
+    [Fact]
     public void For_each_party_member_yields_what_the_walk_left()
     {
         // Only the last run's answer survives -- and since the reference counts down, that is

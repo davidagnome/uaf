@@ -4666,11 +4666,35 @@ call; auras are now the last group.
 engine-side members rather than serialized ones, so this port's item record does not carry them.
 Zero rather than a guess.
 
-**Not ported, and named:** `$ForEachPossession`. It marks every item unprocessed and then loops
-until a pass processes nothing — because an item a script *adds* during the walk is marked
-processed on insertion, so the restart makes the walk safe against its own mutations
-(`Char.cpp:11594`). It needs the item-context plumbing (`SetItemContext`, `SetItemContextKey`)
-that nothing else has wanted yet.
+##### The possession walk, which restarts rather than iterates
+
+`CHARACTER::ForEachPossession` (`Char.cpp:11594`). `UAFcore/PossessionWalk.cs`. **One more,
+224 → 225** — the last non-aura sub-opcode.
+
+> **It restarts the scan after every item rather than continuing.** The inner loop finds the first
+> unprocessed item, runs it, marks it and `break`s; the outer loop scans again from the head. That
+> is what makes the walk safe against a script that adds or removes items — the iterator is never
+> carried across a mutation, because there is no iterator to carry.
+
+> **An item added during the walk is not visited.** Everything present at the start is marked
+> unprocessed and anything inserted afterwards arrives already marked, so the restart is for
+> iterator safety and not to pick up new work. The reference says so in a comment on the marking
+> loop, and **the port got this wrong first**: it visited new items, and the test written for the
+> comment caught it.
+
+> **The answers are concatenated, not overwritten** — `result +=` on every item, where
+> `ForEachPartyMember` assigns and keeps only the last. Two walks in one engine, two conventions.
+
+> **It runs each item's own scripts**, over the item *record*'s abilities — so every copy of a
+> sword runs the sword's script, and a character carrying three runs it three times.
+
+> **An item id the design has lost is skipped but still marked.** It has to be: leaving it
+> unprocessed would make the restart find it for ever.
+
+**Not ported, and named:** the item context (`SetItemContext`, `SetItemContextKey`). The reference
+puts the item's record and inventory key on the script context before each run, so a script can ask
+which possession it is looking at; the port sets the item's ability list — which is what
+`$SA_ITEM_GET` reads — but not the key.
 
 ###### The bug this round did not reproduce
 
@@ -8089,9 +8113,15 @@ What is left, in order:
      backed and the party walk runs** (§backing the reads): **223 → 224**, with the experience
      table extracted as a rule of its own.
 
-     **Next: `$ForEachPossession`** — the last non-aura opcode, and worth its own round for the
-     re-entrancy design it carries (§backing the reads). Then **the auras**, fourteen opcodes and
-     the only group needing a live object model built from nothing.
+     ~~**Next: `$ForEachPossession`**~~ **Done** (§the possession walk): **224 → 225**, and the
+     port had the re-entrancy rule backwards until a test written from the reference's own comment
+     caught it.
+
+     **Next: a sweep of this section and the standing-gaps table.** Both have fallen behind the
+     GPDL rounds — §11 still says the ability-score calls need a `baseclass.dat` reader that now
+     exists, and the gaps table lists eight town screens that now run. Worth correcting before more
+     work lands on top of it. Then **the auras**: fourteen opcodes, the only group left, and the
+     only one needing a live object model built from nothing.
 
 
 

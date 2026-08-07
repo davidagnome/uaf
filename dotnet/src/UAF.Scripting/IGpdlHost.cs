@@ -613,6 +613,16 @@ public interface IGpdlHost
     /// </returns>
     string ForEachPartyMember(string ability, string script);
 
+    /// <summary>
+    /// Runs a script over everything an actor is carrying (<c>CHARACTER::ForEachPossession</c>,
+    /// <c>Char.cpp:11594</c>).
+    /// </summary>
+    /// <returns>
+    /// <b>Every item's answer, concatenated</b> — where
+    /// <see cref="ForEachPartyMember"/> keeps only the last. Two walks, two conventions.
+    /// </returns>
+    string ForEachPossession(string actor, string script);
+
     /// <summary>Whether an attribute exists (<c>$IF_PARTY_ASL</c>).</summary>
     bool HasAsl(GpdlAslScope scope, string key);
 
@@ -741,6 +751,16 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     public virtual string ForEachPartyMember(string ability, string script)
     {
         PartyWalks.Add((ability, script));
+        return string.Empty;
+    }
+
+    /// <summary>Each <c>$ForEachPossession</c> this environment was asked to run.</summary>
+    public List<(string Actor, string Script)> PossessionWalks { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual string ForEachPossession(string actor, string script)
+    {
+        PossessionWalks.Add((actor, script));
         return string.Empty;
     }
 
