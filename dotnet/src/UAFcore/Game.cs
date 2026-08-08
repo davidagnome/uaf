@@ -1931,6 +1931,7 @@ public sealed class Game
                                      id => design.Spell(id));
         Combat.ItemInfo = id => design.Item(id);
         Combat.MonsterInfo = id => design.Monster(id);
+        Combat.AiScript = design.AiScript;
         Message = "Combat!";
         return true;
     }

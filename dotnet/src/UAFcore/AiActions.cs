@@ -111,10 +111,11 @@ public static class AiActions
             bool friendly = target.IsFriendly == self.IsFriendly;
             int distance = MonsterAiScript.DistanceBetween(self, target);
 
-            foreach (var weapon in weapons)
+            // One-based: weaponOrd 0 is the reference's "no weapon", so the nth weapon is n+1.
+            for (int ordinal = 1; ordinal <= weapons.Count; ordinal++)
             {
-                actions.AddRange(WeaponActions(self, target, weapon, distance, friendly,
-                                               judoMeleeOnly, attacksTheDying,
+                actions.AddRange(WeaponActions(self, target, weapons[ordinal - 1], ordinal,
+                                               distance, friendly, judoMeleeOnly, attacksTheDying,
                                                ammo ?? []));
             }
 
@@ -164,8 +165,8 @@ public static class AiActions
     /// </para>
     /// </remarks>
     private static IEnumerable<AiAction> WeaponActions(
-        Combatant self, Combatant target, AiWeapon weapon, int distance, bool friendly,
-        bool judoMeleeOnly, bool attacksTheDying, IReadOnlyList<AiAmmo> ammo)
+        Combatant self, Combatant target, AiWeapon weapon, int weaponOrdinal, int distance,
+        bool friendly, bool judoMeleeOnly, bool attacksTheDying, IReadOnlyList<AiAmmo> ammo)
     {
         if (Classify(weapon, friendly, judoMeleeOnly) is not { } type)
         {
@@ -177,7 +178,8 @@ public static class AiActions
         if (type != AiActionType.RangedWeapon || string.IsNullOrEmpty(weapon.AmmoType))
         {
             var plain = new AiAction(type, target.Index, weapon.Class,
-                                     weapon.AverageDamage + weapon.DamageBonus, distance);
+                                     weapon.AverageDamage + weapon.DamageBonus, distance,
+                                     weaponOrdinal);
 
             if (MonsterAiScript.Survives(self, target, plain, range22, attacksTheDying))
             {
@@ -196,7 +198,7 @@ public static class AiActions
 
             var shot = new AiAction(type, target.Index, weapon.Class,
                                     round.AverageDamage + round.DamageBonus + weapon.DamageBonus,
-                                    distance);
+                                    distance, weaponOrdinal);
 
             if (MonsterAiScript.Survives(self, target, shot, range22, attacksTheDying))
             {

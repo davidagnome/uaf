@@ -39,13 +39,12 @@ public sealed record AiPlan(AiDecision Decision, int Target = CombatMap.NoDude,
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>This is the unscripted half only.</b> The reference forks on <c>LoadAI_Script()</c>: when a
-/// design supplies an AI script, it builds a <c>COMBAT_SUMMARY</c> of every combatant, weapon,
-/// attack and reachable cell, enumerates candidate actions, and ranks them by running a
-/// <b>Forth</b> program (<c>RunTHINK</c>, <c>:2251</c>) — a partial-order insertion into a binary
-/// tree, so the best action bubbles up. The Forth VM is not started (§11), so none of that is here.
-/// What is here is the path the reference takes when no script is loaded, which is what every
-/// design without a custom AI uses.
+/// <b>Both halves of the reference's fork are here.</b> It forks on <c>LoadAI_Script()</c>: with a
+/// script it builds a <c>COMBAT_SUMMARY</c> and ranks the candidates by running a <b>Forth</b>
+/// program (<c>RunTHINK</c>, <c>:2251</c>) — a partial-order insertion into a binary tree, so the
+/// best action bubbles up — and without one it takes the plain path below. Pass a
+/// <see cref="ForthAiScript"/> for the first; omit it for <see cref="MonsterAiScript"/>, which is
+/// that same program transcribed and is what every design without a custom AI effectively runs.
 /// </para>
 /// <para>
 /// The decision order is the reference's and it matters: fleeing beats everything, then target
@@ -67,10 +66,15 @@ public static class MonsterAi
     /// readies weapons and consumes wand charges as it goes; separating the decision from its
     /// execution is what lets a test assert the choice rather than its consequences.
     /// </remarks>
+    /// <param name="script">
+    /// The design's own compiled <c>AI_Script.BLK</c>, when it has one. Without it the ranking is
+    /// <see cref="MonsterAiScript"/>, which is that same script transcribed.
+    /// </param>
     public static AiPlan Think(Combatant self, IReadOnlyList<Combatant> all, CombatMap map,
                                Func<Combatant, int, bool> canAttack,
                                IReadOnlyList<AiWeapon>? weapons = null,
-                               IReadOnlyList<AiAmmo>? ammo = null)
+                               IReadOnlyList<AiAmmo>? ammo = null,
+                               ForthAiScript? script = null)
     {
         ArgumentNullException.ThrowIfNull(self);
         ArgumentNullException.ThrowIfNull(all);
@@ -86,7 +90,7 @@ public static class MonsterAi
         // -- the scripted path, when the caller knows what this combatant is carrying -------
         if (weapons is not null)
         {
-            return Scripted(self, all, map, weapons, ammo);
+            return Scripted(self, all, map, weapons, ammo, script);
         }
 
         // -- who are we fighting? ----------------------------------------------------------
@@ -135,13 +139,20 @@ public static class MonsterAi
     /// </para>
     /// </remarks>
     private static AiPlan Scripted(Combatant self, IReadOnlyList<Combatant> all, CombatMap map,
-                                   IReadOnlyList<AiWeapon> weapons, IReadOnlyList<AiAmmo>? ammo)
+                                   IReadOnlyList<AiWeapon> weapons, IReadOnlyList<AiAmmo>? ammo,
+                                   ForthAiScript? script = null)
     {
         var candidates = AiActions.For(self, all, weapons,
                                        unarmedAttacks: Math.Max(0, self.TotalAttacks),
                                        canMove: CanMove(self), ammo: ammo);
 
-        foreach (var action in MonsterAiScript.Rank(candidates))
+        // The design's own script when it has one, and the transcription of that same script when
+        // it does not. Both put the chosen action first.
+        var ranked = script is null
+            ? MonsterAiScript.Rank(candidates)
+            : script.Rank(candidates, self, all, weapons);
+
+        foreach (var action in ranked)
         {
             var target = Get(all, action.Target);
             if (target is null)

@@ -123,6 +123,24 @@ public sealed class ForthAction
 }
 
 /// <summary>
+/// The six per-action filters a design's script may define
+/// (<c>Forth.cpp:2360</c>–<c>:2504</c>).
+/// </summary>
+/// <remarks>
+/// One per action type that can be filtered, run while the candidate list is being built rather
+/// than while it is being ranked. There is no filter for an unknown action.
+/// </remarks>
+public enum ForthAiFilter
+{
+    SpellCaster,
+    SpellLikeAbility,
+    Advance,
+    Judo,
+    MeleeWeapon,
+    RangedWeapon,
+}
+
+/// <summary>
 /// What <c>THINK</c> is handed: two candidate actions and everybody in the fight
 /// (<c>COMBAT_SUMMARY</c>).
 /// </summary>

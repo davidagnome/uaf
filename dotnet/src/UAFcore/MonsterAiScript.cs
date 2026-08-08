@@ -33,9 +33,21 @@ public enum AiActionType
 /// what the script's <c>C:Distance</c> pushes (<c>Forth.cpp:2149</c>). Every threshold in the
 /// script is in these units. Use <see cref="MonsterAiScript.DistanceBetween"/> to compute it.
 /// </param>
+/// <param name="WeaponOrdinal">
+/// Which of the actor's weapons this action would use — <b>one-based, with 0 meaning none</b>
+/// (<c>weaponOrd</c>).
+/// </param>
+/// <remarks>
+/// <b><paramref name="WeaponType"/> and <paramref name="WeaponOrdinal"/> are the same fact stored
+/// twice</b>, and deliberately. The transcribed <see cref="MonsterAiScript.Compare"/> reads the
+/// type directly, where the script reaches it as <c>W:Type</c> — the weapon at
+/// <paramref name="WeaponOrdinal"/> of the <i>selected combatant</i>. The ordinal is what the Forth
+/// path needs; without it every <c>W:</c> word pushes <c>NotWeapon</c> and the script's first two
+/// tests, which are the ones that put spell items ahead of everything, can never fire.
+/// </remarks>
 public readonly record struct AiAction(
     AiActionType Type, int Target, WeaponClass WeaponType = WeaponClass.NotWeapon,
-    int Damage = 0, int Distance = 0);
+    int Damage = 0, int Distance = 0, int WeaponOrdinal = 0);
 
 /// <summary>
 /// The monster AI's priority ordering — what the shipped <c>AI_Script.BLK</c> decides
@@ -342,14 +354,24 @@ public static class MonsterAiScript
     private static int Rank(bool a, bool b) => a == b ? 0 : a ? 1 : -1;
 
     /// <summary>
-    /// Puts the best action first (the heap-sort around <c>RunTHINK</c>,
-    /// <c>Combatant.cpp:2240</c>).
+    /// Puts a best action first (the tree insertion around <c>RunTHINK</c>,
+    /// <c>Combatant.cpp:2237</c>–<c>:2255</c>).
     /// </summary>
     /// <remarks>
-    /// <b>The reference sorts with a comparator that is not a total order</b> — its own comment
-    /// says it "would like to choose randomly from the three best" — and the heap it builds only
-    /// guarantees the front. Sorting properly here gives the same head element for the orderings
-    /// the script can express, and a defined result for the ones it cannot.
+    /// <para>
+    /// <b>The reference builds a heap and reads only its root</b> — it is not a sort, whatever an
+    /// earlier revision of this comment said. Sorting here is deliberate all the same: the engine
+    /// walks past a choice whose target has gone, and after a heap build the second element is not
+    /// the second-best, so a sorted list is what makes that walk mean anything.
+    /// </para>
+    /// <para>
+    /// <b>Where the comparator has no opinion the two disagree, and neither is wrong.</b> Two
+    /// spell-caster actions of equal damage against different targets score 0 — every one of
+    /// <c>THINK</c>'s tests reads the action or weapon type, never the target — so a heap and a sort
+    /// stop at different ones. <c>ForthAiEquivalenceTests</c> measures this against the real script:
+    /// every pair ranks the same way, and each path's head is unbeaten, but the heads themselves
+    /// need not be the same action.
+    /// </para>
     /// </remarks>
     public static List<AiAction> Rank(IEnumerable<AiAction> actions)
     {

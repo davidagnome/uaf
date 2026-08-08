@@ -142,6 +142,53 @@ public sealed partial class ForthMachine
         return !Aborted;
     }
 
+    /// <summary>
+    /// Loads a design's <c>AI_Script.BLK</c> on top of the built kernel
+    /// (<c>ExpandKernel</c>'s second half, <c>Forth.cpp:2294</c>–<c>:2336</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A line at a time, each one its own input buffer.</b> The reference never reads the file
+    /// whole: it <c>fgets</c> into the same 200-byte scratch below the data stack that
+    /// <see cref="Evaluate"/> uses, and interprets each line on its own. Compile state survives
+    /// between calls, which is the only reason a colon definition may span lines.
+    /// </para>
+    /// <para>
+    /// <b>The newline becomes a space rather than being dropped.</b> Only a space or a tab
+    /// delimits a token, so a line whose terminator was simply removed would run its last word
+    /// into the next line's first. A carriage return is not a delimiter either — the reference
+    /// never meets one because it opens the file in text mode on Windows, and this port has to
+    /// strip it.
+    /// </para>
+    /// <para>
+    /// <b>One bad line stops the script, and quietly.</b> There is no skip-and-continue: the
+    /// reference breaks out of the read loop on the first abort, leaving everything defined before
+    /// it in the dictionary. So a typo shortens an AI script rather than changing what the
+    /// monsters do — and if it lands before <c>THINK</c>, <see cref="RunThink"/> then scores every
+    /// pair 0.
+    /// </para>
+    /// <para>
+    /// <b>The reference also chunks at 119 characters</b> — <c>fgets(buf, 120, f)</c> — which would
+    /// split a token across two buffers. No shipped script comes close: the longest line in either
+    /// version is 81 characters, so the chunking is unobservable and is not reproduced.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether every line interpreted without aborting.</returns>
+    public bool LoadScript(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        foreach (string line in text.Split('\n'))
+        {
+            if (!Evaluate(line.TrimEnd('\r') + ' '))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     // ---- the outer interpreter ------------------------------------------------------------------
 
     /// <summary>

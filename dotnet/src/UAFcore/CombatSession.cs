@@ -931,10 +931,19 @@ public sealed class CombatSession
         IsEditor: false,
         SpecialActionName: string.Empty);
 
+    /// <summary>
+    /// The design's own compiled <c>AI_Script.BLK</c>, when it has one that builds.
+    /// </summary>
+    /// <remarks>
+    /// Left null the fight ranks with <see cref="MonsterAiScript"/>, which is the shipped script
+    /// transcribed — the same decision for every design that has not edited its own.
+    /// </remarks>
+    public ForthAiScript? AiScript { get; set; }
+
     private void RunAutoTurn(Combatant actor)
     {
         var plan = MonsterAi.Think(actor, combatants, Map, CanAttack, WeaponsFor(actor),
-                                   AiWeapons.AmmoFor(actor, ItemInfo));
+                                   AiWeapons.AmmoFor(actor, ItemInfo), AiScript);
 
         switch (plan.Decision)
         {

@@ -53,6 +53,34 @@ public sealed class LoadedDesign : IDisposable
         specialAbilities ??= SpecialAbilitiesFile.Load(
             Path.Combine(Root, "Data", "specialAbilities.txt"));
 
+    private ForthAiScript? aiScript;
+
+    private bool aiScriptTried;
+
+    /// <summary>
+    /// The design's compiled <c>AI_Script.BLK</c>, or null when it has none that builds.
+    /// </summary>
+    /// <remarks>
+    /// <b>Compiled once and reused, as the reference does.</b> <c>ExpandKernel</c> guards itself
+    /// with a <c>static bool finished</c>, so the dictionary is built on the first fight and every
+    /// later one runs against it. Null is the ordinary case in the sense that matters: every
+    /// shipped design carries the stock script, which <see cref="MonsterAiScript"/> already is, so
+    /// only a design that edited its own gets a different answer from going through here.
+    /// </remarks>
+    public ForthAiScript? AiScript
+    {
+        get
+        {
+            if (!aiScriptTried)
+            {
+                aiScriptTried = true;
+                aiScript = ForthAiScript.Load(Path.Combine(Root, "Data"));
+            }
+
+            return aiScript;
+        }
+    }
+
     public GlobalStatsPrefix Globals { get; }
 
     public DesignConfig Config { get; }

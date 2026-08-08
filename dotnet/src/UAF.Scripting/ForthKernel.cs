@@ -59,7 +59,12 @@ public static class ForthKernel
         " : /MOD >R S>D R> FM/MOD ; : / /MOD NIP ; : MOD /MOD DROP ; : */MOD >R M* R> FM/MOD ;" +
         " : U/MOD 0 SWAP MU/MOD DROP ; : */ */MOD NIP ; : MAX 2DUP < IF SWAP THEN DROP ; : MIN" +
         " 2DUP > IF SWAP THEN DROP ; : CHAR BL WORD 1 + C@ ; 1 SP+- : [CHAR] CHAR LIT LIT , ," +
-        " ; IMMEDIATE : ( [CHAR] ) WORD DROP ; IMMEDIATE : \\\\ 0 WORD DROP ; IMMEDIATE PRIM Me" +
+        // The comment word is ONE backslash. C++ writes it "\\" in its own literal (Forth.cpp:481);
+        // transcribing that source form rather than its value escaped it a second time, and the
+        // kernel defined a word named \\ that no script ever names. The kernel still built, so
+        // nothing caught it until a real AI_Script.BLK -- whose every comment line opens with \ --
+        // was fed to the machine and aborted on its first line.
+        " ; IMMEDIATE : ( [CHAR] ) WORD DROP ; IMMEDIATE : \\ 0 WORD DROP ; IMMEDIATE PRIM Me" +
         " PRIM He PRIM A PRIM B PRIM A:Type PRIM A:Damage PRIM W:Type PRIM W:Range PRIM" +
         " W:Protection PRIM W:Damage PRIM W:ROF PRIM W:AttackBonus PRIM W:Priority PRIM" +
         " Shield.Next PRIM Shield.Ready! PRIM Fleeing@ PRIM C:State PRIM C:Distance PRIM" +

@@ -6,8 +6,9 @@ namespace UAFcore.Tests;
 /// Covers the auto combatant's decision (<c>COMBATANT::Think</c>, <c>Combatant.cpp:2080</c>).
 /// </summary>
 /// <remarks>
-/// The unscripted half only — the scripted branch ranks actions with a Forth program, and the
-/// Forth VM is not started.
+/// The unscripted half — the branch that ranks with <see cref="MonsterAiScript"/> rather than with
+/// a design's own Forth program. The scripted branch is covered by
+/// <see cref="ForthAiEquivalenceTests"/>, which checks the two against each other.
 /// </remarks>
 public class MonsterAiTests
 {

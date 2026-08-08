@@ -44,13 +44,76 @@ public sealed partial class ForthMachine
     {
         ArgumentNullException.ThrowIfNull(combatSummary);
 
+        return RunAgainst("THINK", combatSummary);
+    }
+
+    /// <summary>
+    /// Whether the design's script rejects one candidate action (the six <c>Run*Filter</c>
+    /// functions, <c>Forth.cpp:2360</c>–<c>:2504</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A non-zero result rejects.</b> The reference's call sites read
+    /// <c>if (RunRangedWeaponFilter(…) != 0) return;</c> — the action is simply not added. So the
+    /// sense is the opposite of <c>MonsterAiScript.Survives</c>, which answers whether to keep it.
+    /// </para>
+    /// <para>
+    /// <b>Both candidate slots hold the same action.</b> The filters set
+    /// <c>pActionA = pActionB = pcsa</c>, so a filter word may say <c>A</c> or <c>B</c> and reach
+    /// the one action either way — which is why the shipped filters open with <c>Me</c> or
+    /// <c>He</c> and never select a candidate.
+    /// </para>
+    /// <para>
+    /// <b>A design whose script omits a filter keeps every action.</b> The lookup fails, the
+    /// reference returns 0, and 0 means keep.
+    /// </para>
+    /// </remarks>
+    public bool Rejects(ForthAiFilter filter, ForthAction action,
+                        IReadOnlyList<ForthCombatant> combatants)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(combatants);
+
+        var one = new ForthCombatSummary
+        {
+            ActionA = action,
+            ActionB = action,
+            Combatants = combatants,
+        };
+
+        return RunAgainst(FilterWord(filter), one) != 0;
+    }
+
+    /// <summary>The script word each filter runs, named as the reference names it.</summary>
+    private static string FilterWord(ForthAiFilter filter) => filter switch
+    {
+        ForthAiFilter.SpellCaster => "SpellCasterFilter",
+        ForthAiFilter.SpellLikeAbility => "SpellLikeAbilityFilter",
+        ForthAiFilter.Advance => "AdvanceFilter",
+        ForthAiFilter.Judo => "JudoFilter",
+        ForthAiFilter.MeleeWeapon => "MeleeWeaponFilter",
+        ForthAiFilter.RangedWeapon => "RangedWeaponFilter",
+        _ => throw new ArgumentOutOfRangeException(nameof(filter)),
+    };
+
+    /// <summary>
+    /// The shape <c>RunTHINK</c> and all six filters share: point the reader words at a summary,
+    /// reset both stacks, and run one word.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both stacks are reset to empty before the call.</b> Whatever a previous comparison left
+    /// behind is discarded, so a script with an unbalanced word cannot poison the next one — though
+    /// <c>docolon</c>'s own stack-effect check would have caught it first.
+    /// </remarks>
+    private int RunAgainst(string word, ForthCombatSummary combatSummary)
+    {
         summary = combatSummary;
         readingHe = false;
         selectedAction = combatSummary.ActionA;
         selectedCombatant = selectedAction.Me;
 
-        int think = Lookup("THINK");
-        if (think == 0)
+        int cfa = Lookup(word);
+        if (cfa == 0)
         {
             return 0;
         }
@@ -58,7 +121,7 @@ public sealed partial class ForthMachine
         m.Sp = ForthMemory.DataStackBase;
         m.Rp = ForthMemory.ReturnStackBase;
         exit = 0;
-        m.Cfa = (ushort)think;
+        m.Cfa = (ushort)cfa;
 
         DoColon();
 

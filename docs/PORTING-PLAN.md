@@ -27,7 +27,10 @@ load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, 
 picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
 combat as well as in it.** **239 of GPDL's 387 sub-opcodes run** against real game state, the aura family
 and its geometry among them. Phases 5–7 have not started.
-**3,966 tests, green on macOS, Linux and Windows; both CI workflows green.**
+**The Forth VM runs a design's own `AI_Script.BLK` end to end** — kernel, the 21 combat-summary
+words, `RunTHINK` and the six action filters — and is checked against the hand transcription on the
+real shipped script rather than a fixture.
+**4,011 tests, green on macOS; both CI workflows were green as of the previous commit.**
 
 ### Where to pick up
 
@@ -508,7 +511,7 @@ dotnet/
                                  Also holds the record model — see below
     UAF.Data/                    config.txt (DesignConfig)                    ✅ see below
     UAF.Rules/                   Money. GameRules, combat math, progression   ✅ money only
-    UAF.Scripting/               GPDL compiler + VM. Forth VM                 ✅ GPDL, Forth kernel
+    UAF.Scripting/               GPDL compiler + VM. Forth VM                 ✅ GPDL, Forth whole
     UAF.Media/                   blitter, surfaces, sprites, fonts, audio,    ✅
                                  movie player, PNG loader
     UAF.Media.Sdl/               SDL3 presentation + input + audio + image    ✅
@@ -2146,12 +2149,13 @@ The decision order is the reference's and it matters:
 - The reference has the flee block **twice**, once for `iFleeingFlags` and once for `isTurned`,
   differing only in a trace message. Ported once.
 
-> **The scripted branch is not ported, and it is a separate large piece.** When a design supplies
-> an AI script, `Think` builds a `COMBAT_SUMMARY` of every combatant, weapon, attack and reachable
-> cell, enumerates candidate actions, and ranks them by running a **Forth** program (`RunTHINK`,
-> `:2251`) — a partial-order insertion into a binary tree so the best action bubbles up. That needs
-> the Forth VM, which is not started (§11). Every design without a custom AI takes the path that
-> *is* ported.
+> **The scripted branch is ported too** (§the Forth seam). When a design supplies an AI script,
+> `Think` builds a `COMBAT_SUMMARY` of every combatant, weapon, attack and reachable cell,
+> enumerates candidate actions, and ranks them by running a **Forth** program (`RunTHINK`, `:2251`)
+> — a partial-order insertion into a binary tree so the best action bubbles up. `MonsterAi.Think`
+> takes an optional `ForthAiScript` for that path; without one it uses `MonsterAiScript`, which is
+> the same program transcribed, and the two are checked against each other on the real shipped
+> script.
 
 **Verified by running a fight and watching it.** Four heroes and four orcs, all on auto, on a real
 combat map generated from `SomethingWild`: they close over round 1, trade blows from round 2, and
@@ -2588,8 +2592,19 @@ What the shipped `AI_Script.BLK` decides (`RunTHINK`, `Forth.cpp:2510`).
 it** — see the trade-off below before reaching for either.
 
 `THINK` is a **comparator**, not a planner. It is handed two candidate actions and returns A minus
-B, positive meaning A is preferred; the caller heap-sorts the candidate list with it
-(`Combatant.cpp:2240`). The script's own comments are the specification, and the order is:
+B, positive meaning A is preferred.
+
+> **The caller does not sort with it — it builds a heap and reads the root.** This section said
+> "heap-sorts" for several rounds and that is wrong in a way that matters. `Combatant.cpp:2237`–`:2255`
+> appends each action and sifts it up while `THINK` prefers it to its parent, then takes
+> `actionIndex[0]` and nothing else; the reference's own comment explains the shape — so that it
+> "could easily extract several actions" and choose randomly among the best — but it never does.
+> Everything past the head is in heap order, not rank order. The consequence is real: among actions
+> the script scores 0 against each other, a heap and a sort stop at **different** ones, which is why
+> `ForthAiEquivalenceTests` asserts that each path's head is unbeaten rather than that the two heads
+> are equal.
+
+The script's own comments are the specification, and the order is:
 spell-caster items ("used first if the monster has them"), spell-like abilities ("Dragon Breath,
 Medusa Gase"), ranged weapons by average damage, melee likewise, unarmed, advancing on the nearest
 enemy — "the only action left is to guard".
@@ -4949,10 +4964,58 @@ dictionary in between. That is the whole machine.
 > mid-definition, and recursion compiles rather than referring to the previous meaning. The flag is
 > documentation with a write side.
 
-**Not ported, and named:** the 21 words that read a `COMBAT_SUMMARY` — `Me`, `He`, `A`, `B`, the
-`A:`/`W:`/`C:` families, `Shield.Next`, `Shield.Ready!` and `Fleeing@` — and `RunTHINK`. They are in
-the dictionary, at the right indices, refusing with a citation when called; nothing in the kernel
-calls one, so it builds and runs without them.
+##### The Forth seam, and a kernel defect only real data could find
+
+`UAF.Scripting/ForthGameWords.cs`, `ForthCombatSummary.cs`; `UAFcore/AiSummary.cs`,
+`ForthAiScript.cs`. 44 tests. **The VM runs a design's own `AI_Script.BLK` end to end** — the 21
+`COMBAT_SUMMARY` words, `RunTHINK`, and the six `Run*Filter` entry points — and agrees with the
+transcription on the real shipped script.
+
+> **The kernel defined a comment word nothing could ever name.** `Forth.cpp:481` reads
+> `" : \\ 0 WORD DROP ; IMMEDIATE"`, which in C++ is the text `: \ 0 WORD DROP ; IMMEDIATE` — a
+> **one**-character word. The extraction transcribed the literal's *source* form and escaped it
+> again for C#, so the port defined `\\` and every `\` in a real script was an undefined word. The
+> kernel still built, 14 tests still passed, and `\` is the first character of `AI_Script.BLK`'s
+> first line — so the whole file aborted on line 1 the first time one was fed to the machine.
+> **A hand-transcribed escape is a value, not a spelling**, and the only thing that catches it is
+> real input.
+
+> **`THINK` reads nine words; the other twelve belong to the filters.** The eight tests `THINK`
+> calls use `Me`, `He`, `A`, `B`, `A:Type`, `A:Damage`, `W:Type`, `W:Damage` and `C:Distance`.
+> `C:State`, `C:Friendly` and the rest are reached only through `FGDP?` and its neighbours, which
+> the *engine* calls while enumerating actions (`RunSpellCasterFilter` and its five siblings), not
+> while ranking. Porting only `RunTHINK` would have left half the words unreachable.
+
+> **`TestCasting` is dead script.** It is defined, it is the only reader of `C:State` in the file,
+> and `THINK` never calls it. A design preferring to interrupt spellcasters would have to add the
+> call itself.
+
+> **The filters answer the opposite question to the port's transcription.** A filter returns
+> non-zero to *reject*; `MonsterAiScript.Survives` answers whether to keep. Both directions are
+> asserted against each other, per script version, with `attacksTheDying` paired to the version that
+> defines `Dying?` — which is the one line the two shipped scripts differ by.
+
+> **`A:Damage` and `W:Damage` are the same number for a weapon that takes no ammunition.**
+> `ListActionsByAmmo` computes the action's damage as `pHe->isLarge ? large : small` dice plus
+> bonus, which is exactly what `W:Damage` pushes. They diverge only for a weapon firing ammunition,
+> where the action's damage comes from the round and the weapon contributes its bonus alone. So the
+> transcription comparing `A:Damage` where `TestMeleeVersusMelee` says `W:Damage` is correct —
+> melee weapons take no ammunition — and it is correct by accident of that identity, not by
+> agreement.
+
+> **Only combatant 0 has weapons, and that is load-bearing.** `ListWeapons`, `ListAmmo` and
+> `ListAttacks` are called for the active combatant alone. A script saying `He W:Damage` therefore
+> reads an empty list and gets `NotWeapon`, not the target's gear. Reproducing the empty list is
+> what keeps a straying script honest; filling it in would silently answer a question the reference
+> refuses.
+
+**Standing gaps in the projection, none of them reached by a shipped script:** `AIBaseclass` is
+left at the reference's own "not computed" −1; shields are absent, so `Shield.Next` cycles 0 → 0
+and `Shield.Ready!` stores 0; `hasLineOfSight` is 0; and `W:Protection`, `W:ROF`, `W:AttackBonus`
+and `W:Priority` are 0 because `AiWeapon` carries none of them. `W:Damage` does not size by the
+target either — `AiWeapons.For` reads only a weapon's small-target dice — but the transcription
+shares that gap exactly, which is what keeps the two paths comparable; fixing it belongs with the
+damage estimate.
 
 > **Three of the four first-draft test failures were my Forth, not the port's.** `9 5 -` is 4;
 > `1 2 3 ROT` leaves 1 on top and 2 at the bottom; and a word that consumes one value and leaves one
@@ -8450,9 +8513,25 @@ What is left, in order:
      real defect in the previous round: `m_iMoveDir` is `FACE_*`-ordered, not compass-ordered, and
      the cast that survived 46 tests would have rotated every facing-attached wedge.
 
-     **Next: what is left is scattered.** 134 callable sub-opcodes with no group among them, the
-     Forth VM, `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped
-     design uses. The next round is a judgement call rather than an obvious pick.
+     ~~**Next: what is left is scattered.**~~ **The Forth VM is done, 2026-08-07** (§the Forth
+     seam): the seam to the game, the six filters, and an equivalence check against the
+     transcription on the real shipped script — which turned up a kernel defect that had made every
+     comment line in a real script an undefined word.
+
+     **Next: what is left is scattered.** 134 callable sub-opcodes with no group among them,
+     `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped design uses.
+     The next round is a judgement call rather than an obvious pick.
+
+     One thing this round named and did not take, and it does not block: **`W:Damage` does not size
+     by the target**, because `AiWeapons.For` reads only a weapon's small-target dice. The
+     transcription shares the gap exactly, so both AI paths are wrong together and comparably —
+     which is why closing it belongs with the damage estimate and not with the Forth seam.
+
+     **The path is reachable from a running game**, which is the part that could have been left
+     hanging: `LoadedDesign.AiScript` compiles the design's own script once, `Game` hands it to
+     `CombatSession.AiScript`, and `MonsterAi.Think` ranks with it. A test opens a real design and
+     walks that whole chain, because unit tests on the pieces would all have passed with nothing
+     joined up.
 
 
 
@@ -8491,16 +8570,22 @@ What is left, in order:
 
    Still wanting state the port does not have: `$GET_CHAR_EFFAC` needs the attacker as well as the
    target. The aura family runs whole, geometry included (§the auras, §the annular sector).
-4. **The Forth VM.** ~~A real subsystem.~~ **The machine runs and builds its own dictionary**
-   (§the Forth VM): memory, stacks, both interpreters and the 51 core primitives, with the kernel
-   source carried across as data because that is what it is. What is left is the seam to the game:
-   the 21 words that read a `COMBAT_SUMMARY`, and `RunTHINK` itself. They are present in the
-   dictionary and refuse when called, so the kernel builds and ordinary Forth runs without them.
+4. ~~**The Forth VM.**~~ **Done — the machine runs a design's own AI script end to end**
+   (§the Forth VM, §the Forth seam). The kernel builds its own dictionary from source carried
+   across as data; the 21 `COMBAT_SUMMARY` words, `RunTHINK` and the six `Run*Filter` entry points
+   all run against live combat state through `AiSummary`; and `MonsterAi.Think` takes a
+   `ForthAiScript` for the scripted branch.
 
-   Its only consumer is a script that is the same in every shipped design bar one line
-   (§the monster AI's priority ordering), and that script's decision function already runs in
-   combat, transcribed directly. What still wants the VM: a design that edits `AI_Script.BLK`,
-   the `TURN_ATTEMPT` hook that turning undead depends on
+   **It is checked against the transcription on the real script, not on a fixture.** All four
+   shipped copies of `AI_Script.BLK` compile — both versions — and for every one of 289 candidate
+   pairs the VM and `MonsterAiScript.Compare` rank the same way, with the six filters agreeing in
+   both directions per version. That mutual check is the point: neither implementation had any
+   other witness.
+
+   Finding it cost one real defect: the kernel's comment word `\` had been double-escaped into
+   `\\`, so every comment line in a real script was an undefined word (§the Forth seam).
+
+   What still wants the VM elsewhere: the `TURN_ATTEMPT` hook that turning undead depends on
    (§turning, delaying and automatic), and a monster's own choice of spell targets
    (§choosing a spell's targets).
 
@@ -8539,7 +8624,7 @@ the round both call and neither has.
 | **GPDL reference bytecode** | `oracle/golden/gpdl/` holds 4 scripts and **0 `.bin` goldens**, so `GpdlOracleDiffTests` returns early. Phase 2's exit criterion cannot be demonstrated without them. Needs only a Windows oracle run | Small |
 | **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
 | **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
-| **148 GPDL sub-opcodes, and the Forth VM** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. **The Forth VM's kernel runs**; its combat-summary bindings and `RunTHINK` do not | Medium |
+| **148 GPDL sub-opcodes** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. **The Forth VM is no longer part of this row: it runs whole** — kernel, the 21 combat-summary words, `RunTHINK` and the six filters, checked against the transcription on the real shipped script | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
