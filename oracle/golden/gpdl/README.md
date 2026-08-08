@@ -25,35 +25,47 @@ separately, so a diff failure points at one construct rather than at "somewhere 
 | `arith.txt` | both arithmetic families — the `$` bignum functions and the `#` hardware operators — plus operator precedence, unary `!` and `-#`, `=#` |
 | `structure.txt` | nested functions, `@`-qualified public names, prototypes, locals, globals, parameter passing, default parameter values, `#PUBLIC` |
 
-## Adding the workflow step
+## Producing the goldens
 
-After the GPDLcomp build in `.github/workflows/oracle-cpp.yml`:
+**The workflow step exists** — `Compile GPDL goldens (reference compiler)` in
+`.github/workflows/oracle-cpp.yml`, after the three MSVC builds. This section used to describe how
+to add it. To get the goldens into the tree:
 
-```powershell
-$dir = "oracle\golden\gpdl"
-Get-ChildItem "$dir\*.txt" | ForEach-Object {
-  $bin = [IO.Path]::ChangeExtension($_.FullName, ".bin")
-  $lst = [IO.Path]::ChangeExtension($_.FullName, ".lst")
-  $p = Start-Process -FilePath $gpdlcomp -ArgumentList @($_.FullName, $bin, $lst) `
-                     -Wait -PassThru -RedirectStandardInput NUL
-  if (-not (Test-Path $bin) -or (Get-Item $bin).Length -eq 0) {
-    Write-Output "::error::GPDLcomp produced no output for $($_.Name)"
-    exit 1
-  }
-}
-```
+1. Run the **Oracle (C++ reference build)** workflow — it fires on any push touching `src/**`,
+   `oracle/**` or its own file, and can be started by hand from the Actions tab
+   (`workflow_dispatch`).
+2. Download the **`gpdl-goldens`** artifact from that run — **only from a run whose
+   `Compile GPDL goldens` step is green.** The artifact uploads on failure too, so that a broken
+   compile can be inspected, which means a red run can hand you a partial set. Committing one of
+   those is the exact state the tests cannot detect.
+3. Commit its `.bin` and `.lst` files here, beside the `.txt` they came from.
 
-Two things will bite otherwise, both of the same shape as the Phase 0 lessons in the porting plan:
+That third step is manual on purpose: the workflow has `contents: read` and does not write to the
+repository, and a golden that the reference produced is a fact worth landing under review rather
+than automatically.
 
-- **`-RedirectStandardInput NUL` is not optional.** GPDLcomp calls `gets_s` after every error
-  message and after its usage banner (`src/GPDL/GPDL.cpp:39`, `:57`). A script that fails to compile
-  will **hang the runner** rather than fail it.
-- **GPDLcomp always exits 0** (`GPDL.cpp:111`), even when compilation failed. The step must test for
-  a non-empty `.bin` and `exit 1` itself — a script that writes `::error::` without exiting
-  non-zero still reports success.
+The step compiles into a scratch directory rather than in place, so that once goldens *are*
+committed the following step can hash fresh output against them and fail on reference drift. Writing
+straight into `oracle/golden/gpdl` would have it comparing a file with itself.
+
+Three things bite, all of the same shape as the Phase 0 lessons in the porting plan:
+
+- **Stdin must be redirected.** GPDLcomp calls `gets_s` after every error message and after its
+  usage banner (`src/GPDL/GPDL.cpp:40`, `:58`). A script that fails to compile — or one bad
+  argument — will **hang the runner** rather than fail it. The step redirects from an empty temp
+  file rather than the `NUL` device, because `Start-Process -RedirectStandardInput` wants a real
+  path; `gets_s` hits EOF and returns immediately either way.
+- **GPDLcomp always exits 0** (`GPDL.cpp:111`) on the compile path: a failed compile skips
+  `WriteCode` entirely (the `if (result == 0)` guard at `:96`) and leaves an **empty** `.bin`
+  behind. Success is "the file exists and has bytes in it", never the exit code. Only `usage()`
+  exits non-zero, and it does so *after* the `gets_s` above.
+- **A partial set is worse than none.** `GpdlOracleDiffTests` silently skips a `.txt` with no
+  `.bin`, so a half-populated directory leaves the suite green over whatever it missed. The step
+  refuses to publish unless every script compiled;
+  `Goldens_are_either_complete_or_absent_but_never_partial` guards the committed side.
 
 `GPDLcomp.exe` is a console subsystem app, so unlike `UAFWinEd.exe` it does block PowerShell —
-but use `Start-Process -Wait` anyway so the redirect applies.
+but `Start-Process -Wait` is used anyway so the redirects apply.
 
 ## When a diff fails
 

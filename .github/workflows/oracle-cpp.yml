@@ -263,6 +263,126 @@ jobs:
           path: tier3/**
           if-no-files-found: warn
 
+      # Compile the GPDL golden corpus with the REFERENCE compiler.
+      #
+      # This is what activates GpdlOracleDiffTests, and with it Phase 2's exit criterion: every
+      # other GPDL test checks the port against a reading of the C++ source, and only this one
+      # checks it against the C++ binary.
+      #
+      # Two traps, both from GPDL.cpp:
+      #
+      #  1. It calls gets_s() after its usage banner (:40) and after every error message (:58).
+      #     A script that fails to compile, or a bad argument, therefore BLOCKS ON STDIN FOREVER
+      #     and hangs the runner until the job timeout. Stdin is redirected from an empty file so
+      #     gets_s hits EOF and returns immediately.
+      #  2. The compile path always `return 0` (:111). A failed compile skips WriteCode entirely
+      #     (the `if (result == 0)` guard at :96) and still exits 0, leaving an EMPTY .bin behind.
+      #     So success is "the file exists and has bytes in it", never the exit code. Only usage()
+      #     exits non-zero, and it does so after the gets_s above.
+      - name: Compile GPDL goldens (reference compiler)
+        id: gpdlgold
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "src\GPDL\Release\GPDLcomp.exe" -ErrorAction SilentlyContinue)
+          if (-not $exe) { Write-Host "::error::GPDLcomp.exe not built"; exit 1 }
+
+          $srcDir = "oracle\golden\gpdl"
+          $outDir = "gpdl-goldens"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          # Absolute, because Start-Process resolves relative paths against the PROCESS working
+          # directory rather than PowerShell's $PWD -- the two are not always the same, and a
+          # relative output path can silently land outside the workspace.
+          $outFull = (Resolve-Path $outDir).Path
+
+          $scripts = @(Get-ChildItem $srcDir -Filter *.txt | Sort-Object Name)
+          if ($scripts.Count -eq 0) {
+            Write-Host "::error::no .txt scripts under $srcDir to compile"
+            exit 1
+          }
+
+          # gets_s reads from here and gets EOF. See trap 1 above.
+          $stdin = Join-Path $env:RUNNER_TEMP "gpdl-stdin.txt"
+          New-Item -ItemType File -Force -Path $stdin | Out-Null
+
+          $bad = @()
+          foreach ($s in $scripts) {
+            $bin = Join-Path $outFull ($s.BaseName + ".bin")
+            $lst = Join-Path $outFull ($s.BaseName + ".lst")
+            $err = Join-Path $env:RUNNER_TEMP ($s.BaseName + ".stderr")
+
+            $p = Start-Process -FilePath $exe.Path `
+                               -ArgumentList @($s.FullName, $bin, $lst) `
+                               -Wait -PassThru -NoNewWindow `
+                               -RedirectStandardInput $stdin `
+                               -RedirectStandardError $err
+
+            $size = if (Test-Path $bin) { (Get-Item $bin).Length } else { -1 }
+            $ok   = ($p.ExitCode -eq 0) -and ($size -gt 0)
+            "{0,-16} exit={1} bin={2} bytes" -f $s.Name, $p.ExitCode, $size
+
+            if (-not $ok) {
+              $bad += $s.Name
+              if (Test-Path $err) {
+                Write-Host "--- $($s.Name) stderr ---"
+                Get-Content $err | ForEach-Object { Write-Host "  $_" }
+              }
+            }
+          }
+
+          if ($bad.Count -gt 0) {
+            Write-Host "::error::GPDLcomp produced no output for: $($bad -join ', ')"
+            exit 1
+          }
+
+          # A PARTIAL set is the dangerous state: GpdlOracleDiffTests skips an unpaired .txt, so a
+          # half-populated directory leaves the suite green over whatever it missed. The test
+          # Goldens_are_either_complete_or_absent_but_never_partial guards the committed side; this
+          # guards the produced side.
+          $produced = @(Get-ChildItem $outDir -Filter *.bin).Count
+          if ($produced -ne $scripts.Count) {
+            Write-Host "::error::compiled $produced of $($scripts.Count) scripts - a partial golden set must not be published"
+            exit 1
+          }
+
+          Get-ChildItem $outDir | ForEach-Object { "{0,-20} {1,8} bytes" -f $_.Name, $_.Length }
+
+      - name: Upload GPDL goldens
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpdl-goldens
+          path: gpdl-goldens/**
+          if-no-files-found: warn
+
+      # Same drift check as the JSON dump below: once the .bin/.lst files are committed, a change
+      # in what the reference compiler emits invalidates the baseline the port is judged against.
+      - name: Check GPDL goldens against committed
+        if: success()
+        shell: pwsh
+        run: |
+          $committed = @(Get-ChildItem "oracle\golden\gpdl" -Filter *.bin -ErrorAction SilentlyContinue)
+          if ($committed.Count -eq 0) {
+            Write-Host "::notice::No committed GPDL goldens yet. Download the gpdl-goldens artifact and commit its .bin and .lst files into oracle/golden/gpdl/ to activate GpdlOracleDiffTests and close Phase 2's exit criterion."
+            exit 0
+          }
+
+          $drift = @()
+          foreach ($f in Get-ChildItem "gpdl-goldens" -File) {
+            $old = Join-Path "oracle\golden\gpdl" $f.Name
+            if (-not (Test-Path $old)) { $drift += "$($f.Name) (new)"; continue }
+            $a = Get-FileHash $f.FullName -Algorithm SHA256
+            $b = Get-FileHash $old        -Algorithm SHA256
+            if ($a.Hash -ne $b.Hash) { $drift += $f.Name }
+          }
+
+          if ($drift.Count -gt 0) {
+            Write-Host "::error::reference compiler output changed for: $($drift -join ', ')"
+            exit 1
+          }
+          Write-Host "fresh GPDL output matches the committed goldens"
+
       # Detect REFERENCE drift: if a committed golden file exists, the freshly generated dump must
       # still match it. A change here means the C++ side's behaviour moved, which invalidates the
       # baseline the C# port is being validated against -- so it must be seen, not silently
@@ -311,6 +431,7 @@ jobs:
             @{ n='UAFWinEd';  r='${{ steps.uafwined.outcome }}' }
             @{ n='JSON dump'; r='${{ steps.dump.outcome }}' }
             @{ n='Tier-3 fixture'; r='${{ steps.tier3.outcome }}' }
+            @{ n='GPDL goldens'; r='${{ steps.gpdlgold.outcome }}' }
           )
           "| Project | Result |"           | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
           "|---|---|"                      | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
