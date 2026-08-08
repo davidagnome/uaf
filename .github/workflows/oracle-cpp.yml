@@ -312,21 +312,39 @@ jobs:
             $lst = Join-Path $outFull ($s.BaseName + ".lst")
             $err = Join-Path $env:RUNNER_TEMP ($s.BaseName + ".stderr")
 
-            $p = Start-Process -FilePath $exe.Path `
-                               -ArgumentList @($s.FullName, $bin, $lst) `
-                               -Wait -PassThru -NoNewWindow `
-                               -RedirectStandardInput $stdin `
+            # `cmd /c ... < NUL`, not Start-Process -RedirectStandardInput. The latter did NOT
+            # stop GPDLcomp blocking on gets_s: run 31262873429 hung for the full five minutes on
+            # structure.txt, the first script to reach an error prompt. cmd's own redirect is
+            # applied by the shell before the process starts and is not negotiable.
+            $p = Start-Process -FilePath "cmd.exe" `
+                               -ArgumentList @("/c", "`"`"$($exe.Path)`" `"$($s.FullName)`" `"$bin`" `"$lst`" <NUL`"") `
+                               -PassThru -NoNewWindow `
                                -RedirectStandardError $err
 
+            # A per-script budget, so one bad script costs its own timeout instead of the whole
+            # step's. INPUTFILE::error prompts via gets_s on its last diagnostic line
+            # (GPDLcomp.cpp:363), and past twelve errors it stops prompting and just prints "." --
+            # a parser that fails to advance then spins silently. Both look like a hang from here.
+            $timedOut = $false
+            if (-not $p.WaitForExit(45000)) {
+              $timedOut = $true
+              try { $p.Kill($true) } catch { }
+              $p.WaitForExit(5000) | Out-Null
+            }
+
             $size = if (Test-Path $bin) { (Get-Item $bin).Length } else { -1 }
-            $ok   = ($p.ExitCode -eq 0) -and ($size -gt 0)
-            "{0,-16} exit={1} bin={2} bytes" -f $s.Name, $p.ExitCode, $size
+            $code = if ($timedOut) { "TIMEOUT" } else { $p.ExitCode }
+            $ok   = (-not $timedOut) -and ($p.ExitCode -eq 0) -and ($size -gt 0)
+            "{0,-16} exit={1} bin={2} bytes" -f $s.Name, $code, $size
 
             if (-not $ok) {
               $bad += $s.Name
               if (Test-Path $err) {
-                Write-Host "--- $($s.Name) stderr ---"
-                Get-Content $err | ForEach-Object { Write-Host "  $_" }
+                # Capped: the spin-on-"." path can produce a stderr file of unbounded size.
+                Write-Host "--- $($s.Name) stderr (first 60 lines) ---"
+                Get-Content $err -TotalCount 60 | ForEach-Object { Write-Host "  $_" }
+                $bytes = (Get-Item $err).Length
+                Write-Host "  [stderr total $bytes bytes]"
               }
             }
           }
