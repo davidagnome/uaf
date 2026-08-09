@@ -183,6 +183,36 @@ public class GpdlOracleDiffTests
         }
     }
 
+    /// <summary>
+    /// Scripts the <b>reference</b> compiler cannot produce a golden for, and why.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b><c>prototypes.txt</c> hangs <c>GPDLcomp.exe</c> — a use-after-free, measured not
+    /// guessed.</b> <c>addDictionary</c> links the new dictionary into its parent's
+    /// <c>m_offspring</c> list (<c>GPDLcomp.cpp:1117</c>) and <c>discardCurrent</c> deletes it
+    /// without unlinking (<c>:2375</c>). A forward declaration takes exactly that path, so the
+    /// parent's list head is left dangling; the definition that follows splices it back in with
+    /// <c>dict-&gt;m_next = m_offspring</c>, and <c>m_countFunctions</c> then walks the corrupted
+    /// chain (<c>:1171</c>).
+    /// </para>
+    /// <para>
+    /// <b>The symptoms identify the loop's location exactly.</b> Runs 31263750742 and 31289965658
+    /// both timed out with <b>zero bytes of stderr</b> and a <b>zero-byte <c>.bin</c></b>. No
+    /// stderr means the compile itself succeeded — errors print before they prompt. An empty
+    /// <c>.bin</c> despite a successful compile means <c>outarchive.Close()</c> never ran to flush
+    /// the buffer, so the loop is inside <c>WriteDictionary</c>, after <c>WriteCode</c> and
+    /// <c>WriteConstants</c> had already written into it.
+    /// </para>
+    /// <para>
+    /// <b>This port compiles the script correctly</b>, which is why it stays in the corpus:
+    /// <see cref="Every_corpus_script_compiles_cleanly"/> still covers it, so the construct is
+    /// tested even though no reference bytecode for it can exist. Removing the script would delete
+    /// the only record of the bug along with the coverage.
+    /// </para>
+    /// </remarks>
+    private static readonly string[] ReferenceCannotCompile = ["prototypes.txt"];
+
     [Fact]
     public void Goldens_are_either_complete_or_absent_but_never_partial()
     {
@@ -195,7 +225,8 @@ public class GpdlOracleDiffTests
         // .NET workflow should emit a warning when oracle/golden/gpdl/*.bin is missing, exactly as
         // it does for oracle/golden/DefaultDesign.json.
         string[] sources = Directory.Exists(GoldenDir)
-            ? Directory.GetFiles(GoldenDir, "*.txt")
+            ? [.. Directory.GetFiles(GoldenDir, "*.txt")
+                           .Where(s => !ReferenceCannotCompile.Contains(Path.GetFileName(s)))]
             : [];
         var withGolden = sources.Where(s => File.Exists(Path.ChangeExtension(s, ".bin"))).ToList();
 
@@ -206,5 +237,32 @@ public class GpdlOracleDiffTests
             string.Join(", ", sources
                 .Where(s => !File.Exists(Path.ChangeExtension(s, ".bin")))
                 .Select(Path.GetFileName)));
+    }
+
+    /// <summary>
+    /// The excluded scripts are real, and still compile here.
+    /// </summary>
+    /// <remarks>
+    /// Guards the exclusion list against becoming a graveyard: a name that no longer matches a file
+    /// would silently weaken the completeness check above, and a script listed here that this port
+    /// <i>also</i> failed on would mean the exclusion is hiding a defect on our side rather than
+    /// documenting one on theirs.
+    /// </remarks>
+    [Fact]
+    public void Every_excluded_script_exists_and_compiles_here()
+    {
+        foreach (string name in ReferenceCannotCompile)
+        {
+            string path = Path.Combine(GoldenDir, name);
+            Assert.True(File.Exists(path), $"{name} is excluded but no longer in the corpus");
+
+            var compiler = new GpdlCompiler();
+            Assert.True(compiler.Compile(MfcString.Encoding.GetString(File.ReadAllBytes(path))) == 0,
+                        $"{name}: " + string.Join("; ", compiler.Errors));
+
+            // And it must genuinely have no golden -- otherwise the exclusion is stale.
+            Assert.False(File.Exists(Path.ChangeExtension(path, ".bin")),
+                         $"{name} now has a .bin; remove it from ReferenceCannotCompile");
+        }
     }
 }

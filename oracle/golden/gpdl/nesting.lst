@@ -1,0 +1,65 @@
+        000000 06 000001 Noop 
+nesting
+        000001 02 000001 FetchGlobal "nesting(1)"
+        000002 01 00000a Jump 
+innerPrivate
+        000003 02 000002 FetchGlobal "innerPrivate(1)"
+        000004 02 000003 FetchGlobal "private:"
+        000005 05 000000 Fetch_FP 
+        000006 06 00000c $PLUS 
+        000007 04 000001 Store_FP 
+        000008 08 000001 $RETURN 
+        000009 08 000001 $RETURN 
+        00000a 01 000020 Jump 
+innerPublic
+        00000b 02 000004 FetchGlobal "innerPublic(1)"
+        00000c 01 000014 Jump 
+deeper
+        00000d 02 000005 FetchGlobal "deeper(1)"
+        00000e 02 000006 FetchGlobal "deep:"
+        00000f 05 000000 Fetch_FP 
+        000010 06 00000c $PLUS 
+        000011 04 000001 Store_FP 
+        000012 08 000001 $RETURN 
+        000013 08 000001 $RETURN 
+        000014 02 000007 FetchGlobal "public:"
+        000015 05 000000 Fetch_FP 
+        000016 06 00000c $PLUS 
+        000017 02 000008 FetchGlobal "/"
+        000018 06 00000c $PLUS 
+        000019 06 0000d8 numeric 
+        00001a 05 000000 Fetch_FP 
+        00001b 07 00000d call deeper
+        00001c 06 00000c $PLUS 
+        00001d 04 000001 Store_FP 
+        00001e 08 000001 $RETURN 
+        00001f 08 000001 $RETURN 
+        000020 06 0000d8 numeric 
+        000021 05 000000 Fetch_FP 
+        000022 07 000003 call innerPrivate
+        000023 02 000009 FetchGlobal "|"
+        000024 06 00000c $PLUS 
+        000025 06 0000d8 numeric 
+        000026 05 000000 Fetch_FP 
+        000027 07 00000b call innerPublic
+        000028 06 00000c $PLUS 
+        000029 04 000001 Store_FP 
+        00002a 08 000001 $RETURN 
+        00002b 08 000001 $RETURN 
+sharesInnerNames
+        00002c 02 00000a FetchGlobal "sharesInnerNames(0)"
+        00002d 01 000035 Jump 
+innerPrivate
+        00002e 02 000002 FetchGlobal "innerPrivate(1)"
+        00002f 02 00000b FetchGlobal "other:"
+        000030 05 000000 Fetch_FP 
+        000031 06 00000c $PLUS 
+        000032 04 000001 Store_FP 
+        000033 08 000001 $RETURN 
+        000034 08 000001 $RETURN 
+        000035 06 0000d8 numeric 
+        000036 02 00000c FetchGlobal "q"
+        000037 07 00002e call innerPrivate
+        000038 04 000000 Store_FP 
+        000039 08 000000 $RETURN 
+        00003a 08 000000 $RETURN 

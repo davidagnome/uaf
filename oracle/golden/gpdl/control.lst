@@ -1,0 +1,254 @@
+        000000 06 000001 Noop 
+whileWithBreak
+        000001 02 000003 FetchGlobal "whileWithBreak(0)"
+        000002 02 000004 FetchGlobal "0"
+        000003 02 800002 StoreGlobal counter
+        000004 02 000005 FetchGlobal ""
+        000005 02 800001 StoreGlobal accumulator
+        000006 02 000006 FetchGlobal "1"
+        000007 03 000016 JumpFalse 
+        000008 02 000002 FetchGlobal counter
+        000009 02 000007 FetchGlobal "5"
+        00000a 06 00000e ==# 
+        00000b 03 00000d JumpFalse 
+        00000c 01 000016 Jump 
+        00000d 02 000001 FetchGlobal accumulator
+        00000e 02 000002 FetchGlobal counter
+        00000f 06 00000c $PLUS 
+        000010 02 800001 StoreGlobal accumulator
+        000011 02 000002 FetchGlobal counter
+        000012 02 000006 FetchGlobal "1"
+        000013 06 00009d +# 
+        000014 02 800002 StoreGlobal counter
+        000015 01 000006 Jump 
+        000016 02 000001 FetchGlobal accumulator
+        000017 04 000000 Store_FP 
+        000018 08 000000 $RETURN 
+        000019 08 000000 $RETURN 
+whileWithContinue
+        00001a 02 000008 FetchGlobal "whileWithContinue(0)"
+        00001b 02 000004 FetchGlobal "0"
+        00001c 02 800002 StoreGlobal counter
+        00001d 02 000005 FetchGlobal ""
+        00001e 02 800001 StoreGlobal accumulator
+        00001f 02 000002 FetchGlobal counter
+        000020 02 000009 FetchGlobal "10"
+        000021 06 000009 <# 
+        000022 03 000033 JumpFalse 
+        000023 02 000002 FetchGlobal counter
+        000024 02 000006 FetchGlobal "1"
+        000025 06 00009d +# 
+        000026 02 800002 StoreGlobal counter
+        000027 02 000002 FetchGlobal counter
+        000028 02 00000a FetchGlobal "2"
+        000029 06 0000ba %# 
+        00002a 02 000004 FetchGlobal "0"
+        00002b 06 00000e ==# 
+        00002c 03 00002e JumpFalse 
+        00002d 01 00001f Jump 
+        00002e 02 000001 FetchGlobal accumulator
+        00002f 02 000002 FetchGlobal counter
+        000030 06 00000c $PLUS 
+        000031 02 800001 StoreGlobal accumulator
+        000032 01 00001f Jump 
+        000033 02 000001 FetchGlobal accumulator
+        000034 04 000000 Store_FP 
+        000035 08 000000 $RETURN 
+        000036 08 000000 $RETURN 
+nestedLoops
+        000037 02 00000b FetchGlobal "nestedLoops(0)"
+        000038 09 000002 AllocateLocals 
+        000039 02 000004 FetchGlobal "0"
+        00003a 04 ffffff Store_FP 
+        00003b 02 000005 FetchGlobal ""
+        00003c 02 800001 StoreGlobal accumulator
+        00003d 05 ffffff Fetch_FP 
+        00003e 02 00000c FetchGlobal "3"
+        00003f 06 000009 <# 
+        000040 03 00005c JumpFalse 
+        000041 02 000004 FetchGlobal "0"
+        000042 04 fffffe Store_FP 
+        000043 05 fffffe Fetch_FP 
+        000044 02 00000c FetchGlobal "3"
+        000045 06 000009 <# 
+        000046 03 000057 JumpFalse 
+        000047 05 fffffe Fetch_FP 
+        000048 02 00000a FetchGlobal "2"
+        000049 06 00000e ==# 
+        00004a 03 00004c JumpFalse 
+        00004b 01 000057 Jump 
+        00004c 02 000001 FetchGlobal accumulator
+        00004d 05 ffffff Fetch_FP 
+        00004e 06 00000c $PLUS 
+        00004f 05 fffffe Fetch_FP 
+        000050 06 00000c $PLUS 
+        000051 02 800001 StoreGlobal accumulator
+        000052 05 fffffe Fetch_FP 
+        000053 02 000006 FetchGlobal "1"
+        000054 06 00009d +# 
+        000055 04 fffffe Store_FP 
+        000056 01 000043 Jump 
+        000057 05 ffffff Fetch_FP 
+        000058 02 000006 FetchGlobal "1"
+        000059 06 00009d +# 
+        00005a 04 ffffff Store_FP 
+        00005b 01 00003d Jump 
+        00005c 02 000001 FetchGlobal accumulator
+        00005d 04 000000 Store_FP 
+        00005e 08 002000 $RETURN 
+        00005f 08 002000 $RETURN 
+switchWithDefault
+        000060 02 00000d FetchGlobal "switchWithDefault(1)"
+        000061 05 000000 Fetch_FP 
+        000062 06 000003 Dup 
+        000063 02 00000e FetchGlobal "one"
+        000064 06 00000d == 
+        000065 03 00006a JumpFalse 
+        000066 02 000006 FetchGlobal "1"
+        000067 04 000001 Store_FP 
+        000068 08 000001 $RETURN 
+        000069 01 00006e Jump 
+        00006a 06 000003 Dup 
+        00006b 02 00000f FetchGlobal "two"
+        00006c 06 00000d == 
+        00006d 03 000072 JumpFalse 
+        00006e 02 00000a FetchGlobal "2"
+        00006f 04 000001 Store_FP 
+        000070 08 000001 $RETURN 
+        000071 01 000076 Jump 
+        000072 06 000003 Dup 
+        000073 02 000010 FetchGlobal "three"
+        000074 06 00000d == 
+        000075 03 000079 JumpFalse 
+        000076 02 00000c FetchGlobal "3"
+        000077 04 000001 Store_FP 
+        000078 08 000001 $RETURN 
+        000079 02 000011 FetchGlobal "?"
+        00007a 04 000001 Store_FP 
+        00007b 08 000001 $RETURN 
+        00007c 08 000001 $RETURN 
+switchFallThrough
+        00007d 02 000012 FetchGlobal "switchFallThrough(1)"
+        00007e 02 000005 FetchGlobal ""
+        00007f 02 800001 StoreGlobal accumulator
+        000080 05 000000 Fetch_FP 
+        000081 06 000003 Dup 
+        000082 02 000013 FetchGlobal "a"
+        000083 06 00000d == 
+        000084 03 00008a JumpFalse 
+        000085 02 000001 FetchGlobal accumulator
+        000086 02 000014 FetchGlobal "A"
+        000087 06 00000c $PLUS 
+        000088 02 800001 StoreGlobal accumulator
+        000089 01 00008e Jump 
+        00008a 06 000003 Dup 
+        00008b 02 000015 FetchGlobal "b"
+        00008c 06 00000d == 
+        00008d 03 000093 JumpFalse 
+        00008e 02 000001 FetchGlobal accumulator
+        00008f 02 000016 FetchGlobal "B"
+        000090 06 00000c $PLUS 
+        000091 02 800001 StoreGlobal accumulator
+        000092 01 000097 Jump 
+        000093 06 000003 Dup 
+        000094 02 000017 FetchGlobal "c"
+        000095 06 00000d == 
+        000096 03 00009c JumpFalse 
+        000097 02 000001 FetchGlobal accumulator
+        000098 02 000018 FetchGlobal "C"
+        000099 06 00000c $PLUS 
+        00009a 02 800001 StoreGlobal accumulator
+        00009b 01 00009e Jump 
+        00009c 02 000019 FetchGlobal "none"
+        00009d 02 800001 StoreGlobal accumulator
+        00009e 02 000001 FetchGlobal accumulator
+        00009f 04 000001 Store_FP 
+        0000a0 08 000001 $RETURN 
+        0000a1 08 000001 $RETURN 
+switchGrepCase
+        0000a2 02 00001a FetchGlobal "switchGrepCase(1)"
+        0000a3 05 000000 Fetch_FP 
+        0000a4 06 000003 Dup 
+        0000a5 02 00001b FetchGlobal "^ye"
+        0000a6 06 000011 Swap 
+        0000a7 06 00000f $GREP 
+        0000a8 03 0000ad JumpFalse 
+        0000a9 02 00001c FetchGlobal "affirmative"
+        0000aa 04 000001 Store_FP 
+        0000ab 08 000001 $RETURN 
+        0000ac 01 0000b2 Jump 
+        0000ad 06 000003 Dup 
+        0000ae 02 00001d FetchGlobal "\bno\b"
+        0000af 06 000011 Swap 
+        0000b0 06 00000f $GREP 
+        0000b1 03 0000b5 JumpFalse 
+        0000b2 02 00001e FetchGlobal "negative"
+        0000b3 04 000001 Store_FP 
+        0000b4 08 000001 $RETURN 
+        0000b5 02 00001f FetchGlobal "unclear"
+        0000b6 04 000001 Store_FP 
+        0000b7 08 000001 $RETURN 
+        0000b8 08 000001 $RETURN 
+switchInsideLoop
+        0000b9 02 000020 FetchGlobal "switchInsideLoop(1)"
+        0000ba 02 000004 FetchGlobal "0"
+        0000bb 02 800002 StoreGlobal counter
+        0000bc 02 000002 FetchGlobal counter
+        0000bd 02 00000c FetchGlobal "3"
+        0000be 06 000009 <# 
+        0000bf 03 0000cf JumpFalse 
+        0000c0 02 000002 FetchGlobal counter
+        0000c1 02 000006 FetchGlobal "1"
+        0000c2 06 00009d +# 
+        0000c3 02 800002 StoreGlobal counter
+        0000c4 05 000000 Fetch_FP 
+        0000c5 06 000003 Dup 
+        0000c6 02 000021 FetchGlobal "stop"
+        0000c7 06 00000d == 
+        0000c8 03 0000ca JumpFalse 
+        0000c9 01 0000ce Jump 
+        0000ca 02 000001 FetchGlobal accumulator
+        0000cb 02 000022 FetchGlobal "x"
+        0000cc 06 00000c $PLUS 
+        0000cd 02 800001 StoreGlobal accumulator
+        0000ce 01 0000bc Jump 
+        0000cf 02 000001 FetchGlobal accumulator
+        0000d0 04 000001 Store_FP 
+        0000d1 08 000001 $RETURN 
+        0000d2 08 000001 $RETURN 
+conversation
+        0000d3 02 000023 FetchGlobal "conversation(0)"
+        0000d4 06 000004 $LISTEN 
+        0000d5 03 0000f2 JumpFalse 
+        0000d6 02 000024 FetchGlobal "\bhi\b|hello"
+        0000d7 06 000005 $LISTENTEXT 
+        0000d8 06 00000f $GREP 
+        0000d9 03 0000de JumpFalse 
+        0000da 02 000025 FetchGlobal "Hello, there."
+        0000db 06 000007 $SAY 
+        0000dc 06 000002 Pop 
+        0000dd 01 0000d4 Jump 
+        0000de 02 000026 FetchGlobal "job"
+        0000df 06 000005 $LISTENTEXT 
+        0000e0 06 00000f $GREP 
+        0000e1 03 0000e6 JumpFalse 
+        0000e2 02 000027 FetchGlobal "I clean these park benches fo
+        0000e3 06 000007 $SAY 
+        0000e4 06 000002 Pop 
+        0000e5 01 0000d4 Jump 
+        0000e6 02 000028 FetchGlobal "name"
+        0000e7 06 000005 $LISTENTEXT 
+        0000e8 06 00000f $GREP 
+        0000e9 03 0000ee JumpFalse 
+        0000ea 02 000029 FetchGlobal "My name is Jason McCall Steve
+        0000eb 06 000007 $SAY 
+        0000ec 06 000002 Pop 
+        0000ed 01 0000d4 Jump 
+        0000ee 02 00002a FetchGlobal "I did not follow that."
+        0000ef 06 000007 $SAY 
+        0000f0 06 000002 Pop 
+        0000f1 01 0000d4 Jump 
+        0000f2 02 00002b FetchGlobal "done"
+        0000f3 04 000000 Store_FP 
+        0000f4 08 000000 $RETURN 
+        0000f5 08 000000 $RETURN 

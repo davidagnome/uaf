@@ -1,0 +1,291 @@
+        000000 06 000001 Noop 
+bignum
+        000001 02 000001 FetchGlobal "bignum(2)"
+        000002 05 000001 Fetch_FP 
+        000003 05 000000 Fetch_FP 
+        000004 06 0000bd $PLUS 
+        000005 02 000002 FetchGlobal "|"
+        000006 06 00000c $PLUS 
+        000007 05 000001 Fetch_FP 
+        000008 05 000000 Fetch_FP 
+        000009 06 0000be $MINUS 
+        00000a 06 00000c $PLUS 
+        00000b 02 000002 FetchGlobal "|"
+        00000c 06 00000c $PLUS 
+        00000d 05 000001 Fetch_FP 
+        00000e 05 000000 Fetch_FP 
+        00000f 06 000014 $TIMES 
+        000010 06 00000c $PLUS 
+        000011 02 000002 FetchGlobal "|"
+        000012 06 00000c $PLUS 
+        000013 05 000001 Fetch_FP 
+        000014 05 000000 Fetch_FP 
+        000015 06 0000bf $DIV 
+        000016 06 00000c $PLUS 
+        000017 02 000002 FetchGlobal "|"
+        000018 06 00000c $PLUS 
+        000019 05 000001 Fetch_FP 
+        00001a 05 000000 Fetch_FP 
+        00001b 06 0000c0 $MOD 
+        00001c 06 00000c $PLUS 
+        00001d 04 000002 Store_FP 
+        00001e 08 000002 $RETURN 
+        00001f 08 000002 $RETURN 
+bignumRelations
+        000020 02 000003 FetchGlobal "bignumRelations(2)"
+        000021 05 000001 Fetch_FP 
+        000022 05 000000 Fetch_FP 
+        000023 06 0000c1 $EQUAL 
+        000024 03 000028 JumpFalse 
+        000025 02 000004 FetchGlobal "eq"
+        000026 04 000002 Store_FP 
+        000027 08 000002 $RETURN 
+        000028 05 000001 Fetch_FP 
+        000029 05 000000 Fetch_FP 
+        00002a 06 0000c2 $LESS 
+        00002b 03 00002f JumpFalse 
+        00002c 02 000005 FetchGlobal "lt"
+        00002d 04 000002 Store_FP 
+        00002e 08 000002 $RETURN 
+        00002f 05 000001 Fetch_FP 
+        000030 05 000000 Fetch_FP 
+        000031 06 0000c3 $GREATER 
+        000032 03 000036 JumpFalse 
+        000033 02 000006 FetchGlobal "gt"
+        000034 04 000002 Store_FP 
+        000035 08 000002 $RETURN 
+        000036 02 000007 FetchGlobal ""
+        000037 04 000002 Store_FP 
+        000038 08 000002 $RETURN 
+        000039 08 000002 $RETURN 
+hardware
+        00003a 02 000008 FetchGlobal "hardware(2)"
+        00003b 05 000001 Fetch_FP 
+        00003c 05 000000 Fetch_FP 
+        00003d 06 00009d +# 
+        00003e 02 000002 FetchGlobal "|"
+        00003f 06 00000c $PLUS 
+        000040 05 000001 Fetch_FP 
+        000041 06 00000c $PLUS 
+        000042 05 000000 Fetch_FP 
+        000043 06 00000b -# 
+        000044 02 000002 FetchGlobal "|"
+        000045 06 00000c $PLUS 
+        000046 05 000001 Fetch_FP 
+        000047 05 000000 Fetch_FP 
+        000048 06 00000a *# 
+        000049 06 00000c $PLUS 
+        00004a 02 000002 FetchGlobal "|"
+        00004b 06 00000c $PLUS 
+        00004c 05 000001 Fetch_FP 
+        00004d 05 000000 Fetch_FP 
+        00004e 06 0000b9 /# 
+        00004f 06 00000c $PLUS 
+        000050 02 000002 FetchGlobal "|"
+        000051 06 00000c $PLUS 
+        000052 05 000001 Fetch_FP 
+        000053 05 000000 Fetch_FP 
+        000054 06 0000ba %# 
+        000055 06 00000c $PLUS 
+        000056 04 000002 Store_FP 
+        000057 08 000002 $RETURN 
+        000058 08 000002 $RETURN 
+bitwise
+        000059 02 000009 FetchGlobal "bitwise(2)"
+        00005a 05 000001 Fetch_FP 
+        00005b 05 000000 Fetch_FP 
+        00005c 02 000002 FetchGlobal "|"
+        00005d 06 00000c $PLUS 
+        00005e 05 000001 Fetch_FP 
+        00005f 06 00000c $PLUS 
+        000060 06 0000b0 &# 
+        000061 05 000000 Fetch_FP 
+        000062 02 000002 FetchGlobal "|"
+        000063 06 00000c $PLUS 
+        000064 05 000001 Fetch_FP 
+        000065 06 00000c $PLUS 
+        000066 05 000000 Fetch_FP 
+        000067 06 0000af ^# 
+        000068 06 0000ae |# 
+        000069 04 000002 Store_FP 
+        00006a 08 000002 $RETURN 
+        00006b 08 000002 $RETURN 
+numericRelations
+        00006c 02 00000a FetchGlobal "numericRelations(2)"
+        00006d 05 000001 Fetch_FP 
+        00006e 05 000000 Fetch_FP 
+        00006f 06 00000e ==# 
+        000070 03 000074 JumpFalse 
+        000071 02 000004 FetchGlobal "eq"
+        000072 04 000002 Store_FP 
+        000073 08 000002 $RETURN 
+        000074 05 000001 Fetch_FP 
+        000075 05 000000 Fetch_FP 
+        000076 06 0000bb !=# 
+        000077 03 000094 JumpFalse 
+        000078 05 000001 Fetch_FP 
+        000079 05 000000 Fetch_FP 
+        00007a 06 000009 <# 
+        00007b 03 00007f JumpFalse 
+        00007c 02 000005 FetchGlobal "lt"
+        00007d 04 000002 Store_FP 
+        00007e 08 000002 $RETURN 
+        00007f 05 000001 Fetch_FP 
+        000080 05 000000 Fetch_FP 
+        000081 06 0000b5 <=# 
+        000082 03 000086 JumpFalse 
+        000083 02 00000b FetchGlobal "le"
+        000084 04 000002 Store_FP 
+        000085 08 000002 $RETURN 
+        000086 05 000001 Fetch_FP 
+        000087 05 000000 Fetch_FP 
+        000088 06 00001f ># 
+        000089 03 00008d JumpFalse 
+        00008a 02 000006 FetchGlobal "gt"
+        00008b 04 000002 Store_FP 
+        00008c 08 000002 $RETURN 
+        00008d 05 000001 Fetch_FP 
+        00008e 05 000000 Fetch_FP 
+        00008f 06 0000b8 >=# 
+        000090 03 000094 JumpFalse 
+        000091 02 00000c FetchGlobal "ge"
+        000092 04 000002 Store_FP 
+        000093 08 000002 $RETURN 
+        000094 02 000007 FetchGlobal ""
+        000095 04 000002 Store_FP 
+        000096 08 000002 $RETURN 
+        000097 08 000002 $RETURN 
+precedence
+        000098 02 00000d FetchGlobal "precedence(0)"
+        000099 02 00000e FetchGlobal "2"
+        00009a 02 00000f FetchGlobal "3"
+        00009b 02 000010 FetchGlobal "4"
+        00009c 06 00000a *# 
+        00009d 06 00009d +# 
+        00009e 02 000011 FetchGlobal "14"
+        00009f 06 00000e ==# 
+        0000a0 02 000012 FetchGlobal "1"
+        0000a1 06 0000ad && 
+        0000a2 02 000007 FetchGlobal ""
+        0000a3 06 0000ac || 
+        0000a4 04 000000 Store_FP 
+        0000a5 08 000000 $RETURN 
+        0000a6 08 000000 $RETURN 
+unaryOperators
+        0000a7 02 000013 FetchGlobal "unaryOperators(1)"
+        0000a8 09 000001 AllocateLocals 
+        0000a9 02 000014 FetchGlobal "5"
+        0000aa 06 0000c4 nNegate 
+        0000ab 04 ffffff Store_FP 
+        0000ac 05 000000 Fetch_FP 
+        0000ad 06 000017 $NOT 
+        0000ae 02 000002 FetchGlobal "|"
+        0000af 06 00000c $PLUS 
+        0000b0 05 000000 Fetch_FP 
+        0000b1 06 0000c4 nNegate 
+        0000b2 06 00000c $PLUS 
+        0000b3 02 000002 FetchGlobal "|"
+        0000b4 06 00000c $PLUS 
+        0000b5 05 ffffff Fetch_FP 
+        0000b6 06 00000c $PLUS 
+        0000b7 04 000001 Store_FP 
+        0000b8 08 001001 $RETURN 
+        0000b9 08 001001 $RETURN 
+forceNumeric
+        0000ba 02 000015 FetchGlobal "forceNumeric(1)"
+        0000bb 09 000001 AllocateLocals 
+        0000bc 05 000000 Fetch_FP 
+        0000bd 06 00014e numeric 
+        0000be 04 ffffff Store_FP 
+        0000bf 05 ffffff Fetch_FP 
+        0000c0 04 000001 Store_FP 
+        0000c1 08 001001 $RETURN 
+        0000c2 08 001001 $RETURN 
+stringOps
+        0000c3 02 000016 FetchGlobal "stringOps(1)"
+        0000c4 05 000000 Fetch_FP 
+        0000c5 06 000018 $LENGTH 
+        0000c6 02 000002 FetchGlobal "|"
+        0000c7 06 00000c $PLUS 
+        0000c8 05 000000 Fetch_FP 
+        0000c9 02 000012 FetchGlobal "1"
+        0000ca 02 00000f FetchGlobal "3"
+        0000cb 06 0000db $MIDDLE 
+        0000cc 06 00000c $PLUS 
+        0000cd 02 000002 FetchGlobal "|"
+        0000ce 06 00000c $PLUS 
+        0000cf 05 000000 Fetch_FP 
+        0000d0 06 00018d $UpCase 
+        0000d1 06 00000c $PLUS 
+        0000d2 02 000002 FetchGlobal "|"
+        0000d3 06 00000c $PLUS 
+        0000d4 05 000000 Fetch_FP 
+        0000d5 06 00018e $DownCase 
+        0000d6 06 00000c $PLUS 
+        0000d7 02 000002 FetchGlobal "|"
+        0000d8 06 00000c $PLUS 
+        0000d9 05 000000 Fetch_FP 
+        0000da 06 00018f $Capitalize 
+        0000db 06 00000c $PLUS 
+        0000dc 02 000002 FetchGlobal "|"
+        0000dd 06 00000c $PLUS 
+        0000de 05 000000 Fetch_FP 
+        0000df 06 000008 $NUMERIC 
+        0000e0 06 00000c $PLUS 
+        0000e1 02 000002 FetchGlobal "|"
+        0000e2 06 00000c $PLUS 
+        0000e3 05 000000 Fetch_FP 
+        0000e4 06 000017 $NOT 
+        0000e5 06 00000c $PLUS 
+        0000e6 04 000001 Store_FP 
+        0000e7 08 000001 $RETURN 
+        0000e8 08 000001 $RETURN 
+delimited
+        0000e9 02 000017 FetchGlobal "delimited(1)"
+        0000ea 05 000000 Fetch_FP 
+        0000eb 06 000157 $DelimitedStringCount 
+        0000ec 02 000002 FetchGlobal "|"
+        0000ed 06 00000c $PLUS 
+        0000ee 05 000000 Fetch_FP 
+        0000ef 02 000012 FetchGlobal "1"
+        0000f0 06 000158 $DelimitedStringSubstring 
+        0000f1 06 00000c $PLUS 
+        0000f2 02 000002 FetchGlobal "|"
+        0000f3 06 00000c $PLUS 
+        0000f4 05 000000 Fetch_FP 
+        0000f5 06 0001ba $DelimitedStringHead 
+        0000f6 06 00000c $PLUS 
+        0000f7 02 000002 FetchGlobal "|"
+        0000f8 06 00000c $PLUS 
+        0000f9 05 000000 Fetch_FP 
+        0000fa 06 0001bb $DelimitedStringTail 
+        0000fb 06 00000c $PLUS 
+        0000fc 02 000002 FetchGlobal "|"
+        0000fd 06 00000c $PLUS 
+        0000fe 05 000000 Fetch_FP 
+        0000ff 02 000018 FetchGlobal "new"
+        000100 02 000019 FetchGlobal ","
+        000101 06 000188 $DelimitedStringAdd 
+        000102 06 00000c $PLUS 
+        000103 04 000001 Store_FP 
+        000104 08 000001 $RETURN 
+        000105 08 000001 $RETURN 
+grepAndWiggle
+        000106 02 00001a FetchGlobal "grepAndWiggle(2)"
+        000107 05 000001 Fetch_FP 
+        000108 05 000000 Fetch_FP 
+        000109 06 00000f $GREP 
+        00010a 03 000114 JumpFalse 
+        00010b 02 000012 FetchGlobal "1"
+        00010c 06 00018a $WIGGLE 
+        00010d 02 00001b FetchGlobal "/"
+        00010e 06 00000c $PLUS 
+        00010f 02 00000e FetchGlobal "2"
+        000110 06 00018a $WIGGLE 
+        000111 06 00000c $PLUS 
+        000112 04 000002 Store_FP 
+        000113 08 000002 $RETURN 
+        000114 02 000007 FetchGlobal ""
+        000115 04 000002 Store_FP 
+        000116 08 000002 $RETURN 
+        000117 08 000002 $RETURN 

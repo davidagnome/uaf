@@ -296,11 +296,25 @@ jobs:
           # relative output path can silently land outside the workspace.
           $outFull = (Resolve-Path $outDir).Path
 
-          $scripts = @(Get-ChildItem $srcDir -Filter *.txt | Sort-Object Name)
+          # Scripts the REFERENCE cannot compile. prototypes.txt puts GPDLcomp into a silent
+          # infinite loop: addDictionary links a dictionary into its parent's m_offspring
+          # (GPDLcomp.cpp:1117) and discardCurrent deletes it without unlinking (:2375), which a
+          # forward declaration does, so m_countFunctions later walks freed memory (:1171). Runs
+          # 31263750742 and 31289965658 both timed out with zero stderr and a zero-byte .bin --
+          # the empty .bin proving the loop is inside WriteDictionary, before outarchive.Close()
+          # could flush what WriteCode had already buffered.
+          #
+          # Keep this list in step with ReferenceCannotCompile in GpdlOracleDiffTests.cs.
+          $cannotCompile = @('prototypes.txt')
+
+          $scripts = @(Get-ChildItem $srcDir -Filter *.txt |
+                       Where-Object { $cannotCompile -notcontains $_.Name } |
+                       Sort-Object Name)
           if ($scripts.Count -eq 0) {
             Write-Host "::error::no .txt scripts under $srcDir to compile"
             exit 1
           }
+          Write-Host "skipping (reference cannot compile): $($cannotCompile -join ', ')"
 
           # gets_s reads from here and gets EOF. See trap 1 above.
           $stdin = Join-Path $env:RUNNER_TEMP "gpdl-stdin.txt"

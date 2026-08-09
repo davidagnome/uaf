@@ -1,0 +1,73 @@
+        000000 06 000001 Noop 
+twoParameters
+        000001 02 000003 FetchGlobal "twoParameters(2)"
+        000002 05 000001 Fetch_FP 
+        000003 02 000004 FetchGlobal "/"
+        000004 06 00000c $PLUS 
+        000005 05 000000 Fetch_FP 
+        000006 06 00000c $PLUS 
+        000007 04 000002 Store_FP 
+        000008 08 000002 $RETURN 
+        000009 08 000002 $RETURN 
+withDefault
+        00000a 02 000005 FetchGlobal "withDefault(2)"
+        00000b 05 000001 Fetch_FP 
+        00000c 02 000004 FetchGlobal "/"
+        00000d 06 00000c $PLUS 
+        00000e 05 000000 Fetch_FP 
+        00000f 06 00000c $PLUS 
+        000010 04 000002 Store_FP 
+        000011 08 000002 $RETURN 
+        000012 08 000002 $RETURN 
+callsOthers
+        000013 02 000006 FetchGlobal "callsOthers(0)"
+        000014 06 0000d8 numeric 
+        000015 02 000007 FetchGlobal "s"
+        000016 02 000008 FetchGlobal "t"
+        000017 07 000001 call twoParameters
+        000018 06 000002 Pop 
+        000019 06 0000d8 numeric 
+        00001a 02 000009 FetchGlobal "a"
+        00001b 02 00000a FetchGlobal "b"
+        00001c 07 000001 call twoParameters
+        00001d 02 00000b FetchGlobal "|"
+        00001e 06 00000c $PLUS 
+        00001f 06 0000d8 numeric 
+        000020 02 00000c FetchGlobal "x"
+        000021 02 00000d FetchGlobal "y"
+        000022 07 00000a call withDefault
+        000023 06 00000c $PLUS 
+        000024 04 000000 Store_FP 
+        000025 08 000000 $RETURN 
+        000026 08 000000 $RETURN 
+localVariables
+        000027 02 00000e FetchGlobal "localVariables(1)"
+        000028 09 000003 AllocateLocals 
+        000029 02 00000f FetchGlobal "1"
+        00002a 04 ffffff Store_FP 
+        00002b 05 ffffff Fetch_FP 
+        00002c 02 000010 FetchGlobal "2"
+        00002d 06 00000c $PLUS 
+        00002e 04 fffffe Store_FP 
+        00002f 05 fffffe Fetch_FP 
+        000030 02 000011 FetchGlobal "3"
+        000031 06 00000c $PLUS 
+        000032 04 fffffd Store_FP 
+        000033 05 000000 Fetch_FP 
+        000034 05 fffffd Fetch_FP 
+        000035 06 00000c $PLUS 
+        000036 04 000001 Store_FP 
+        000037 08 003001 $RETURN 
+        000038 08 003001 $RETURN 
+globalsAcrossCalls
+        000039 02 000012 FetchGlobal "globalsAcrossCalls(0)"
+        00003a 02 000013 FetchGlobal "one"
+        00003b 02 800001 StoreGlobal globalOne
+        00003c 02 000014 FetchGlobal "two"
+        00003d 02 800002 StoreGlobal globalTwo
+        00003e 02 000001 FetchGlobal globalOne
+        00003f 02 000002 FetchGlobal globalTwo
+        000040 06 00000c $PLUS 
+        000041 04 000000 Store_FP 
+        000042 08 000000 $RETURN 
+        000043 08 000000 $RETURN 

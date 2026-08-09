@@ -5,8 +5,14 @@ The scripts here are the input for the byte-identity check in
 reference `GPDLcomp.exe` in the Oracle workflow; the resulting `<name>.bin` and `<name>.lst` are
 committed beside it, and the test compiles the same `.txt` with `gpdlc` and diffs both.
 
-The tests **return early** while no `.bin` exists, so a green suite does not yet mean byte-identity
-has been shown. See `docs/PORTING-PLAN.md` § "Phase 2 status — GPDL".
+**Byte-identity is shown.** Five of the six scripts have reference goldens and `gpdlc` reproduces
+every one of them exactly — bytecode *and* assembly listing. The sixth cannot have a golden because
+the reference compiler hangs on it; see below.
+
+The committed goldens came from the `gpdl-goldens` artifact of Oracle run **31289965658**
+(`c8886a1`, 2026-08-09), built by `GPDLcomp.exe` version 4.7 under MSVC v143 / Win32. Record the
+run whenever these are regenerated: when the drift check fires, the first question is which
+reference build produced the baseline.
 
 ## Why this corpus and not `src/GPDL/talk.txt`
 
@@ -23,7 +29,33 @@ separately, so a diff failure points at one construct rather than at "somewhere 
 | `basics.txt` | literals, adjacent-literal concatenation, constant interning, `$IF`/`$ELSE`, string relations, `$RETURN` with and without a value |
 | `control.txt` | `$WHILE` with `$BREAK` and `$CONTINUE`, `$SWITCH` with `$CASE`/`$GCASE`/`$DEFAULT` and fall-through, `$RESPOND` |
 | `arith.txt` | both arithmetic families — the `$` bignum functions and the `#` hardware operators — plus operator precedence, unary `!` and `-#`, `=#` |
-| `structure.txt` | nested functions, `@`-qualified public names, prototypes, locals, globals, parameter passing, default parameter values, `#PUBLIC` |
+| `structure.txt` | locals, globals, parameter passing, default parameter values, `#PUBLIC` |
+| `nesting.txt` | nested functions, `@`-qualified public names, sibling scopes reusing an inner name |
+| `prototypes.txt` | forward declaration and its definition — **no golden, see below** |
+
+## The one script with no golden
+
+**`prototypes.txt` hangs the reference compiler.** It is a use-after-free, and the symptoms locate
+it precisely rather than by guess:
+
+- `addDictionary` links the new dictionary into its parent's `m_offspring` (`GPDLcomp.cpp:1117`);
+  `discardCurrent` deletes it **without unlinking** (`:2375`). A forward declaration takes exactly
+  that path, so the parent's list head is left dangling. The definition that follows splices it
+  back with `dict->m_next = m_offspring`, and `m_countFunctions` walks the corrupted chain
+  (`:1171`).
+- Runs 31263750742 and 31289965658 both timed out with **zero bytes of stderr** and a **zero-byte
+  `.bin`**. No stderr means the compile succeeded, since errors print before they prompt. An empty
+  `.bin` after a successful compile means `outarchive.Close()` never ran to flush what `WriteCode`
+  had already buffered — so the loop is inside `WriteDictionary`.
+
+This port compiles the script correctly, so it stays in the corpus:
+`Every_corpus_script_compiles_cleanly` covers the construct even though no reference bytecode for
+it can exist. It is named in `ReferenceCannotCompile` in `GpdlOracleDiffTests.cs` and in
+`$cannotCompile` in the workflow step; **keep the two in step**, and
+`Every_excluded_script_exists_and_compiles_here` guards the list against going stale.
+
+This is a different case from `talk.txt` below, which neither compiler accepts. Here the port is
+simply correct and the reference is not.
 
 ## Producing the goldens
 
