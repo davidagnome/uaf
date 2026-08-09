@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/UAF.Common/UAF.Common.csproj" />
     <Project Path="src/UAF.Data/UAF.Data.csproj" />
+    <Project Path="src/UAF.Import.Frua/UAF.Import.Frua.csproj" />
     <Project Path="src/UAF.Media/UAF.Media.csproj" />
     <Project Path="src/UAF.Media.Sdl/UAF.Media.Sdl.csproj" />
     <Project Path="src/UAF.Rules/UAF.Rules.csproj" />
@@ -10,6 +11,7 @@
     <Project Path="src/UAFcore/UAFcore.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/UAF.Import.Frua.Tests/UAF.Import.Frua.Tests.csproj" />
     <Project Path="tests/UAF.Media.Tests/UAF.Media.Tests.csproj" />
     <Project Path="tests/UAF.Rules.Tests/UAF.Rules.Tests.csproj" />
     <Project Path="tests/UAF.Scripting.Tests/UAF.Scripting.Tests.csproj" />
