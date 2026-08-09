@@ -26,11 +26,19 @@ area geometry and effect application.
 load, magic, memorise, rest, alter, journal, buy, appraise, heal, donate, cast, fix and the target
 picker. Camp runs eleven of twelve entries and the party menu all twelve. **Spells resolve outside
 combat as well as in it.** **239 of GPDL's 387 sub-opcodes run** against real game state, the aura family
-and its geometry among them. Phases 5–7 have not started.
-**The Forth VM runs a design's own `AI_Script.BLK` end to end** — kernel, the 21 combat-summary
-words, `RunTHINK` and the six action filters — and is checked against the hand transcription on the
-real shipped script rather than a fixture.
-**4,011 tests, green on macOS; both CI workflows were green as of the previous commit.**
+and its geometry among them.
+
+**Phase 2 is complete.** The Forth VM runs a design's own `AI_Script.BLK` end to end — kernel, the
+21 combat-summary words, `RunTHINK` and the six action filters — checked against the hand
+transcription on the real shipped script rather than a fixture. And `gpdlc` is **byte-identical to
+`GPDLcomp.exe`**, bytecode and assembly listings both, across every corpus script the reference can
+compile; the Oracle workflow regenerates them each run and fails on drift. That was Phase 2's exit
+criterion and it is now demonstrated rather than asserted.
+
+**Phase 6 has started** (§the FRUA importer): `game001.dat` and every `geo###.dat` header read,
+verified against the real `HEIRS.DSN` and `TUTORIAL.DSN`, with the case-insensitive filename
+resolution §3.2 calls a Phase 6 requirement. Phases 5 and 7 have not started.
+**4,034 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8189,6 +8197,58 @@ it.
 **Exit:** importing `HEIRS.DSN` and `reference/example_dsn/SL4-FATH.DSN` each produce a design
 directory byte-identical to one produced by the C++ importer.
 
+##### The FRUA importer, as ported so far
+
+`UAFWinEd/UAImport.cpp`. `UAF.Import.Frua/FruaGameData.cs`, `FruaLevel.cs`, `FruaFiles.cs`.
+21 tests. **`game001.dat` and every `geo###.dat` header read**, against the real `HEIRS.DSN`
+and `TUTORIAL.DSN`.
+
+The formats are fixed-size and sequential, which makes them far easier than anything in Phase 1:
+`game001.dat` is 388 bytes and every `geo###.dat` is 12,962. A design's levels are `geo001` through
+`geo040`, one-based on disk and zero-based inside the engine.
+
+> **A `.DSN` directory is not necessarily a design.** `AAAAAAAA.DSN` ships with nothing but an
+> empty `SAVE` folder and `DISK1` is empty outright, so a folder picker offering every `.DSN` would
+> offer two that cannot be opened. **`game001.dat` is what makes a directory a design.** The first
+> draft of the test hard-coded three design names and failed on the stub.
+
+> **Case-insensitive resolution is load-bearing, not polish.** The reference builds every path in
+> lower case — `"game001.dat"`, `"geo%03i.dat"`, `"items.dat"` — and every shipped DOS design
+> stores them upper case. Windows does not care and the reference never noticed; on Linux or macOS
+> every open fails. `FruaFiles` indexes a directory once and resolves through it, which is the
+> shape §3.2 asks for.
+
+> **The text is CP1252, although the data is DOS-era.** `UAFWinEd` is a `CharacterSet=MultiByte`
+> Windows build, so a FRUA byte above 0x7F lands in a `CString` as the *Windows ANSI* character at
+> that value, not the CP437 one the designer typed. Reproducing the import means reproducing that
+> reinterpretation; "correcting" it to CP437 would diverge from the reference.
+
+> **A fixed-width text field ends at its first NUL, not at its last non-NUL.** The reference plants
+> a terminator past the field and hands it to `CString`, so `strlen` decides. `TUTORIAL.DSN` proves
+> the difference is real — its name field holds `"tutorial design\0\0\0g"`, and a reader that
+> trimmed trailing NULs would carry that stray `g` into the design name.
+
+> **A level's first 26 bytes are skipped outright** (`file.Seek(26, CFile::begin)`), and its
+> **entry points are four bytes each, not three** — y, x, facing, then one the reference discards
+> inside the same loop. That stride is the trap: it sits before three more eight-entry tables, so
+> getting it wrong slides everything after it. **The level name at offset 142 is the cheapest place
+> to notice**, and reading `DRAGONJAW MTS.`, `SKULL CRAG TOWN` and `DRAGON CAVE` out of 26 real
+> files is what proves the whole header rather than a fixture could.
+
+> **Two flags are stored inverted.** A rest event's high bit *forbids* resting
+> (`allowResting = !((b & 0x80) == 0x80)`), and a step event's zone byte lists the zones to
+> **exclude** — with zero meaning *every* zone rather than none.
+
+> **All three wall slots at 255 means overland**, and the reference turns that into
+> `AVStyle = OnlyAreaView`. In `HEIRS.DSN` that is levels 1–4, which are also the only ones with
+> mapping switched off.
+
+**Not ported yet:** the map cells and event records that fill the remaining ~12,800 bytes of each
+level file, and `MONST###.DAT` / `STRG###.DAT` / `items.dat`. The event half carries its own trap
+already visible in the source: `EventByte` indexes `pData[FileOffset - 5]`, so **every offset the
+reference quotes for an event is five higher than the buffer position** — and `FileOffset` is a
+`BYTE`, which caps an event record at 255 bytes.
+
 ### Phase 7 — Packaging and polish (1–2 months)
 
 - Self-contained `dotnet publish` per RID; macOS `.app` bundle + notarization; Linux AppImage or
@@ -8273,7 +8333,14 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the event layer's engine half
+### The next piece of work: the FRUA importer's level bodies
+
+> **This heading named "the event layer's engine half" until 2026-08-09** and was stale: that item
+> is priority 1 below and is largely closed — 39 of 44 types execute and no shipped design uses an
+> inert one. Phases 2, 3 and 4's engine work are all delivered to their named gaps, so **the live
+> front is Phase 6**, whose next slice is the map cells and event records inside a `geo###.dat`
+> (§the FRUA importer). The numbered list below remains the priority order for Phase 4's
+> leftovers.
 
 **Combat is wired end to end and playable.** Walking onto a combat event starts a fight: the
 level's `CombatEvent` builds the encounter (`EncounterBuilder`), `CombatSetup` places both sides on
@@ -8518,9 +8585,31 @@ What is left, in order:
      transcription on the real shipped script — which turned up a kernel defect that had made every
      comment line in a real script an undefined word.
 
-     **Next: what is left is scattered.** 134 callable sub-opcodes with no group among them,
-     `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped design uses.
-     The next round is a judgement call rather than an obvious pick.
+     ~~**Next: what is left is scattered.**~~ **Phase 2 closed instead, 2026-08-09**: the GPDL
+     goldens now exist and `gpdlc` is byte-identical to `GPDLcomp.exe` (§the GPDL goldens). Getting
+     them cost two failed Oracle runs and turned up a **use-after-free in the reference compiler** —
+     `discardCurrent` deletes a dictionary without unlinking it from its parent's `m_offspring`
+     (`GPDLcomp.cpp:1117`, `:2375`), so a forward declaration leaves a dangling list head and
+     `m_countFunctions` walks freed memory. `prototypes.txt` can therefore never have a golden; it
+     stays in the corpus, named in `reference-cannot-compile.cfg`, because this port compiles it
+     correctly and removing it would delete the only record of the bug.
+
+     ~~**Next**~~ **Phase 6 has started, 2026-08-09** (§the FRUA importer): `game001.dat` and every
+     `geo###.dat` header, verified against the real DOS designs. **The next slice is the rest of a
+     level file** — the map cells and event records filling its remaining ~12,800 bytes — then
+     `MONST###.DAT`, `STRG###.DAT` and `items.dat`.
+
+     Still open elsewhere, and none of it blocking: 134 callable GPDL sub-opcodes with no group
+     among them, `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped
+     design uses.
+
+     > **A caution learned the hard way this round.** `reference/` is **gitignored**, so no corpus
+     > file reaches CI. Tests that assert a design exists turn the .NET workflow red on a perfectly
+     > correct checkout — which is what happened for six consecutive commits. Every corpus test
+     > must return early when its design is absent, the way `GameTests.ReferenceDesign` does, and
+     > `dotnet.yml` warns for each corpus that is missing so a green run is never mistaken for a
+     > proven one. **A green CI run does not mean the Forth VM, the GPDL goldens or the FRUA
+     > importer were checked** — those assertions run locally only.
 
      One thing this round named and did not take, and it does not block: **`W:Damage` does not size
      by the target**, because `AiWeapons.For` reads only a weapon's small-target dice. The
