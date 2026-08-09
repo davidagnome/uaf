@@ -72,10 +72,27 @@ public sealed record FruaLevel(
     int WildernessCombatArt,
     IReadOnlyList<FruaEntryPoint> EntryPoints,
     IReadOnlyList<FruaRestEvent> RestEvents,
-    IReadOnlyList<FruaStepEvent> StepEvents)
+    IReadOnlyList<FruaStepEvent> StepEvents,
+    IReadOnlyList<string> ZoneNames,
+    IReadOnlyList<FruaMapCell> Cells,
+    FruaStringTable Strings)
 {
     /// <summary>Every shipped level file is exactly this long.</summary>
     public const int Length = 12_962;
+
+    /// <summary>Where the <c>"MAP "</c> marker sits, and the cells right after it.</summary>
+    /// <remarks>
+    /// <b>The markers are self-describing, and the reference ignores half of what they say.</b> It
+    /// only <c>strncmp</c>s the four-character name, but each carries a big-endian byte count after
+    /// it — <c>MAP </c> says <c>0x0D80</c> = 3,456 = 576 × 6, and <c>ENCR</c> says <c>0x07D0</c> =
+    /// 2,000 = 100 × 20. Those counts confirm the layout independently of any reading of the
+    /// source, which is how this port checked its offsets before writing a line of the reader.
+    /// </remarks>
+    private const int MapMarkerAt = 314;
+
+    private const int CellsAt = MapMarkerAt + 8;
+
+    private const int EncounterMarkerAt = CellsAt + (FruaMapCell.PerLevel * FruaMapCell.Length);
 
     /// <summary>The reference scans <c>geo001.dat</c> through <c>geo040.dat</c>.</summary>
     public const int MaxLevels = 40;
@@ -135,6 +152,18 @@ public sealed record FruaLevel(
                 ZoneMask: mask);
         }
 
+        // The reference refuses a level whose markers are not where it expects, and so does this:
+        // a file that has drifted is far more useful as an error than as 576 cells of noise.
+        Marker(bytes, MapMarkerAt, "MAP");
+        Marker(bytes, EncounterMarkerAt, "ENCR");
+
+        var cells = new FruaMapCell[FruaMapCell.PerLevel];
+        for (int i = 0; i < cells.Length; i++)
+        {
+            cells[i] = FruaMapCell.Read(bytes.Slice(CellsAt + (i * FruaMapCell.Length),
+                                                    FruaMapCell.Length));
+        }
+
         // 134..141 are read and discarded before the name.
         return new FruaLevel(
             Width: bytes[27],
@@ -151,7 +180,58 @@ public sealed record FruaLevel(
             WildernessCombatArt: bytes[37],
             EntryPoints: entries,
             RestEvents: rests,
-            StepEvents: steps);
+            StepEvents: steps,
+            ZoneNames: Names(bytes, at: 158, count: 8, blank: "Zone"),
+            Cells: cells,
+            Strings: FruaStringTable.Read(bytes));
+    }
+
+    /// <summary>
+    /// The cell at (<paramref name="x"/>, <paramref name="y"/>)
+    /// (<c>GetMapCell</c>, <c>UAImport.cpp:1923</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Row-major, strided by the level's own width</b> — <c>index = y * area_width + x</c> — not
+    /// by the 576-cell array's shape. A level narrower than its storage leaves the tail unused
+    /// rather than padding each row.
+    /// </remarks>
+    public FruaMapCell Cell(int x, int y)
+    {
+        if ((uint)x >= (uint)Width || (uint)y >= (uint)Height)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(x), $"({x},{y}) is outside this {Width}x{Height} level");
+        }
+
+        return Cells[(y * Width) + x];
+    }
+
+    private static string[] Names(ReadOnlySpan<byte> bytes, int at, int count, string blank)
+    {
+        var names = new string[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            string name = Text(bytes.Slice(at + (i * 16), 16));
+            names[i] = name.Length == 0 ? $"{blank} {i + 1}" : name;
+        }
+
+        return names;
+    }
+
+    private static void Marker(ReadOnlySpan<byte> bytes, int at, string expected)
+    {
+        var found = bytes.Slice(at, expected.Length);
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            if (found[i] != (byte)expected[i])
+            {
+                throw new InvalidDataException(
+                    $"expected '{expected}' at offset {at} of the level file, found "
+                    + $"'{FruaGameData.TextEncoding.GetString(found)}'");
+            }
+        }
     }
 
     /// <summary>Reads level <paramref name="number"/> (one-based), or null when absent.</summary>
