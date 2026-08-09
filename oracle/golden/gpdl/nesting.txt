@@ -1,0 +1,31 @@
+// Nested function definitions and the scoping of their names.
+//
+// Split out of structure.txt -- see prototypes.txt for why.
+//
+// A nested function's body sits inside the enclosing function's code, so the enclosing body gets a
+// JUMP over it. Only an inner function declared $PUBLIC reaches the index, under the qualified name
+// "nesting@innerPublic" that m_writeFunctionIndex builds by prefixing each offspring dictionary.
+
+$PUBLIC $FUNC nesting(outerParam) {
+	$FUNC innerPrivate(x) {
+		$RETURN "private:" + x;
+	} innerPrivate;
+
+	$PUBLIC $FUNC innerPublic(y) {
+		$FUNC deeper(z) {
+			$RETURN "deep:" + z;
+		} deeper;
+		$RETURN "public:" + y + "/" + deeper(y);
+	} innerPublic;
+
+	$RETURN innerPrivate(outerParam) + "|" + innerPublic(outerParam);
+} nesting;
+
+$PUBLIC $FUNC sharesInnerNames() {
+	// The same inner name in a sibling scope must not collide -- that is the whole point of
+	// local function definitions (src/GPDL/README.txt:114).
+	$FUNC innerPrivate(x) {
+		$RETURN "other:" + x;
+	} innerPrivate;
+	$RETURN innerPrivate("q");
+} sharesInnerNames;

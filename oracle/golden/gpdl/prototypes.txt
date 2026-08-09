@@ -1,0 +1,20 @@
+// Forward declaration: the prototype path through compileFunctionDecl.
+//
+// Split out of structure.txt because that file sent the REFERENCE compiler into a silent
+// infinite loop -- no stderr at all before a 45s timeout (run 31263750742) -- and the file mixed
+// four unrelated mechanisms, so nothing said which one. Each of the three now stands alone.
+//
+// Note the DOUBLE semicolon: compileFunctionDecl consumes one on the prototype path
+// (GPDLcomp.cpp:3477) and CompileProgram then demands another. A prototype WITH parameters cannot
+// be declared at all -- checkProtoParam is called on the newly-added definition rather than on the
+// prototype, because addFunction runs unconditionally at :3419 even when a prototype exists.
+
+$FUNC forwardDeclared();;
+
+$FUNC forwardDeclared() {
+	$RETURN "resolved";
+} forwardDeclared;
+
+$PUBLIC $FUNC callsForwardDeclared() {
+	$RETURN forwardDeclared();
+} callsForwardDeclared;

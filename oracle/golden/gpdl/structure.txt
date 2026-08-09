@@ -1,20 +1,16 @@
-// Declaration structure: scopes, nesting, prototypes, locals, globals, parameters.
+// Declaration structure: scopes, locals, globals, parameters, defaults.
 //
 // This file mostly pins the symbol table's ordering, which is invisible in the code segment but
 // decides the layout of both the constants segment and the public-function index. Every list in
 // the symbol table is PREPENDED to, so iteration is reverse-declaration order.
+//
+// Prototypes and nesting used to live here too. They were split into prototypes.txt and
+// nesting.txt after this file put the REFERENCE compiler into a silent infinite loop -- 45s with
+// zero bytes of stderr, run 31263750742 -- with nothing to say which of its four mechanisms was
+// responsible. One mechanism per file is also what makes a byte diff point somewhere.
 
 $VAR globalOne;
 $VAR globalTwo;
-
-// A zero-parameter prototype. Note the DOUBLE semicolon: compileFunctionDecl consumes one on the
-// prototype path and CompileProgram then demands another. A prototype WITH parameters cannot be
-// defined at all -- checkProtoParam is called on the wrong definition.
-$FUNC forwardDeclared();;
-
-$FUNC forwardDeclared() {
-	$RETURN "resolved";
-} forwardDeclared;
 
 $FUNC twoParameters(first, second) {
 	// The last formal declared gets frame offset 0, because actual parameters are pushed left
@@ -31,7 +27,7 @@ $FUNC withDefault(required, optional = "fallback") {
 $PUBLIC $FUNC callsOthers() {
 	// Each user-function call pushes a default result BEFORE its arguments; that cell is the
 	// slot the callee stores into. A statement-level call then pops the result.
-	forwardDeclared();
+	twoParameters("s", "t");
 	$RETURN twoParameters("a", "b") + "|" + withDefault("x", "y");
 } callsOthers;
 
@@ -52,30 +48,3 @@ $PUBLIC $FUNC globalsAcrossCalls() {
 	globalTwo = "two";
 	$RETURN globalOne + globalTwo;
 } globalsAcrossCalls;
-
-$PUBLIC $FUNC nesting(outerParam) {
-	// A nested function's body sits inside the enclosing function's code, so the enclosing body
-	// gets a JUMP over it. Only the inner one that is declared $PUBLIC reaches the index, under
-	// the name "nesting@innerPublic".
-	$FUNC innerPrivate(x) {
-		$RETURN "private:" + x;
-	} innerPrivate;
-
-	$PUBLIC $FUNC innerPublic(y) {
-		$FUNC deeper(z) {
-			$RETURN "deep:" + z;
-		} deeper;
-		$RETURN "public:" + y + "/" + deeper(y);
-	} innerPublic;
-
-	$RETURN innerPrivate(outerParam) + "|" + innerPublic(outerParam);
-} nesting;
-
-$PUBLIC $FUNC sharesInnerNames() {
-	// The same inner name in a sibling scope must not collide -- that is the whole point of
-	// local function definitions (src/GPDL/README.txt:114).
-	$FUNC innerPrivate(x) {
-		$RETURN "other:" + x;
-	} innerPrivate;
-	$RETURN innerPrivate("q");
-} sharesInnerNames;
