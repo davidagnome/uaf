@@ -75,7 +75,8 @@ public sealed record FruaLevel(
     IReadOnlyList<FruaStepEvent> StepEvents,
     IReadOnlyList<string> ZoneNames,
     IReadOnlyList<FruaMapCell> Cells,
-    FruaStringTable Strings)
+    FruaStringTable Strings,
+    IReadOnlyList<FruaEvent> Events)
 {
     /// <summary>Every shipped level file is exactly this long.</summary>
     public const int Length = 12_962;
@@ -183,7 +184,8 @@ public sealed record FruaLevel(
             StepEvents: steps,
             ZoneNames: Names(bytes, at: 158, count: 8, blank: "Zone"),
             Cells: cells,
-            Strings: FruaStringTable.Read(bytes));
+            Strings: FruaStringTable.Read(bytes),
+            Events: FruaEvent.ReadAll(bytes));
     }
 
     /// <summary>
