@@ -58,6 +58,7 @@ static char THIS_FILE[] = __FILE__;
 void ImportGlobal(CString filename);
 void ProcessScriptFile(const CString& filename);
 bool DumpDesignJson(const CString& outPath, bool configLoaded);   // DumpJson.cpp -- oracle mode
+BOOL ImportFruaDesignHeadless(const char *dsnPath, const char *uaPath); // ImportFRUAData.cpp
 
 extern const double VersionSpellNames;
 extern const double VersionSpellIDs;
@@ -1003,6 +1004,36 @@ BOOL CUAFWinEdApp::InitInstance()
     BOOL configOk = LoadConfigFile(rte.ConfigDir() + "config.txt");
     DumpDesignJson(cmdLine.m_DumpJsonFilename, configOk ? true : false);
     return FALSE;   // skip the message loop entirely
+  };
+
+  // Oracle mode (-importfrua): import a DOS FRUA design into the design -config names, save it,
+  // and exit. Same reasoning as the dump above -- no OpenDesign, so no document, no window and
+  // no DirectX device to fail on a headless runner.
+  //
+  // DESTRUCTIVE: the import replaces the design at rte.DataDir() and then saves over it. Point
+  // -config at a scratch copy, exactly as -savedesign requires.
+  if (!cmdLine.m_ImportFruaPath.IsEmpty())
+  {
+    rte.Clear();
+    rte.DefaultFoldersFromDesign(filename);
+    LoadConfigFile(rte.ConfigDir() + "config.txt");
+
+    BOOL imported = ImportFruaDesignHeadless(cmdLine.m_ImportFruaPath,
+                                             cmdLine.m_ImportUaPath);
+    if (imported)
+    {
+      // saveDesign() writes to rte.DataDir(), which DefaultFoldersFromDesign set above.
+      if (!saveDesign())
+      {
+        WriteDebugString("(headless) FRUA import saved nothing\n");
+        imported = FALSE;
+      }
+    }
+
+    // The caller checks for output rather than trusting an exit code, as it must for the other
+    // oracle modes -- but say so in the log either way.
+    WriteDebugString("(headless) -importfrua %s\n", imported ? "complete" : "FAILED");
+    return FALSE;
   };
 
   success = OpenDesign(filename);

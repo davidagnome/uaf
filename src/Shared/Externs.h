@@ -1891,7 +1891,9 @@ public:
     m_forceAV=FALSE;
     m_initializeGame = FALSE;
     m_SaveDesign = FALSE;
-    m_ConfigFilename=""; 
+    m_ConfigFilename="";
+    m_ImportFruaPath="";
+    m_ImportUaPath="";
     m_level=-1;
     m_sx=-1;m_sy=-1;m_facing=-1; 
     m_Party.RemoveAll();
@@ -1902,6 +1904,14 @@ public:
   // JSON, then exit without creating a window. This is the "oracle" mode used to validate the
   // .NET port against this reference implementation. See docs/PORTING-PLAN.md.
   CString m_DumpJsonFilename;
+  // -importfrua <dir>: import the DOS FRUA design in <dir> into the design named by -config,
+  // save it, and exit without creating a window. The counterpart of -dumpjson for Phase 6: it
+  // is what lets UAF.Import.Frua be diffed against what this importer really produces, rather
+  // than against a reading of its source. See docs/PORTING-PLAN.md.
+  CString m_ImportFruaPath;
+  // -uapath <dir>: the FRUA installation whose DISK1 holds the stock item database. Optional;
+  // without it the import brings in no items, exactly as leaving the dialog's box unticked does.
+  CString m_ImportUaPath;
   // -savedesign: after loading (and before dumping), re-save the design in place. saveDesign()
   // stamps globalData.version = PRODUCT_VER (5.29), which is past the 0.930 compression gate, so
   // the result is a tier-3 LZW design. This is how the LZW fixture is generated without driving

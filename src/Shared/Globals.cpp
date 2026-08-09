@@ -863,6 +863,20 @@ void CUAFCommandLineInfo::ParseParam(LPCTSTR lpszParam, BOOL bFlag, BOOL bLast )
       g_headlessMode = true;
     };
 
+    if (stricmp(FlagKey, "importfrua") == 0)
+    {
+      // Oracle mode: import a DOS FRUA design into the design named by -config, save it, exit.
+      // format: -importfrua c:\ua\designs\ua\heirs.dsn
+      m_ImportFruaPath = FlagValue;
+      g_headlessMode = true;
+    };
+
+    if (stricmp(FlagKey, "uapath") == 0)
+    {
+      // The FRUA installation holding DISK1\ITEMS.DAT. Optional; see -importfrua.
+      m_ImportUaPath = FlagValue;
+    };
+
     if (stricmp(FlagKey, "pc") == 0)
     {
       // load a player character into the party

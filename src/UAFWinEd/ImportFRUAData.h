@@ -16,6 +16,18 @@ class CImportFRUAData : public CDialog
 public:
 	CImportFRUAData(CWnd* pParent = NULL);   // standard constructor
 
+  // Oracle mode (-importfrua): run OnImportfruadesign()'s work with no dialog, no folder
+  // browser and no message boxes, so the .NET port in dotnet/ can be diffed against what this
+  // importer actually produces. Mirrors the -dumpjson affordance; see docs/PORTING-PLAN.md.
+  //
+  // Deliberately a method on this class rather than a free function: ClearDesign(),
+  // ImportItems() and ImportAllMonsters() all read the m_Inc*/m_Clear* members, and
+  // reimplementing them outside would be a second copy of the import that could drift from the
+  // one the editor really runs -- which is precisely what the diff exists to detect.
+  //
+  // uaPath may be empty, in which case the stock item database is not imported.
+  BOOL RunHeadless(const char *dsnPath, const char *uaPath);
+
 // Dialog Data
 	//{{AFX_DATA(CImportFRUAData)
 	enum { IDD = IDD_IMPORTFRUADATA };

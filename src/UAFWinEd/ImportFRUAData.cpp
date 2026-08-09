@@ -291,7 +291,74 @@ void CImportFRUAData::ClearDesign()
 /////////////////////////////////////////////////////////////////////////////
 // CImportFRUAData message handlers
 
-void CImportFRUAData::OnImportfruadesign() 
+// Oracle mode. The GUI half of OnImportfruadesign() -- UpdateData, the folder browser, the
+// .DSN name check, the view refresh and the two message boxes -- is all that is left out; the
+// import itself runs through exactly the same calls in exactly the same order.
+//
+// The defaults chosen here are the ones the dialog ships with for a whole-design import:
+// bring in monsters, clear what was there first, and take items only when a UA path is given.
+BOOL CImportFRUAData::RunHeadless(const char *dsnPath, const char *uaPath)
+{
+  if ((dsnPath == NULL) || (*dsnPath == '\0'))
+    return FALSE;
+
+  CString dpath(dsnPath);
+  CString upath(uaPath != NULL ? uaPath : "");
+
+  if (dpath.GetAt(strlen(dpath)-1) != '\\')
+    dpath += "\\";
+
+  m_UAPath        = upath;
+  m_IncItems      = !upath.IsEmpty();
+  m_IncMonsters   = TRUE;
+  m_ClearMonsters = TRUE;
+  m_ClearItems    = TRUE;
+  m_UseLoadedArt  = FALSE;
+  m_AllInFolder   = FALSE;
+  m_IncItemsWithMonsters = FALSE;
+
+  BOOL success = TRUE;
+
+  ClearDesign();
+  ClearImportBuffers();
+  if (!UseDefaultArtForImport)
+    levelData.GetSlots();
+
+  if (m_IncItems)
+  {
+    CString path = upath;
+    if (path.GetAt(strlen(path)-1) != '\\')
+      path += "\\";
+    path += "DISK1\\";
+    WriteDebugString("(headless) importing items from %s\n", (LPCSTR)path);
+    success = ImportItems(path);
+  }
+
+  if (success && m_IncMonsters)
+  {
+    WriteDebugString("(headless) importing monsters from %s\n", (LPCSTR)dpath);
+    ImportAllMonsters(dpath);
+  }
+
+  if (success)
+  {
+    WriteDebugString("(headless) importing design from %s\n", (LPCSTR)dpath);
+    success = ImportGameDat(dpath);
+  }
+
+  WriteDebugString("(headless) FRUA import %s\n", success ? "succeeded" : "FAILED");
+  return success;
+}
+
+// Free entry point, so UAFWinEd.cpp's InitInstance need not know the dialog class. Constructing
+// a CDialog does not create a window -- only DoModal/Create does -- so this stays headless.
+BOOL ImportFruaDesignHeadless(const char *dsnPath, const char *uaPath)
+{
+  CImportFRUAData importer;
+  return importer.RunHeadless(dsnPath, uaPath);
+}
+
+void CImportFRUAData::OnImportfruadesign()
 {
   UpdateData(TRUE);
 
