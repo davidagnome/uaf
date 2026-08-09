@@ -34,21 +34,60 @@ for p in "$EXE" "$DESIGN"; do
     [ -e "$p" ] || { echo "no such path: $p" >&2; exit 2; }
 done
 
-# Pick a runner. CrossOver ships its own wine; fall back to whatever is on PATH.
+# Pick a runner.
+#
+# CrossOver's `wine` is NOT plain wine: it resolves a "bottle" (a Windows environment) first and
+# fails with "Unable to find the 'default' bottle" if none exists. So it needs --bottle, and the
+# bottle has to have been created. Creating one is left to the user rather than done here -- it
+# writes a few hundred megabytes into their CrossOver support directory, which is not something a
+# build script should do behind their back.
+BOTTLE=${UAF_BOTTLE:-${CX_BOTTLE:-uaf-oracle}}
+CXBIN=/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin
+
+RUN=""
+RUN_ARGS=()
+
+# Where the bottles live is configurable and frequently moved off the boot volume, so ASK
+# CrossOver rather than guessing at ~/Library or ~/.cxoffice. An earlier version of this script
+# guessed, found nothing, and refused to run on a machine that had six bottles.
+bottle_dir() {
+    local d
+    d=$(defaults read com.codeweavers.CrossOver BottleDir 2>/dev/null || true)
+    if [ -n "$d" ] && [ -d "$d" ]; then echo "$d"; return; fi
+    for d in "$HOME/Library/Application Support/CrossOver/Bottles" "$HOME/.cxoffice"; do
+        [ -d "$d" ] && { echo "$d"; return; }
+    done
+}
+
 if [ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ]; then
-    CROSSOVER=/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine
-    if [ -x "$CROSSOVER" ]; then
-        RUN=$CROSSOVER
+    if [ -x "$CXBIN/wine" ]; then
+        DIR=$(bottle_dir)
+        if [ -n "$DIR" ] && [ ! -d "$DIR/$BOTTLE" ]; then
+            cat >&2 <<EOF
+No '$BOTTLE' bottle in $DIR
+
+Existing bottles there:
+$(ls -1 "$DIR" 2>/dev/null | grep -v '^\.' | sed 's/^/  /')
+
+Create a dedicated one -- don't reuse a game bottle, since the import writes into its drive_c:
+
+  "$CXBIN/cxbottle" --bottle $BOTTLE --create --template winxp
+
+winxp is the apt template: this tree's vcxproj files target the XP toolsets, so the reference
+binaries are built for it. Or point at an existing bottle with UAF_BOTTLE=<name>.
+EOF
+            exit 2
+        fi
+        RUN=$CXBIN/wine
+        RUN_ARGS=(--bottle "$BOTTLE")
     elif command -v wine >/dev/null 2>&1; then
         RUN=wine
     else
         echo "no wine found (looked for CrossOver and \`wine\` on PATH)" >&2
         exit 2
     fi
-else
-    RUN=""
 fi
-echo "runner: ${RUN:-native}"
+echo "runner: ${RUN:-native} ${RUN_ARGS[*]:-}"
 
 # The importer writes over the design it is pointed at, so it gets a scratch copy. This mirrors
 # the same caution the -savedesign step takes for the tier-3 fixture.
@@ -67,7 +106,7 @@ ARGS=("-config $OUT/Data/config.txt" "-importfrua $DESIGN")
 
 set +e
 if [ -n "$RUN" ]; then
-    "$RUN" "$EXE" "${ARGS[@]}"
+    "$RUN" "${RUN_ARGS[@]}" "$EXE" "${ARGS[@]}"
 else
     "$EXE" "${ARGS[@]}"
 fi
