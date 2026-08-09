@@ -167,11 +167,25 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
+          # Counting files is not enough, and the first version of this check made that mistake:
+          # CI always fetches dc-default as the tier-3 fixture and it carries an AI_Script.BLK, so
+          # "found > 0" is ALWAYS true and the warning could never fire. It read as reassurance
+          # that the VM had been checked when only one of four designs was present.
+          #
+          # What matters is which of the two shipped script VERSIONS ran. 1.01 ships in dc-default
+          # and SomethingWild; 0.999785 only in Case.dsn and Ambassador's_Letter, neither of which
+          # a checkout carries. Grep the version banner rather than trusting the filename.
           found=$(find reference -maxdepth 3 -iname 'AI_Script.BLK' 2>/dev/null | wc -l | tr -d ' ')
-          if [ "$found" != "0" ]; then
-            echo "$found AI_Script.BLK present - the Forth VM was checked against MonsterAiScript"
-          else
+          old=0
+          while IFS= read -r f; do
+            head -1 "$f" | grep -q '0\.999785' && old=$((old + 1))
+          done < <(find reference -maxdepth 3 -iname 'AI_Script.BLK' 2>/dev/null)
+
+          echo "AI scripts: $found present, $old of them the older 0.999785 revision"
+          if [ "$found" = "0" ]; then
             echo "::warning::reference/ carries no AI_Script.BLK; ForthAiScriptTests and ForthAiEquivalenceTests returned early, so the Forth VM was NOT checked against the transcription in this job."
+          elif [ "$old" = "0" ]; then
+            echo "::warning::only the 1.01 AI script is present; the 0.999785 revision (Case.dsn, Ambassador's_Letter) is absent, so the version-specific Forth tests -- Only_the_newer_script_knows_about_dying and the attacksTheDying half of the filter equivalence -- did NOT run in this job."
           fi
 
       # Same shape as the check above, for the same reason: GpdlOracleDiffTests return early when
