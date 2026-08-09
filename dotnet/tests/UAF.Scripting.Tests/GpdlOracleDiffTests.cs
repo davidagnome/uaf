@@ -211,7 +211,16 @@ public class GpdlOracleDiffTests
     /// the only record of the bug along with the coverage.
     /// </para>
     /// </remarks>
-    private static readonly string[] ReferenceCannotCompile = ["prototypes.txt"];
+    /// <remarks>
+    /// <b>Read from <c>reference-cannot-compile.cfg</c>, not hard-coded here.</b> Two workflow
+    /// steps need the same list — the Oracle step must skip these scripts, and the .NET step's
+    /// missing-bytecode warning must not count them — and three copies of a list that must agree
+    /// is three chances to drift.
+    /// </remarks>
+    private static string[] ReferenceCannotCompile =>
+        [.. File.ReadAllLines(Path.Combine(GoldenDir, "reference-cannot-compile.cfg"))
+               .Select(l => l.Trim())
+               .Where(l => l.Length > 0 && !l.StartsWith('#'))];
 
     [Fact]
     public void Goldens_are_either_complete_or_absent_but_never_partial()

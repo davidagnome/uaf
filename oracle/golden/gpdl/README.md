@@ -50,9 +50,14 @@ it precisely rather than by guess:
 
 This port compiles the script correctly, so it stays in the corpus:
 `Every_corpus_script_compiles_cleanly` covers the construct even though no reference bytecode for
-it can exist. It is named in `ReferenceCannotCompile` in `GpdlOracleDiffTests.cs` and in
-`$cannotCompile` in the workflow step; **keep the two in step**, and
-`Every_excluded_script_exists_and_compiles_here` guards the list against going stale.
+it can exist.
+
+**The exclusion lives in `reference-cannot-compile.cfg`, and all three consumers read it** — the
+test's `ReferenceCannotCompile`, the Oracle step's `$cannotCompile`, and the .NET workflow's
+missing-bytecode warning, which would otherwise warn for ever about a corpus that is complete.
+Three hard-coded copies of one list is three chances to drift.
+`Every_excluded_script_exists_and_compiles_here` guards it further: it fails if a listed name no
+longer exists, if this port stops compiling it, or if a golden ever does appear for it.
 
 This is a different case from `talk.txt` below, which neither compiler accepts. Here the port is
 simply correct and the reference is not.

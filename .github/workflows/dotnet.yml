@@ -172,13 +172,21 @@ jobs:
           # exists to emit never appeared, and the step read as a build failure instead.
           scripts=$(find oracle/golden/gpdl -maxdepth 1 -name '*.txt' | wc -l | tr -d ' ')
           goldens=$(find oracle/golden/gpdl -maxdepth 1 -name '*.bin' | wc -l | tr -d ' ')
-          echo "GPDL corpus: $scripts script(s), $goldens golden(s)"
+
+          # Scripts GPDLcomp.exe itself cannot compile can never have a golden, so counting them as
+          # missing would warn for ever on a corpus that is in fact complete. One source of truth,
+          # shared with GpdlOracleDiffTests.cs and oracle-cpp.yml.
+          cfg=oracle/golden/gpdl/reference-cannot-compile.cfg
+          excluded=$(grep -cvE '^\s*(#|$)' "$cfg" 2>/dev/null || echo 0)
+          expected=$((scripts - excluded))
+
+          echo "GPDL corpus: $scripts script(s), $excluded excluded, $goldens of $expected golden(s)"
           if [ "$scripts" = "0" ]; then
             echo "::error::oracle/golden/gpdl holds no scripts; the GPDL corpus has gone missing"
             exit 1
           fi
-          if [ "$goldens" != "$scripts" ]; then
-            echo "::warning::$goldens of $scripts GPDL scripts have reference bytecode; GpdlOracleDiffTests skipped the rest, so gpdlc has NOT been shown to be byte-identical to GPDLcomp.exe. See oracle/golden/gpdl/README.md."
+          if [ "$goldens" != "$expected" ]; then
+            echo "::warning::$goldens of $expected compilable GPDL scripts have reference bytecode; GpdlOracleDiffTests skipped the rest, so gpdlc has NOT been shown to be byte-identical to GPDLcomp.exe. See oracle/golden/gpdl/README.md."
           fi
 
   generated-code-is-current:

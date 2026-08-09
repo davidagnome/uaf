@@ -304,8 +304,10 @@ jobs:
           # the empty .bin proving the loop is inside WriteDictionary, before outarchive.Close()
           # could flush what WriteCode had already buffered.
           #
-          # Keep this list in step with ReferenceCannotCompile in GpdlOracleDiffTests.cs.
-          $cannotCompile = @('prototypes.txt')
+          # One source of truth, shared with GpdlOracleDiffTests.cs and dotnet.yml.
+          $cannotCompile = @(Get-Content (Join-Path $srcDir "reference-cannot-compile.cfg") |
+                             ForEach-Object { $_.Trim() } |
+                             Where-Object { $_ -and -not $_.StartsWith('#') })
 
           $scripts = @(Get-ChildItem $srcDir -Filter *.txt |
                        Where-Object { $cannotCompile -notcontains $_.Name } |
