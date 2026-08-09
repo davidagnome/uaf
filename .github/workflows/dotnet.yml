@@ -159,6 +159,21 @@ jobs:
             echo "::warning::reference/ carries no design art; PngOracleTests and SdlImageDecoderTests returned early, so neither decoder was checked against its oracle in this job."
           fi
 
+      # Same shape again, for the AI scripts. reference/ is gitignored, so a checkout carries no
+      # design's AI_Script.BLK and the Forth equivalence tests -- the only place the ported VM is
+      # checked against the hand transcription -- return early. That is the intended degradation,
+      # but it must be visible: a green run here does NOT mean the two agree.
+      - name: Warn if the AI scripts are missing
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          found=$(find reference -maxdepth 3 -iname 'AI_Script.BLK' 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$found" != "0" ]; then
+            echo "$found AI_Script.BLK present - the Forth VM was checked against MonsterAiScript"
+          else
+            echo "::warning::reference/ carries no AI_Script.BLK; ForthAiScriptTests and ForthAiEquivalenceTests returned early, so the Forth VM was NOT checked against the transcription in this job."
+          fi
+
       # Same shape as the check above, for the same reason: GpdlOracleDiffTests return early when
       # the reference bytecode is absent, so a green suite over an empty corpus looks identical to a
       # green suite over a matching one. Byte-identity with GPDLcomp.exe is Phase 2's exit criterion

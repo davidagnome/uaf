@@ -44,11 +44,23 @@ public class ForthAiEquivalenceTests
         Path.Combine("Case.dsn", "Data"),
     };
 
-    private static ForthAiScript Script(string design)
+    /// <summary>
+    /// One design's compiled script, or null when the corpus is not present.
+    /// </summary>
+    /// <remarks>
+    /// <b><c>reference/</c> is gitignored and does not reach CI</b>, so these degrade rather than
+    /// assert — the convention every other corpus test here follows. An earlier revision asserted
+    /// and turned the .NET workflow red on a correct checkout. The consequence is that this file's
+    /// real assertions run locally only; <c>dotnet.yml</c> warns when the corpus is absent so a
+    /// green CI run is not mistaken for a proven one.
+    /// </remarks>
+    private static ForthAiScript? Script(string design)
     {
         string dir = Path.Combine(Corpus, design);
-        Assert.True(File.Exists(Path.Combine(dir, "AI_Script.BLK")),
-                    $"the corpus is missing {design}/AI_Script.BLK");
+        if (!File.Exists(Path.Combine(dir, "AI_Script.BLK")))
+        {
+            return null;
+        }
 
         var script = ForthAiScript.Load(dir);
         Assert.NotNull(script);
@@ -123,7 +135,11 @@ public class ForthAiEquivalenceTests
     [MemberData(nameof(Scripts))]
     public void The_VM_and_the_transcription_rank_every_pair_the_same_way(string design)
     {
-        var script = Script(design);
+        if (Script(design) is not { } script)
+        {
+            return;
+        }
+
         var (self, all, _) = Scenario();
         var weapons = Arsenal();
         var candidates = Candidates(self, all, weapons);
@@ -159,7 +175,11 @@ public class ForthAiEquivalenceTests
     [MemberData(nameof(Scripts))]
     public void Swapping_the_two_actions_negates_the_result(string design)
     {
-        var script = Script(design);
+        if (Script(design) is not { } script)
+        {
+            return;
+        }
+
         var (self, all, _) = Scenario();
         var weapons = Arsenal();
         var candidates = Candidates(self, all, weapons);
@@ -198,7 +218,11 @@ public class ForthAiEquivalenceTests
     [MemberData(nameof(Scripts))]
     public void Both_paths_put_an_unbeaten_action_first(string design)
     {
-        var script = Script(design);
+        if (Script(design) is not { } script)
+        {
+            return;
+        }
+
         var (self, all, _) = Scenario();
         var weapons = Arsenal();
         var candidates = Candidates(self, all, weapons);
@@ -244,7 +268,11 @@ public class ForthAiEquivalenceTests
     [InlineData("Case.dsn/Data", true)]             // 0.999785 attacks them
     public void The_filters_and_the_transcription_agree(string design, bool attacksTheDying)
     {
-        var script = Script(design.Replace('/', Path.DirectorySeparatorChar));
+        if (Script(design.Replace('/', Path.DirectorySeparatorChar)) is not { } script)
+        {
+            return;
+        }
+
         var (self, all, _) = Scenario();
         var weapons = Arsenal();
 
@@ -294,7 +322,13 @@ public class ForthAiEquivalenceTests
     [Fact]
     public void A_real_design_supplies_its_own_script()
     {
-        var design = LoadedDesign.Open(Path.Combine(Corpus, "SomethingWild.dsn"));
+        string root = Path.Combine(Corpus, "SomethingWild.dsn");
+        if (!Directory.Exists(Path.Combine(root, "Data")))
+        {
+            return;
+        }
+
+        var design = LoadedDesign.Open(root);
 
         Assert.NotNull(design.AiScript);
 
