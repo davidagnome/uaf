@@ -35,10 +35,15 @@ transcription on the real shipped script rather than a fixture. And `gpdlc` is *
 compile; the Oracle workflow regenerates them each run and fails on drift. That was Phase 2's exit
 criterion and it is now demonstrated rather than asserted.
 
-**Phase 6 has started** (§the FRUA importer): `game001.dat` and every `geo###.dat` header read,
-verified against the real `HEIRS.DSN` and `TUTORIAL.DSN`, with the case-insensitive filename
-resolution §3.2 calls a Phase 6 requirement. Phases 5 and 7 have not started.
-**4,034 tests, green on macOS; both CI workflows green.**
+**Phase 6 is underway** (§the FRUA importer): **every fixed-format file a DOS design carries now
+reads** — `game001.dat`, the level headers, the map cells, the six-bit string tables, the event
+records, `MONST###.DAT` and the item database — verified against the real `HEIRS.DSN` and
+`TUTORIAL.DSN`, with the case-insensitive filename resolution §3.2 calls a Phase 6 requirement.
+Three of the 32 per-event-type payload readers are done, covering ~72% of the corpus by frequency.
+The byte-identity exit criterion is **not** met: `-importfrua` and `tools/frua-import-oracle.sh`
+exist and compile, but no run has yet produced an imported design to diff. Phases 5 and 7 have not
+started.
+**4,161 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8243,11 +8248,41 @@ The formats are fixed-size and sequential, which makes them far easier than anyt
 > `AVStyle = OnlyAreaView`. In `HEIRS.DSN` that is levels 1–4, which are also the only ones with
 > mapping switched off.
 
-**Not ported yet:** the map cells and event records that fill the remaining ~12,800 bytes of each
-level file, and `MONST###.DAT` / `STRG###.DAT` / `items.dat`. The event half carries its own trap
-already visible in the source: `EventByte` indexes `pData[FileOffset - 5]`, so **every offset the
-reference quotes for an event is five higher than the buffer position** — and `FileOffset` is a
-`BYTE`, which caps an event record at 255 bytes.
+**Every fixed-format file a design carries now reads**: `game001.dat`, the level headers, the map
+cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the item database.
+
+> **Event payloads are addressed one-based over the whole 20-byte record.** `EventByte` indexes
+> `pData[FileOffset - 5]` — one-based, less the four header bytes, less one — so every offset the
+> reference quotes in a per-type reader is in that scheme. `FileOffset` is a `BYTE`, which is why
+> no event field can be addressed past 255.
+
+> **FRUA text is six bits per character, and that is why every line of it is capitals.** The
+> alphabet is ASCII 32–63 as-is plus 1–31 shifted up to 65–95; there is no lower case to be had.
+> A `TextStatement` joins **five** such strings, each capped at 228 characters, with a per-chunk
+> highlight bit wrapping it in `/h`.
+
+> **The reference importer does not import combat monsters, or NPC linkage.** All five
+> `monster.monster = GetMonsterKey(...)` assignments in `addCombatEvent` are commented out behind
+> `NotImplemented(...)` markers — six of the fourteen in `UAImport.cpp`, the rest on NPCs
+> (`ProcessNpcCchData`, `addNPCEvent`, `addNPCSaysEvent`, `addRemoveNPCEvent`, `addSmallTownEvent`,
+> `addTrainingHallEvent`). A design imported by the reference gets combat events with quantities,
+> morale, surprise and distance and **no monsters**. This is a sixth way code in this tree is dead:
+> commented out with a marker left standing where a grep still sees a call.
+>
+> **It changes what the exit criterion means.** `UAF.Import.Frua` reads the monster indices, because
+> they are in the file. An importer that *writes* them would produce a richer design than the
+> reference and fail the byte-identity diff — so the gap has to be reproduced in the writer, not in
+> the reader. `FruaCombatEvent.MonstersAreNotImported` carries the note.
+>
+> `NotImplemented` shows a message box, deduplicated per code, with `loopForever: false` at every
+> import site. `MsgBoxInfo` honours `g_headlessMode`, so under `-importfrua` all fourteen are
+> silent — which is only true because that flag sets it.
+
+**Not ported yet:** ~29 of the 32 per-event-type payload readers — `TextStatement`, the transfer
+family and `Combat` are done, which is about 72% of the corpus by frequency. Beyond those, the
+`.GLB` art archives (PCX/LBM), `.XMI` music, and the byte-identity harness itself: `-importfrua`
+and `tools/frua-import-oracle.sh` exist and the C++ compiles, but no run has yet demonstrably
+produced an imported design, so nothing has been diffed.
 
 ### Phase 7 — Packaging and polish (1–2 months)
 
@@ -8594,10 +8629,23 @@ What is left, in order:
      stays in the corpus, named in `reference-cannot-compile.cfg`, because this port compiles it
      correctly and removing it would delete the only record of the bug.
 
-     ~~**Next**~~ **Phase 6 has started, 2026-08-09** (§the FRUA importer): `game001.dat` and every
-     `geo###.dat` header, verified against the real DOS designs. **The next slice is the rest of a
-     level file** — the map cells and event records filling its remaining ~12,800 bytes — then
-     `MONST###.DAT`, `STRG###.DAT` and `items.dat`.
+     ~~**Next**~~ **Phase 6 is underway, 2026-08-10** (§the FRUA importer). Every fixed-format file
+     a DOS design carries now reads, and three of the 32 per-event-type payload readers are done —
+     `TextStatement`, the transfer family and `Combat`, about 72% of the corpus by frequency.
+
+     **The next slice is the remaining ~29 payload readers**, in corpus-frequency order:
+     `PickOneCombat` (58), `SpecialItem` (33), `CombatTreasure` (32), then the long tail. After
+     those, the `.GLB` art archives (PCX/LBM) and `.XMI` music.
+
+     > **The exit criterion is the piece most at risk of being assumed done.** `-importfrua` is
+     > committed and compiles — the Oracle build is green with it — and
+     > `tools/frua-import-oracle.sh` drives it under CrossOver or Wine. But **no run has yet
+     > demonstrably produced an imported design**: the first working invocation only proved the
+     > binary starts, because the harness seeded a scratch design from `DefaultDesign.dsn` and then
+     > checked for a `game.dat` the seed already had. The check now fingerprints the seed and fails
+     > on a byte-identical result. An unexplained division by zero at `004240C2` was seen when
+     > `-config` was pointed at a `config.txt` path rather than a design directory; it may or may
+     > not recur now that is fixed.
 
      Still open elsewhere, and none of it blocking: 134 callable GPDL sub-opcodes with no group
      among them, `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped
