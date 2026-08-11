@@ -416,6 +416,77 @@ public sealed record FruaSoundEvent(IReadOnlyList<byte> SoundSlots)
     public IEnumerable<byte> Sounds() => SoundSlots.Where(s => s != 0);
 }
 
+/// <summary>How a quest is taken on.</summary>
+public enum FruaQuestAccept
+{
+    /// <summary>The flags byte is zero — the quest cannot be accepted at all.</summary>
+    Impossible,
+    OnYes,
+    OnNo,
+    OnYesOrNo,
+    ImpossibleAuto,
+    AutoAccept,
+
+    /// <summary>Non-zero flags matching none of the masks. The reference leaves the field alone.</summary>
+    Unchanged,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.QuestStage"/>'s payload
+/// (<c>addQuestEvent</c>, <c>UAFWinEd/UAImport.cpp:2081</c>).
+/// </summary>
+public sealed record FruaQuestEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaQuestAccept Accept, bool CompleteOnAccept, bool FailOnRejection,
+    int QuestIndex, int Stage)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The acceptance ladder tests overlapping masks widest-first, and has a hole.</b> Zero is
+    /// impossible; then 40 (32|8), 32, 24 (16|8), 16, 8 in that order. A non-zero value matching
+    /// none of them — 4 alone, say — falls out of every branch and the reference leaves the field
+    /// at whatever the event was constructed with. Reported as <see cref="FruaQuestAccept.Unchanged"/>
+    /// rather than guessed at.
+    /// </para>
+    /// <para>
+    /// <b>The stage is stored zero-based and read one-based</b> — the reference adds one — which is
+    /// the opposite direction to the level and entry-point counters, which are stored one-based and
+    /// decremented.
+    /// </para>
+    /// <para>
+    /// <b>The quest byte is always read as a quest</b>, through <c>SetQuestTypeAndID(QUEST_FLAG,
+    /// ...)</c>, even though <c>GetObjectKey</c> would classify a value under 20 as a key or an
+    /// item. A design storing a low number here gets a quest with that object's index.
+    /// </para>
+    /// </remarks>
+    public static FruaQuestEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte raw = e.Byte(8);
+        byte flags = (byte)(raw & 127);
+
+        return new FruaQuestEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (raw & 128) != 0,
+            Accept: flags == 0 ? FruaQuestAccept.Impossible
+                  : (flags & 40) == 40 ? FruaQuestAccept.AutoAccept
+                  : (flags & 32) == 32 ? FruaQuestAccept.ImpossibleAuto
+                  : (flags & 24) == 24 ? FruaQuestAccept.OnYesOrNo
+                  : (flags & 16) == 16 ? FruaQuestAccept.OnNo
+                  : (flags & 8) == 8 ? FruaQuestAccept.OnYes
+                  : FruaQuestAccept.Unchanged,
+            CompleteOnAccept: (flags & 64) == 64,
+            FailOnRejection: (flags & 4) == 4,
+            QuestIndex: FruaEvent.ObjectIndex(e.Byte(9)),
+
+            // Stored zero-based; the reference adds one.
+            Stage: e.Byte(10) + 1);
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {

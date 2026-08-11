@@ -521,6 +521,66 @@ public class FruaEventPayloadTests
         Assert.Equal([(byte)3, (byte)9, (byte)12], s.Sounds());
     }
 
+    // ---- quests --------------------------------------------------------------------------------
+
+    /// <summary>The acceptance ladder is widest-first, and has a hole.</summary>
+    [Theory]
+    [InlineData(0, FruaQuestAccept.Impossible)]
+    [InlineData(40, FruaQuestAccept.AutoAccept)]
+    [InlineData(32, FruaQuestAccept.ImpossibleAuto)]
+    [InlineData(24, FruaQuestAccept.OnYesOrNo)]
+    [InlineData(16, FruaQuestAccept.OnNo)]
+    [InlineData(8, FruaQuestAccept.OnYes)]
+    [InlineData(4, FruaQuestAccept.Unchanged)]   // matches no mask; the reference assigns nothing
+    public void The_quest_acceptance_masks_are_tested_widest_first(byte flags,
+                                                                   FruaQuestAccept expected)
+    {
+        Assert.Equal(expected, FruaQuestEvent.Read(Event(35, (8, flags))).Accept);
+    }
+
+    /// <summary>The stage is stored zero-based and read one-based.</summary>
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(4, 5)]
+    public void The_quest_stage_is_incremented_on_read(byte stored, int expected)
+    {
+        Assert.Equal(expected, FruaQuestEvent.Read(Event(35, (10, stored))).Stage);
+    }
+
+    [Fact]
+    public void The_quest_flags_carry_two_independent_switches()
+    {
+        var q = FruaQuestEvent.Read(Event(35, (8, 64 | 4)));
+
+        Assert.True(q.CompleteOnAccept);
+        Assert.True(q.FailOnRejection);
+    }
+
+    /// <summary>Every shipped quest event decodes into range.</summary>
+    [Fact]
+    public void The_shipped_quest_events_are_in_range()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int quests = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events.Where(e => e.Type == FruaEventType.QuestStage))
+            {
+                var q = FruaQuestEvent.Read(e);
+                Assert.InRange(q.QuestIndex, 0, 63);
+                Assert.InRange(q.Stage, 1, 256);
+                quests++;
+            }
+        }
+
+        Assert.True(quests > 15, $"only {quests} quest events; expected ~21");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>

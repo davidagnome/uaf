@@ -8278,8 +8278,22 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > import site. `MsgBoxInfo` honours `g_headlessMode`, so under `-importfrua` all fourteen are
 > silent — which is only true because that flag sets it.
 
-**Not ported yet:** ~29 of the 32 per-event-type payload readers — `TextStatement`, the transfer
-family and `Combat` are done, which is about 72% of the corpus by frequency. Beyond those, the
+> **A copy-paste defect in `addEncounterEvent`.** Its five buttons are handled by five near-copies
+> of one block, and two of them write to the wrong index: button 2's sets
+> `buttons[0].onlyUpClose` instead of `buttons[2]`'s, and **button 4's writes
+> `buttons[2].allowedUpClose` and `buttons[0].onlyUpClose` for both of its fields** — so the Talk
+> button never configures itself at all and silently reconfigures two others. Low priority:
+> `HEIRS.DSN` contains exactly **one** encounter event, and `EncounterEvent` is also one of the
+> three types the UAF engine leaves inert.
+
+**Payload coverage is 87% of the corpus by frequency** — 907 of `HEIRS.DSN`'s 1,040 events —
+across eight readers: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/
+`TransferModule`), `Combat`, `PickOneCombat` (which the reference re-labels and sends to
+`addCombatEvent`, so it needed no reader), treasure (`GiveTreasure`/`CombatTreasure`),
+`SpecialItem`, `Damage`, `Sounds` and `QuestStage`.
+
+**Not ported yet:** the remaining ~24 readers, all long tail — the largest is `Shop` at 15 events,
+then `Temple` 12, `TrainingHall` 11, `Utilities` 11, and nothing else above 7. Beyond those, the
 `.GLB` art archives (PCX/LBM), `.XMI` music, and the byte-identity harness itself: `-importfrua`
 and `tools/frua-import-oracle.sh` exist and the C++ compiles, but no run has yet demonstrably
 produced an imported design, so nothing has been diffed.
