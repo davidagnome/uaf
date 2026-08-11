@@ -581,6 +581,99 @@ public class FruaEventPayloadTests
         Assert.True(quests > 15, $"only {quests} quest events; expected ~21");
     }
 
+    // ---- town services -------------------------------------------------------------------------
+
+    /// <summary>The cost byte is a modifier on a scale, not a price.</summary>
+    [Theory]
+    [InlineData(0, FruaCostFactor.Free, 0)]
+    [InlineData(10, FruaCostFactor.Normal, 1)]
+    [InlineData(12, FruaCostFactor.Mult2, 2)]
+    [InlineData(8, FruaCostFactor.Div2, 0.5)]
+    [InlineData(19, FruaCostFactor.Mult100, 100)]
+    [InlineData(200, FruaCostFactor.Free, 0)]   // past the switch; the reference leaves it Free
+    public void The_cost_byte_is_a_modifier_on_a_scale(byte stored, FruaCostFactor factor,
+                                                       double multiplier)
+    {
+        Assert.Equal(factor, FruaCost.Factor(stored));
+        Assert.Equal(multiplier, FruaCost.Multiplier(factor), 4);
+    }
+
+    /// <summary>A temple keeps its text after the donation dword, not at the front.</summary>
+    [Fact]
+    public void A_temples_text_slots_are_at_fourteen_and_sixteen()
+    {
+        var record = new byte[FruaEvent.Length];
+        record[0] = 9;
+        Word(FruaEvent.Read(record), record, 14, 31);
+        Word(FruaEvent.Read(record), record, 16, 32);
+        record[4 + (6 - 5)] = 12;            // cost: Mult2
+        record[4 + (8 - 5)] = 4 | 8;         // forceExit + allowDonations
+
+        var t = FruaTempleEvent.Read(FruaEvent.Read(record));
+
+        Assert.Equal(31, t.TextSlot);
+        Assert.Equal(32, t.SecondTextSlot);
+        Assert.Equal(FruaCostFactor.Mult2, t.CostFactor);
+        Assert.True(t.ForceExit);
+        Assert.True(t.AllowDonations);
+    }
+
+    [Fact]
+    public void A_temples_donation_trigger_is_a_dword()
+    {
+        var e = Event(9, (9, 0x40), (10, 0x1F), (11, 0), (12, 0));
+
+        Assert.Equal(0x1F40u, FruaTempleEvent.Read(e).DonationTrigger);   // 8000
+    }
+
+    /// <summary>The training hall's cost modifier sits after its discarded class flags.</summary>
+    [Fact]
+    public void A_training_halls_cost_is_a_factor_on_one_thousand()
+    {
+        var t = FruaTrainingHallEvent.Read(Event(6, (9, 0x3F), (10, 12)));
+
+        Assert.Equal(FruaCostFactor.Mult2, t.CostFactor);
+        Assert.Equal(2000, t.Cost);
+
+        // The class flags are read even though the reference throws them away.
+        Assert.Equal(0x3F, t.ClassFlags);
+    }
+
+    /// <summary>Every shipped town-service event decodes into range.</summary>
+    [Fact]
+    public void The_shipped_town_services_are_in_range()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int temples = 0;
+        int halls = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events)
+            {
+                if (e.Type == FruaEventType.Temple)
+                {
+                    Assert.True(Enum.IsDefined(FruaTempleEvent.Read(e).CostFactor));
+                    temples++;
+                }
+                else if (e.Type == FruaEventType.TrainingHall)
+                {
+                    var t = FruaTrainingHallEvent.Read(e);
+                    Assert.True(Enum.IsDefined(t.CostFactor));
+                    Assert.InRange(t.Cost, 0, 100_000);
+                    halls++;
+                }
+            }
+        }
+
+        Assert.True(temples > 8, $"only {temples} temple events; expected ~12");
+        Assert.True(halls > 8, $"only {halls} training halls; expected ~11");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>

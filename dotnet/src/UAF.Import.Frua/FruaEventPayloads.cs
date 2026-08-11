@@ -487,6 +487,160 @@ public sealed record FruaQuestEvent(
     }
 }
 
+/// <summary>
+/// What a town service charges, as a multiplier on the base price
+/// (<c>ConvertCostModifier</c>, <c>UAFWinEd/UAImport.cpp:1240</c>).
+/// </summary>
+/// <remarks>
+/// <b>FRUA stores a modifier, not a price.</b> The values run 0–19 as a scale from free through
+/// hundredfold, with <see cref="Normal"/> at 10 in the middle. Anything above 19 falls to
+/// <see cref="Free"/>, because the reference initialises to <c>Free</c> and its switch has no
+/// default.
+/// </remarks>
+public enum FruaCostFactor
+{
+    Free = 0,
+    Div100 = 1,
+    Div50 = 2,
+    Div20 = 3,
+    Div10 = 4,
+    Div5 = 5,
+    Div4 = 6,
+    Div3 = 7,
+    Div2 = 8,
+    Div1_5 = 9,
+    Normal = 10,
+    Mult1_5 = 11,
+    Mult2 = 12,
+    Mult3 = 13,
+    Mult4 = 14,
+    Mult5 = 15,
+    Mult10 = 16,
+    Mult20 = 17,
+    Mult50 = 18,
+    Mult100 = 19,
+}
+
+/// <summary>Turning a stored byte into a cost factor.</summary>
+public static class FruaCost
+{
+    /// <summary>
+    /// The factor for a stored byte; out-of-range values are <see cref="FruaCostFactor.Free"/>.
+    /// </summary>
+    public static FruaCostFactor Factor(byte stored) =>
+        Enum.IsDefined((FruaCostFactor)stored) ? (FruaCostFactor)stored : FruaCostFactor.Free;
+
+    /// <summary>The multiplier a factor applies to a base price.</summary>
+    public static double Multiplier(FruaCostFactor factor) => factor switch
+    {
+        FruaCostFactor.Free => 0,
+        FruaCostFactor.Div100 => 1.0 / 100,
+        FruaCostFactor.Div50 => 1.0 / 50,
+        FruaCostFactor.Div20 => 1.0 / 20,
+        FruaCostFactor.Div10 => 1.0 / 10,
+        FruaCostFactor.Div5 => 1.0 / 5,
+        FruaCostFactor.Div4 => 1.0 / 4,
+        FruaCostFactor.Div3 => 1.0 / 3,
+        FruaCostFactor.Div2 => 1.0 / 2,
+        FruaCostFactor.Div1_5 => 1.0 / 1.5,
+        FruaCostFactor.Normal => 1,
+        FruaCostFactor.Mult1_5 => 1.5,
+        FruaCostFactor.Mult2 => 2,
+        FruaCostFactor.Mult3 => 3,
+        FruaCostFactor.Mult4 => 4,
+        FruaCostFactor.Mult5 => 5,
+        FruaCostFactor.Mult10 => 10,
+        FruaCostFactor.Mult20 => 20,
+        FruaCostFactor.Mult50 => 50,
+        _ => 100,
+    };
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.Temple"/>'s payload
+/// (<c>addTempleEvent</c>, <c>UAFWinEd/UAImport.cpp:3760</c>).
+/// </summary>
+/// <param name="DonationTrigger">
+/// A dword at offset 9 — the donation amount that fires the temple's trigger.
+/// </param>
+public sealed record FruaTempleEvent(
+    ushort TextSlot, ushort SecondTextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaCostFactor CostFactor, bool ForceExit, bool AllowDonations, uint DonationTrigger)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b>The two text slots are at 14 and 16, not 5 and 7.</b> A temple's message sits after the
+    /// donation dword rather than at the front, which is where every other event with text keeps
+    /// it — offset 5 here is a spell-limit byte the reference has commented out.
+    /// </remarks>
+    public static FruaTempleEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+
+        return new FruaTempleEvent(
+            TextSlot: e.Word(14),
+            SecondTextSlot: e.Word(16),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (flags & 128) != 0,
+            CostFactor: FruaCost.Factor(e.Byte(6)),
+            ForceExit: ((flags & 127) & 4) == 4,
+            AllowDonations: ((flags & 127) & 8) == 8,
+            DonationTrigger: e.Dword(9));
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.TrainingHall"/>'s payload
+/// (<c>addTrainingHallEvent</c>, <c>UAFWinEd/UAImport.cpp:3923</c>).
+/// </summary>
+public sealed record FruaTrainingHallEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaCostFactor CostFactor, bool ForceExit, byte ClassFlags)
+{
+    /// <summary>The base price the cost factor is applied to.</summary>
+    public const int BaseCost = 1000;
+
+    /// <summary>
+    /// <b>Which classes a hall trains is not imported.</b>
+    /// </summary>
+    /// <remarks>
+    /// The six <c>data->TrainMagicUser = HasMask(temp, 1)</c> assignments are commented out behind
+    /// a <c>NotImplemented(0xea31b)</c> marker — one of the fourteen in <c>UAImport.cpp</c>. So a
+    /// training hall imported by the reference trains whatever the event class was constructed
+    /// with, and the flags byte at offset 9 is read into a local and discarded.
+    /// <para>
+    /// <see cref="ClassFlags"/> carries that byte anyway, since it is in the file: bit 1 magic
+    /// user, 2 cleric, 4 thief, 8 fighter, 16 paladin, 32 ranger. As with the combat monsters,
+    /// a <i>writer</i> aiming at byte-identity would have to discard it again.
+    /// </para>
+    /// </remarks>
+    public const string ClassesAreNotImported =
+        "addTrainingHallEvent's per-class flags are commented out behind NotImplemented(0xea31b)";
+
+    /// <summary>The cost after the factor is applied to <see cref="BaseCost"/>.</summary>
+    public double Cost => FruaCost.Multiplier(CostFactor) * BaseCost;
+
+    /// <summary>Reads the payload.</summary>
+    public static FruaTrainingHallEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+
+        return new FruaTrainingHallEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (flags & 128) != 0,
+
+            // The cost modifier is at 10, after the discarded class flags at 9.
+            CostFactor: FruaCost.Factor(e.Byte(10)),
+            ForceExit: ((flags & 127) & 4) == 4,
+            ClassFlags: e.Byte(9));
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {
