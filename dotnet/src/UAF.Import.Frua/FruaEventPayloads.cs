@@ -641,6 +641,104 @@ public sealed record FruaTrainingHallEvent(
     }
 }
 
+/// <summary>What a utilities event does with its amount.</summary>
+public enum FruaMathOperation
+{
+    /// <summary>Low two bits of 0 — the reference's switch has no case, so nothing is assigned.</summary>
+    None = 0,
+    StoredIn = 1,
+    AddedTo = 2,
+    SubtractedFrom = 3,
+}
+
+/// <summary>How many of the checked objects the party must hold.</summary>
+public enum FruaItemCheck
+{
+    None,
+    AllItems,
+    AtLeastOneItem,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.Utilities"/>'s payload
+/// (<c>addUtilitiesEvent</c>, <c>UAFWinEd/UAImport.cpp:2018</c>).
+/// </summary>
+/// <param name="CheckedObjects">
+/// Four object bytes at offsets 8–11, each naming a key, item or quest to test for.
+/// </param>
+public sealed record FruaUtilitiesEvent(
+    FruaMathOperation Operation, FruaItemCheck ItemCheck, bool EndPlay,
+    FruaObjectKind MathObjectKind, int MathObjectIndex, byte MathAmount,
+    IReadOnlyList<byte> CheckedObjects)
+{
+    /// <summary>How many objects the event tests for.</summary>
+    public const int CheckedObjectCount = 4;
+
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b>A low-two-bits value of 0 leaves the operation unset.</b> The reference switches on
+    /// <c>op &amp; 3</c> with cases for 1, 2 and 3 and no default, so zero assigns nothing —
+    /// reported as <see cref="FruaMathOperation.None"/> rather than guessed at.
+    /// </remarks>
+    public static FruaUtilitiesEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte op = e.Byte(5);
+        byte mathObject = e.Byte(6);
+
+        var checks = new byte[CheckedObjectCount];
+        for (int i = 0; i < CheckedObjectCount; i++)
+        {
+            checks[i] = e.Byte(8 + i);
+        }
+
+        return new FruaUtilitiesEvent(
+            Operation: (FruaMathOperation)(op & 3),
+            ItemCheck: (op & 4) == 4 ? FruaItemCheck.AllItems
+                     : (op & 8) == 8 ? FruaItemCheck.AtLeastOneItem
+                     : FruaItemCheck.None,
+            EndPlay: (op & 16) == 16,
+            MathObjectKind: FruaEvent.ObjectKind(mathObject),
+            MathObjectIndex: FruaEvent.ObjectIndex(mathObject),
+            MathAmount: e.Byte(7),
+            CheckedObjects: checks);
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.GainExperience"/>'s payload
+/// (<c>addGiveExpEvent</c>, <c>UAFWinEd/UAImport.cpp:2151</c>).
+/// </summary>
+public sealed record FruaGainExperienceEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    bool ActiveCharacterOnly, uint Experience, byte SoundSlot)
+{
+    /// <summary>
+    /// <b>The chance is hard-coded to 100, not read.</b> The reference assigns
+    /// <c>data->chance = 100</c> after everything else, so the event always fires.
+    /// </summary>
+    public const int Chance = 100;
+
+    /// <summary>Reads the payload.</summary>
+    public static FruaGainExperienceEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+
+        return new FruaGainExperienceEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (flags & 128) != 0,
+
+            // Only two possibilities here, unlike the damage event's four.
+            ActiveCharacterOnly: ((flags & 127) & 4) == 4,
+            Experience: e.Dword(9),
+            SoundSlot: e.Byte(13));
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {

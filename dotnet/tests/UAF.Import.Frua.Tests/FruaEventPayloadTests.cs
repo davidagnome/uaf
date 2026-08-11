@@ -674,6 +674,90 @@ public class FruaEventPayloadTests
         Assert.True(halls > 8, $"only {halls} training halls; expected ~11");
     }
 
+    // ---- utilities and experience ----------------------------------------------------------
+
+    /// <summary>Zero in the low two bits assigns no operation at all.</summary>
+    [Theory]
+    [InlineData(0, FruaMathOperation.None)]
+    [InlineData(1, FruaMathOperation.StoredIn)]
+    [InlineData(2, FruaMathOperation.AddedTo)]
+    [InlineData(3, FruaMathOperation.SubtractedFrom)]
+    public void The_math_operation_is_the_low_two_bits(byte op, FruaMathOperation expected)
+    {
+        Assert.Equal(expected, FruaUtilitiesEvent.Read(Event(16, (5, op))).Operation);
+    }
+
+    [Theory]
+    [InlineData(0, FruaItemCheck.None)]
+    [InlineData(4, FruaItemCheck.AllItems)]
+    [InlineData(8, FruaItemCheck.AtLeastOneItem)]
+    public void The_item_check_is_two_flags(byte op, FruaItemCheck expected)
+    {
+        Assert.Equal(expected, FruaUtilitiesEvent.Read(Event(16, (5, op))).ItemCheck);
+    }
+
+    [Fact]
+    public void A_utilities_event_checks_four_objects()
+    {
+        var u = FruaUtilitiesEvent.Read(Event(16,
+            (5, 16 | 2), (6, 25), (7, 40), (8, 1), (9, 9), (10, 30), (11, 0)));
+
+        Assert.True(u.EndPlay);
+        Assert.Equal(FruaMathOperation.AddedTo, u.Operation);
+        Assert.Equal(FruaObjectKind.Quest, u.MathObjectKind);
+        Assert.Equal(5, u.MathObjectIndex);           // 25 - 20
+        Assert.Equal(40, u.MathAmount);
+        Assert.Equal([(byte)1, (byte)9, (byte)30, (byte)0], u.CheckedObjects);
+    }
+
+    /// <summary>Experience is a dword, and the chance is not read at all.</summary>
+    [Fact]
+    public void Gained_experience_is_a_dword_with_a_fixed_chance()
+    {
+        var g = FruaGainExperienceEvent.Read(Event(26,
+            (8, 4), (9, 0x40), (10, 0x0D), (11, 3), (12, 0), (13, 7)));
+
+        Assert.True(g.ActiveCharacterOnly);
+        Assert.Equal(0x30D40u, g.Experience);         // 200,000
+        Assert.Equal(7, g.SoundSlot);
+        Assert.Equal(100, FruaGainExperienceEvent.Chance);
+    }
+
+    /// <summary>Every shipped utilities and experience event decodes into range.</summary>
+    [Fact]
+    public void The_shipped_utilities_and_experience_events_are_in_range()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int utilities = 0;
+        int experience = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events)
+            {
+                if (e.Type == FruaEventType.Utilities)
+                {
+                    var u = FruaUtilitiesEvent.Read(e);
+                    Assert.Equal(4, u.CheckedObjects.Count);
+                    Assert.InRange(u.MathObjectIndex, 0, 43);
+                    utilities++;
+                }
+                else if (e.Type == FruaEventType.GainExperience)
+                {
+                    FruaGainExperienceEvent.Read(e);
+                    experience++;
+                }
+            }
+        }
+
+        Assert.True(utilities > 8, $"only {utilities} utilities events; expected ~11");
+        Assert.True(experience > 4, $"only {experience} experience events; expected ~7");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>
