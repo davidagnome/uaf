@@ -105,6 +105,18 @@ BEFORE=$(md5 -q "$OUT/Data/game.dat" 2>/dev/null || md5sum "$OUT/Data/game.dat" 
 ARGS=("-config $OUT" "-importfrua $DESIGN")
 [ -n "$UAPATH" ] && ARGS+=("-uapath $UAPATH")
 
+# The editor writes its trace to rte.LogDir() + "UafErr_Edit.txt" -- NOT "UAFErrors*.txt", which
+# is what an earlier version of this script looked for and never found. LOG_ERRORS is 1 in
+# DefaultDesign's config.txt, so the trace exists; it just has to be collected from the right name,
+# and LogDir may resolve inside the bottle rather than under $OUT.
+logs() {
+    local found=0 f
+    for f in $(find "$OUT" "$(dirname "$OUT")" -maxdepth 3 -name 'UafErr_*.txt' 2>/dev/null | sort -u); do
+        echo "--- $f ---"; tail -60 "$f"; found=1
+    done
+    [ "$found" = "0" ] && echo "(no UafErr_*.txt found -- check rte.LogDir() inside the bottle)"
+}
+
 set +e
 if [ -n "$RUN" ]; then
     "$RUN" "${RUN_ARGS[@]}" "$EXE" "${ARGS[@]}"
@@ -120,7 +132,7 @@ echo "exit status: $status (informational only)"
 
 if [ ! -f "$OUT/Data/game.dat" ]; then
     echo "::error::no game.dat in $OUT/Data -- the import destroyed the seed without replacing it" >&2
-    find "$OUT" -name 'UAFErrors*.txt' -exec sh -c 'echo "--- $1 ---"; tail -40 "$1"' _ {} \;
+    logs
     exit 1
 fi
 
@@ -128,7 +140,7 @@ AFTER=$(md5 -q "$OUT/Data/game.dat" 2>/dev/null || md5sum "$OUT/Data/game.dat" |
 if [ "$BEFORE" = "$AFTER" ]; then
     echo "::error::game.dat is byte-identical to the seed ($BEFORE) -- the import did not run" >&2
     echo "The design is still $TEMPLATE, unchanged. Nothing has been imported." >&2
-    find "$OUT" -name 'UAFErrors*.txt' -exec sh -c 'echo "--- $1 ---"; tail -40 "$1"' _ {} \;
+    logs
     exit 1
 fi
 echo "game.dat changed: $BEFORE -> $AFTER"
