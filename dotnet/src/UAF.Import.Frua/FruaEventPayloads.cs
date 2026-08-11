@@ -88,6 +88,111 @@ public sealed record FruaTextEvent(
     }
 }
 
+/// <summary>How close the monsters start.</summary>
+public enum FruaCombatDistance
+{
+    UpClose,
+    Nearby,
+    FarAway,
+}
+
+/// <summary>Who, if anyone, is surprised.</summary>
+public enum FruaSurprise
+{
+    Neither,
+    PartySurprised,
+    MonsterSurprised,
+}
+
+/// <summary>One of a combat event's five monster slots.</summary>
+/// <param name="Quantity">How many, in the low five bits of the slot's flag byte.</param>
+/// <param name="MonsterIndex">
+/// Which <c>MONST###.DAT</c> record, from the byte after the flags.
+/// <b>The reference reads this and throws it away</b> — see
+/// <see cref="FruaCombatEvent.MonstersAreNotImported"/>.
+/// </param>
+public readonly record struct FruaCombatMonster(int Quantity, byte MonsterIndex);
+
+/// <summary>
+/// A <see cref="FruaEventType.Combat"/>'s payload
+/// (<c>addCombatEvent</c>, <c>UAFWinEd/UAImport.cpp:2284</c>).
+/// </summary>
+/// <remarks>
+/// Five monster slots at bytes 9, 11, 13, 15 and 17, each packing a quantity in its low five bits
+/// and a different set of flags in its top three; the monster index follows in the even byte after.
+/// </remarks>
+public sealed record FruaCombatEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge, int MonsterMorale,
+    bool Outdoors, FruaSurprise Surprise, bool AutoApproach, bool PartyNeverDies,
+    bool NoMonsterTreasure, bool NoMagic, FruaCombatDistance Distance,
+    IReadOnlyList<FruaCombatMonster> Monsters)
+{
+    /// <summary>
+    /// <b>The reference importer does not import combat monsters at all.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every one of the five <c>monster.monster = GetMonsterKey(...)</c> assignments in
+    /// <c>addCombatEvent</c> is commented out and replaced by a <c>NotImplemented(...)</c> marker
+    /// — six of the fourteen such markers in <c>UAImport.cpp</c>, with the rest clustered on NPCs.
+    /// So a design imported by the reference gets combat events carrying quantities, morale,
+    /// surprise and distance, and <b>no monsters</b>.
+    /// </para>
+    /// <para>
+    /// <b>This port reads the indices anyway</b>, because they are in the file and a reader that
+    /// discarded them would be throwing away data the format has. It matters for the byte-identity
+    /// exit criterion, though: an importer that <i>writes</i> those monsters out would produce a
+    /// richer design than the reference and fail the diff. The gap belongs in the writer, not here.
+    /// </para>
+    /// <para>
+    /// <c>NotImplemented</c> shows a message box, deduplicated per code. Every import call site
+    /// passes <c>loopForever: false</c>, and <c>MsgBoxInfo</c> honours <c>g_headlessMode</c>, so
+    /// under <c>-importfrua</c> these are silent. Without that flag they would be fourteen modal
+    /// dialogs.
+    /// </para>
+    /// </remarks>
+    public const string MonstersAreNotImported =
+        "addCombatEvent's monster assignments are commented out behind NotImplemented markers";
+
+    /// <summary>Reads the payload.</summary>
+    public static FruaCombatEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte pic = e.Byte(8);
+        byte first = e.Byte(9);
+        byte third = e.Byte(13);
+        byte fourth = e.Byte(15);
+
+        var monsters = new FruaCombatMonster[5];
+        for (int i = 0; i < 5; i++)
+        {
+            int at = 9 + (i * 2);
+            monsters[i] = new FruaCombatMonster(e.Byte(at) & 0x1F, e.Byte(at + 1));
+        }
+
+        return new FruaCombatEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (pic & 128) != 0,
+
+            // Morale shares the picture byte, below its high bit.
+            MonsterMorale: pic & 0x7F,
+            Outdoors: (first & 32) == 32,
+            Surprise: (first & 64) == 64 ? FruaSurprise.PartySurprised
+                    : (first & 128) == 128 ? FruaSurprise.MonsterSurprised
+                    : FruaSurprise.Neither,
+            AutoApproach: (third & 32) == 32,
+            PartyNeverDies: (third & 64) == 64,
+            NoMonsterTreasure: (third & 128) == 128,
+            NoMagic: (fourth & 128) == 128,
+            Distance: (fourth & 32) == 32 ? FruaCombatDistance.Nearby
+                    : (fourth & 64) == 64 ? FruaCombatDistance.FarAway
+                    : FruaCombatDistance.UpClose,
+            Monsters: monsters);
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {

@@ -232,6 +232,89 @@ public class FruaEventPayloadTests
         }
     }
 
+    // ---- combat ------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_combat_slot_packs_a_quantity_under_its_flags()
+    {
+        // Slot 1: 3 monsters, outdoors (32), party surprised (64). Monster index in the next byte.
+        var e = Event(1, (9, 3 | 32 | 64), (10, 101));
+        var c = FruaCombatEvent.Read(e);
+
+        Assert.Equal(3, c.Monsters[0].Quantity);
+        Assert.Equal(101, c.Monsters[0].MonsterIndex);
+        Assert.True(c.Outdoors);
+        Assert.Equal(FruaSurprise.PartySurprised, c.Surprise);
+        Assert.Equal(5, c.Monsters.Count);
+    }
+
+    /// <summary>Morale shares the picture byte, below its large-art bit.</summary>
+    [Fact]
+    public void Morale_shares_the_picture_byte()
+    {
+        var c = FruaCombatEvent.Read(Event(1, (7, 4), (8, 128 | 60)));
+
+        Assert.Equal(4, c.PictureSlot);
+        Assert.True(c.PictureIsLarge);
+        Assert.Equal(60, c.MonsterMorale);
+    }
+
+    [Theory]
+    [InlineData(0, FruaCombatDistance.UpClose)]
+    [InlineData(32, FruaCombatDistance.Nearby)]
+    [InlineData(64, FruaCombatDistance.FarAway)]
+    public void The_distance_reads_from_the_fourth_slots_flags(byte flags,
+                                                               FruaCombatDistance expected)
+    {
+        Assert.Equal(expected, FruaCombatEvent.Read(Event(1, (15, flags))).Distance);
+    }
+
+    [Fact]
+    public void The_third_slots_flags_carry_three_independent_switches()
+    {
+        var c = FruaCombatEvent.Read(Event(1, (13, 32 | 64 | 128)));
+
+        Assert.True(c.AutoApproach);
+        Assert.True(c.PartyNeverDies);
+        Assert.True(c.NoMonsterTreasure);
+    }
+
+    /// <summary>
+    /// Every shipped combat event names monsters the reference would have discarded.
+    /// </summary>
+    /// <remarks>
+    /// The point of this test is the discrepancy itself: the indices are in the file, this port
+    /// reads them, and <c>addCombatEvent</c> throws them away behind six <c>NotImplemented</c>
+    /// markers. If a writer is ever added, it must reproduce the reference's silence here or the
+    /// byte-identity diff will fail on richer output.
+    /// </remarks>
+    [Fact]
+    public void Shipped_combats_name_monsters_the_reference_discards()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int slotsWithMonsters = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events.Where(e => e.Type == FruaEventType.Combat))
+            {
+                var c = FruaCombatEvent.Read(e);
+
+                Assert.Equal(5, c.Monsters.Count);
+                Assert.InRange(c.MonsterMorale, 0, 127);
+
+                slotsWithMonsters += c.Monsters.Count(m => m.Quantity > 0);
+            }
+        }
+
+        Assert.True(slotsWithMonsters > 50,
+                    $"only {slotsWithMonsters} populated monster slots across the design");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>
