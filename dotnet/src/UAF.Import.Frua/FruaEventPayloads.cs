@@ -193,6 +193,106 @@ public sealed record FruaCombatEvent(
     }
 }
 
+/// <summary>
+/// A treasure payload — <see cref="FruaEventType.GiveTreasure"/> and
+/// <see cref="FruaEventType.CombatTreasure"/> share it
+/// (<c>addTreasureEvent</c>, <c>UAFWinEd/UAImport.cpp:2439</c>).
+/// </summary>
+/// <param name="Platinum">Coins, as a count.</param>
+/// <param name="Gems">
+/// <b>A count of gems, not a value.</b> The reference loops <c>AddGem()</c> that many times, so
+/// each is worth whatever the design's gem table says.
+/// </param>
+/// <param name="Jewelry">Likewise a count.</param>
+/// <param name="ItemSlots">
+/// Eight item-database indices at offsets 13–20; 0 means an empty slot.
+/// </param>
+/// <param name="ItemsAreIdentified">
+/// Whether the party receives the items identified. One flag for all eight — the reference passes
+/// the same <c>id</c> to every <c>AssignItem</c> call.
+/// </param>
+public sealed record FruaTreasureEvent(
+    ushort Platinum, ushort Gems, ushort Jewelry,
+    IReadOnlyList<byte> ItemSlots, bool ItemsAreIdentified)
+{
+    /// <summary>How many item slots a treasure carries.</summary>
+    public const int ItemSlotCount = 8;
+
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b>Offset 7 is skipped.</b> The three money words sit at 5, 9 and 11 — not 5, 7 and 9 — so
+    /// there is a two-byte hole after the platinum that only the identified flag at offset 8 reads
+    /// into. Reading the words consecutively would take jewelry for gems.
+    /// </remarks>
+    public static FruaTreasureEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        var slots = new byte[ItemSlotCount];
+        for (int i = 0; i < ItemSlotCount; i++)
+        {
+            slots[i] = e.Byte(13 + i);
+        }
+
+        return new FruaTreasureEvent(
+            Platinum: e.Word(5),
+            Gems: e.Word(9),
+            Jewelry: e.Word(11),
+            ItemSlots: slots,
+            ItemsAreIdentified: (e.Byte(8) & 128) == 128);
+    }
+
+    /// <summary>The non-empty item slots.</summary>
+    public IEnumerable<byte> Items() => ItemSlots.Where(s => s != 0);
+}
+
+/// <summary>What a special-item event does with the object it names.</summary>
+public enum FruaSpecialObjectOperation
+{
+    Give,
+    Take,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.SpecialItem"/>'s payload
+/// (<c>addSpecialItemEvent</c>, <c>UAFWinEd/UAImport.cpp:3888</c>).
+/// </summary>
+/// <param name="TextSlot">The message shown, 0 for none.</param>
+/// <param name="Operation">Whether the object is given or taken.</param>
+/// <param name="ObjectKind">Whether the byte names a key, an item or a quest.</param>
+/// <param name="ObjectIndex">Its zero-based index within that kind.</param>
+public sealed record FruaSpecialItemEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaSpecialObjectOperation Operation,
+    FruaObjectKind ObjectKind, int ObjectIndex)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b>Give is the <i>only</i> zero case; every other flag value takes.</b> The reference tests
+    /// <c>temp == 0</c> after masking off the high bit, rather than testing a specific bit — so a
+    /// flags byte with any low bit set means take, whatever that bit was meant for.
+    /// </remarks>
+    public static FruaSpecialItemEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+        bool large = (flags & 128) != 0;
+        flags &= 127;
+
+        byte obj = e.Byte(9);
+
+        return new FruaSpecialItemEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: large,
+            Operation: flags == 0 ? FruaSpecialObjectOperation.Give
+                                  : FruaSpecialObjectOperation.Take,
+            ObjectKind: FruaEvent.ObjectKind(obj),
+            ObjectIndex: FruaEvent.ObjectIndex(obj));
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {

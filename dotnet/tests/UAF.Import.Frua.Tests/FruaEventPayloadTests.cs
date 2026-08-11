@@ -315,6 +315,139 @@ public class FruaEventPayloadTests
                     $"only {slotsWithMonsters} populated monster slots across the design");
     }
 
+    // ---- treasure and special items ----------------------------------------------------------
+
+    /// <summary>
+    /// The three money words are at 5, 9 and 11 — offset 7 is a hole.
+    /// </summary>
+    /// <remarks>
+    /// Reading them consecutively at 5, 7, 9 would take the jewelry count for gems and leave
+    /// jewelry at whatever followed. Only the identified flag at offset 8 reads into that gap.
+    /// </remarks>
+    [Fact]
+    public void The_money_words_skip_offset_seven()
+    {
+        var record = new byte[FruaEvent.Length];
+        record[0] = 3;
+        Word(FruaEvent.Read(record), record, 5, 500);    // platinum
+        Word(FruaEvent.Read(record), record, 9, 7);      // gems
+        Word(FruaEvent.Read(record), record, 11, 2);     // jewelry
+
+        var t = FruaTreasureEvent.Read(FruaEvent.Read(record));
+
+        Assert.Equal(500, t.Platinum);
+        Assert.Equal(7, t.Gems);
+        Assert.Equal(2, t.Jewelry);
+    }
+
+    [Fact]
+    public void Treasure_carries_eight_item_slots_with_one_identified_flag()
+    {
+        var e = Event(3, (8, 128), (13, 20), (14, 0), (15, 44));
+        var t = FruaTreasureEvent.Read(e);
+
+        Assert.Equal(8, t.ItemSlots.Count);
+        Assert.True(t.ItemsAreIdentified);
+        Assert.Equal([(byte)20, (byte)44], t.Items());
+    }
+
+    [Fact]
+    public void An_unidentified_treasure_clears_the_flag()
+    {
+        Assert.False(FruaTreasureEvent.Read(Event(3, (8, 0))).ItemsAreIdentified);
+    }
+
+    /// <summary>Give is the only zero case; any other flag value takes.</summary>
+    [Theory]
+    [InlineData(0, FruaSpecialObjectOperation.Give)]
+    [InlineData(1, FruaSpecialObjectOperation.Take)]
+    [InlineData(64, FruaSpecialObjectOperation.Take)]
+    [InlineData(128, FruaSpecialObjectOperation.Give)]   // high bit is the picture, masked off
+    public void Only_a_zero_flags_byte_gives(byte flags, FruaSpecialObjectOperation expected)
+    {
+        Assert.Equal(expected, FruaSpecialItemEvent.Read(Event(38, (8, flags))).Operation);
+    }
+
+    [Theory]
+    [InlineData(3, FruaObjectKind.Key, 3)]
+    [InlineData(12, FruaObjectKind.Item, 4)]
+    [InlineData(25, FruaObjectKind.Quest, 5)]
+    public void A_special_item_names_a_key_item_or_quest(byte obj, FruaObjectKind kind, int index)
+    {
+        var s = FruaSpecialItemEvent.Read(Event(38, (9, obj)));
+
+        Assert.Equal(kind, s.ObjectKind);
+        Assert.Equal(index, s.ObjectIndex);
+    }
+
+    /// <summary>
+    /// Every shipped treasure and special-item event decodes into range.
+    /// </summary>
+    [Fact]
+    public void The_shipped_treasures_and_special_items_are_in_range()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int treasures = 0;
+        int specials = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events)
+            {
+                if (e.Type is FruaEventType.GiveTreasure or FruaEventType.CombatTreasure)
+                {
+                    var t = FruaTreasureEvent.Read(e);
+                    Assert.Equal(8, t.ItemSlots.Count);
+                    treasures++;
+                }
+                else if (e.Type == FruaEventType.SpecialItem)
+                {
+                    var s = FruaSpecialItemEvent.Read(e);
+                    Assert.InRange(s.ObjectIndex, 0, 43);
+                    specials++;
+                }
+            }
+        }
+
+        Assert.True(treasures > 20, $"only {treasures} treasure events");
+        Assert.True(specials > 20, $"only {specials} special-item events");
+    }
+
+    /// <summary>
+    /// <c>PickOneCombat</c> is a <c>Combat</c> payload, so it needs no reader of its own.
+    /// </summary>
+    /// <remarks>
+    /// The reference rewrites the type to <c>Combat</c> and calls <c>addCombatEvent</c>
+    /// (<c>UAImport.cpp:3999</c>), so <see cref="FruaCombatEvent"/> already covers its 58 events.
+    /// </remarks>
+    [Fact]
+    public void PickOneCombat_reads_as_a_combat()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int picked = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events.Where(e => e.Type == FruaEventType.PickOneCombat))
+            {
+                var c = FruaCombatEvent.Read(e);
+                Assert.Equal(5, c.Monsters.Count);
+                Assert.InRange(c.MonsterMorale, 0, 127);
+                picked++;
+            }
+        }
+
+        Assert.True(picked > 40, $"only {picked} PickOneCombat events; expected ~58");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>
