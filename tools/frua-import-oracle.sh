@@ -47,29 +47,17 @@ CXBIN=/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin
 RUN=""
 RUN_ARGS=()
 
-# Where the bottles live is configurable and frequently moved off the boot volume, so ASK
-# CrossOver rather than guessing at ~/Library or ~/.cxoffice. An earlier version of this script
-# guessed, found nothing, and refused to run on a machine that had six bottles.
-bottle_dir() {
-    local d
-    d=$(defaults read com.codeweavers.CrossOver BottleDir 2>/dev/null || true)
-    if [ -n "$d" ] && [ -d "$d" ]; then echo "$d"; return; fi
-    for d in "$HOME/Library/Application Support/CrossOver/Bottles" "$HOME/.cxoffice"; do
-        [ -d "$d" ] && { echo "$d"; return; }
-    done
-}
-
+# DO NOT look for the bottle on disk. Two earlier versions of this script did and both were
+# wrong: bottles can sit under the configured BottleDir (`defaults read
+# com.codeweavers.CrossOver BottleDir`, often moved off the boot volume) OR under the default
+# ~/Library/Application Support/CrossOver/Bottles -- and a machine can have some in each. Ask
+# cxbottle, which is the only thing that knows.
 if [ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ]; then
     if [ -x "$CXBIN/wine" ]; then
-        DIR=$(bottle_dir)
-        if [ -n "$DIR" ] && [ ! -d "$DIR/$BOTTLE" ]; then
+        if ! "$CXBIN/cxbottle" --bottle "$BOTTLE" --status >/dev/null 2>&1; then
             cat >&2 <<EOF
-No '$BOTTLE' bottle in $DIR
-
-Existing bottles there:
-$(ls -1 "$DIR" 2>/dev/null | grep -v '^\.' | sed 's/^/  /')
-
-Create a dedicated one -- don't reuse a game bottle, since the import writes into its drive_c:
+CrossOver has no '$BOTTLE' bottle. Create a dedicated one -- don't reuse a game bottle, since
+the import writes into its drive_c:
 
   "$CXBIN/cxbottle" --bottle $BOTTLE --create --template winxp
 
@@ -89,19 +77,27 @@ EOF
 fi
 echo "runner: ${RUN:-native} ${RUN_ARGS[*]:-}"
 
-# The importer writes over the design it is pointed at, so it gets a scratch copy. This mirrors
-# the same caution the -savedesign step takes for the tier-3 fixture.
-rm -rf "$OUT"
-mkdir -p "$OUT/Data"
-echo "scratch design: $OUT"
+# The import needs a real design to import INTO, not an empty directory: config.txt supplies the
+# screen and tile geometry, and without it those stay zero and the editor divides by one of them
+# (an unhandled division by zero at 004240C2, the first time this was tried). So seed a scratch
+# copy of DefaultDesign, exactly as the -savedesign tier-3 step runs on a copy.
+TEMPLATE=${UAF_TEMPLATE_DESIGN:-src/UAFWinEd/DefaultDesign.dsn}
+[ -d "$TEMPLATE" ] || { echo "no template design at $TEMPLATE" >&2; exit 2; }
 
-# -config takes the design to import INTO, -importfrua the FRUA design to read.
+rm -rf "$OUT"
+mkdir -p "$(dirname "$OUT")"
+cp -R "$TEMPLATE" "$OUT"
+echo "scratch design: $OUT  (seeded from $TEMPLATE)"
+
+# -config takes the design DIRECTORY to import into -- not a path to config.txt. Passing the
+# file instead makes DefaultFoldersFromDesign resolve the wrong root, and saveDesign() then
+# writes a folder named after the concatenation: "config.txtHeirs to skull crag.dsn".
 #
 # ARGUMENT FORM IS NOT THE USUAL ONE. CUAFCommandLineInfo::ParseParam (Globals.cpp) splits flag
 # from value with strchr(param, ' ') INSIDE one token, so each flag and its value must be passed
 # as a SINGLE argument -- "-config X", not -config X. Passing them apart leaves the value empty
 # and the app exits having done nothing.
-ARGS=("-config $OUT/Data/config.txt" "-importfrua $DESIGN")
+ARGS=("-config $OUT" "-importfrua $DESIGN")
 [ -n "$UAPATH" ] && ARGS+=("-uapath $UAPATH")
 
 set +e
