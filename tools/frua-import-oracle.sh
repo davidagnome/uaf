@@ -89,6 +89,11 @@ mkdir -p "$(dirname "$OUT")"
 cp -R "$TEMPLATE" "$OUT"
 echo "scratch design: $OUT  (seeded from $TEMPLATE)"
 
+# Fingerprint the seed. Testing for game.dat afterwards proves NOTHING, because the template
+# already has one -- the check would pass on a run that imported nothing at all, which is exactly
+# what the first working invocation of this script did.
+BEFORE=$(md5 -q "$OUT/Data/game.dat" 2>/dev/null || md5sum "$OUT/Data/game.dat" | cut -d' ' -f1)
+
 # -config takes the design DIRECTORY to import into -- not a path to config.txt. Passing the
 # file instead makes DefaultFoldersFromDesign resolve the wrong root, and saveDesign() then
 # writes a folder named after the concatenation: "config.txtHeirs to skull crag.dsn".
@@ -114,10 +119,19 @@ set -e
 echo "exit status: $status (informational only)"
 
 if [ ! -f "$OUT/Data/game.dat" ]; then
-    echo "::error::no game.dat produced in $OUT/Data -- the import did not complete" >&2
+    echo "::error::no game.dat in $OUT/Data -- the import destroyed the seed without replacing it" >&2
     find "$OUT" -name 'UAFErrors*.txt' -exec sh -c 'echo "--- $1 ---"; tail -40 "$1"' _ {} \;
     exit 1
 fi
+
+AFTER=$(md5 -q "$OUT/Data/game.dat" 2>/dev/null || md5sum "$OUT/Data/game.dat" | cut -d' ' -f1)
+if [ "$BEFORE" = "$AFTER" ]; then
+    echo "::error::game.dat is byte-identical to the seed ($BEFORE) -- the import did not run" >&2
+    echo "The design is still $TEMPLATE, unchanged. Nothing has been imported." >&2
+    find "$OUT" -name 'UAFErrors*.txt' -exec sh -c 'echo "--- $1 ---"; tail -40 "$1"' _ {} \;
+    exit 1
+fi
+echo "game.dat changed: $BEFORE -> $AFTER"
 
 echo
 echo "imported design:"
