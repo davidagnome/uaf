@@ -448,6 +448,79 @@ public class FruaEventPayloadTests
         Assert.True(picked > 40, $"only {picked} PickOneCombat events; expected ~58");
     }
 
+    // ---- damage and sounds ---------------------------------------------------------------------
+
+    /// <summary>THAC0 is stored inverted, as the monster records store armour class.</summary>
+    [Theory]
+    [InlineData(0, 60)]
+    [InlineData(40, 20)]
+    [InlineData(60, 0)]
+    public void Thac0_is_stored_as_sixty_minus_the_value(byte stored, int expected)
+    {
+        Assert.Equal(expected, FruaDamageEvent.Read(Event(4, (13, stored))).Thac0);
+    }
+
+    /// <summary>The target ladder tests the combined mask first.</summary>
+    [Theory]
+    [InlineData(0, FruaDamageTarget.EntireParty)]
+    [InlineData(4, FruaDamageTarget.ActiveCharacter)]
+    [InlineData(8, FruaDamageTarget.OneAtRandom)]
+    [InlineData(12, FruaDamageTarget.ChanceOnEach)]
+    public void The_damage_target_masks_are_tested_widest_first(byte flags,
+                                                                FruaDamageTarget expected)
+    {
+        Assert.Equal(expected, FruaDamageEvent.Read(Event(4, (8, flags))).Target);
+    }
+
+    /// <summary>So does the save ladder, on the same byte.</summary>
+    [Theory]
+    [InlineData(0, FruaDamageSave.NoSave)]
+    [InlineData(16, FruaDamageSave.SaveForHalf)]
+    [InlineData(32, FruaDamageSave.SaveNegates)]
+    [InlineData(48, FruaDamageSave.UseThac0)]
+    public void The_save_masks_are_tested_widest_first(byte flags, FruaDamageSave expected)
+    {
+        Assert.Equal(expected, FruaDamageEvent.Read(Event(4, (8, flags))).Save);
+    }
+
+    /// <summary>The saving-throw column shares a byte with a four-bit bonus.</summary>
+    [Theory]
+    [InlineData(0, FruaSpellSave.ParalysisPoisonDeath, 0)]
+    [InlineData(16 | 5, FruaSpellSave.PetrifyPolymorph, 5)]
+    [InlineData(32 | 3, FruaSpellSave.RodStaffWand, 3)]
+    [InlineData(48 | 2, FruaSpellSave.BreathWeapon, 2)]
+    [InlineData(64 | 1, FruaSpellSave.Spell, 1)]
+    public void The_spell_save_column_and_bonus_share_a_byte(byte stored, FruaSpellSave column,
+                                                             int bonus)
+    {
+        var d = FruaDamageEvent.Read(Event(4, (14, stored)));
+
+        Assert.Equal(column, d.SpellSave);
+        Assert.Equal(bonus, d.SaveBonus);
+    }
+
+    [Fact]
+    public void The_damage_dice_read_in_order()
+    {
+        var d = FruaDamageEvent.Read(Event(4, (9, 3), (10, 2), (11, 6), (12, 4), (17, 75)));
+
+        Assert.Equal(3, d.Attacks);
+        Assert.Equal(2, d.DiceCount);
+        Assert.Equal(6, d.DiceSides);
+        Assert.Equal(4, d.DamageBonus);
+        Assert.Equal(75, d.ChancePerAttack);
+    }
+
+    /// <summary>A sound event is ten slots and nothing else.</summary>
+    [Fact]
+    public void A_sound_event_is_ten_slots()
+    {
+        var s = FruaSoundEvent.Read(Event(17, (5, 3), (7, 9), (14, 12)));
+
+        Assert.Equal(10, s.SoundSlots.Count);
+        Assert.Equal([(byte)3, (byte)9, (byte)12], s.Sounds());
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>

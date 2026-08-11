@@ -293,6 +293,129 @@ public sealed record FruaSpecialItemEvent(
     }
 }
 
+/// <summary>Who a damage event falls on.</summary>
+public enum FruaDamageTarget
+{
+    EntireParty,
+    ActiveCharacter,
+    OneAtRandom,
+    ChanceOnEach,
+}
+
+/// <summary>Whether a saving throw applies, and what it does.</summary>
+public enum FruaDamageSave
+{
+    NoSave,
+    SaveForHalf,
+    SaveNegates,
+    UseThac0,
+}
+
+/// <summary>Which saving-throw column the save is rolled against.</summary>
+public enum FruaSpellSave
+{
+    ParalysisPoisonDeath,
+    PetrifyPolymorph,
+    RodStaffWand,
+    BreathWeapon,
+    Spell,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.Damage"/>'s payload
+/// (<c>addGiveDamageEvent</c>, <c>UAFWinEd/UAImport.cpp:2471</c>).
+/// </summary>
+public sealed record FruaDamageEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaDamageTarget Target, FruaDamageSave Save, FruaSpellSave SpellSave, int SaveBonus,
+    byte Attacks, byte DiceCount, byte DiceSides, byte DamageBonus,
+    int Thac0, FruaCombatDistance Distance, byte ChancePerAttack)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>THAC0 is stored as <c>60 - value</c></b>, the same inversion the monster records use for
+    /// armour class. The two are the same convention, applied in different files.
+    /// </para>
+    /// <para>
+    /// <b>Three mask ladders here are order-dependent, and each tests a combined value first</b> —
+    /// 12 before 4 and 8 for the target, 48 before 16 and 32 for the save, and 48 again before 16,
+    /// 32 and 64 for the saving-throw column. Reversing any of them makes the combined case
+    /// unreachable.
+    /// </para>
+    /// </remarks>
+    public static FruaDamageEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+        bool large = (flags & 128) != 0;
+        flags &= 127;
+
+        byte save = e.Byte(14);
+        byte distance = e.Byte(15);
+
+        return new FruaDamageEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: large,
+            Target: (flags & 12) == 12 ? FruaDamageTarget.ChanceOnEach
+                  : (flags & 4) == 4 ? FruaDamageTarget.ActiveCharacter
+                  : (flags & 8) == 8 ? FruaDamageTarget.OneAtRandom
+                  : FruaDamageTarget.EntireParty,
+            Save: (flags & 48) == 48 ? FruaDamageSave.UseThac0
+                : (flags & 16) == 16 ? FruaDamageSave.SaveForHalf
+                : (flags & 32) == 32 ? FruaDamageSave.SaveNegates
+                : FruaDamageSave.NoSave,
+            SpellSave: (save & 48) == 48 ? FruaSpellSave.BreathWeapon
+                     : (save & 16) == 16 ? FruaSpellSave.PetrifyPolymorph
+                     : (save & 32) == 32 ? FruaSpellSave.RodStaffWand
+                     : (save & 64) == 64 ? FruaSpellSave.Spell
+                     : FruaSpellSave.ParalysisPoisonDeath,
+            SaveBonus: save & 0x0F,
+            Attacks: e.Byte(9),
+            DiceCount: e.Byte(10),
+            DiceSides: e.Byte(11),
+            DamageBonus: e.Byte(12),
+            Thac0: 60 - e.Byte(13),
+            Distance: (distance & 32) == 32 ? FruaCombatDistance.Nearby
+                    : (distance & 64) == 64 ? FruaCombatDistance.FarAway
+                    : FruaCombatDistance.UpClose,
+            ChancePerAttack: e.Byte(17));
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.Sounds"/>'s payload
+/// (<c>addSoundEvent</c>, <c>UAFWinEd/UAImport.cpp:1980</c>).
+/// </summary>
+/// <remarks>
+/// <b>Ten slots and nothing else</b> — no text, no picture, no flags. The reference unrolls the
+/// same three lines ten times over offsets 5 to 14, appending each non-zero slot in order.
+/// </remarks>
+public sealed record FruaSoundEvent(IReadOnlyList<byte> SoundSlots)
+{
+    /// <summary>How many sound slots the event carries.</summary>
+    public const int SlotCount = 10;
+
+    /// <summary>Reads the payload.</summary>
+    public static FruaSoundEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        var slots = new byte[SlotCount];
+        for (int i = 0; i < SlotCount; i++)
+        {
+            slots[i] = e.Byte(5 + i);
+        }
+
+        return new FruaSoundEvent(slots);
+    }
+
+    /// <summary>The slots that name a sound, in order.</summary>
+    public IEnumerable<byte> Sounds() => SoundSlots.Where(s => s != 0);
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {
