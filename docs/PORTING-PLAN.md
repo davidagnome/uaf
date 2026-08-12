@@ -39,11 +39,11 @@ criterion and it is now demonstrated rather than asserted.
 reads** — `game001.dat`, the level headers, the map cells, the six-bit string tables, the event
 records, `MONST###.DAT` and the item database — verified against the real `HEIRS.DSN` and
 `TUTORIAL.DSN`, with the case-insensitive filename resolution §3.2 calls a Phase 6 requirement.
-Twenty-one of the event types have their payloads read, covering ~96% of the corpus by frequency.
+Twenty-four of the event types have their payloads read, covering ~97% of the corpus by frequency.
 The byte-identity exit criterion is **not** met: `-importfrua` and `tools/frua-import-oracle.sh`
 exist and compile, but no run has yet produced an imported design to diff. Phases 5 and 7 have not
 started.
-**4,239 tests, green on macOS; both CI workflows green.**
+**4,250 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8272,18 +8272,28 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > A `TextStatement` joins **five** such strings, each capped at 228 characters, with a per-chunk
 > highlight bit wrapping it in `/h`.
 
-> **The reference importer does not import combat monsters, or NPC linkage.** All five
-> `monster.monster = GetMonsterKey(...)` assignments in `addCombatEvent` are commented out behind
-> `NotImplemented(...)` markers — six of the fourteen in `UAImport.cpp`, the rest on NPCs
-> (`ProcessNpcCchData`, `addNPCEvent`, `addNPCSaysEvent`, `addRemoveNPCEvent`, `addSmallTownEvent`,
-> `addTrainingHallEvent`). A design imported by the reference gets combat events with quantities,
-> morale, surprise and distance and **no monsters**. This is a sixth way code in this tree is dead:
-> commented out with a marker left standing where a grep still sees a call.
+> **The reference importer resolves no monster or NPC identity at all, and that one fact explains
+> nine of its fourteen `NotImplemented` markers.** Counted, not eyeballed: of the fourteen in
+> `UAImport.cpp`, **nine replace a commented-out `GetMonsterKey(...)`** — five in
+> `addCombatEvent`, the rest in `addNPCEvent`, `addNPCSaysEvent` and `addRemoveNPCEvent`. The
+> other five are the per-class training flags in `addSmallTownEvent` and `addTrainingHallEvent`,
+> plus three inside `ProcessNpcCchData`.
 >
-> **It changes what the exit criterion means.** `UAF.Import.Frua` reads the monster indices, because
-> they are in the file. An importer that *writes* them would produce a richer design than the
-> reference and fail the byte-identity diff — so the gap has to be reproduced in the writer, not in
-> the reader. `FruaCombatEvent.MonstersAreNotImported` carries the note.
+> So it is not fourteen scattered omissions but **one disabled mechanism and one smaller one**.
+> Everything downstream of the identity lookup falls out with it: a combat event imports with
+> quantities, morale, surprise and distance and **no monsters**; an add- or remove-NPC event
+> imports its text, picture and distance and **no NPC**. Everything *not* downstream of it reads
+> normally, which is why those readers are otherwise worth porting.
+>
+> This is a sixth way code in this tree is dead: commented out with a marker left standing where a
+> grep still sees a call. `addNPCEvent`'s commented block even duplicates its own assignment.
+>
+> **It changes what the exit criterion means, and gives the writer one rule instead of fourteen
+> notes.** `UAF.Import.Frua` reads the monster indices, because they are in the file. An importer
+> that *writes* them would produce a richer design than the reference and fail the byte-identity
+> diff — so the rule for a future writer is simply: **suppress every field that would come from
+> `GetMonsterKey`, and the per-class training flags.** `FruaCombatEvent.MonstersAreNotImported` and
+> `FruaTrainingHallEvent.ClassesAreNotImported` carry the note at the two places it bites hardest.
 >
 > `NotImplemented` shows a message box, deduplicated per code, with `loopForever: false` at every
 > import site. `MsgBoxInfo` honours `g_headlessMode`, so under `-importfrua` all fourteen are
@@ -8297,11 +8307,11 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > `HEIRS.DSN` contains exactly **one** encounter event, and `EncounterEvent` is also one of the
 > three types the UAF engine leaves inert.
 
-**Payload coverage is ~96% of the corpus by frequency** — 1,002 of `HEIRS.DSN`'s 1,040 events —
-across 21 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`TransferModule`),
+**Payload coverage is ~97% of the corpus by frequency** — 1,015 of `HEIRS.DSN`'s 1,040 events —
+across 24 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`TransferModule`),
 `Combat`, `PickOneCombat`, treasure (`GiveTreasure`/`CombatTreasure`), `SpecialItem`, `Damage`,
 `Sounds`, `QuestStage`, `Shop`, `Temple`, `TrainingHall`, `Utilities`, `GainExperience`,
-`QuestionYesNo`, `Vault` and `PassTime`.
+`QuestionYesNo`, `Vault`, `PassTime`, `GuidedTour`, `Tavern` and `QuestionButton`.
 
 > **Two of those needed no reader at all.** `PickOneCombat` is re-labelled `Combat` by the
 > reference and sent to `addCombatEvent`; `ChainEvent`'s case is empty, its comment reading "no
@@ -8318,9 +8328,9 @@ across 21 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`Tr
 > same first byte means different stock depending on what follows. The index table is extracted
 > from the C++ mechanically.
 
-**Not ported yet:** 10 types, 38 events, none above 6 — and four of them (`AddNpc`, `RemoveNpc`,
-`NpcSays`, `SmallTown`) carry `NotImplemented` markers, so the reference imports them only
-partially anyway. Beyond that, **the byte-identity harness is the real gate** — the `.GLB`
+**Not ported yet:** 7 types, 25 events, none above 6 — and four of them (`AddNpc`, `RemoveNpc`,
+`NpcSays`, `SmallTown`) sit squarely on the disabled identity lookup above, so the reference
+imports them without the field that gives them meaning. Beyond that, **the byte-identity harness is the real gate** — the `.GLB`
 archives and `.XMI` music are outside the reference's own behaviour (see the note above) and so
 outside the exit criterion. `-importfrua` and `tools/frua-import-oracle.sh`
 exist and the C++ compiles green in CI, but **no run has yet demonstrably produced an imported
