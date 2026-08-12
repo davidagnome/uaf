@@ -758,6 +758,99 @@ public class FruaEventPayloadTests
         Assert.True(experience > 4, $"only {experience} experience events; expected ~7");
     }
 
+    // ---- the small payloads ------------------------------------------------------------------
+
+    /// <summary>Each answer has its own pair of bits; zero flags means both do nothing.</summary>
+    [Theory]
+    [InlineData(0, FruaChainAction.DoNothing, FruaChainAction.DoNothing)]
+    [InlineData(4, FruaChainAction.ReturnToQuestion, FruaChainAction.DoNothing)]
+    [InlineData(32, FruaChainAction.BackupOneStep, FruaChainAction.DoNothing)]
+    [InlineData(8, FruaChainAction.DoNothing, FruaChainAction.ReturnToQuestion)]
+    [InlineData(16, FruaChainAction.DoNothing, FruaChainAction.BackupOneStep)]
+    [InlineData(4 | 16, FruaChainAction.ReturnToQuestion, FruaChainAction.BackupOneStep)]
+    public void Each_answer_has_its_own_chain_bits(byte flags, FruaChainAction yes,
+                                                   FruaChainAction no)
+    {
+        var q = FruaQuestionYesNoEvent.Read(Event(36, (8, flags)));
+
+        Assert.Equal(yes, q.OnYes);
+        Assert.Equal(no, q.OnNo);
+    }
+
+    [Fact]
+    public void A_yes_no_question_keeps_three_text_slots()
+    {
+        var record = new byte[FruaEvent.Length];
+        record[0] = 36;
+        Word(FruaEvent.Read(record), record, 5, 10);
+        Word(FruaEvent.Read(record), record, 11, 11);
+        Word(FruaEvent.Read(record), record, 13, 12);
+
+        var q = FruaQuestionYesNoEvent.Read(FruaEvent.Read(record));
+
+        Assert.Equal(10, q.TextSlot);
+        Assert.Equal(11, q.YesTextSlot);
+        Assert.Equal(12, q.NoTextSlot);
+    }
+
+    [Fact]
+    public void A_vault_is_text_a_picture_and_one_flag()
+    {
+        var v = FruaVaultEvent.Read(Event(24, (7, 3), (8, 128 | 4)));
+
+        Assert.Equal(3, v.PictureSlot);
+        Assert.True(v.PictureIsLarge);
+        Assert.True(v.ForceBackup);
+    }
+
+    [Fact]
+    public void Pass_time_reads_a_duration()
+    {
+        var p = FruaPassTimeEvent.Read(Event(27, (9, 2), (10, 6), (11, 30)));
+
+        Assert.Equal(2, p.Days);
+        Assert.Equal(6, p.Hours);
+        Assert.Equal(30, p.Minutes);
+    }
+
+    /// <summary>Every shipped instance of the small payloads decodes.</summary>
+    [Fact]
+    public void The_shipped_small_payloads_decode()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int seen = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events)
+            {
+                switch (e.Type)
+                {
+                    case FruaEventType.Vault:
+                        FruaVaultEvent.Read(e);
+                        seen++;
+                        break;
+                    case FruaEventType.QuestionYesNo:
+                        FruaQuestionYesNoEvent.Read(e);
+                        seen++;
+                        break;
+                    case FruaEventType.PassTime:
+                        FruaPassTimeEvent.Read(e);
+                        seen++;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        Assert.True(seen > 8, $"only {seen} of the small payload events; expected ~11");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>

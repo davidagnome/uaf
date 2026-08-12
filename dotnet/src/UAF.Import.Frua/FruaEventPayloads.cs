@@ -739,6 +739,101 @@ public sealed record FruaGainExperienceEvent(
     }
 }
 
+/// <summary>What follows an answer to a yes/no question.</summary>
+public enum FruaChainAction
+{
+    DoNothing,
+    ReturnToQuestion,
+    BackupOneStep,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.QuestionYesNo"/>'s payload
+/// (<c>addQYesNoEvent</c>, <c>UAFWinEd/UAImport.cpp:3846</c>).
+/// </summary>
+public sealed record FruaQuestionYesNoEvent(
+    ushort TextSlot, ushort YesTextSlot, ushort NoTextSlot,
+    byte PictureSlot, bool PictureIsLarge,
+    FruaChainAction OnYes, FruaChainAction OnNo)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b>Zero flags means both answers do nothing; otherwise each answer has its own pair of
+    /// bits</b> — 4 and 32 for yes, 8 and 16 for no. A non-zero byte setting neither of an answer's
+    /// bits leaves that answer's action unassigned in the reference, which is reported here as
+    /// <see cref="FruaChainAction.DoNothing"/> since that is what the field was cleared to.
+    /// </remarks>
+    public static FruaQuestionYesNoEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte raw = e.Byte(8);
+        byte flags = (byte)(raw & 127);
+
+        return new FruaQuestionYesNoEvent(
+            TextSlot: e.Word(5),
+            YesTextSlot: e.Word(11),
+            NoTextSlot: e.Word(13),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (raw & 128) != 0,
+            OnYes: flags == 0 ? FruaChainAction.DoNothing
+                 : (flags & 4) == 4 ? FruaChainAction.ReturnToQuestion
+                 : (flags & 32) == 32 ? FruaChainAction.BackupOneStep
+                 : FruaChainAction.DoNothing,
+            OnNo: flags == 0 ? FruaChainAction.DoNothing
+                : (flags & 8) == 8 ? FruaChainAction.ReturnToQuestion
+                : (flags & 16) == 16 ? FruaChainAction.BackupOneStep
+                : FruaChainAction.DoNothing);
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.Vault"/>'s payload
+/// (<c>addVaultEvent</c>, <c>UAFWinEd/UAImport.cpp:2136</c>).
+/// </summary>
+/// <remarks>Text, a picture and one flag — the smallest payload in the format.</remarks>
+public sealed record FruaVaultEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge, bool ForceBackup)
+{
+    /// <summary>Reads the payload.</summary>
+    public static FruaVaultEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+
+        return new FruaVaultEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (flags & 128) != 0,
+            ForceBackup: ((flags & 127) & 4) == 4);
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.PassTime"/>'s payload
+/// (<c>addPassTimeEvent</c>, <c>UAFWinEd/UAImport.cpp:3909</c>).
+/// </summary>
+/// <remarks>
+/// <b>Three of its fields are hard-coded, not read.</b> The reference sets <c>AllowStop</c>,
+/// <c>PassSilent</c> and <c>SetTime</c> to <c>FALSE</c> after reading the duration, so an imported
+/// pass-time event can never stop early, is never silent, and never sets an absolute time.
+/// </remarks>
+public sealed record FruaPassTimeEvent(ushort TextSlot, byte Days, byte Hours, byte Minutes)
+{
+    /// <summary>Reads the payload.</summary>
+    public static FruaPassTimeEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        return new FruaPassTimeEvent(
+            TextSlot: e.Word(5),
+            Days: e.Byte(9),
+            Hours: e.Byte(10),
+            Minutes: e.Byte(11));
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {

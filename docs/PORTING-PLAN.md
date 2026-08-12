@@ -39,11 +39,11 @@ criterion and it is now demonstrated rather than asserted.
 reads** — `game001.dat`, the level headers, the map cells, the six-bit string tables, the event
 records, `MONST###.DAT` and the item database — verified against the real `HEIRS.DSN` and
 `TUTORIAL.DSN`, with the case-insensitive filename resolution §3.2 calls a Phase 6 requirement.
-Three of the 32 per-event-type payload readers are done, covering ~72% of the corpus by frequency.
+Twenty-one of the event types have their payloads read, covering ~96% of the corpus by frequency.
 The byte-identity exit criterion is **not** met: `-importfrua` and `tools/frua-import-oracle.sh`
 exist and compile, but no run has yet produced an imported design to diff. Phases 5 and 7 have not
 started.
-**4,161 tests, green on macOS; both CI workflows green.**
+**4,239 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8286,17 +8286,33 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > `HEIRS.DSN` contains exactly **one** encounter event, and `EncounterEvent` is also one of the
 > three types the UAF engine leaves inert.
 
-**Payload coverage is 87% of the corpus by frequency** — 907 of `HEIRS.DSN`'s 1,040 events —
-across eight readers: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/
-`TransferModule`), `Combat`, `PickOneCombat` (which the reference re-labels and sends to
-`addCombatEvent`, so it needed no reader), treasure (`GiveTreasure`/`CombatTreasure`),
-`SpecialItem`, `Damage`, `Sounds` and `QuestStage`.
+**Payload coverage is ~96% of the corpus by frequency** — 1,002 of `HEIRS.DSN`'s 1,040 events —
+across 21 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`TransferModule`),
+`Combat`, `PickOneCombat`, treasure (`GiveTreasure`/`CombatTreasure`), `SpecialItem`, `Damage`,
+`Sounds`, `QuestStage`, `Shop`, `Temple`, `TrainingHall`, `Utilities`, `GainExperience`,
+`QuestionYesNo`, `Vault` and `PassTime`.
 
-**Not ported yet:** the remaining ~24 readers, all long tail — the largest is `Shop` at 15 events,
-then `Temple` 12, `TrainingHall` 11, `Utilities` 11, and nothing else above 7. Beyond those, the
-`.GLB` art archives (PCX/LBM), `.XMI` music, and the byte-identity harness itself: `-importfrua`
-and `tools/frua-import-oracle.sh` exist and the C++ compiles, but no run has yet demonstrably
-produced an imported design, so nothing has been diffed.
+> **Two of those needed no reader at all.** `PickOneCombat` is re-labelled `Combat` by the
+> reference and sent to `addCombatEvent`; `ChainEvent`'s case is empty, its comment reading "no
+> data other than event chain and triggers", and that chain byte is already in the record header.
+
+> **Three more fields are hard-coded rather than read**, in the same spirit as the
+> `NotImplemented` cluster: a gain-experience event's `chance` is assigned 100 outright, and a
+> pass-time event's `AllowStop`, `PassSilent` and `SetTime` are all set false after the duration —
+> so an imported pass-time can never stop early or set an absolute time.
+
+> **A shop's stock is a sixteen-branch chain, and its first byte does double duty.** That byte's
+> *range* selects which page of eight item indices the group's three bytes are bitmasks over, and
+> its *bits* simultaneously select from that page. Two branches also test the second byte, so the
+> same first byte means different stock depending on what follows. The index table is extracted
+> from the C++ mechanically.
+
+**Not ported yet:** 10 types, 38 events, none above 6 — and four of them (`AddNpc`, `RemoveNpc`,
+`NpcSays`, `SmallTown`) carry `NotImplemented` markers, so the reference imports them only
+partially anyway. Beyond that: the `.GLB` art archives (PCX/LBM), `.XMI` music, and **the
+byte-identity harness, which is the real gate**. `-importfrua` and `tools/frua-import-oracle.sh`
+exist and the C++ compiles green in CI, but **no run has yet demonstrably produced an imported
+design**, so nothing has been diffed.
 
 ### Phase 7 — Packaging and polish (1–2 months)
 
