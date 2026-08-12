@@ -851,6 +851,135 @@ public class FruaEventPayloadTests
         Assert.True(seen > 8, $"only {seen} of the small payload events; expected ~11");
     }
 
+    // ---- tours, taverns and buttons ----------------------------------------------------------
+
+    /// <summary>Four steps to a byte, two bits each.</summary>
+    [Fact]
+    public void A_tour_packs_four_steps_into_every_byte()
+    {
+        // 0b11_10_01_00 -> pause, left, right, forward, in field order.
+        var t = FruaGuidedTourEvent.Read(Event(12, (7, 4), (9, 0b11_10_01_00)));
+
+        Assert.Equal(
+            [FruaTourStep.Pause, FruaTourStep.Left, FruaTourStep.Right, FruaTourStep.Forward],
+            t.Steps);
+    }
+
+    /// <summary>The step count truncates; a tour can store more than it walks.</summary>
+    [Fact]
+    public void The_step_count_truncates_the_list()
+    {
+        var t = FruaGuidedTourEvent.Read(Event(12, (7, 2), (9, 0xFF)));
+
+        Assert.Equal(2, t.Steps.Count);
+        Assert.All(t.Steps, s => Assert.Equal(FruaTourStep.Forward, s));
+    }
+
+    [Fact]
+    public void A_tour_reads_six_bytes_of_steps_at_most()
+    {
+        var t = FruaGuidedTourEvent.Read(Event(12,
+            (7, 99), (9, 0xFF), (10, 0xFF), (11, 0xFF), (12, 0xFF), (13, 0xFF), (14, 0xFF)));
+
+        Assert.Equal(FruaGuidedTourEvent.MaxSteps, t.Steps.Count);
+    }
+
+    [Fact]
+    public void A_tours_flags_carry_facing_and_two_switches()
+    {
+        var t = FruaGuidedTourEvent.Read(Event(12, (5, 7), (6, 13), (8, 12 | 16 | 32)));
+
+        Assert.Equal(13, t.StartX);
+        Assert.Equal(7, t.StartY);
+        Assert.Equal(FruaFacing.West, t.Facing);
+        Assert.True(t.UseStartLocation);
+        Assert.True(t.ExecuteEvent);
+    }
+
+    [Fact]
+    public void A_tavern_holds_four_tales_and_three_flags()
+    {
+        var record = new byte[FruaEvent.Length];
+        record[0] = 7;
+        record[4 + (8 - 5)] = 16 | 32 | 8;
+        for (int i = 0; i < 4; i++)
+        {
+            Word(FruaEvent.Read(record), record, 9 + (i * 2), (ushort)(20 + i));
+        }
+
+        var t = FruaTavernEvent.Read(FruaEvent.Read(record));
+
+        Assert.True(t.AllowFights);
+        Assert.True(t.AllowDrinks);
+        Assert.True(t.TalesInRandomOrder);
+        Assert.Equal([(ushort)20, (ushort)21, (ushort)22, (ushort)23], t.TaleSlots);
+    }
+
+    /// <summary>All five buttons are always present; one bit each decides the chain action.</summary>
+    [Fact]
+    public void Every_question_button_has_its_own_bit()
+    {
+        var q = FruaQuestionButtonEvent.Read(Event(10, (8, 4 | 16 | 64)));
+
+        Assert.Equal(5, q.ButtonActions.Count);
+        Assert.Equal(FruaChainAction.ReturnToQuestion, q.ButtonActions[0]);
+        Assert.Equal(FruaChainAction.DoNothing, q.ButtonActions[1]);
+        Assert.Equal(FruaChainAction.ReturnToQuestion, q.ButtonActions[2]);
+        Assert.Equal(FruaChainAction.DoNothing, q.ButtonActions[3]);
+        Assert.Equal(FruaChainAction.ReturnToQuestion, q.ButtonActions[4]);
+    }
+
+    /// <summary>All five labels share one caret-delimited string.</summary>
+    [Theory]
+    [InlineData("^YES^NO^", new[] { "YES", "NO", "", "", "" })]
+    [InlineData("^ONE^TWO^THREE^FOUR^FIVE^", new[] { "ONE", "TWO", "THREE", "FOUR", "FIVE" })]
+    [InlineData("", new[] { "", "", "", "", "" })]
+    [InlineData("NOCARET", new[] { "", "", "", "", "" })]
+    public void The_button_labels_share_one_caret_delimited_string(string packed,
+                                                                   string[] expected)
+    {
+        Assert.Equal(expected, FruaQuestionButtonEvent.Labels(packed));
+    }
+
+    /// <summary>Every shipped instance of these three decodes.</summary>
+    [Fact]
+    public void The_shipped_tours_taverns_and_buttons_decode()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int seen = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events)
+            {
+                switch (e.Type)
+                {
+                    case FruaEventType.GuidedTour:
+                        Assert.InRange(FruaGuidedTourEvent.Read(e).Steps.Count, 0,
+                                       FruaGuidedTourEvent.MaxSteps);
+                        seen++;
+                        break;
+                    case FruaEventType.Tavern:
+                        Assert.Equal(4, FruaTavernEvent.Read(e).TaleSlots.Count);
+                        seen++;
+                        break;
+                    case FruaEventType.QuestionButton:
+                        Assert.Equal(5, FruaQuestionButtonEvent.Read(e).ButtonActions.Count);
+                        seen++;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        Assert.True(seen > 9, $"only {seen} of the three types; expected ~13");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>

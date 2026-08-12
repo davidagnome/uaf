@@ -834,6 +834,189 @@ public sealed record FruaPassTimeEvent(ushort TextSlot, byte Days, byte Hours, b
     }
 }
 
+/// <summary>One move of a guided tour.</summary>
+public enum FruaTourStep
+{
+    Pause = 0,
+    Left = 1,
+    Right = 2,
+    Forward = 3,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.GuidedTour"/>'s payload
+/// (<c>addTourEvent</c>, <c>UAFWinEd/UAImport.cpp:3612</c>).
+/// </summary>
+public sealed record FruaGuidedTourEvent(
+    byte StartX, byte StartY, FruaFacing Facing,
+    bool UseStartLocation, bool ExecuteEvent, IReadOnlyList<FruaTourStep> Steps)
+{
+    /// <summary>The most steps a tour can hold.</summary>
+    public const int MaxSteps = 24;
+
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Four steps to a byte, two bits each</b>, over the six bytes at offsets 9–14 — which is
+    /// exactly the 24 of <c>MAX_TOUR_STEPS</c>. The reference spells all four out as separate mask
+    /// ladders (3/2/1, then 12/8/4, then 48/32/16, then 192/128/64), but every one reduces to the
+    /// two-bit value itself: 3 forward, 2 right, 1 left, 0 pause.
+    /// </para>
+    /// <para>
+    /// <b>The step count at offset 7 truncates the list</b>, so a tour can store more steps than it
+    /// walks. Steps past it are not read.
+    /// </para>
+    /// <para>
+    /// <b>The facing ladder is the transfer family's, widest-first</b> — 12 before 4 and 8 — on
+    /// the same byte that carries the two flags at 16 and 32.
+    /// </para>
+    /// </remarks>
+    public static FruaGuidedTourEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte flags = e.Byte(8);
+        int wanted = Math.Min((int)e.Byte(7), MaxSteps);
+        var steps = new List<FruaTourStep>(wanted);
+
+        for (int at = 9; at <= 14 && steps.Count < wanted; at++)
+        {
+            byte packed = e.Byte(at);
+
+            for (int field = 0; field < 4 && steps.Count < wanted; field++)
+            {
+                steps.Add((FruaTourStep)((packed >> (field * 2)) & 3));
+            }
+        }
+
+        return new FruaGuidedTourEvent(
+            StartX: e.Byte(6),
+            StartY: e.Byte(5),
+            Facing: (flags & 12) == 12 ? FruaFacing.West
+                  : (flags & 4) == 4 ? FruaFacing.East
+                  : (flags & 8) == 8 ? FruaFacing.South
+                  : FruaFacing.North,
+            UseStartLocation: (flags & 16) == 16,
+            ExecuteEvent: (flags & 32) == 32,
+            Steps: steps);
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.Tavern"/>'s payload
+/// (<c>addTavernEvent</c>, <c>UAFWinEd/UAImport.cpp:3700</c>).
+/// </summary>
+public sealed record FruaTavernEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    bool AllowFights, bool AllowDrinks, bool TalesInRandomOrder,
+    IReadOnlyList<ushort> TaleSlots)
+{
+    /// <summary>How many tales a tavern holds.</summary>
+    public const int TaleCount = 4;
+
+    /// <summary>Reads the payload.</summary>
+    public static FruaTavernEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte raw = e.Byte(8);
+        byte flags = (byte)(raw & 127);
+
+        var tales = new ushort[TaleCount];
+        for (int i = 0; i < TaleCount; i++)
+        {
+            tales[i] = e.Word(9 + (i * 2));
+        }
+
+        return new FruaTavernEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (raw & 128) != 0,
+            AllowFights: (flags & 16) == 16,
+            AllowDrinks: (flags & 32) == 32,
+            TalesInRandomOrder: (flags & 8) == 8,
+            TaleSlots: tales);
+    }
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.QuestionButton"/>'s payload
+/// (<c>addQButtonEvent</c>, <c>UAFWinEd/UAImport.cpp:3806</c>).
+/// </summary>
+public sealed record FruaQuestionButtonEvent(
+    ushort TextSlot, ushort LabelSlot, byte PictureSlot, bool PictureIsLarge,
+    IReadOnlyList<FruaChainAction> ButtonActions)
+{
+    /// <summary>How many buttons the event always has.</summary>
+    /// <remarks>
+    /// <b>All five are marked present unconditionally</b> — the reference sets
+    /// <c>numListButtons = 5</c> and every <c>present = TRUE</c> before reading anything, so a
+    /// design cannot offer fewer. An empty label is what makes one look absent.
+    /// </remarks>
+    public const int ButtonCount = 5;
+
+    /// <summary>The character separating the labels in the label string.</summary>
+    /// <remarks>
+    /// <b>All five labels come from ONE string, caret-delimited</b> — the reference walks it with
+    /// <c>strchr(buffer, '^')</c> pairs. So the labels share the 228-character budget of a single
+    /// six-bit string between them.
+    /// </remarks>
+    public const char LabelSeparator = '^';
+
+    /// <summary>Reads the payload.</summary>
+    public static FruaQuestionButtonEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte raw = e.Byte(8);
+        byte flags = (byte)(raw & 127);
+
+        // One bit per button: 4, 8, 16, 32, 64.
+        var actions = new FruaChainAction[ButtonCount];
+        for (int i = 0; i < ButtonCount; i++)
+        {
+            int bit = 4 << i;
+            actions[i] = (flags & bit) == bit
+                ? FruaChainAction.ReturnToQuestion
+                : FruaChainAction.DoNothing;
+        }
+
+        return new FruaQuestionButtonEvent(
+            TextSlot: e.Word(5),
+            LabelSlot: e.Word(9),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (raw & 128) != 0,
+            ButtonActions: actions);
+    }
+
+    /// <summary>
+    /// Splits a label string into its five labels.
+    /// </summary>
+    /// <remarks>
+    /// The reference reads pairs of carets, so a string of <c>^one^two^</c> yields "one" then
+    /// "two"; anything before the first caret is ignored, and missing labels come out empty.
+    /// </remarks>
+    public static IReadOnlyList<string> Labels(string? labelString)
+    {
+        var labels = new string[ButtonCount];
+        Array.Fill(labels, string.Empty);
+
+        if (string.IsNullOrEmpty(labelString))
+        {
+            return labels;
+        }
+
+        // Everything before the first separator is not a label.
+        var parts = labelString.Split(LabelSeparator);
+        for (int i = 1; i < parts.Length && i - 1 < ButtonCount; i++)
+        {
+            labels[i - 1] = parts[i];
+        }
+
+        return labels;
+    }
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {
