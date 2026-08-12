@@ -39,11 +39,11 @@ criterion and it is now demonstrated rather than asserted.
 reads** — `game001.dat`, the level headers, the map cells, the six-bit string tables, the event
 records, `MONST###.DAT` and the item database — verified against the real `HEIRS.DSN` and
 `TUTORIAL.DSN`, with the case-insensitive filename resolution §3.2 calls a Phase 6 requirement.
-Twenty-nine of the event types have their payloads read, covering 99.6% of the corpus by frequency.
+Every one of the 35 event types has its payload read, and monsters and NPCs resolve.
 The byte-identity exit criterion is **not** met: `-importfrua` and `tools/frua-import-oracle.sh`
 exist and compile, but no run has yet produced an imported design to diff. Phases 5 and 7 have not
 started.
-**4,264 tests, green on macOS; both CI workflows green.**
+**4,301 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8233,9 +8233,15 @@ each a known, listed improvement.
 >   `NotImplemented` markers are that one lookup.
 > - **`addEncounterEvent`'s buttons configure themselves.** Two of its five blocks write their
 >   range flags to the wrong button (see the note below); each button now sets its own.
+> - **A training hall's classes are imported.** The six `TrainMagicUser`-style assignments are
+>   commented out in both `addTrainingHallEvent` and the hall a `SmallTown` generates — the other
+>   five of the fourteen `NotImplemented` markers. `FruaTrainedClasses` decodes the byte.
 > - **`ClassInParty`'s missing case 1** yields null rather than the uninitialised `CLASS_ID` the
 >   reference stores. This one is not a fix so much as a refusal: the reference's value is
 >   whatever was on the stack, so there is nothing to reproduce.
+>
+> **With those four, every one of the reference's fourteen `NotImplemented` markers is closed** —
+> nine were the `GetMonsterKey` lookup, five the training flags.
 
 ##### The FRUA importer, as ported so far
 
@@ -8331,12 +8337,13 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > `HEIRS.DSN` contains exactly **one** encounter event, and `EncounterEvent` is also one of the
 > three types the UAF engine leaves inert.
 
-**Payload coverage is 99.6% of the corpus by frequency** — 1,036 of `HEIRS.DSN`'s 1,040 events —
-across 29 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`TransferModule`),
-`Combat`, `PickOneCombat`, treasure (`GiveTreasure`/`CombatTreasure`), `SpecialItem`, `Damage`,
-`Sounds`, `QuestStage`, `Shop`, `Temple`, `TrainingHall`, `Utilities`, `GainExperience`,
-`QuestionYesNo`, `Vault`, `PassTime`, `GuidedTour`, `Tavern`, `QuestionButton`, `WhoTries`,
-and the NPC family (`AddNpc`, `RemoveNpc`, `NpcSays`).
+**Every event type reads — 100% of the corpus.** All 35 of them: `TextStatement`, the transfer
+family (`Teleporter`/`Stairs`/`TransferModule`), `Combat`, `PickOneCombat`, treasure
+(`GiveTreasure`/`CombatTreasure`), `SpecialItem`, `Damage`, `Sounds`, `QuestStage`, `Shop`,
+`Temple`, `TrainingHall`, `Utilities`, `GainExperience`, `QuestionYesNo`, `Vault`, `PassTime`,
+`GuidedTour`, `Tavern`, `QuestionButton`, `WhoTries`, the NPC family (`AddNpc`, `RemoveNpc`,
+`NpcSays`), and the two composites — `SmallTown`, which generates up to six child services, and
+`Encounter`.
 
 > **Three of those needed no reader at all.** `PickOneCombat` is re-labelled `Combat` by the
 > reference and sent to `addCombatEvent`; `ChainEvent`'s case is empty, its comment reading "no
@@ -8364,10 +8371,8 @@ layer resolves the monster and NPC references the reference importer drops.
 > (`"WELCOME TO THE TEMPLE"`, `"HOW MAY WE AID YOU?"`). Those strings are kept as named constants
 > on `FruaSmallTownEvent`, since a writer has to emit them and they exist nowhere in the data.
 
-**Not ported:** the per-class training flags, on both `TrainingHall` and `SmallTown`'s generated
-one — the last of the reference's `NotImplemented` gaps, and by the same argument as the monsters
-they ought to be read rather than dropped. The `.GLB` archives and `.XMI` music are outside the
-reference's behaviour entirely (see the note above) and so outside this phase.
+**Not ported:** nothing the reference itself does. The `.GLB` archives and `.XMI` music are
+outside its behaviour entirely (see the note above) and so outside this phase.
 
 **The harness is the remaining gate.** `-importfrua` and `tools/frua-import-oracle.sh` exist and
 the C++ compiles green in CI, but **no run has yet demonstrably produced an imported design**, so
