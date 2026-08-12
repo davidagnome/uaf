@@ -1,16 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The engine, and the first thing in this port that is an application rather than a library.
-    Named UAFcore rather than UAFWin because it is no longer Windows-exclusive.
+    The engine, as a LIBRARY. Named UAFcore rather than UAFWin because it is no longer
+    Windows-exclusive.
 
     It is deliberately thin: Game holds the state machine and draws into a managed Surface, and
-    knows nothing about SDL. Program wires a real window and input to it; the tests wire a headless
-    presenter and a recorded input source to the same class. That split is what keeps the engine
-    testable on a CI runner with no display, and it is the same discipline UAF.Media follows.
+    knows nothing about SDL. UAFcore.App wires a real window and input to it; the tests wire a
+    headless presenter and a recorded input source to the same class. That split is what keeps the
+    engine testable on a CI runner with no display, and it is the same discipline UAF.Media
+    follows.
+
+    This was an executable until the UAFcore.App split. Nothing here moved except Program.cs —
+    it was the only file that referenced UAF.Media.Sdl, which is why the reference to that project
+    is gone from below.
   -->
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -21,7 +25,6 @@
   <ItemGroup>
     <ProjectReference Include="..\UAF.Data\UAF.Data.csproj" />
     <ProjectReference Include="..\UAF.Media\UAF.Media.csproj" />
-    <ProjectReference Include="..\UAF.Media.Sdl\UAF.Media.Sdl.csproj" />
     <ProjectReference Include="..\UAF.Rules\UAF.Rules.csproj" />
     <ProjectReference Include="..\UAF.Scripting\UAF.Scripting.csproj" />
     <ProjectReference Include="..\UAF.Serialization\UAF.Serialization.csproj" />

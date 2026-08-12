@@ -9,6 +9,7 @@
     <Project Path="src/UAF.Scripting/UAF.Scripting.csproj" />
     <Project Path="src/UAF.Serialization/UAF.Serialization.csproj" />
     <Project Path="src/UAFcore/UAFcore.csproj" />
+    <Project Path="src/UAFcore.App/UAFcore.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/UAF.Import.Frua.Tests/UAF.Import.Frua.Tests.csproj" />

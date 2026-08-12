@@ -25,6 +25,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\UAFcore\UAFcore.csproj" />
+    <!-- Explicit since the UAFcore.App split: the tests load real designs through the SDL
+         image decoder and font rasteriser, and used to reach them transitively through UAFcore. -->
+    <ProjectReference Include="..\..\src\UAF.Media.Sdl\UAF.Media.Sdl.csproj" />
   </ItemGroup>
 
 </Project>

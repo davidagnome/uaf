@@ -57,7 +57,7 @@ defects this codebase has shipped were invisible to a green suite and obvious in
 item list drawn over a corridor wall, a character sheet on top of the party roster, a treasure
 message showing through `ARMOR CLASS`, `ARMOR CLASS7` with no gap, a crossbow collecting a
 strength bonus it should never get, and **an endless corridor east that should have been a wall
-two squares ahead**. `UAFcore --dump <design> <out>` writes one frame and exits.
+two squares ahead**. `UAFcore.App --dump <design> <out>` writes one frame and exits.
 
 The habit's corollary, learned the expensive way on that last one: **a synthetic fixture can only
 pin a convention, never discover it.** Three tests asserted the wall order was right, against a
@@ -8808,7 +8808,7 @@ the round both call and neither has.
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | **Per-cell wall/blockage overrides** | The 5.x `WALL_OVERRIDE_INDEX` / `BLOCKAGE_OVERRIDE` tables win over a cell's own values in both the viewport and the combat map, and neither consults them. Read, but not threaded through. Every shipped design's tables are empty | Small |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |
-| **`UAFcore.App` split** | `UAFcore` is currently the executable. Must happen before Phase 4b; `Game` is already written to survive it | Small |
+| ~~**`UAFcore.App` split**~~ | **Done.** `UAFcore` is a library and `UAFcore.App` is the SDL host. It cost one file move: `Program.cs` was the only thing in the engine referencing `UAF.Media.Sdl`, exactly as the project was written to allow. Two consequences: the binary is now **`UAFcore.App`**, since both projects cannot claim the same `AssemblyName`, and `UAFcore.Tests` needed an explicit `UAF.Media.Sdl` reference it had been getting transitively. Phase 4b is unblocked | — |
 
 ### Rules that have earned their place
 

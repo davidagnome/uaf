@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The SDL3 host for the player. This is the executable; UAFcore beside it is a library.
+
+    The split is the one the porting plan asks for before Phase 4b, and it was cheap because the
+    engine was written for it from the start: Game draws into a managed Surface and knows nothing
+    about SDL, so Program.cs was the ONLY file in UAFcore that referenced UAF.Media.Sdl. Moving
+    that one file is the whole separation.
+
+    The binary is UAFcore.App, not UAFcore: both projects cannot claim the same AssemblyName,
+    and the library keeps the name that everything else references. The documented dump command
+    becomes: UAFcore.App, then the dump flag and its two paths.
+
+    What it buys: UAFcore can now be referenced by something that is not this host — the editor
+    in Phase 5, or a headless trace runner for Phase 4a's exit criterion — without dragging a
+    window and an audio device along with it.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>UAFcore</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\UAFcore\UAFcore.csproj" />
+    <ProjectReference Include="..\UAF.Media.Sdl\UAF.Media.Sdl.csproj" />
+  </ItemGroup>
+
+</Project>
