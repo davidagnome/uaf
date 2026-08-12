@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UAF.Common\UAF.Common.csproj" />
+    <ProjectReference Include="..\UAF.Serialization\UAF.Serialization.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

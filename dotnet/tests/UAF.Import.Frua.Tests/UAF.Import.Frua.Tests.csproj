@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\UAF.Import.Frua\UAF.Import.Frua.csproj" />
+    <ProjectReference Include="..\..\src\UAF.Serialization\UAF.Serialization.csproj" />
   </ItemGroup>
 
 </Project>

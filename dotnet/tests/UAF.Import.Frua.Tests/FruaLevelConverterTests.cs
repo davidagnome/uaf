@@ -1,0 +1,215 @@
+using UAF.Import.Frua;
+using UAF.Serialization;
+
+namespace UAF.Import.Frua.Tests;
+
+/// <summary>
+/// Converting a DOS FRUA level into a UAF <c>.lvl</c>, and writing it.
+/// </summary>
+/// <remarks>
+/// This is the first slice of the conversion layer — the half of the importer that turns what
+/// <c>UAF.Import.Frua</c> reads into what <c>UAF.Serialization</c> writes.
+/// </remarks>
+public class FruaLevelConverterTests
+{
+    private static string? Heirs()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "Shared")))
+        {
+            dir = dir.Parent;
+        }
+
+        if (dir is null)
+        {
+            return null;
+        }
+
+        string design = Path.Combine(dir.FullName, "reference", "Unlimited Adventures -ENG",
+                                     "DESIGNS", "UA", "HEIRS.DSN");
+        return Directory.Exists(design) ? design : null;
+    }
+
+    [Fact]
+    public void A_converted_level_keeps_its_dimensions_and_cell_count()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 5) is not { } level)
+        {
+            return;
+        }
+
+        var converted = FruaLevelConverter.Convert(level, 5);
+
+        Assert.Equal(19, converted.Width);
+        Assert.Equal(19, converted.Height);
+        Assert.Equal(19 * 19, converted.Cells.Count);
+        Assert.Equal(5, converted.Level);
+    }
+
+    /// <summary>
+    /// Walls are re-ordered into UAF's north, south, east, west slots.
+    /// </summary>
+    /// <remarks>
+    /// <b>The two formats disagree about slot order</b> — FRUA stores north, east, south, west and
+    /// UAF stores north, SOUTH, east, west. Writing FRUA's order straight through would swap every
+    /// east wall with every south one. <see cref="AreaMapCell.WallAt"/> permutes on read, so a
+    /// correctly converted cell answers it with the FRUA value for the same compass direction.
+    /// </remarks>
+    [Fact]
+    public void The_wall_slots_are_reordered_for_uaf()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 5) is not { } level)
+        {
+            return;
+        }
+
+        var converted = FruaLevelConverter.Convert(level, 5);
+        int compared = 0;
+
+        for (int y = 0; y < level.Height; y++)
+        {
+            for (int x = 0; x < level.Width; x++)
+            {
+                var source = level.Cell(x, y);
+                var target = converted.Cells[(y * level.Width) + x];
+
+                // WallAt takes 0=north, 1=east, 2=south, 3=west and permutes internally.
+                Assert.Equal(source.WallSlot(FruaFacing.North), target.WallAt(0));
+                Assert.Equal(source.WallSlot(FruaFacing.East), target.WallAt(1));
+                Assert.Equal(source.WallSlot(FruaFacing.South), target.WallAt(2));
+                Assert.Equal(source.WallSlot(FruaFacing.West), target.WallAt(3));
+                compared++;
+            }
+        }
+
+        Assert.Equal(19 * 19, compared);
+    }
+
+    /// <summary>The zone, backdrop and event marker survive the conversion.</summary>
+    [Fact]
+    public void A_cells_zone_backdrop_and_event_marker_survive()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 5) is not { } level)
+        {
+            return;
+        }
+
+        var converted = FruaLevelConverter.Convert(level, 5);
+        int withEvents = 0;
+
+        for (int y = 0; y < level.Height; y++)
+        {
+            for (int x = 0; x < level.Width; x++)
+            {
+                var source = level.Cell(x, y);
+                var target = converted.Cells[(y * level.Width) + x];
+
+                Assert.Equal(source.Zone, target.Zone);
+                Assert.Equal(source.BackdropIndex, target.Background);
+                Assert.Equal(source.EventIndex != 0, target.EventExists);
+
+                if (target.EventExists)
+                {
+                    withEvents++;
+                }
+            }
+        }
+
+        Assert.True(withEvents > 0, "no converted cell carries an event marker");
+    }
+
+    /// <summary>An overland level's terrain becomes blockage rather than walls.</summary>
+    [Fact]
+    public void An_overland_levels_terrain_becomes_blockage()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 1) is not { } level)
+        {
+            return;
+        }
+
+        Assert.True(level.IsOverland);
+        var converted = FruaLevelConverter.Convert(level, 1);
+
+        int blocked = 0;
+
+        for (int y = 0; y < level.Height; y++)
+        {
+            for (int x = 0; x < level.Width; x++)
+            {
+                var target = converted.Cells[(y * level.Width) + x];
+
+                // No walls anywhere outdoors.
+                Assert.All(target.Walls, w => Assert.Equal(0, w));
+
+                blocked += target.Blockage.Count(b => b == (byte)FruaBlockage.Blocked);
+            }
+        }
+
+        Assert.True(blocked > 100, $"only {blocked} blocked faces on the overland map");
+    }
+
+    /// <summary>The zone names and rest events come across.</summary>
+    [Fact]
+    public void The_zones_carry_their_names_and_rest_events()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 6) is not { } level)
+        {
+            return;
+        }
+
+        var converted = FruaLevelConverter.Convert(level, 6);
+
+        Assert.Equal(8, converted.Zones.Zones.Count);
+
+        for (int i = 0; i < 8; i++)
+        {
+            Assert.Equal(level.ZoneNames[i], converted.Zones.Zones[i].Name);
+            Assert.Equal(level.RestEvents[i].Chance, converted.Zones.Zones[i].Rest.Chance);
+            Assert.Equal(level.RestEvents[i].EveryMinutes,
+                         converted.Zones.Zones[i].Rest.EveryMinutes);
+        }
+    }
+
+    /// <summary>
+    /// A converted level writes to a real <c>.lvl</c> and reads back the same.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the end-to-end proof the slice exists for</b>: the FRUA reader, the conversion
+    /// and <c>UAF.Serialization</c>'s writer joined up, with the round trip showing the result is
+    /// a file the port's own reader accepts.
+    /// </remarks>
+    [Fact]
+    public void A_converted_level_writes_and_reads_back()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 5) is not { } level)
+        {
+            return;
+        }
+
+        var converted = FruaLevelConverter.Convert(level, 5);
+
+        Assert.True(LevelFileWriter.CanWrite(converted, out string reason), reason);
+
+        using var stream = new MemoryStream();
+        LevelFileWriter.WriteFile(stream, converted);
+
+        Assert.True(stream.Length > 0, "the writer produced nothing");
+
+        stream.Position = 0;
+
+        // No event bodies to consume -- this slice writes an empty event list -- so the reader's
+        // event callback is never reached, and returning null would only matter if it were.
+        var reread = LevelFileReader.Read(stream, ArchiveRole.Editor, (_, _, _) => null);
+
+        Assert.Equal(converted.Width, reread.Width);
+        Assert.Equal(converted.Height, reread.Height);
+        Assert.Equal(converted.Cells.Count, reread.Cells.Count);
+
+        for (int i = 0; i < converted.Cells.Count; i++)
+        {
+            Assert.Equal(converted.Cells[i].Zone, reread.Cells[i].Zone);
+            Assert.Equal(converted.Cells[i].Walls, reread.Cells[i].Walls);
+            Assert.Equal(converted.Cells[i].Blockage, reread.Cells[i].Blockage);
+        }
+    }
+}
