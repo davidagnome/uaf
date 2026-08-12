@@ -8210,8 +8210,32 @@ Case-insensitive asset resolution is required *here*, not in Phase 7 — see the
 in §3.2. Build the directory index once per design and resolve every constructed filename through
 it.
 
-**Exit:** importing `HEIRS.DSN` and `reference/example_dsn/SL4-FATH.DSN` each produce a design
-directory byte-identical to one produced by the C++ importer.
+**Exit:** importing `HEIRS.DSN` and `reference/example_dsn/SL4-FATH.DSN` each produce a design that
+**loads and plays correctly in UAFcore**, and whose differences from the C++ importer's output are
+each a known, listed improvement.
+
+> **This used to read "byte-identical to one produced by the C++ importer", and that criterion is
+> no longer the right one.** The reference importer drops data the designs contain — most of all
+> the monster and NPC identities behind its disabled `GetMonsterKey` — and an importer that
+> reproduced those losses to pass a diff would import worse designs on purpose. The goal is a
+> design that loads, on a modernised codebase; where the reference is simply wrong, this port fixes
+> it and records the divergence.
+>
+> **The diff is still the tool**, just not the pass condition. Running the C++ importer over the
+> same design (`-importfrua`, `tools/frua-import-oracle.sh`) and comparing remains the best way to
+> find a field this port has misread — every difference must be explainable, and anything not on
+> the list below is a bug here until shown otherwise.
+>
+> **Known deliberate divergences, all of them things the reference loses or gets wrong:**
+> - **Monsters and NPCs are imported.** `FruaDesign.Monster` resolves an index against the design's
+>   own `MONST###.DAT` and then the stock `MonsterLabels` table — the two tiers `GetMonsterKey`
+>   was written to use before it was commented out. Nine of the reference's fourteen
+>   `NotImplemented` markers are that one lookup.
+> - **`addEncounterEvent`'s buttons configure themselves.** Two of its five blocks write their
+>   range flags to the wrong button (see the note below); each button now sets its own.
+> - **`ClassInParty`'s missing case 1** yields null rather than the uninitialised `CLASS_ID` the
+>   reference stores. This one is not a fix so much as a refusal: the reference's value is
+>   whatever was on the stack, so there is nothing to reproduce.
 
 ##### The FRUA importer, as ported so far
 
@@ -8288,18 +8312,18 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > This is a sixth way code in this tree is dead: commented out with a marker left standing where a
 > grep still sees a call. `addNPCEvent`'s commented block even duplicates its own assignment.
 >
-> **It changes what the exit criterion means, and gives the writer one rule instead of fourteen
-> notes.** `UAF.Import.Frua` reads the monster indices, because they are in the file. An importer
-> that *writes* them would produce a richer design than the reference and fail the byte-identity
-> diff — so the rule for a future writer is simply: **suppress every field that would come from
-> `GetMonsterKey`, and the per-class training flags.** `FruaCombatEvent.MonstersAreNotImported` and
-> `FruaTrainingHallEvent.ClassesAreNotImported` carry the note at the two places it bites hardest.
+> **This port imports them anyway, and that is the point.** `FruaDesign.Monster` resolves an index
+> the way `GetMonsterKey` was written to before it was disabled: the design's own
+> `MONST###.DAT` records first, keyed by the `monsterIndex` each file carries, then the 128-entry
+> stock `MonsterLabels` table. `MonstersIn` and `NpcIn` hand back what an event actually fields.
+> A design whose monsters were dropped is not a design that loaded, so reproducing the gap would
+> have been the wrong kind of faithfulness — see the exit criterion above.
 >
 > `NotImplemented` shows a message box, deduplicated per code, with `loopForever: false` at every
 > import site. `MsgBoxInfo` honours `g_headlessMode`, so under `-importfrua` all fourteen are
 > silent — which is only true because that flag sets it.
 
-> **A copy-paste defect in `addEncounterEvent`.** Its five buttons are handled by five near-copies
+> **A copy-paste defect in `addEncounterEvent`, fixed here rather than reproduced.** Its five buttons are handled by five near-copies
 > of one block, and two of them write to the wrong index: button 2's sets
 > `buttons[0].onlyUpClose` instead of `buttons[2]`'s, and **button 4's writes
 > `buttons[2].allowedUpClose` and `buttons[0].onlyUpClose` for both of its fields** — so the Talk
@@ -8331,21 +8355,24 @@ and the NPC family (`AddNpc`, `RemoveNpc`, `NpcSays`).
 > same first byte means different stock depending on what follows. The index table is extracted
 > from the C++ mechanically.
 
-**The reader side of Phase 6 is done.** Two types are left and neither wants a payload reader:
+**The reader side of Phase 6 is done — every one of the 35 event types reads**, and the design
+layer resolves the monster and NPC references the reference importer drops.
 
-> **`SmallTown` (3 events) is a generator, not a reader.** Its flag byte spawns up to six *child*
-> events — bit 1 a `TEMPLE`, 2 a `TRAININGHALL`, 4 a `SHOP`, 8 a `CAMP`, 16 a `TAVERN`, 32 a
-> `VAULT` — each chained to the parent and populated with **hard-coded English text**
-> (`"WELCOME TO THE TEMPLE"`, `"HOW MAY WE AID YOU?"`). Reproducing it means reproducing those
-> strings verbatim, which belongs with the writer rather than the reader.
+> **`SmallTown` is a generator, not a reader.** Its flag byte spawns up to six *child* events —
+> bit 1 a `TEMPLE`, 2 a `TRAININGHALL`, 4 a `SHOP`, 8 a `CAMP`, 16 a `TAVERN`, 32 a `VAULT` — each
+> chained to the parent and populated with **hard-coded English text**
+> (`"WELCOME TO THE TEMPLE"`, `"HOW MAY WE AID YOU?"`). Those strings are kept as named constants
+> on `FruaSmallTownEvent`, since a writer has to emit them and they exist nowhere in the data.
 
-> **`Encounter` (1 event) is skipped deliberately.** It is one of the three types the UAF engine
-> leaves inert, the corpus contains exactly one, and the reference's own button handling carries
-> the copy-paste defect noted above. Beyond that, **the byte-identity harness is the real gate** — the `.GLB`
-archives and `.XMI` music are outside the reference's own behaviour (see the note above) and so
-outside the exit criterion. `-importfrua` and `tools/frua-import-oracle.sh`
-exist and the C++ compiles green in CI, but **no run has yet demonstrably produced an imported
-design**, so nothing has been diffed.
+**Not ported:** the per-class training flags, on both `TrainingHall` and `SmallTown`'s generated
+one — the last of the reference's `NotImplemented` gaps, and by the same argument as the monsters
+they ought to be read rather than dropped. The `.GLB` archives and `.XMI` music are outside the
+reference's behaviour entirely (see the note above) and so outside this phase.
+
+**The harness is the remaining gate.** `-importfrua` and `tools/frua-import-oracle.sh` exist and
+the C++ compiles green in CI, but **no run has yet demonstrably produced an imported design**, so
+nothing has been diffed — and with the criterion now being "loads correctly, with every difference
+explained", that diff is how the unexplained ones get found.
 
 ### Phase 7 — Packaging and polish (1–2 months)
 
