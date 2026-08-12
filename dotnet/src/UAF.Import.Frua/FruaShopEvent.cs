@@ -44,7 +44,7 @@ public sealed record FruaShopEvent(
         for (int g = 0; g < StockGroups; g++)
         {
             int at = 9 + (g * 3);
-            Decode(items, e.Byte(at), e.Byte(at + 1), e.Byte(at + 2));
+            DecodeGroup(items, e.Byte(at), e.Byte(at + 1), e.Byte(at + 2));
         }
 
         return new FruaShopEvent(
@@ -55,8 +55,15 @@ public sealed record FruaShopEvent(
             ItemsAvailable: items);
     }
 
-    /// <summary>One three-byte group (<c>AssignShopItemBytes</c>).</summary>
-    private static void Decode(List<byte> items, byte first, byte second, byte third)
+    /// <summary>
+    /// One three-byte group (<c>AssignShopItemBytes</c>).
+    /// </summary>
+    /// <remarks>
+    /// Internal rather than private because a <see cref="FruaSmallTownEvent"/> generates a shop
+    /// too, and the reference calls the very same function for it — two groups there against this
+    /// event's four.
+    /// </remarks>
+    internal static void DecodeGroup(List<byte> items, byte first, byte second, byte third)
     {
         // A leading zero means the group is unused.
         if (first == 0)
