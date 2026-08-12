@@ -635,8 +635,62 @@ public class FruaEventPayloadTests
         Assert.Equal(FruaCostFactor.Mult2, t.CostFactor);
         Assert.Equal(2000, t.Cost);
 
-        // The class flags are read even though the reference throws them away.
+        // The class flags are read and decoded, where the reference discards them.
         Assert.Equal(0x3F, t.ClassFlags);
+    }
+
+    /// <summary>
+    /// A hall's six class bits decode, closing the last of the reference's disabled code.
+    /// </summary>
+    [Theory]
+    [InlineData(0, FruaTrainedClasses.None)]
+    [InlineData(1, FruaTrainedClasses.MagicUser)]
+    [InlineData(2, FruaTrainedClasses.Cleric)]
+    [InlineData(4, FruaTrainedClasses.Thief)]
+    [InlineData(8, FruaTrainedClasses.Fighter)]
+    [InlineData(16, FruaTrainedClasses.Paladin)]
+    [InlineData(32, FruaTrainedClasses.Ranger)]
+    public void A_training_halls_classes_are_decoded(byte flags, FruaTrainedClasses expected)
+    {
+        Assert.Equal(expected, FruaTrainingHallEvent.Read(Event(6, (9, flags))).Trains);
+    }
+
+    /// <summary>Bits above the six classes are not classes.</summary>
+    [Fact]
+    public void The_class_byte_ignores_its_top_two_bits()
+    {
+        var t = FruaTrainingHallEvent.Read(Event(6, (9, 0xC0 | 3)));
+
+        Assert.Equal(FruaTrainedClasses.MagicUser | FruaTrainedClasses.Cleric, t.Trains);
+    }
+
+    /// <summary>Every shipped hall names at least one class it teaches.</summary>
+    [Fact]
+    public void The_shipped_halls_teach_somebody()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int halls = 0;
+        int teaching = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events.Where(e => e.Type == FruaEventType.TrainingHall))
+            {
+                halls++;
+                if (FruaTrainingHallEvent.Read(e).Trains != FruaTrainedClasses.None)
+                {
+                    teaching++;
+                }
+            }
+        }
+
+        Assert.True(halls > 8, $"only {halls} training halls");
+        Assert.True(teaching > 0,
+                    "no shipped training hall teaches anybody, which would mean the byte is wrong");
     }
 
     /// <summary>Every shipped town-service event decodes into range.</summary>

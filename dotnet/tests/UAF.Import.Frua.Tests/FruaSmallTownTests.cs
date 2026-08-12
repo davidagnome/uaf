@@ -117,6 +117,19 @@ public class FruaSmallTownTests
         Assert.Equal(2000, t.TrainingCostValue);
     }
 
+    /// <summary>
+    /// The generated hall's classes decode, where the reference discards them.
+    /// </summary>
+    [Fact]
+    public void The_generated_halls_classes_are_decoded()
+    {
+        var t = FruaSmallTownEvent.Read(Make(22, (9, 1 | 8 | 32)));
+
+        Assert.Equal(
+            FruaTrainedClasses.MagicUser | FruaTrainedClasses.Fighter | FruaTrainedClasses.Ranger,
+            t.Trains);
+    }
+
     // ---- encounter ----------------------------------------------------------------------------
 
     [Fact]

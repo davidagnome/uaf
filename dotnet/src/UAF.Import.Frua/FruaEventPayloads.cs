@@ -108,8 +108,8 @@ public enum FruaSurprise
 /// <param name="Quantity">How many, in the low five bits of the slot's flag byte.</param>
 /// <param name="MonsterIndex">
 /// Which <c>MONST###.DAT</c> record, from the byte after the flags.
-/// <b>The reference reads this and throws it away</b> — see
-/// <see cref="FruaCombatEvent.MonstersAreNotImported"/>.
+/// <b>The reference reads this and throws it away; this port resolves it</b> — see
+/// <see cref="FruaCombatEvent.MonstersAreImportedHere"/> and <c>FruaDesign.MonstersIn</c>.
 /// </param>
 public readonly record struct FruaCombatMonster(int Quantity, byte MonsterIndex);
 
@@ -128,7 +128,7 @@ public sealed record FruaCombatEvent(
     IReadOnlyList<FruaCombatMonster> Monsters)
 {
     /// <summary>
-    /// <b>The reference importer does not import combat monsters at all.</b>
+    /// <b>The reference imports no combat monsters at all. This port does.</b>
     /// </summary>
     /// <remarks>
     /// <para>
@@ -139,10 +139,11 @@ public sealed record FruaCombatEvent(
     /// surprise and distance, and <b>no monsters</b>.
     /// </para>
     /// <para>
-    /// <b>This port reads the indices anyway</b>, because they are in the file and a reader that
-    /// discarded them would be throwing away data the format has. It matters for the byte-identity
-    /// exit criterion, though: an importer that <i>writes</i> those monsters out would produce a
-    /// richer design than the reference and fail the diff. The gap belongs in the writer, not here.
+    /// <b>The indices are read and resolved</b> — <c>FruaDesign.MonstersIn</c> turns them into
+    /// named monsters, against the design's own <c>MONST###.DAT</c> records first and the stock
+    /// <c>MonsterLabels</c> table second, which is the two-tier lookup <c>GetMonsterKey</c> was
+    /// written to do before it was disabled. A design whose monsters were dropped is not a design
+    /// that loaded.
     /// </para>
     /// <para>
     /// <c>NotImplemented</c> shows a message box, deduplicated per code. Every import call site
@@ -151,8 +152,8 @@ public sealed record FruaCombatEvent(
     /// dialogs.
     /// </para>
     /// </remarks>
-    public const string MonstersAreNotImported =
-        "addCombatEvent's monster assignments are commented out behind NotImplemented markers";
+    public const string MonstersAreImportedHere =
+        "addCombatEvent's monster assignments are commented out in the reference; resolved here";
 
     /// <summary>Reads the payload.</summary>
     public static FruaCombatEvent Read(FruaEvent e)
@@ -291,6 +292,28 @@ public sealed record FruaSpecialItemEvent(
             ObjectKind: FruaEvent.ObjectKind(obj),
             ObjectIndex: FruaEvent.ObjectIndex(obj));
     }
+}
+
+/// <summary>
+/// Which classes a training hall teaches
+/// (<c>addTrainingHallEvent</c>, <c>UAFWinEd/UAImport.cpp:3938</c>).
+/// </summary>
+/// <remarks>
+/// <b>The reference reads this byte into a local and throws it away</b> — all six assignments are
+/// commented out behind <c>NotImplemented</c>, in both the standalone hall and the one a
+/// <c>SmallTown</c> generates. Decoded here, because a hall that teaches nobody is not a hall that
+/// loaded. Listed as a deliberate divergence in the porting plan.
+/// </remarks>
+[Flags]
+public enum FruaTrainedClasses
+{
+    None = 0,
+    MagicUser = 1,
+    Cleric = 2,
+    Thief = 4,
+    Fighter = 8,
+    Paladin = 16,
+    Ranger = 32,
 }
 
 /// <summary>Who a damage event falls on.</summary>
@@ -603,21 +626,23 @@ public sealed record FruaTrainingHallEvent(
     public const int BaseCost = 1000;
 
     /// <summary>
-    /// <b>Which classes a hall trains is not imported.</b>
+    /// <b>The reference does not import which classes a hall trains. This port does.</b>
     /// </summary>
     /// <remarks>
     /// The six <c>data->TrainMagicUser = HasMask(temp, 1)</c> assignments are commented out behind
-    /// a <c>NotImplemented(0xea31b)</c> marker — one of the fourteen in <c>UAImport.cpp</c>. So a
-    /// training hall imported by the reference trains whatever the event class was constructed
-    /// with, and the flags byte at offset 9 is read into a local and discarded.
+    /// a <c>NotImplemented(0xea31b)</c> marker — one of the fourteen in <c>UAImport.cpp</c> — so a
+    /// hall imported by the reference teaches whatever the event class was constructed with, and
+    /// the flags byte at offset 9 is read into a local and discarded.
     /// <para>
-    /// <see cref="ClassFlags"/> carries that byte anyway, since it is in the file: bit 1 magic
-    /// user, 2 cleric, 4 thief, 8 fighter, 16 paladin, 32 ranger. As with the combat monsters,
-    /// a <i>writer</i> aiming at byte-identity would have to discard it again.
+    /// <see cref="Trains"/> decodes it: a hall that teaches nobody is not a hall that loaded.
+    /// Listed as a deliberate divergence in the porting plan.
     /// </para>
     /// </remarks>
-    public const string ClassesAreNotImported =
-        "addTrainingHallEvent's per-class flags are commented out behind NotImplemented(0xea31b)";
+    public const string ClassesAreImportedHere =
+        "addTrainingHallEvent's per-class flags are commented out in the reference; decoded here";
+
+    /// <summary>Which classes this hall teaches.</summary>
+    public FruaTrainedClasses Trains => (FruaTrainedClasses)(ClassFlags & 0x3F);
 
     /// <summary>The cost after the factor is applied to <see cref="BaseCost"/>.</summary>
     public double Cost => FruaCost.Multiplier(CostFactor) * BaseCost;

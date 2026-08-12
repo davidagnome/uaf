@@ -66,12 +66,15 @@ public sealed record FruaSmallTownEvent(
     public const string VaultText = "WELCOME TO THE VAULT";
 
     /// <summary>
-    /// <b>Which classes the generated training hall teaches is not imported</b>, the same
-    /// <c>NotImplemented</c> gap the standalone training hall has
-    /// (<c>NotImplemented(0x3cde3)</c>). The flag byte at offset 9 is carried here regardless.
+    /// <b>The generated training hall's classes are decoded here too</b>, the same
+    /// <c>NotImplemented</c> gap the standalone hall has (<c>NotImplemented(0x3cde3)</c>) and the
+    /// same reason for closing it.
     /// </summary>
-    public const string ClassesAreNotImported =
-        "addSmallTownEvent's generated training hall has its class flags commented out";
+    public const string ClassesAreImportedHere =
+        "addSmallTownEvent's generated hall has its class flags commented out; decoded here";
+
+    /// <summary>Which classes the generated training hall teaches.</summary>
+    public FruaTrainedClasses Trains => (FruaTrainedClasses)(TrainingClassFlags & 0x3F);
 
     /// <summary>The base price the training cost factor multiplies.</summary>
     public const int TrainingBaseCost = 1000;
