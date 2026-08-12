@@ -8193,7 +8193,18 @@ and the original C++ `UAFWinEd.exe`.
 `UAImport.cpp` (7,036 lines) reads original DOS FRUA data: `GAME001.DAT`, `GEOnnn.DAT`,
 `MONSTnnn.DAT`, `STRGnnn.DAT`, `items.dat`. These are exactly the files in
 `reference/…/DESIGNS/UA/HEIRS.DSN` and `TUTORIAL.DSN`. Art lives in the `.GLB` archives under
-`reference/…/GAME/UA/` and needs PCX/LBM decoding; music is `.XMI`.
+`reference/…/GAME/UA/`; music is `.XMI`.
+
+> **The reference importer does not read `.GLB`, and this section used to imply it did.** There is
+> no GLB reader anywhere in the C++ tree and no PCX or LBM decoder — the surviving `pcx` mentions
+> are comments and a list of recognised extensions. `CImportFRUAData::OnImportfruaart` opens a
+> **folder picker** and scans for art somebody has already extracted, by name:
+> `wa_Wall%u.png`, `bd_Background%u.png`, `dr_Door%u.png`, `ov_Overlay%u.png`.
+>
+> So unpacking `.GLB` and decoding PCX/LBM is **work beyond the reference**, not part of matching
+> it — and it cannot affect the byte-identity exit criterion, because there is no reference
+> behaviour to be identical to. It stays worth doing for a complete importer; it is simply not
+> Phase 6's contract. Treat it as its own item, sized separately.
 
 Case-insensitive asset resolution is required *here*, not in Phase 7 — see the filename-case note
 in §3.2. Build the directory index once per design and resolve every constructed filename through
@@ -8309,8 +8320,9 @@ across 21 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`Tr
 
 **Not ported yet:** 10 types, 38 events, none above 6 — and four of them (`AddNpc`, `RemoveNpc`,
 `NpcSays`, `SmallTown`) carry `NotImplemented` markers, so the reference imports them only
-partially anyway. Beyond that: the `.GLB` art archives (PCX/LBM), `.XMI` music, and **the
-byte-identity harness, which is the real gate**. `-importfrua` and `tools/frua-import-oracle.sh`
+partially anyway. Beyond that, **the byte-identity harness is the real gate** — the `.GLB`
+archives and `.XMI` music are outside the reference's own behaviour (see the note above) and so
+outside the exit criterion. `-importfrua` and `tools/frua-import-oracle.sh`
 exist and the C++ compiles green in CI, but **no run has yet demonstrably produced an imported
 design**, so nothing has been diffed.
 
@@ -8665,7 +8677,7 @@ What is left, in order:
 
      **The next slice is the remaining ~29 payload readers**, in corpus-frequency order:
      `PickOneCombat` (58), `SpecialItem` (33), `CombatTreasure` (32), then the long tail. After
-     those, the `.GLB` art archives (PCX/LBM) and `.XMI` music.
+     those, nothing else the reference itself does: `.GLB` art and `.XMI` music are beyond it.
 
      > **The exit criterion is the piece most at risk of being assumed done.** `-importfrua` is
      > committed and compiles — the Oracle build is green with it — and
