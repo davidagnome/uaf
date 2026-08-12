@@ -980,6 +980,109 @@ public class FruaEventPayloadTests
         Assert.True(seen > 9, $"only {seen} of the three types; expected ~13");
     }
 
+    // ---- who tries, and the NPC family -------------------------------------------------------
+
+    /// <summary>The fifteen-test ladder is a switch on bits 2 to 5.</summary>
+    [Theory]
+    [InlineData(0, FruaWhoTriesCheck.AlwaysSucceeds)]
+    [InlineData(4, FruaWhoTriesCheck.AlwaysFails)]
+    [InlineData(8, FruaWhoTriesCheck.Strength)]
+    [InlineData(32, FruaWhoTriesCheck.PickPockets)]
+    [InlineData(52, FruaWhoTriesCheck.HearNoise)]
+    [InlineData(60, FruaWhoTriesCheck.ReadLanguages)]
+    public void The_who_tries_ladder_is_a_switch_on_four_bits(byte flags,
+                                                              FruaWhoTriesCheck expected)
+    {
+        Assert.Equal(expected, FruaWhoTriesEvent.Read(Event(18, (8, flags))).Check);
+    }
+
+    /// <summary>Bits outside 2-5 do not disturb the check.</summary>
+    [Fact]
+    public void The_who_tries_check_ignores_the_other_bits()
+    {
+        // 64 is compareToDie, 1 and 2 are unused here.
+        var w = FruaWhoTriesEvent.Read(Event(18, (8, 32 | 64 | 1)));
+
+        Assert.Equal(FruaWhoTriesCheck.PickPockets, w.Check);
+        Assert.False(w.CompareToDie);   // inverted: the bit being set turns it OFF
+    }
+
+    [Fact]
+    public void Compare_to_die_is_inverted()
+    {
+        Assert.True(FruaWhoTriesEvent.Read(Event(18, (8, 0))).CompareToDie);
+        Assert.False(FruaWhoTriesEvent.Read(Event(18, (8, 64))).CompareToDie);
+    }
+
+    /// <summary>The NPC family packs distance at the bottom of the flags byte.</summary>
+    [Theory]
+    [InlineData(0, FruaCombatDistance.UpClose)]
+    [InlineData(1, FruaCombatDistance.Nearby)]
+    [InlineData(2, FruaCombatDistance.FarAway)]
+    public void An_npc_events_distance_is_bits_one_and_two(byte flags,
+                                                           FruaCombatDistance expected)
+    {
+        Assert.Equal(expected, FruaNpcEvent.Read(Event(13, (8, flags))).Distance);
+    }
+
+    [Fact]
+    public void An_add_npc_reads_its_index_and_hit_point_modifier()
+    {
+        var n = FruaNpcEvent.Read(Event(13, (9, 101), (10, 12)));
+
+        Assert.Equal(101, n.NpcIndex);
+        Assert.Equal(12, n.HitPointModifier);
+    }
+
+    /// <summary>An npc-says event keeps its index at offset 6 and has no hit-point modifier.</summary>
+    [Fact]
+    public void An_npc_says_keeps_its_index_at_offset_six()
+    {
+        var n = FruaNpcEvent.ReadSays(Event(14, (6, 108), (9, 99), (10, 99)));
+
+        Assert.Equal(108, n.NpcIndex);
+        Assert.Equal(0, n.HitPointModifier);
+    }
+
+    /// <summary>Every shipped who-tries and NPC event decodes.</summary>
+    [Fact]
+    public void The_shipped_who_tries_and_npc_events_decode()
+    {
+        if (Heirs() is not { } design)
+        {
+            return;
+        }
+
+        int seen = 0;
+
+        foreach (var (_, level) in FruaLevel.ReadAll(design))
+        {
+            foreach (var e in level.Events)
+            {
+                switch (e.Type)
+                {
+                    case FruaEventType.WhoTries:
+                        Assert.True(Enum.IsDefined(FruaWhoTriesEvent.Read(e).Check));
+                        seen++;
+                        break;
+                    case FruaEventType.AddNpc:
+                    case FruaEventType.RemoveNpc:
+                        FruaNpcEvent.Read(e);
+                        seen++;
+                        break;
+                    case FruaEventType.NpcSays:
+                        FruaNpcEvent.ReadSays(e);
+                        seen++;
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+
+        Assert.True(seen > 12, $"only {seen} who-tries/NPC events; expected ~16");
+    }
+
     // ---- the real DOS levels -----------------------------------------------------------------
 
     /// <summary>

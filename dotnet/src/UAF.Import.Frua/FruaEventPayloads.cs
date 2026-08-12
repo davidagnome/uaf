@@ -1017,6 +1017,112 @@ public sealed record FruaQuestionButtonEvent(
     }
 }
 
+/// <summary>What a who-tries event tests a character against.</summary>
+/// <remarks>
+/// The values are the stored byte's bits 2–5. The reference writes fifteen
+/// <c>HasMask</c> tests in descending order, but every mask is a multiple of four inside those
+/// bits, so the ladder is exactly a switch on <c>flags &amp; 60</c>.
+/// </remarks>
+public enum FruaWhoTriesCheck
+{
+    AlwaysSucceeds = 0,
+    AlwaysFails = 4,
+    Strength = 8,
+    Intelligence = 12,
+    Wisdom = 16,
+    Dexterity = 20,
+    Constitution = 24,
+    Charisma = 28,
+    PickPockets = 32,
+    OpenLocks = 36,
+    FindTraps = 40,
+    MoveSilently = 44,
+    HideInShadows = 48,
+    HearNoise = 52,
+    ClimbWalls = 56,
+    ReadLanguages = 60,
+}
+
+/// <summary>
+/// A <see cref="FruaEventType.WhoTries"/>'s payload
+/// (<c>addWhoTriesEvent</c>, <c>UAFWinEd/UAImport.cpp:3735</c>).
+/// </summary>
+public sealed record FruaWhoTriesEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaWhoTriesCheck Check, bool CompareToDie)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b><c>compareToDie</c> is inverted</b>, like the transfer family's yes/no and the rest
+    /// event's resting flag: the reference reads <c>!((temp &amp; 64) == 64)</c>, so the bit being
+    /// set turns the comparison off.
+    /// </remarks>
+    public static FruaWhoTriesEvent Read(FruaEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte raw = e.Byte(8);
+        byte flags = (byte)(raw & 127);
+
+        return new FruaWhoTriesEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (raw & 128) != 0,
+            Check: (FruaWhoTriesCheck)(flags & 60),
+            CompareToDie: (flags & 64) != 64);
+    }
+}
+
+/// <summary>
+/// The payload shared by <see cref="FruaEventType.AddNpc"/>,
+/// <see cref="FruaEventType.RemoveNpc"/> and <see cref="FruaEventType.NpcSays"/>
+/// (<c>addNPCEvent</c>/<c>addRemoveNPCEvent</c>/<c>addNPCSaysEvent</c>).
+/// </summary>
+/// <remarks>
+/// <b>The field that gives these events their meaning is not imported.</b> In all three, the only
+/// line the reference disables is the identity lookup — <c>GetMonsterKey(...)</c> — so an imported
+/// add-NPC event carries its text, picture and distance and <b>no NPC</b>. Everything else reads
+/// normally, which is why the reader is still worth having.
+/// <para>
+/// The index byte is read here regardless, since it is in the file; a writer aiming at
+/// byte-identity has to discard it again. See the <c>GetMonsterKey</c> rule in the porting plan.
+/// </para>
+/// </remarks>
+public sealed record FruaNpcEvent(
+    ushort TextSlot, byte PictureSlot, bool PictureIsLarge,
+    FruaCombatDistance Distance, byte NpcIndex, byte HitPointModifier)
+{
+    /// <summary>Reads the payload.</summary>
+    /// <remarks>
+    /// <b>The distance bits are 1 and 2 here, not 32 and 64</b> as they are on a combat or damage
+    /// event — the NPC family packs them at the bottom of the flags byte instead.
+    /// <para>
+    /// <c>NpcSays</c> keeps its index at offset 6 rather than 9, and has no hit-point modifier;
+    /// pass <paramref name="indexAt"/> accordingly.
+    /// </para>
+    /// </remarks>
+    public static FruaNpcEvent Read(FruaEvent e, int indexAt = 9)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        byte raw = e.Byte(8);
+        byte flags = (byte)(raw & 127);
+
+        return new FruaNpcEvent(
+            TextSlot: e.Word(5),
+            PictureSlot: e.Byte(7),
+            PictureIsLarge: (raw & 128) != 0,
+            Distance: (flags & 1) == 1 ? FruaCombatDistance.Nearby
+                    : (flags & 2) == 2 ? FruaCombatDistance.FarAway
+                    : FruaCombatDistance.UpClose,
+            NpcIndex: e.Byte(indexAt),
+            HitPointModifier: indexAt == 9 ? e.Byte(10) : (byte)0);
+    }
+
+    /// <summary>Reads an <see cref="FruaEventType.NpcSays"/>, whose index sits at offset 6.</summary>
+    public static FruaNpcEvent ReadSays(FruaEvent e) => Read(e, indexAt: 6);
+}
+
 /// <summary>Where a transfer event sends the party facing.</summary>
 public enum FruaTransferFacing
 {
