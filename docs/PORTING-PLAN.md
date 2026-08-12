@@ -39,11 +39,11 @@ criterion and it is now demonstrated rather than asserted.
 reads** — `game001.dat`, the level headers, the map cells, the six-bit string tables, the event
 records, `MONST###.DAT` and the item database — verified against the real `HEIRS.DSN` and
 `TUTORIAL.DSN`, with the case-insensitive filename resolution §3.2 calls a Phase 6 requirement.
-Twenty-four of the event types have their payloads read, covering ~97% of the corpus by frequency.
+Twenty-nine of the event types have their payloads read, covering 99.6% of the corpus by frequency.
 The byte-identity exit criterion is **not** met: `-importfrua` and `tools/frua-import-oracle.sh`
 exist and compile, but no run has yet produced an imported design to diff. Phases 5 and 7 have not
 started.
-**4,250 tests, green on macOS; both CI workflows green.**
+**4,264 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8307,15 +8307,18 @@ cells, the six-bit string tables, the 100 event records, `MONST###.DAT` and the 
 > `HEIRS.DSN` contains exactly **one** encounter event, and `EncounterEvent` is also one of the
 > three types the UAF engine leaves inert.
 
-**Payload coverage is ~97% of the corpus by frequency** — 1,015 of `HEIRS.DSN`'s 1,040 events —
-across 24 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`TransferModule`),
+**Payload coverage is 99.6% of the corpus by frequency** — 1,036 of `HEIRS.DSN`'s 1,040 events —
+across 29 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`TransferModule`),
 `Combat`, `PickOneCombat`, treasure (`GiveTreasure`/`CombatTreasure`), `SpecialItem`, `Damage`,
 `Sounds`, `QuestStage`, `Shop`, `Temple`, `TrainingHall`, `Utilities`, `GainExperience`,
-`QuestionYesNo`, `Vault`, `PassTime`, `GuidedTour`, `Tavern` and `QuestionButton`.
+`QuestionYesNo`, `Vault`, `PassTime`, `GuidedTour`, `Tavern`, `QuestionButton`, `WhoTries`,
+and the NPC family (`AddNpc`, `RemoveNpc`, `NpcSays`).
 
-> **Two of those needed no reader at all.** `PickOneCombat` is re-labelled `Combat` by the
+> **Three of those needed no reader at all.** `PickOneCombat` is re-labelled `Combat` by the
 > reference and sent to `addCombatEvent`; `ChainEvent`'s case is empty, its comment reading "no
-> data other than event chain and triggers", and that chain byte is already in the record header.
+> data other than event chain and triggers", and that chain byte is already in the record header;
+> and `addTavernTalesEvent` reads nothing from the payload whatever — it copies the event to a
+> global and sets a flag for the next `Tavern` event to collect.
 
 > **Three more fields are hard-coded rather than read**, in the same spirit as the
 > `NotImplemented` cluster: a gain-experience event's `chance` is assigned 100 outright, and a
@@ -8328,9 +8331,17 @@ across 24 types: `TextStatement`, the transfer family (`Teleporter`/`Stairs`/`Tr
 > same first byte means different stock depending on what follows. The index table is extracted
 > from the C++ mechanically.
 
-**Not ported yet:** 7 types, 25 events, none above 6 — and four of them (`AddNpc`, `RemoveNpc`,
-`NpcSays`, `SmallTown`) sit squarely on the disabled identity lookup above, so the reference
-imports them without the field that gives them meaning. Beyond that, **the byte-identity harness is the real gate** — the `.GLB`
+**The reader side of Phase 6 is done.** Two types are left and neither wants a payload reader:
+
+> **`SmallTown` (3 events) is a generator, not a reader.** Its flag byte spawns up to six *child*
+> events — bit 1 a `TEMPLE`, 2 a `TRAININGHALL`, 4 a `SHOP`, 8 a `CAMP`, 16 a `TAVERN`, 32 a
+> `VAULT` — each chained to the parent and populated with **hard-coded English text**
+> (`"WELCOME TO THE TEMPLE"`, `"HOW MAY WE AID YOU?"`). Reproducing it means reproducing those
+> strings verbatim, which belongs with the writer rather than the reader.
+
+> **`Encounter` (1 event) is skipped deliberately.** It is one of the three types the UAF engine
+> leaves inert, the corpus contains exactly one, and the reference's own button handling carries
+> the copy-paste defect noted above. Beyond that, **the byte-identity harness is the real gate** — the `.GLB`
 archives and `.XMI` music are outside the reference's own behaviour (see the note above) and so
 outside the exit criterion. `-importfrua` and `tools/frua-import-oracle.sh`
 exist and the C++ compiles green in CI, but **no run has yet demonstrably produced an imported
