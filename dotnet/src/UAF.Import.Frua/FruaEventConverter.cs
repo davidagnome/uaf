@@ -142,8 +142,9 @@ public static class FruaEventConverter
     }
 
     private static GameEventBase Base(FruaEvent source, EventType type, uint id,
-                                      string text, FruaDesign? design) =>
-        FruaEventControlConverter.Base(source, (int)type, id, text, design);
+                                      string text, FruaDesign? design,
+                                      (byte Slot, bool Has)? picture = null) =>
+        FruaEventControlConverter.Base(source, (int)type, id, text, design, picture);
 
     /// <summary>Resolves a string slot, giving empty for a missing table or an absent slot.</summary>
     /// <remarks>
@@ -167,7 +168,8 @@ public static class FruaEventConverter
         var payload = FruaTextEvent.Read(source, strings);
 
         return new TextEvent(
-            Base: Base(source, EventType.TextStatement, id, payload.Text, design),
+            Base: Base(source, EventType.TextStatement, id, payload.Text, design,
+                       (payload.PictureSlot, payload.PictureIsLarge)),
             WaitForReturn: payload.WaitForReturn ? 1 : 0,
             ForceBackup: payload.ForceBackup ? 1 : 0,
 
@@ -230,7 +232,8 @@ public static class FruaEventConverter
         var payload = FruaDamageEvent.Read(source);
 
         return new DamageEvent(
-            Base: Base(source, EventType.Damage, id, Text(strings, payload.TextSlot), design),
+            Base: Base(source, EventType.Damage, id, Text(strings, payload.TextSlot), design,
+                       (payload.PictureSlot, payload.PictureIsLarge)),
             NbrAttacks: payload.Attacks,
             ChancePerAttack: payload.ChancePerAttack,
             DmgDice: payload.DiceSides,
@@ -265,7 +268,8 @@ public static class FruaEventConverter
         var payload = FruaQuestEvent.Read(source);
 
         return new QuestEvent(
-            Base: Base(source, EventType.QuestStage, id, Text(strings, payload.TextSlot), design),
+            Base: Base(source, EventType.QuestStage, id, Text(strings, payload.TextSlot), design,
+                       (payload.PictureSlot, payload.PictureIsLarge)),
             Operation: (int)payload.Accept,
             CompleteOnAccept: payload.CompleteOnAccept ? 1 : 0,
             FailOnRejection: payload.FailOnRejection ? 1 : 0,
@@ -317,7 +321,8 @@ public static class FruaEventConverter
         var payload = FruaVaultEvent.Read(source);
 
         return new VaultEvent(
-            Base: Base(source, EventType.Vault, id, Text(strings, payload.TextSlot), design),
+            Base: Base(source, EventType.Vault, id, Text(strings, payload.TextSlot), design,
+                       (payload.PictureSlot, payload.PictureIsLarge)),
             ForceBackup: payload.ForceBackup ? 1 : 0,
 
             // FRUA has one vault; the engine numbers them from zero.

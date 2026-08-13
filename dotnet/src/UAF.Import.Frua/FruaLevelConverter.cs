@@ -74,8 +74,10 @@ public static class FruaLevelConverter
             Zones: Zones(level),
             Attributes: [],
             StepEvents: StepEvents(level),
-            WallSets: [],
-            BackgroundSets: [],
+
+            // Placeholder art, which is all the reference assigns -- see FruaArtConverter.
+            WallSets: FruaArtConverter.WallSets(level),
+            BackgroundSets: FruaArtConverter.Backgrounds(level),
             BlockageKeys: []);
     }
 

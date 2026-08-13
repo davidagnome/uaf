@@ -8392,6 +8392,7 @@ reader with two masters.
 | `FruaEventConverter` | `IGameEvent` | **All 35 types — every one of `HEIRS.DSN`'s 1,040 events** |
 | `FruaEventEnums` | engine ordinals | The reader enums that are not the engine's |
 | `FruaItemConverter` | `ItemRecord` / `ItemInstance` | The two item files flattened into one record |
+| `FruaArtConverter` | `WallSetSlot` / `BackgroundSlot` / `PicRecord` | The placeholder art the reference assigns |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
 that produces a design that loads and is quietly wrong:
@@ -8431,6 +8432,22 @@ using the stored count directly hands out a twentieth of the ammunition intended
 `DISK1` — and `HEIRS.DSN`, which every other importer test uses, has neither file. Runelord ships
 both, 254 items across 128 classes, and is the only fixture in the corpus that exercises this.
 
+**The reference does not import FRUA's art. It substitutes placeholders.** Worth stating plainly,
+because "art slots" sounds like a conversion and is not one: FRUA keeps its pictures in `.DAX`
+archives and `InitImportTables` (`UAImport.cpp:4405`) never opens them, filling every slot table
+with a path into the *editor's* template art instead. Most of those tables do not even vary by
+slot — the per-index `Format` calls for walls and doors are commented out, so all sixteen wall
+slots get `wa_Wall1.png` and all sixteen doors `dr_Door5.png`, and the small-picture loop has no
+`%i` at all, so every one of its 241 slots names `prt_SPic1.png`. Only backdrops keep a per-index
+name, falling back to the first when the file is missing. **Sounds are dropped entirely**:
+`AssignSound` opens with an unconditional `return` and its body is commented out, which is why
+every imported event's sound field is empty here rather than invented. Two traps in that small
+amount of code: an event's flag bit decides whether there is art *at all* rather than how big it
+is (`AssignPic` returns nothing when it is clear, whatever the slot says), and `SmallPicDib` is a
+**bit flag worth 1024**, not the twelfth entry in a list — writing its position would name
+`CombatDib`. **Extracting the real art would be a genuine improvement and a separate piece of
+work**, since it means decoding `.DAX`.
+
 **Three enums that look castable are not, and none of them fails loudly.** The reader's enums
 model FRUA's numbering and the engine's model its own; for most they agree, which is what makes
 the exceptions dangerous. `eventPartyAffectType` opens with `NoPartyMember`, so it is **off by one
@@ -8467,11 +8484,13 @@ sets `matchCase = FALSE` on an imported password, because FRUA's six-bit string 
 represent lower case at all — matching case-sensitively would make every imported password
 unanswerable.
 
-**Events and items are done.** All 35 FRUA event types read and convert, a converted level
-round-trips through `LevelFileWriter` and back, and treasure, shop stock and both creature paths
-now resolve their item ordinals. What remains of the conversion layer is art slots. Question and
-encounter buttons carry their actions but not their labels, a `SmallTown`'s six generated children
-are not yet emitted as separate chained events, and monsters carry items but no money. Carried
+**The conversion layer is complete.** All 35 FRUA event types read and convert, a converted level
+round-trips through `LevelFileWriter` and back with its cells, zones, events and art, treasure and
+shop stock and both creature paths resolve their item ordinals, and every slot table an imported
+design needs is filled. What remains is assembly — writing a converted design to disk as a set of
+files — plus three loose ends: question and encounter buttons carry their actions but not their
+labels, a `SmallTown`'s six generated children are not yet emitted as separate chained events, and
+monsters carry items but no money. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

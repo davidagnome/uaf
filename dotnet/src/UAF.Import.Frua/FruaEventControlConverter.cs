@@ -200,14 +200,26 @@ public static class FruaEventControlConverter
     /// another event in the same level, and which of the engine's two chain slots it lands in
     /// depends on the chain trigger — happened, not-happened, or both.
     /// </remarks>
+    /// <param name="picture">
+    /// The event's art slot and whether it names anything. The reference calls <c>AssignPic</c>
+    /// with both, and the flag rather than the slot is what decides — see
+    /// <see cref="FruaArtConverter.Picture"/>.
+    /// </param>
     public static GameEventBase Base(FruaEvent source, int eventType, uint id,
-                                     string text = "", FruaDesign? design = null)
+                                     string text = "", FruaDesign? design = null,
+                                     (byte Slot, bool Has)? picture = null)
     {
         ArgumentNullException.ThrowIfNull(source);
 
+        var pic = picture is { } p
+            ? FruaArtConverter.Picture(p.Slot, p.Has) ?? EmptyPicture
+            : EmptyPicture;
+
         return new GameEventBase(
             Control: Control(source, design),
-            Pic: EmptyPicture,
+            Pic: pic,
+
+            // FRUA names one picture per event; the engine's second slot has no source.
             Pic2: EmptyPicture,
             EventType: eventType,
             Id: id,
