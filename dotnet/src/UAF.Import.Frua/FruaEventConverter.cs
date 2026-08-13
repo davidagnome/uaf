@@ -178,6 +178,26 @@ public static class FruaEventConverter
             Sound: string.Empty);
     }
 
+    /// <summary>
+    /// A set of item ordinals, resolved against the design's database.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty slots are zeroes, not absences.</b> A treasure, a shop and a creature all carry
+    /// fixed-length ordinal arrays with unused entries left at zero, and
+    /// <see cref="FruaItemConverter.Instance"/> rejects those along with any ordinal the design
+    /// has no item for — so filtering is what it returns, not what the array looks like.
+    /// </remarks>
+    private static ItemInstance[] Items(IEnumerable<byte> ordinals, FruaDesign? design,
+                                        bool identified = false,
+                                        IReadOnlyList<byte>? quantities = null) =>
+        ordinals
+            .Select((ordinal, i) => FruaItemConverter.Instance(
+                ordinal, design?.Items,
+                quantities is not null && i < quantities.Count ? quantities[i] : 0,
+                identified))
+            .OfType<ItemInstance>()
+            .ToArray();
+
     private static IGameEvent Treasure(FruaEvent source, uint id, EventType type,
                                        FruaDesign? design)
     {
@@ -191,9 +211,8 @@ public static class FruaEventConverter
             // them.
             Money: new MoneySack(Coins(payload.Platinum), [], []),
 
-            // The eight item slots are ordinals into the design's item database -- see the class
-            // remarks on FruaCharacterConverter for why that pass has to come first.
-            Items: new ItemList([], ReadyItems.Empty),
+            Items: new ItemList(Items(payload.ItemSlots, design, payload.ItemsAreIdentified),
+                                ReadyItems.Empty),
             SilentGiveToActiveChar: 0);
     }
 
@@ -537,7 +556,11 @@ public static class FruaEventConverter
                 QtyBonus: 0,
                 UseQty: 1,
                 Money: null,
-                Items: new ItemList([], ReadyItems.Empty)))
+                Items: new ItemList(
+                    m.Monster.Record is { } record
+                        ? Items(record.ItemsCarried, design, quantities: record.ItemQuantities)
+                        : [],
+                    ReadyItems.Empty)))
             .ToArray();
     }
 
@@ -611,8 +634,9 @@ public static class FruaEventConverter
             CanAppraiseJewels: 0,
             BuyItemsSoldOnly: 0,
 
-            // The stock is a set of item ordinals -- see the class remarks on the item pass.
-            ItemsAvailable: new ItemList([], ReadyItems.Empty));
+            // A shop's stock is identified: the party can see what it is buying.
+            ItemsAvailable: new ItemList(Items(payload.ItemsAvailable, design, identified: true),
+                                         ReadyItems.Empty));
     }
 
     private static IGameEvent Temple(FruaEvent source, uint id, FruaStringTable? strings,

@@ -16,11 +16,11 @@ namespace UAF.Import.Frua;
 /// abilities, classes and levels. <see cref="FruaCharacter.IsMonster"/> is that test.
 /// </para>
 /// <para>
-/// <b>Carried items are deferred.</b> Both reference paths call <c>AssignItem</c>, which resolves
-/// a FRUA item ordinal against the design's item database and multiplies the quantity by that
-/// item's bundle size. That needs the item conversion pass, so both projections here carry an
-/// empty item list — <see cref="FruaCharacter.ItemsCarried"/> and
-/// <see cref="FruaCharacter.ItemQuantities"/> keep the ordinals for it to use.
+/// <b>Carried items need the design's database.</b> Both reference paths call <c>AssignItem</c>,
+/// which resolves a FRUA item ordinal against <c>item.dat</c> and multiplies the quantity by that
+/// item's bundle size — so both projections take an optional
+/// <see cref="FruaItemDatabase"/> and carry nothing without one, which is what a caller converting
+/// a creature in isolation gets.
 /// </para>
 /// </remarks>
 public static class FruaCharacterConverter
@@ -31,7 +31,8 @@ public static class FruaCharacterConverter
 
     /// <summary>Converts a monster.</summary>
     /// <param name="creature">A record for which <see cref="FruaCharacter.IsMonster"/> holds.</param>
-    public static MonsterRecord ToMonster(FruaCharacter creature)
+    /// <param name="items">The design's item database, for what the creature carries.</param>
+    public static MonsterRecord ToMonster(FruaCharacter creature, FruaItemDatabase? items = null)
     {
         ArgumentNullException.ThrowIfNull(creature);
 
@@ -68,7 +69,7 @@ public static class FruaCharacterConverter
             UndeadType: UndeadFromName(creature.Name),
             SpecialAbilities: new SpecabBlock([], [], []),
             Attributes: [],
-            Items: new ItemList([], ReadyItems.Empty),
+            Items: new ItemList(Carried(creature, items), ReadyItems.Empty),
             Money: null);
     }
 
@@ -80,7 +81,9 @@ public static class FruaCharacterConverter
     /// A record for which <see cref="FruaCharacter.IsMonster"/> does not hold — which includes any
     /// creature whose race is not 6, whatever its combat mode.
     /// </param>
-    public static CharacterRecord ToCharacter(FruaCharacter creature)
+    /// <param name="items">The design's item database, for what the creature carries.</param>
+    public static CharacterRecord ToCharacter(FruaCharacter creature,
+                                              FruaItemDatabase? items = null)
     {
         ArgumentNullException.ThrowIfNull(creature);
 
@@ -170,7 +173,7 @@ public static class FruaCharacterConverter
             SpellEffects: [],
             Blockages: [],
             SmallPic: EmptyPicture,
-            Items: new ItemList([], ReadyItems.Empty),
+            Items: new ItemList(Carried(creature, items), ReadyItems.Empty),
             SpecialAbilities: new SpecabBlock([], [], []),
             Attributes: []);
     }
@@ -314,6 +317,21 @@ public static class FruaCharacterConverter
         stats[^1] = new BaseclassStats("Druid", 0, 0, 0, 0);
         return stats;
     }
+
+    /// <summary>
+    /// The sixteen items a creature carries, resolved against the design's database.
+    /// </summary>
+    /// <remarks>
+    /// <b>The quantity is bundles.</b> Both reference paths multiply the stored count by the
+    /// item's own bundle size (<c>GetItemBundleQty</c>), so a creature carrying one bundle of
+    /// twenty arrows has twenty — not one. Empty slots are zeroes and drop out.
+    /// </remarks>
+    private static ItemInstance[] Carried(FruaCharacter creature, FruaItemDatabase? items) =>
+        creature.ItemsCarried
+            .Select((ordinal, i) => FruaItemConverter.Instance(
+                ordinal, items, creature.ItemQuantities[i]))
+            .OfType<ItemInstance>()
+            .ToArray();
 
     /// <summary>
     /// One attack per pair of attacks-per-two-rounds, all sharing the same damage dice.

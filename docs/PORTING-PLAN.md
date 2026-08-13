@@ -8390,7 +8390,8 @@ reader with two masters.
 | `FruaCharacterConverter` | `MonsterRecord` / `CharacterRecord` | Both branches of `ImportMonsterToUAF` |
 | `FruaEventControlConverter` | `GameEventBase` / `EventControl` | The base every one of the 35 types shares |
 | `FruaEventConverter` | `IGameEvent` | **All 35 types — every one of `HEIRS.DSN`'s 1,040 events** |
-| `FruaEventEnums` | engine ordinals | The five reader enums that are not the engine's |
+| `FruaEventEnums` | engine ordinals | The reader enums that are not the engine's |
+| `FruaItemConverter` | `ItemRecord` / `ItemInstance` | The two item files flattened into one record |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
 that produces a design that loads and is quietly wrong:
@@ -8414,6 +8415,21 @@ that produces a design that loads and is quietly wrong:
   for 8→1 all the way to 128→16. But the engine interleaves `ClassNotInParty` at 17, which FRUA
   cannot express, so FRUA's 136 is the engine's **18**. A shortcut correct for every value a
   spot-check would try is exactly the kind that survives review, so the table is written out.
+
+**Items are two files in FRUA and one record in the engine.** `item.dat` holds the per-item record
+— names, price, charges — and `items.dat` a shared *class* record with the damage dice, slot and
+weapon behaviour, so several items are the same kind of thing at different prices.
+`FruaItemConverter` takes both. Three details there are easy to get wrong and none of them fails
+loudly: a **readied location is a packed BASE38 word, not an ordinal** — FRUA's slots 0–10 line up
+one for one with `itemLocationType`, which makes a cast look right and produce a slot that names
+nothing; a **magic bonus is signed in a byte**, so a cursed sword stored as 255 is −1 rather than
++255; and a **quantity counts bundles, not pieces**, so twenty arrows is one bundle of twenty and
+using the stored count directly hands out a twentieth of the ammunition intended.
+
+**The item fixture is `RUNELORD.DSN`, not `HEIRS.DSN`.** Most designs ship no item database at all
+— a design that adds no items of its own inherits the stock ones from the FRUA installation's
+`DISK1` — and `HEIRS.DSN`, which every other importer test uses, has neither file. Runelord ships
+both, 254 items across 128 classes, and is the only fixture in the corpus that exercises this.
 
 **Three enums that look castable are not, and none of them fails loudly.** The reader's enums
 model FRUA's numbering and the engine's model its own; for most they agree, which is what makes
@@ -8451,12 +8467,11 @@ sets `matchCase = FALSE` on an imported password, because FRUA's six-bit string 
 represent lower case at all — matching case-sensitively would make every imported password
 unanswerable.
 
-**Events are done.** All 35 FRUA event types read and convert, and a converted level round-trips
-through `LevelFileWriter` and back. What remains of the conversion layer is items and art slots.
-Several events carry structure without contents until the item pass lands: treasure item slots,
-shop stock, per-monster money and items. Question and encounter buttons carry their actions but
-not their labels, and a `SmallTown`'s six generated children are not yet emitted as separate
-chained events. Carried
+**Events and items are done.** All 35 FRUA event types read and convert, a converted level
+round-trips through `LevelFileWriter` and back, and treasure, shop stock and both creature paths
+now resolve their item ordinals. What remains of the conversion layer is art slots. Question and
+encounter buttons carry their actions but not their labels, a `SmallTown`'s six generated children
+are not yet emitted as separate chained events, and monsters carry items but no money. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.
