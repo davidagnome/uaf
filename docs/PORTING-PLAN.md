@@ -8389,7 +8389,8 @@ reader with two masters.
 | `FruaGameDataConverter` | `GlobalStatsPrefix` | Design name, start position, money, keys and items |
 | `FruaCharacterConverter` | `MonsterRecord` / `CharacterRecord` | Both branches of `ImportMonsterToUAF` |
 | `FruaEventControlConverter` | `GameEventBase` / `EventControl` | The base every one of the 35 types shares |
-| `FruaEventConverter` | `IGameEvent` | 15 of the 35 types — **745 of `HEIRS.DSN`'s 1,040 events** |
+| `FruaEventConverter` | `IGameEvent` | 25 of the 35 types — **987 of `HEIRS.DSN`'s 1,040 events** |
+| `FruaEventEnums` | engine ordinals | The five reader enums that are not the engine's |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
 that produces a design that loads and is quietly wrong:
@@ -8410,6 +8411,17 @@ that produces a design that loads and is quietly wrong:
   cannot express, so FRUA's 136 is the engine's **18**. A shortcut correct for every value a
   spot-check would try is exactly the kind that survives review, so the table is written out.
 
+**Three enums that look castable are not, and none of them fails loudly.** The reader's enums
+model FRUA's numbering and the engine's model its own; for most they agree, which is what makes
+the exceptions dangerous. `eventPartyAffectType` opens with `NoPartyMember`, so it is **off by one
+throughout** — cast straight through, every whole-party damage event affects nobody.
+`spellSaveEffectType` orders `SaveNegates` *before* `SaveForHalf`, so the two middle values are
+swapped while both ends agree. `spellSaveVersusType` puts spell fourth and breath fifth where FRUA
+stores breath fourth. All three were live defects in the first draft of the event converter, found
+by checking each enum against `GameRules.h` rather than trusting the cast; `FruaEventEnums` now
+translates every one explicitly, including the two that *do* line up, so agreement is asserted
+rather than assumed.
+
 **An unmapped event type is dropped, not stubbed.** `FruaEventConverter.Convert` returns null for a
 type it has no mapping for, and `Converts` names the mapped set so a caller can report coverage
 rather than discovering gaps as silence; a test asserts the two cannot drift apart. A cell whose
@@ -8423,10 +8435,11 @@ test reads its bodies back through `EventBodyReader` rather than declining them,
 makes it a real check: an event body carries no length prefix, so a mis-written field
 desynchronises every event after it rather than corrupting one.
 
-**Still to convert:** the remaining 20 event payload types — the large ones (`Shop`, `SmallTown`,
-`Encounter`, `TrainingHall`, `Temple`, `Tavern`, `Combat`, `Utilities`, `NpcSays`, `GuidedTour`,
-`QuestionButton`, `WhoTries`) plus the several with no engine writer yet — then items, and art
-slots. Carried
+**Still to convert:** ten event types, all of them the town services and the two rarest — measured
+across `HEIRS.DSN` as `Shop` 15, `Temple` 12, `TrainingHall` 11, `TavernTales` 5, `Tavern` 4,
+`SmallTown` 3, `WhoTries` 2, `Encounter` 1, plus `WhoPays` and `EnterPassword` which the design
+does not use at all. Four of those (`Encounter`, `SmallTown`, `TavernTales`, `WhoTries`) have no
+engine writer either. Then items, and art slots. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

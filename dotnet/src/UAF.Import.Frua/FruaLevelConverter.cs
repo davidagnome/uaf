@@ -140,6 +140,14 @@ public static class FruaLevelConverter
         ChainEvent c => c.Base,
         CampEvent c => c.Base,
         TransferEvent t => t.Base,
+        AddNpcEvent a => a.Base,
+        RemoveNpcEvent r => r.Base,
+        NpcSaysEvent n => n.Base,
+        SpecialItemEvent s => s.Base,
+        UtilitiesEvent u => u.Base,
+        CombatEvent c => c.Base,
+        GuidedTour g => g.Base,
+        QuestionEvent q => q.Base,
         _ => throw new InvalidOperationException(
             $"FruaLevelConverter has no base accessor for {body.GetType().Name}"),
     };

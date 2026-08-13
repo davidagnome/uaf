@@ -48,6 +48,16 @@ public static class FruaEventConverter
         FruaEventType.Stairs,
         FruaEventType.Teleporter,
         FruaEventType.TransferModule,
+        FruaEventType.AddNpc,
+        FruaEventType.RemoveNpc,
+        FruaEventType.NpcSays,
+        FruaEventType.SpecialItem,
+        FruaEventType.Utilities,
+        FruaEventType.Combat,
+        FruaEventType.PickOneCombat,
+        FruaEventType.GuidedTour,
+        FruaEventType.QuestionButton,
+        FruaEventType.QuestionList,
     };
 
     /// <summary>
@@ -87,6 +97,24 @@ public static class FruaEventConverter
             FruaEventType.Teleporter => Transfer(source, id, EventType.Teleporter, strings, design),
             FruaEventType.TransferModule =>
                 Transfer(source, id, EventType.TransferModule, strings, design),
+
+            FruaEventType.AddNpc => AddNpc(source, id, strings, design),
+            FruaEventType.RemoveNpc => RemoveNpc(source, id, strings, design),
+            FruaEventType.NpcSays => NpcSays(source, id, strings, design),
+            FruaEventType.SpecialItem => SpecialItem(source, id, strings, design),
+            FruaEventType.Utilities => Utilities(source, id, design),
+
+            // PickOneCombat is an obsoleted type the engine folds into Combat; both read the same
+            // payload, and the reference keeps the ordinals apart only so a design round-trips.
+            FruaEventType.Combat => Combat(source, id, EventType.Combat, strings, design),
+            FruaEventType.PickOneCombat =>
+                Combat(source, id, EventType.PickOneCombat, strings, design),
+
+            FruaEventType.GuidedTour => Tour(source, id, design),
+            FruaEventType.QuestionButton =>
+                Question(source, id, EventType.QuestionButton, strings, design),
+            FruaEventType.QuestionList =>
+                Question(source, id, EventType.QuestionList, strings, design),
 
             _ => null,
         };
@@ -170,10 +198,12 @@ public static class FruaEventConverter
             DmgBonus: payload.DamageBonus,
             SaveBonus: payload.SaveBonus,
             AttackThac0: payload.Thac0,
-            EventSave: (int)payload.Save,
-            SpellSave: (int)payload.SpellSave,
-            Who: (int)payload.Target,
-            Distance: (int)payload.Distance);
+            // None of these four may be cast: three of the reader's enums disagree with the
+            // engine's numbering -- see FruaEventEnums.
+            EventSave: FruaEventEnums.SaveEffect(payload.Save),
+            SpellSave: FruaEventEnums.SpellSaveVersus(payload.SpellSave),
+            Who: FruaEventEnums.PartyAffect(payload.Target),
+            Distance: FruaEventEnums.Distance(payload.Distance));
     }
 
     private static IGameEvent Sounds(FruaEvent source, uint id, FruaDesign? design)
@@ -219,8 +249,9 @@ public static class FruaEventConverter
             // Hard-coded by the reference rather than read -- see FruaGainExperienceEvent.
             Chance: FruaGainExperienceEvent.Chance,
 
-            // The engine's eventPartyAffectType: 0 is the whole party, 1 the active character.
-            Who: payload.ActiveCharacterOnly ? 1 : 0);
+            // Not a bare 0/1: the engine's list opens with NoPartyMember, so the whole party is
+            // 1 and the active character 2.
+            Who: FruaEventEnums.PartyAffect(payload.ActiveCharacterOnly));
     }
 
     private static IGameEvent YesNo(FruaEvent source, uint id, FruaStringTable? strings,
@@ -231,8 +262,8 @@ public static class FruaEventConverter
         return new YesNoEvent(
             Base: Base(source, EventType.QuestionYesNo, id,
                        Text(strings, payload.TextSlot), design),
-            YesChainAction: (int)payload.OnYes,
-            NoChainAction: (int)payload.OnNo,
+            YesChainAction: FruaEventEnums.PostChainAction(payload.OnYes),
+            NoChainAction: FruaEventEnums.PostChainAction(payload.OnNo),
 
             // FRUA's yes and no branches name text to show, not events to chain to; the single
             // chain byte every event has is the only jump it can express.
@@ -303,5 +334,240 @@ public static class FruaEventConverter
                 DestX: payload.DestinationX,
                 DestY: payload.DestinationY,
                 Facing: (int)payload.Facing));
+    }
+
+    /// <summary>
+    /// The name of the NPC an event refers to, resolved through the design.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is one of the reference's nine disabled lookups.</b> Its
+    /// <c>data->charAdded = GetMonsterKey(...)</c> and <c>data->charRemoved = ...</c> are both
+    /// commented out behind <c>NotImplemented</c> markers, so a design imported by the reference
+    /// gets add- and remove-NPC events that name nobody. <see cref="FruaDesign.NpcIn"/> resolves
+    /// them; without a design there is nothing to resolve against and the name stays empty.
+    /// </remarks>
+    private static string NpcName(FruaNpcEvent payload, FruaDesign? design) =>
+        design?.NpcIn(payload)?.Name ?? string.Empty;
+
+    private static IGameEvent AddNpc(FruaEvent source, uint id, FruaStringTable? strings,
+                                     FruaDesign? design)
+    {
+        var payload = FruaNpcEvent.Read(source);
+
+        return new AddNpcEvent(
+            Base: Base(source, EventType.AddNpc, id, Text(strings, payload.TextSlot), design),
+
+            // The engine's operation selects add, remove or replace; a FRUA add-NPC event only
+            // ever adds, which is what its own event type already says.
+            Operation: 0,
+            CharacterId: NpcName(payload, design),
+            HitPointMod: payload.HitPointModifier,
+
+            // FRUA carries no edited copy of the NPC, so the design's own record is the one used.
+            UseOriginal: 1);
+    }
+
+    private static IGameEvent RemoveNpc(FruaEvent source, uint id, FruaStringTable? strings,
+                                        FruaDesign? design)
+    {
+        var payload = FruaNpcEvent.Read(source);
+
+        return new RemoveNpcEvent(
+            Base: Base(source, EventType.RemoveNPCEvent, id,
+                       Text(strings, payload.TextSlot), design),
+            Distance: FruaEventEnums.Distance(payload.Distance),
+            CharacterId: NpcName(payload, design));
+    }
+
+    private static IGameEvent NpcSays(FruaEvent source, uint id, FruaStringTable? strings,
+                                      FruaDesign? design)
+    {
+        var payload = FruaNpcEvent.Read(source);
+
+        return new NpcSaysEvent(
+            Base: Base(source, EventType.NPCSays, id, Text(strings, payload.TextSlot), design),
+            CharacterId: NpcName(payload, design),
+            Distance: FruaEventEnums.Distance(payload.Distance),
+            Sound: string.Empty,
+            MustHitReturn: 1,
+
+            // FRUA highlights inline with /h markers rather than flagging the whole event.
+            Highlight: 0);
+    }
+
+    /// <summary>
+    /// A special-item event, which gives or takes exactly one object.
+    /// </summary>
+    /// <remarks>
+    /// <b>The engine's event holds a list; FRUA's holds one.</b> The engine can give several
+    /// objects at once, so the single FRUA object becomes a one-element list rather than the
+    /// converter inventing companions for it.
+    /// </remarks>
+    private static IGameEvent SpecialItem(FruaEvent source, uint id, FruaStringTable? strings,
+                                          FruaDesign? design)
+    {
+        var payload = FruaSpecialItemEvent.Read(source);
+
+        return new SpecialItemEvent(
+            Base: Base(source, EventType.SpecialItem, id, Text(strings, payload.TextSlot), design),
+            Items: [Object(payload.ObjectKind, payload.ObjectIndex, (byte)payload.Operation)],
+            ForceExit: 0,
+            WaitForReturn: 1);
+    }
+
+    /// <summary>
+    /// One key, special item or quest, as the engine's <c>SPECIAL_OBJECT_EVENT</c>.
+    /// </summary>
+    /// <remarks>
+    /// The <c>ItemType</c> byte is the engine's own discriminator, and its order is the same one
+    /// FRUA's single numbering is carved into: keys, then items, then quests.
+    /// </remarks>
+    private static SpecialObjectEvent Object(FruaObjectKind kind, int index, byte operation) =>
+        new(ItemType: (byte)kind, Operation: operation, Index: index, Id: index + 1);
+
+    private static IGameEvent Utilities(FruaEvent source, uint id, FruaDesign? design)
+    {
+        var payload = FruaUtilitiesEvent.Read(source);
+
+        // The four checked objects share the trigger byte's numbering, and an unset slot is zero
+        // rather than absent -- so the empty ones are dropped rather than tested for key zero.
+        var checks = payload.CheckedObjects
+            .Where(o => o > 0)
+            .Select(o => Object(FruaEvent.ObjectKind(o), FruaEvent.ObjectIndex(o), 0))
+            .ToArray();
+
+        return new UtilitiesEvent(
+            Base: Base(source, EventType.Utilities, id, string.Empty, design),
+            EndPlay: payload.EndPlay ? 1 : 0,
+            Operation: (int)payload.Operation,
+            ItemCheck: (int)payload.ItemCheck,
+            MathItemType: (byte)payload.MathObjectKind,
+
+            // FRUA's arithmetic writes its result back into the object it read, so the two
+            // halves of the engine's operation name the same thing.
+            ResultItemType: (byte)payload.MathObjectKind,
+            MathAmount: payload.MathAmount,
+            MathItemIndex: payload.MathObjectIndex,
+            ResultItemIndex: payload.MathObjectIndex,
+            Items: checks);
+    }
+
+    private static IGameEvent Combat(FruaEvent source, uint id, EventType type,
+                                     FruaStringTable? strings, FruaDesign? design)
+    {
+        var payload = FruaCombatEvent.Read(source);
+
+        return new CombatEvent(
+            Base: Base(source, type, id, Text(strings, payload.TextSlot), design),
+            DeathSound: string.Empty,
+            MoveSound: string.Empty,
+            TurnUndeadSound: string.Empty,
+            Distance: FruaEventEnums.Distance(payload.Distance),
+
+            // FRUA gives no facing for a combat; the engine's zero is its own default.
+            Direction: 0,
+            Surprise: FruaEventEnums.Surprise(payload.Surprise),
+            AutoApproach: payload.AutoApproach ? 1 : 0,
+            Outdoors: payload.Outdoors ? 1 : 0,
+            NoMonsterTreasure: payload.NoMonsterTreasure ? 1 : 0,
+            PartyNeverDies: payload.PartyNeverDies ? 1 : 0,
+            NoMagic: payload.NoMagic ? 1 : 0,
+            MonsterMorale: payload.MonsterMorale,
+            TurningMod: 0,
+            RandomMonster: 0,
+            PartyNoExperience: 0,
+            BackgroundSounds: new BackgroundSoundData([], [], 0, 0, 0),
+            Monsters: Monsters(payload, design));
+    }
+
+    /// <summary>
+    /// The monsters a combat fields, resolved against the design.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference imports none of these.</b> Its monster assignment is the largest of the
+    /// nine disabled <c>GetMonsterKey</c> lookups, so a combat imported by the reference has
+    /// quantities and no monsters. Without a design there is nothing to resolve against and the
+    /// list is empty — which is the reference's own outcome, reached honestly.
+    /// </remarks>
+    private static MonsterEvent[] Monsters(FruaCombatEvent payload, FruaDesign? design)
+    {
+        if (design is null)
+        {
+            return [];
+        }
+
+        return design.MonstersIn(payload)
+            .Select(m => new MonsterEvent(
+                Quantity: m.Quantity,
+
+                // The engine's MONSTER_TYPE and NPC_TYPE, which is the same split
+                // ImportMonsterToUAF makes when it decides where the record goes.
+                Type: m.Monster.IsNpc ? FruaCharacterConverter.NpcType : MonsterType,
+                MonsterId: m.Monster.IsNpc ? string.Empty : m.Monster.Name,
+                CharacterId: m.Monster.IsNpc ? m.Monster.Name : string.Empty,
+
+                // FRUA's encounters are hostile; friendly monsters are an engine feature.
+                Friendly: 0,
+                MoraleAdjustment: 0,
+
+                // A fixed quantity, not a rolled one -- FRUA states the number outright.
+                QtyDiceSides: 0,
+                QtyDiceQty: 0,
+                QtyBonus: 0,
+                UseQty: 1,
+                Money: null,
+                Items: new ItemList([], ReadyItems.Empty)))
+            .ToArray();
+    }
+
+    /// <summary><c>MONSTER_TYPE</c> — the counterpart to <c>NPC_TYPE</c>.</summary>
+    public const int MonsterType = 1;
+
+    private static IGameEvent Tour(FruaEvent source, uint id, FruaDesign? design)
+    {
+        var payload = FruaGuidedTourEvent.Read(source);
+
+        // The engine's step carries a label the editor shows; FRUA's is a bare direction, so the
+        // enum's own name is the only text there is to give it.
+        var steps = payload.Steps
+            .Select(s => new TourStep(s.ToString(), (int)s))
+            .ToArray();
+
+        return new GuidedTour(
+            Base: Base(source, EventType.GuidedTour, id, string.Empty, design),
+            TourX: payload.StartX,
+            TourY: payload.StartY,
+            Facing: payload.Facing == FruaFacing.Unknown ? 0 : (int)payload.Facing,
+            UseStartLocation: payload.UseStartLocation ? 1 : 0,
+            ExecuteEvent: payload.ExecuteEvent ? 1 : 0,
+            Steps: steps);
+    }
+
+    /// <summary>
+    /// A question event, whose five buttons are always present.
+    /// </summary>
+    /// <remarks>
+    /// <b>All five buttons exist whether or not the design uses them.</b> The reference sets
+    /// <c>numListButtons = 5</c> and marks every one present before reading anything, so an unused
+    /// button is one with an empty label rather than one that is absent.
+    /// </remarks>
+    private static IGameEvent Question(FruaEvent source, uint id, EventType type,
+                                       FruaStringTable? strings, FruaDesign? design)
+    {
+        var payload = FruaQuestionButtonEvent.Read(source);
+
+        var options = payload.ButtonActions
+            .Select(a => new QuestionOption(
+                Label: string.Empty,
+                Present: 1,
+                PostChainAction: FruaEventEnums.PostChainAction(a),
+                Chain: 0))
+            .ToArray();
+
+        return new QuestionEvent(
+            Base: Base(source, type, id, Text(strings, payload.TextSlot), design),
+            Title: Text(strings, payload.LabelSlot),
+            NumButtons: options.Length,
+            Options: options);
     }
 }

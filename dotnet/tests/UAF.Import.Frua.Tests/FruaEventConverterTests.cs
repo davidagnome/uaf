@@ -194,6 +194,16 @@ public class FruaEventConverterTests
     [InlineData(FruaEventType.Stairs, EventType.Stairs)]
     [InlineData(FruaEventType.Teleporter, EventType.Teleporter)]
     [InlineData(FruaEventType.TransferModule, EventType.TransferModule)]
+    [InlineData(FruaEventType.AddNpc, EventType.AddNpc)]
+    [InlineData(FruaEventType.RemoveNpc, EventType.RemoveNPCEvent)]
+    [InlineData(FruaEventType.NpcSays, EventType.NPCSays)]
+    [InlineData(FruaEventType.SpecialItem, EventType.SpecialItem)]
+    [InlineData(FruaEventType.Utilities, EventType.Utilities)]
+    [InlineData(FruaEventType.Combat, EventType.Combat)]
+    [InlineData(FruaEventType.PickOneCombat, EventType.PickOneCombat)]
+    [InlineData(FruaEventType.GuidedTour, EventType.GuidedTour)]
+    [InlineData(FruaEventType.QuestionButton, EventType.QuestionButton)]
+    [InlineData(FruaEventType.QuestionList, EventType.QuestionList)]
     public void The_engine_event_type_is_carried(FruaEventType from, EventType to)
     {
         var converted = FruaEventConverter.Convert(Synthetic() with { Type = from }, 1);
@@ -315,6 +325,7 @@ public class FruaEventConverterTests
 
         int converted = 0;
         int unclaimed = 0;
+        var remaining = new List<FruaEventType>();
 
         foreach (var level in levels)
         {
@@ -330,6 +341,7 @@ public class FruaEventConverterTests
                 if (result is null)
                 {
                     Assert.DoesNotContain(source.Type, FruaEventConverter.Converts);
+                    remaining.Add(source.Type);
                     unclaimed++;
                 }
                 else
@@ -342,8 +354,14 @@ public class FruaEventConverterTests
 
         // 745 of the design's 1,040 events, measured. The floor guards against a regression
         // silently dropping a whole type; raise it as more types are mapped.
-        Assert.True(converted >= 745,
-                    $"coverage fell: {converted} converted, {unclaimed} unclaimed");
+        // 987 of the design's 1,040 events, measured. The 53 left are the six town-service
+        // types plus the two rarest: Shop 15, Temple 12, TrainingHall 11, TavernTales 5,
+        // Tavern 4, SmallTown 3, WhoTries 2, Encounter 1. Raise the floor as those are mapped.
+        Assert.True(converted >= 987,
+                    $"coverage fell: {converted} converted, {unclaimed} unclaimed — " +
+                    string.Join(", ", remaining.GroupBy(t => t)
+                        .OrderByDescending(g => g.Count())
+                        .Select(g => $"{g.Key}:{g.Count()}")));
         Assert.True(converted + unclaimed > 500,
                     $"only {converted + unclaimed} events seen across the design");
     }
@@ -362,6 +380,14 @@ public class FruaEventConverterTests
         ChainEvent c => c.Base,
         CampEvent c => c.Base,
         TransferEvent t => t.Base,
+        AddNpcEvent a => a.Base,
+        RemoveNpcEvent r => r.Base,
+        NpcSaysEvent n => n.Base,
+        SpecialItemEvent s => s.Base,
+        UtilitiesEvent u => u.Base,
+        CombatEvent c => c.Base,
+        GuidedTour g => g.Base,
+        QuestionEvent q => q.Base,
         _ => throw new InvalidOperationException($"no base known for {e.GetType().Name}"),
     };
 
@@ -375,4 +401,154 @@ public class FruaEventConverterTests
             TriggerData: 0,
             ChainEvent: 0,
             Data: new byte[16]);
+
+    /// <summary>
+    /// The reader's enums are not the engine's, and three of the five disagree.
+    /// </summary>
+    /// <remarks>
+    /// Each of these was a real defect in the first version of the converter, which cast the
+    /// reader's ordinal straight through. None of them would fail to load — a whole-party damage
+    /// event would just affect nobody, and a save that halves damage would negate it instead.
+    /// </remarks>
+    [Fact]
+    public void The_party_affect_values_are_shifted_by_one()
+    {
+        // The engine's list opens with NoPartyMember, which FRUA cannot express.
+        Assert.Equal(1, FruaEventEnums.PartyAffect(FruaDamageTarget.EntireParty));
+        Assert.Equal(2, FruaEventEnums.PartyAffect(FruaDamageTarget.ActiveCharacter));
+        Assert.Equal(3, FruaEventEnums.PartyAffect(FruaDamageTarget.OneAtRandom));
+        Assert.Equal(4, FruaEventEnums.PartyAffect(FruaDamageTarget.ChanceOnEach));
+
+        // Every one is one more than a cast would give.
+        foreach (FruaDamageTarget target in Enum.GetValues<FruaDamageTarget>())
+        {
+            Assert.Equal((int)target + 1, FruaEventEnums.PartyAffect(target));
+        }
+
+        Assert.Equal(1, FruaEventEnums.PartyAffect(activeCharacterOnly: false));
+        Assert.Equal(2, FruaEventEnums.PartyAffect(activeCharacterOnly: true));
+    }
+
+    /// <summary>The two middle save effects are the other way round in the engine.</summary>
+    [Fact]
+    public void The_save_effects_are_swapped()
+    {
+        Assert.Equal(0, FruaEventEnums.SaveEffect(FruaDamageSave.NoSave));
+        Assert.Equal(1, FruaEventEnums.SaveEffect(FruaDamageSave.SaveNegates));
+        Assert.Equal(2, FruaEventEnums.SaveEffect(FruaDamageSave.SaveForHalf));
+        Assert.Equal(3, FruaEventEnums.SaveEffect(FruaDamageSave.UseThac0));
+
+        // The two ends agree, which is why a spot-check would find nothing wrong.
+        Assert.Equal((int)FruaDamageSave.NoSave,
+                     FruaEventEnums.SaveEffect(FruaDamageSave.NoSave));
+        Assert.Equal((int)FruaDamageSave.UseThac0,
+                     FruaEventEnums.SaveEffect(FruaDamageSave.UseThac0));
+
+        Assert.NotEqual((int)FruaDamageSave.SaveForHalf,
+                        FruaEventEnums.SaveEffect(FruaDamageSave.SaveForHalf));
+        Assert.NotEqual((int)FruaDamageSave.SaveNegates,
+                        FruaEventEnums.SaveEffect(FruaDamageSave.SaveNegates));
+    }
+
+    /// <summary>Breath and spell are swapped between FRUA's order and the engine's.</summary>
+    [Fact]
+    public void The_spell_save_columns_swap_breath_and_spell()
+    {
+        Assert.Equal(0, FruaEventEnums.SpellSaveVersus(FruaSpellSave.ParalysisPoisonDeath));
+        Assert.Equal(1, FruaEventEnums.SpellSaveVersus(FruaSpellSave.PetrifyPolymorph));
+        Assert.Equal(2, FruaEventEnums.SpellSaveVersus(FruaSpellSave.RodStaffWand));
+
+        // The engine's order is ... RodStaffWand, Sp, BreathWeapon; FRUA stores breath first.
+        Assert.Equal(3, FruaEventEnums.SpellSaveVersus(FruaSpellSave.Spell));
+        Assert.Equal(4, FruaEventEnums.SpellSaveVersus(FruaSpellSave.BreathWeapon));
+    }
+
+    /// <summary>Distance and surprise do line up, and are asserted rather than assumed.</summary>
+    [Fact]
+    public void Distance_and_surprise_agree_with_the_engine()
+    {
+        foreach (FruaCombatDistance d in Enum.GetValues<FruaCombatDistance>())
+        {
+            Assert.Equal((int)d, FruaEventEnums.Distance(d));
+        }
+
+        foreach (FruaSurprise s in Enum.GetValues<FruaSurprise>())
+        {
+            Assert.Equal((int)s, FruaEventEnums.Surprise(s));
+        }
+    }
+
+    /// <summary>A damage event carries the translated values, not the raw ones.</summary>
+    [Fact]
+    public void A_real_damage_event_uses_the_translated_enums()
+    {
+        if (Levels() is not { } levels)
+        {
+            return;
+        }
+
+        int seen = 0;
+
+        foreach (var level in levels)
+        {
+            foreach (var source in level.Events.Where(e => e.Type == FruaEventType.Damage))
+            {
+                var payload = FruaDamageEvent.Read(source);
+                var damage = Assert.IsType<DamageEvent>(
+                    FruaEventConverter.Convert(source, 1, level.Strings));
+
+                Assert.Equal(FruaEventEnums.PartyAffect(payload.Target), damage.Who);
+                Assert.Equal(FruaEventEnums.SaveEffect(payload.Save), damage.EventSave);
+                Assert.Equal(FruaEventEnums.SpellSaveVersus(payload.SpellSave), damage.SpellSave);
+
+                // Never zero: the engine's zero is NoPartyMember, which FRUA cannot mean.
+                Assert.InRange(damage.Who, 1, 4);
+                seen++;
+            }
+        }
+
+        Assert.True(seen > 0, "the design has no damage events to check");
+    }
+
+    /// <summary>A combat event fields the monsters the reference leaves out.</summary>
+    /// <remarks>
+    /// The reference's monster assignment is the largest of its nine disabled
+    /// <c>GetMonsterKey</c> lookups, so this is a deliberate divergence: without a design the list
+    /// is empty, which is the reference's own outcome.
+    /// </remarks>
+    [Fact]
+    public void A_combat_event_fields_monsters_when_a_design_resolves_them()
+    {
+        if (Heirs() is not { } path)
+        {
+            return;
+        }
+
+        var design = FruaDesign.Open(path);
+        int withMonsters = 0;
+
+        foreach (var level in design.Levels.Values)
+        {
+            foreach (var source in level.Events.Where(e => e.Type == FruaEventType.Combat))
+            {
+                var withDesign = Assert.IsType<CombatEvent>(
+                    FruaEventConverter.Convert(source, 1, level.Strings, design));
+                var without = Assert.IsType<CombatEvent>(
+                    FruaEventConverter.Convert(source, 1, level.Strings));
+
+                Assert.Empty(without.Monsters);
+
+                if (withDesign.Monsters.Count > 0)
+                {
+                    withMonsters++;
+                    Assert.All(withDesign.Monsters, m => Assert.True(m.Quantity > 0));
+                    Assert.All(withDesign.Monsters,
+                               m => Assert.False(string.IsNullOrEmpty(m.MonsterId)
+                                                 && string.IsNullOrEmpty(m.CharacterId)));
+                }
+            }
+        }
+
+        Assert.True(withMonsters > 0, "no combat event resolved any monster");
+    }
 }
