@@ -35,15 +35,24 @@ transcription on the real shipped script rather than a fixture. And `gpdlc` is *
 compile; the Oracle workflow regenerates them each run and fails on drift. That was Phase 2's exit
 criterion and it is now demonstrated rather than asserted.
 
-**Phase 6 is underway** (§the FRUA importer): **every fixed-format file a DOS design carries now
-reads** — `game001.dat`, the level headers, the map cells, the six-bit string tables, the event
-records, `MONST###.DAT` and the item database — verified against the real `HEIRS.DSN` and
-`TUTORIAL.DSN`, with the case-insensitive filename resolution §3.2 calls a Phase 6 requirement.
-Every one of the 35 event types has its payload read, and monsters and NPCs resolve.
-The byte-identity exit criterion is **not** met: `-importfrua` and `tools/frua-import-oracle.sh`
-exist and compile, but no run has yet produced an imported design to diff. Phases 5 and 7 have not
-started.
-**4,301 tests, green on macOS; both CI workflows green.**
+**Phase 6 imports a design end to end.** Both halves are done. **Reading:** every fixed-format
+file a DOS design carries — `game001.dat`, the level headers, the map cells, the six-bit string
+tables, the event records, `MONST###.DAT` and the item database — verified against the real
+`HEIRS.DSN`, `TUTORIAL.DSN` and `RUNELORD.DSN`, with the case-insensitive filename resolution §3.2
+calls a Phase 6 requirement. **Converting and writing:** all 35 event types, monsters, NPCs, items
+and art map onto the engine's own records, and `FruaDesignConverter` writes a complete design
+directory — `Level###.lvl`, `monsters.dat`, `items.dat` and `game.dat` — which the port's own
+readers read back. An imported `HEIRS.DSN` comes out as *Heirs to skull crag* with its own starting
+experience and money, on a template's money and difficulty tables.
+
+**The exit criterion is one manual step from being testable.** It is no longer byte-identity (see
+§the FRUA importer for why that criterion was wrong): it is that the design loads, with every
+difference from the C++ importer a listed improvement. `FruaImportOracleDiffTests` performs that
+comparison and has been **verified against a synthetic oracle** — pointed at the port's own output,
+four of its five checks compare correctly through the real file readers and the fifth fires as
+designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
+`uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
+**4,490 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -8366,8 +8375,9 @@ family (`Teleporter`/`Stairs`/`TransferModule`), `Combat`, `PickOneCombat`, trea
 > same first byte means different stock depending on what follows. The index table is extracted
 > from the C++ mechanically.
 
-**The reader side of Phase 6 is done — every one of the 35 event types reads**, and the design
-layer resolves the monster and NPC references the reference importer drops.
+**Both sides of Phase 6 are done — every one of the 35 event types reads *and* converts**, and the
+design layer resolves the monster and NPC references the reference importer drops. What follows
+describes the reader; the conversion layer has its own section below.
 
 > **`SmallTown` is a generator, not a reader.** Its flag byte spawns up to six *child* events —
 > bit 1 a `TEMPLE`, 2 a `TRAININGHALL`, 4 a `SHOP`, 8 a `CAMP`, 16 a `TAVERN`, 32 a `VAULT` — each
@@ -8664,14 +8674,32 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: the FRUA importer's level bodies
+### The next piece of work: run the FRUA import harness
 
-> **This heading named "the event layer's engine half" until 2026-08-09** and was stale: that item
-> is priority 1 below and is largely closed — 39 of 44 types execute and no shipped design uses an
-> inert one. Phases 2, 3 and 4's engine work are all delivered to their named gaps, so **the live
-> front is Phase 6**, whose next slice is the map cells and event records inside a `geo###.dat`
-> (§the FRUA importer). The numbered list below remains the priority order for Phase 4's
-> leftovers.
+> **This heading has been stale twice.** It named "the event layer's engine half" until
+> 2026-08-09, then "the FRUA importer's level bodies" until 2026-08-13; both items are long
+> closed. Phase 6's conversion and writing layers are now complete and the oracle comparison is
+> written and self-verified, so **the one thing left on the live front is a manual run** — it
+> needs a Windows binary and a bottle, neither of which a build script should arrange on
+> somebody's behalf. The numbered list below remains the priority order for Phase 4's leftovers,
+> and is what to pick up if the harness run is not available.
+>
+> **To run it:** push so `oracle-cpp.yml` publishes the `uafwined-editor` artifact, unzip it
+> keeping `EditorResources` and `TemplateDesign.dsn` beside the exe, then
+>
+> ```
+> UAF_TEMPLATE_DESIGN=reference/Case.dsn \
+>   tools/frua-import-oracle.sh <unzipped>/UAFWinEd.exe \
+>   "reference/Unlimited Adventures -ENG/DESIGNS/UA/HEIRS.DSN" /tmp/frua-oracle
+>
+> UAF_FRUA_ORACLE_DIR=/tmp/frua-oracle \
+> UAF_FRUA_ORACLE_DESIGN="reference/Unlimited Adventures -ENG/DESIGNS/UA/HEIRS.DSN" \
+>   dotnet test
+> ```
+>
+> The template override matters: `DefaultDesign`'s own `game.dat` is short (§standing gaps), and
+> seeding from it gives an output whose header this port cannot fully read — a diff you cannot
+> interpret.
 
 **Combat is wired end to end and playable.** Walking onto a combat event starts a fight: the
 level's `CombatEvent` builds the encounter (`EncounterBuilder`), `CombatSetup` places both sides on
