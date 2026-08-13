@@ -204,6 +204,16 @@ public class FruaEventConverterTests
     [InlineData(FruaEventType.GuidedTour, EventType.GuidedTour)]
     [InlineData(FruaEventType.QuestionButton, EventType.QuestionButton)]
     [InlineData(FruaEventType.QuestionList, EventType.QuestionList)]
+    [InlineData(FruaEventType.Shop, EventType.ShopEvent)]
+    [InlineData(FruaEventType.Temple, EventType.TempleEvent)]
+    [InlineData(FruaEventType.TrainingHall, EventType.TrainingHallEvent)]
+    [InlineData(FruaEventType.Tavern, EventType.TavernEvent)]
+    [InlineData(FruaEventType.TavernTales, EventType.TavernTales)]
+    [InlineData(FruaEventType.SmallTown, EventType.SmallTown)]
+    [InlineData(FruaEventType.Encounter, EventType.EncounterEvent)]
+    [InlineData(FruaEventType.WhoTries, EventType.WhoTries)]
+    [InlineData(FruaEventType.WhoPays, EventType.WhoPays)]
+    [InlineData(FruaEventType.EnterPassword, EventType.EnterPassword)]
     public void The_engine_event_type_is_carried(FruaEventType from, EventType to)
     {
         var converted = FruaEventConverter.Convert(Synthetic() with { Type = from }, 1);
@@ -354,10 +364,9 @@ public class FruaEventConverterTests
 
         // 745 of the design's 1,040 events, measured. The floor guards against a regression
         // silently dropping a whole type; raise it as more types are mapped.
-        // 987 of the design's 1,040 events, measured. The 53 left are the six town-service
-        // types plus the two rarest: Shop 15, Temple 12, TrainingHall 11, TavernTales 5,
-        // Tavern 4, SmallTown 3, WhoTries 2, Encounter 1. Raise the floor as those are mapped.
-        Assert.True(converted >= 987,
+        // All 1,040 of the design's events, measured. Every FRUA event type now converts, so
+        // this floor is the whole file rather than a milestone -- any drop is a regression.
+        Assert.True(converted >= 1040,
                     $"coverage fell: {converted} converted, {unclaimed} unclaimed — " +
                     string.Join(", ", remaining.GroupBy(t => t)
                         .OrderByDescending(g => g.Count())
@@ -380,6 +389,16 @@ public class FruaEventConverterTests
         ChainEvent c => c.Base,
         CampEvent c => c.Base,
         TransferEvent t => t.Base,
+        ShopEvent s => s.Base,
+        TempleEvent t => t.Base,
+        TrainingHallEvent t => t.Base,
+        TavernEvent t => t.Base,
+        TavernTalesEvent t => t.Base,
+        SmallTownEvent s => s.Base,
+        EncounterEvent en => en.Base,
+        WhoTriesEvent w => w.Base,
+        WhoPaysEvent p => p.Base,
+        PasswordEvent p => p.Base,
         AddNpcEvent a => a.Base,
         RemoveNpcEvent r => r.Base,
         NpcSaysEvent n => n.Base,

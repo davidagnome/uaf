@@ -114,4 +114,48 @@ public static class FruaEventEnums
         FruaChainAction.BackupOneStep => 2,
         _ => 0,
     };
+
+    /// <summary>
+    /// What an encounter button does, as <c>encounterButtonResultType</c>
+    /// (<c>GameEvent.h:311</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Every value differs.</b> <see cref="FruaEncounterResult"/>'s members are named for the
+    /// engine's constants but numbered as FRUA <i>stores</i> them, and the two orders share no
+    /// value at all: FRUA leads with <c>DecreaseRange</c> and ends with <c>NoResult</c>, the
+    /// engine does the reverse, and the three combat results are permuted between. The reference
+    /// spells the whole switch out five times over, once per button.
+    /// </para>
+    /// <para>
+    /// <b>Stored 7 has no case.</b> The reference's switch covers 0–6, so a stored 7 leaves the
+    /// button at whatever it was initialised with — not a value this port can reproduce. It
+    /// resolves to <c>NoResult</c> here, the same refusal made for
+    /// <see cref="FruaEventControlConverter.TriggerClassName"/>'s missing class.
+    /// </para>
+    /// </remarks>
+    public static int EncounterResult(FruaEncounterResult result) => result switch
+    {
+        FruaEncounterResult.NoResult => 0,
+        FruaEncounterResult.DecreaseRange => 1,
+        FruaEncounterResult.CombatNoSurprise => 2,
+        FruaEncounterResult.CombatSlowPartySurprised => 3,
+        FruaEncounterResult.CombatSlowMonsterSurprised => 4,
+        FruaEncounterResult.Talk => 5,
+        FruaEncounterResult.EscapeIfFastPartyElseCombat => 6,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// A price multiplier, as <c>costFactorType</c> (<c>Externs.h:842</c>).
+    /// </summary>
+    /// <remarks>
+    /// The twenty values line up exactly, <c>Free</c> through <c>Mult100</c>. Translated anyway so
+    /// the agreement is asserted rather than assumed — a cost factor is the difference between a
+    /// free temple and one charging a hundredfold.
+    /// </remarks>
+    public static int CostFactor(FruaCostFactor factor) => (int)factor;
+
+    /// <summary>The number of <c>costFactorType</c> values, for bounds-checking a cast.</summary>
+    public const int CostFactorCount = 20;
 }

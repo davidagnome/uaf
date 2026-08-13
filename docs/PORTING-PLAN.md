@@ -8389,7 +8389,7 @@ reader with two masters.
 | `FruaGameDataConverter` | `GlobalStatsPrefix` | Design name, start position, money, keys and items |
 | `FruaCharacterConverter` | `MonsterRecord` / `CharacterRecord` | Both branches of `ImportMonsterToUAF` |
 | `FruaEventControlConverter` | `GameEventBase` / `EventControl` | The base every one of the 35 types shares |
-| `FruaEventConverter` | `IGameEvent` | 25 of the 35 types — **987 of `HEIRS.DSN`'s 1,040 events** |
+| `FruaEventConverter` | `IGameEvent` | **All 35 types — every one of `HEIRS.DSN`'s 1,040 events** |
 | `FruaEventEnums` | engine ordinals | The five reader enums that are not the engine's |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
@@ -8405,6 +8405,10 @@ that produces a design that loads and is quietly wrong:
 - **An import mutates a design rather than building one.** `GlobalStatsWriter.CanWrite` requires a
   money table and a difficulty table, and FRUA carries neither, so `FruaGameDataConverter` overlays
   onto a template. That is also what the reference does — `-config` takes a design *directory*.
+- **Four enums look castable and are not, and none of them fails loudly.** Beyond the three named
+  below, `encounterButtonResultType` shares *no* value with FRUA's stored order: FRUA leads with
+  `DecreaseRange` and ends with `NoResult`, the engine does the reverse, and the three combat
+  results are permuted between.
 - **One FRUA trigger byte becomes four engine fields, and the obvious arithmetic is wrong once.**
   FRUA's triggers step by eight and the engine's are consecutive, so dividing by eight is correct
   for 8→1 all the way to 128→16. But the engine interleaves `ClassNotInParty` at 17, which FRUA
@@ -8427,19 +8431,32 @@ type it has no mapping for, and `Converts` names the mapped set so a caller can 
 rather than discovering gaps as silence; a test asserts the two cannot drift apart. A cell whose
 event index no longer resolves is a visible gap — an event written as the wrong type is not.
 
-**The writer was the real constraint, twice.** Wiring events into `FruaLevelConverter` immediately
-failed `LevelFileWriter.CanWrite`, because `EventBodyWriter` had no `DAMAGE_EVENT_DATA` or
-`VAULT_EVENT_DATA` writer — both are types no shipped *native* design contains, so neither had a
-corpus to be built against. They are now ported (`PartyEffectEventWriters`) and the round-trip
-test reads its bodies back through `EventBodyReader` rather than declining them, which is what
-makes it a real check: an event body carries no length prefix, so a mis-written field
-desynchronises every event after it rather than corrupting one.
+**The writer was the real constraint throughout.** Every time a tranche of event types was wired
+into `FruaLevelConverter` it failed `LevelFileWriter.CanWrite` first, because seven types had no
+writer at all: `Damage`, `Vault`, `SmallTown`, `TavernTales`, `EncounterEvent`, `WhoTries` and
+`EnterPassword`. Each is a type **no shipped native design contains**, so none had a corpus to be
+built against — which is exactly why they were left unported and why a FRUA design is what finally
+forced them. They are now ported (`PartyEffectEventWriters`, `TrialEventWriters`), and the
+round-trip test reads its bodies back through `EventBodyReader` rather than declining them, which
+is what makes it a real check: an event body carries no length prefix, so a mis-written field
+desynchronises every event after it rather than corrupting one. The existing `TAVERN` writer
+caught a genuine mistake this way — it refuses a drinks list that is not exactly five long,
+because the count is compile-time in the reference and never written.
 
-**Still to convert:** ten event types, all of them the town services and the two rarest — measured
-across `HEIRS.DSN` as `Shop` 15, `Temple` 12, `TrainingHall` 11, `TavernTales` 5, `Tavern` 4,
-`SmallTown` 3, `WhoTries` 2, `Encounter` 1, plus `WhoPays` and `EnterPassword` which the design
-does not use at all. Four of those (`Encounter`, `SmallTown`, `TavernTales`, `WhoTries`) have no
-engine writer either. Then items, and art slots. Carried
+**Two event types had no reader either.** `WhoPays` and `EnterPassword` were only enum members;
+the plan previously claimed every one of the 35 types read, and that was overstated.
+`FruaTrialEvents` adds both, sharing the success/failure block at offset 11 that the reference
+spells out identically in each. One detail there is deliberate and worth keeping: the reference
+sets `matchCase = FALSE` on an imported password, because FRUA's six-bit string encoding cannot
+represent lower case at all — matching case-sensitively would make every imported password
+unanswerable.
+
+**Events are done.** All 35 FRUA event types read and convert, and a converted level round-trips
+through `LevelFileWriter` and back. What remains of the conversion layer is items and art slots.
+Several events carry structure without contents until the item pass lands: treasure item slots,
+shop stock, per-monster money and items. Question and encounter buttons carry their actions but
+not their labels, and a `SmallTown`'s six generated children are not yet emitted as separate
+chained events. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

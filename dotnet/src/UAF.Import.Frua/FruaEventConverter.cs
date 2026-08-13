@@ -58,6 +58,16 @@ public static class FruaEventConverter
         FruaEventType.GuidedTour,
         FruaEventType.QuestionButton,
         FruaEventType.QuestionList,
+        FruaEventType.Shop,
+        FruaEventType.Temple,
+        FruaEventType.TrainingHall,
+        FruaEventType.Tavern,
+        FruaEventType.TavernTales,
+        FruaEventType.SmallTown,
+        FruaEventType.Encounter,
+        FruaEventType.WhoTries,
+        FruaEventType.WhoPays,
+        FruaEventType.EnterPassword,
     };
 
     /// <summary>
@@ -115,6 +125,17 @@ public static class FruaEventConverter
                 Question(source, id, EventType.QuestionButton, strings, design),
             FruaEventType.QuestionList =>
                 Question(source, id, EventType.QuestionList, strings, design),
+
+            FruaEventType.Shop => Shop(source, id, design),
+            FruaEventType.Temple => Temple(source, id, strings, design),
+            FruaEventType.TrainingHall => TrainingHall(source, id, strings, design),
+            FruaEventType.Tavern => Tavern(source, id, strings, design),
+            FruaEventType.TavernTales => TavernTales(source, id, strings, design),
+            FruaEventType.SmallTown => SmallTown(source, id, strings, design),
+            FruaEventType.Encounter => Encounter(source, id, strings, design),
+            FruaEventType.WhoTries => WhoTries(source, id, strings, design),
+            FruaEventType.WhoPays => WhoPays(source, id, strings, design),
+            FruaEventType.EnterPassword => Password(source, id, strings, design),
 
             _ => null,
         };
@@ -569,5 +590,321 @@ public static class FruaEventConverter
             Title: Text(strings, payload.LabelSlot),
             NumButtons: options.Length,
             Options: options);
+    }
+
+
+    private static IGameEvent Shop(FruaEvent source, uint id, FruaDesign? design)
+    {
+        var payload = FruaShopEvent.Read(source);
+
+        return new ShopEvent(
+            Base: Base(source, EventType.ShopEvent, id, string.Empty, design),
+            ForceExit: payload.ForceExit ? 1 : 0,
+            CostFactor: FruaEventEnums.CostFactor(payload.CostFactor),
+
+            // FRUA prices identification and buyback by the same cost factor rather than
+            // separately, so the engine's independent knobs take its defaults.
+            CostToIdentify: 0,
+            BuybackPercentage: 0,
+            CanIdentify: 0,
+            CanAppraiseGems: 0,
+            CanAppraiseJewels: 0,
+            BuyItemsSoldOnly: 0,
+
+            // The stock is a set of item ordinals -- see the class remarks on the item pass.
+            ItemsAvailable: new ItemList([], ReadyItems.Empty));
+    }
+
+    private static IGameEvent Temple(FruaEvent source, uint id, FruaStringTable? strings,
+                                     FruaDesign? design)
+    {
+        var payload = FruaTempleEvent.Read(source);
+
+        return new TempleEvent(
+            Base: Base(source, EventType.TempleEvent, id, Text(strings, payload.TextSlot), design),
+            ForceExit: payload.ForceExit ? 1 : 0,
+            AllowDonations: payload.AllowDonations ? 1 : 0,
+            CostFactor: FruaEventEnums.CostFactor(payload.CostFactor),
+
+            // FRUA's temples heal without a level ceiling.
+            MaxLevel: 0,
+            DonationTrigger: (int)payload.DonationTrigger,
+            DonationChain: 0,
+
+            // The spells a temple casts are the engine's own list, chosen in its editor; FRUA
+            // has no equivalent field, so an imported temple starts with none rather than with
+            // a guess at what a temple ought to offer.
+            TempleSpells: new SpellBook(0, []),
+            TotalDonation: 0);
+    }
+
+    /// <summary>
+    /// A training hall, and the six baseclasses its flag byte can name.
+    /// </summary>
+    /// <remarks>
+    /// <b>These are five of the reference's fourteen <c>NotImplemented</c> markers.</b> Its six
+    /// <c>TrainMagicUser</c>-style assignments are commented out, so a hall imported by the
+    /// reference trains nobody. <see cref="FruaTrainingHallEvent.Trains"/> decodes the byte.
+    /// </remarks>
+    private static IGameEvent TrainingHall(FruaEvent source, uint id, FruaStringTable? strings,
+                                           FruaDesign? design)
+    {
+        var payload = FruaTrainingHallEvent.Read(source);
+
+        return new TrainingHallEvent(
+            Base: Base(source, EventType.TrainingHallEvent, id,
+                       Text(strings, payload.TextSlot), design),
+            ForceExit: payload.ForceExit ? 1 : 0,
+            Trainable: Trainable(payload.Trains),
+
+            // The reference applies the cost factor to a fixed base price rather than storing a
+            // multiplier, because the engine's hall charges an amount.
+            Cost: FruaTrainingHallEvent.BaseCost);
+    }
+
+    /// <summary>The baseclasses a set of FRUA training flags names.</summary>
+    private static TrainableBaseclass[] Trainable(FruaTrainedClasses classes)
+    {
+        (FruaTrainedClasses Flag, string Name)[] all =
+        [
+            (FruaTrainedClasses.MagicUser, "MagicUser"),
+            (FruaTrainedClasses.Cleric, "Cleric"),
+            (FruaTrainedClasses.Thief, "Thief"),
+            (FruaTrainedClasses.Fighter, "Fighter"),
+            (FruaTrainedClasses.Paladin, "Paladin"),
+            (FruaTrainedClasses.Ranger, "Ranger"),
+        ];
+
+        return all.Where(c => classes.HasFlag(c.Flag))
+
+                  // FRUA names no level range, so the hall trains every level it is asked for.
+                  .Select(c => new TrainableBaseclass(c.Name, 0, 0, string.Empty))
+                  .ToArray();
+    }
+
+    private static IGameEvent Tavern(FruaEvent source, uint id, FruaStringTable? strings,
+                                     FruaDesign? design)
+    {
+        var payload = FruaTavernEvent.Read(source);
+
+        var tales = payload.TaleSlots
+            .Select(slot => Text(strings, slot))
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Select(t => new Tale(t, 0))
+            .ToArray();
+
+        return new TavernEvent(
+            Base: Base(source, EventType.TavernEvent, id, Text(strings, payload.TextSlot), design),
+            ForceExit: 0,
+
+            // FRUA prices drinks by the design's own economy rather than a tavern multiplier.
+            Inflation: 0,
+            Barkeep: 0,
+            AllowFights: payload.AllowFights ? 1 : 0,
+            AllowDrinks: payload.AllowDrinks ? 1 : 0,
+            FightChain: 0,
+            DrinkChain: 0,
+            DrinkPointTrigger: 0,
+            TaleOrder: payload.TalesInRandomOrder ? 1 : 0,
+            EachTaleOnceOnly: 0,
+            Tales: tales,
+
+            // FRUA's taverns serve no named drinks, but the engine's record holds a fixed five
+            // that are never counted on the wire -- so a shorter list truncates the event and the
+            // writer refuses it. Five blanks are what the reference's own defaults write.
+            Drinks: Enumerable.Repeat(new Drink(string.Empty, 0), MoreEventReaders.MaxDrinks)
+                              .ToArray());
+    }
+
+    /// <summary>
+    /// A tavern-tales event, which FRUA stores as a single rumour.
+    /// </summary>
+    /// <remarks>
+    /// The engine's own comment marks <c>TavernTales</c> obsolete and folded into
+    /// <c>TavernEvent</c>, but the ordinal is still read and written, so a design that uses it
+    /// converts to the same type rather than being promoted.
+    /// </remarks>
+    private static IGameEvent TavernTales(FruaEvent source, uint id, FruaStringTable? strings,
+                                          FruaDesign? design)
+    {
+        var payload = FruaTavernEvent.Read(source);
+
+        var tales = payload.TaleSlots
+            .Select(slot => Text(strings, slot))
+            .Where(t => !string.IsNullOrEmpty(t))
+            .Select(t => new TavernTale(t, 0, []))
+            .ToArray();
+
+        return new TavernTalesEvent(
+            Base: Base(source, EventType.TavernTales, id, Text(strings, payload.TextSlot), design),
+            Flags: 0,
+            Tales: tales,
+            Attributes: []);
+    }
+
+    /// <summary>
+    /// A small town, which is a hub chaining to the services its flags select.
+    /// </summary>
+    /// <remarks>
+    /// <b>FRUA generates the children; the engine only chains to them.</b> The flag byte spawns up
+    /// to six child events with hard-coded English prompts, which
+    /// <see cref="FruaSmallTownEvent"/> holds as named constants. Those children are separate
+    /// events that a writer has to emit and chain — so the hub converts here with its chains left
+    /// at zero, and filling them in belongs with whatever assigns the children their keys.
+    /// </remarks>
+    private static IGameEvent SmallTown(FruaEvent source, uint id, FruaStringTable? strings,
+                                        FruaDesign? design)
+    {
+        var payload = FruaSmallTownEvent.Read(source);
+
+        return new SmallTownEvent(
+            Base: Base(source, EventType.SmallTown, id, Text(strings, payload.TextSlot), design),
+
+            // A long the reference reads and writes and never uses.
+            Unused: 0,
+            TempleChain: 0,
+            TrainingHallChain: 0,
+            ShopChain: 0,
+            InnChain: 0,
+            TavernChain: 0,
+            VaultChain: 0);
+    }
+
+    private static IGameEvent Encounter(FruaEvent source, uint id, FruaStringTable? strings,
+                                        FruaDesign? design)
+    {
+        var payload = FruaEncounterEvent.Read(source);
+
+        var options = payload.Buttons
+            .Select((b, i) => new EncounterOption(
+                Label: FruaEncounterEvent.Labels[i],
+                Present: b.Present ? 1 : 0,
+                AllowedUpClose: b.AllowedUpClose ? 1 : 0,
+                OptionResult: FruaEventEnums.EncounterResult(b.Result),
+                Chain: 0,
+                OnlyUpClose: b.OnlyUpClose ? 1 : 0))
+            .ToArray();
+
+        return new EncounterEvent(
+            Base: Base(source, EventType.EncounterEvent, id,
+                       Text(strings, payload.TextSlot), design),
+            Distance: FruaEventEnums.Distance(payload.Distance),
+            MonsterSpeed: payload.MonsterSpeed,
+
+            // What happens when the monsters arrive with nothing chosen. FRUA has no such field,
+            // and its own behaviour is to fight, which is the engine's CombatNoSurprise.
+            ZeroRangeResult: FruaEventEnums.EncounterResult(
+                FruaEncounterResult.CombatNoSurprise),
+            CombatChain: 0,
+            TalkChain: 0,
+            EscapeChain: 0,
+            NumButtons: options.Length,
+            Options: options);
+    }
+
+    /// <summary>
+    /// A who-tries event: one ability or thief-skill check against a target.
+    /// </summary>
+    /// <remarks>
+    /// <b>FRUA checks one thing; the engine checks any set.</b> Its stored value is a single
+    /// selector stepping by four, so the engine's two check lists get exactly one entry between
+    /// them — or none at all, when the selector is one of the two that always succeed or fail.
+    /// </remarks>
+    private static IGameEvent WhoTries(FruaEvent source, uint id, FruaStringTable? strings,
+                                       FruaDesign? design)
+    {
+        var payload = FruaWhoTriesEvent.Read(source);
+
+        // The six abilities run 8..28 and the eight thief skills 32..60, both stepping by four.
+        int selector = (int)payload.Check;
+        int[] abilities = selector is >= 8 and <= 28 ? [(selector - 8) / 4] : [];
+        int[] skills = selector >= 32 ? [(selector - 32) / 4] : [];
+
+        return new WhoTriesEvent(
+            Base: Base(source, EventType.WhoTries, id, Text(strings, payload.TextSlot), design),
+            AlwaysSucceeds: payload.Check == FruaWhoTriesCheck.AlwaysSucceeds ? 1 : 0,
+            AlwaysFails: payload.Check == FruaWhoTriesCheck.AlwaysFails ? 1 : 0,
+            AbilityChecks: abilities,
+            ThiefSkillChecks: skills,
+            StrengthBonus: 0,
+            CompareToDie: payload.CompareToDie ? 1 : 0,
+            CompareDie: 0,
+
+            // FRUA gives one attempt and no branch targets beyond the chain every event has.
+            NbrTries: 1,
+            SuccessChain: 0,
+            SuccessAction: 0,
+            FailAction: 0,
+            FailChain: 0,
+            SuccessTransfer: NoTransfer,
+            FailTransfer: NoTransfer);
+    }
+
+    /// <summary>A transfer that goes nowhere, for the branches FRUA does not fill in.</summary>
+    private static TransferData NoTransfer { get; } = new(0, 0, 0, 0, 0, 0);
+
+
+    /// <summary>
+    /// The transfer a trial event's success or failure sends the party to.
+    /// </summary>
+    /// <remarks>
+    /// <b>The entry point is <c>-1</c>, not a slot.</b> The reference sets both transfers'
+    /// <c>destEP</c> to that, meaning the destination is given by coordinates rather than by one
+    /// of the level's named entry points — which FRUA does not supply for these events, so the
+    /// coordinates stay at the origin and the facing is the only part that carries across.
+    /// </remarks>
+    private static TransferData TrialTransfer(bool executeEvent, FruaFacing facing) =>
+        new(ExecuteEvent: executeEvent ? 1 : 0,
+            DestEntryPoint: FruaTrialActions.NoEntryPoint,
+            DestLevel: 0,
+            DestX: 0,
+            DestY: 0,
+            Facing: facing == FruaFacing.Unknown ? 0 : (int)facing);
+
+    private static IGameEvent WhoPays(FruaEvent source, uint id, FruaStringTable? strings,
+                                      FruaDesign? design)
+    {
+        var payload = FruaWhoPaysEvent.Read(source);
+        var transfer = TrialTransfer(payload.ExecuteDestinationEvent, payload.Facing);
+
+        // FRUA names one currency; the engine has a field per currency, so the others are zero.
+        return new WhoPaysEvent(
+            Base: Base(source, EventType.WhoPays, id, Text(strings, payload.TextSlot), design),
+            Impossible: payload.Payment == FruaPaymentKind.Impossible ? 1 : 0,
+            Gems: payload.Payment == FruaPaymentKind.Gems ? payload.Amount : 0,
+            Jewels: payload.Payment == FruaPaymentKind.Jewels ? payload.Amount : 0,
+            Platinum: payload.Payment == FruaPaymentKind.Platinum ? payload.Amount : 0,
+            SuccessChain: 0,
+            SuccessAction: (int)payload.SuccessAction,
+            FailAction: (int)payload.FailAction,
+            FailChain: 0,
+
+            // Platinum is the design's default coin type.
+            MoneyType: 0,
+            SuccessTransfer: transfer,
+            FailTransfer: transfer);
+    }
+
+    private static IGameEvent Password(FruaEvent source, uint id, FruaStringTable? strings,
+                                       FruaDesign? design)
+    {
+        var payload = FruaPasswordEvent.Read(source);
+        var transfer = TrialTransfer(payload.ExecuteDestinationEvent, payload.Facing);
+
+        return new PasswordEvent(
+            Base: Base(source, EventType.EnterPassword, id,
+                       Text(strings, payload.TextSlot), design),
+
+            // FRUA gives one attempt; the engine counts them.
+            NbrTries: 1,
+            SuccessChain: 0,
+            FailChain: 0,
+            SuccessAction: (int)payload.SuccessAction,
+            FailAction: (int)payload.FailAction,
+
+            // The answer is a string-table entry like any other text.
+            Password: Text(strings, payload.PasswordSlot),
+            SuccessTransfer: transfer,
+            FailTransfer: transfer);
     }
 }

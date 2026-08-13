@@ -42,7 +42,10 @@ public static class EventBodyWriter
         EventType.Sounds or EventType.GainExperience or EventType.Camp or
         EventType.RemoveNPCEvent or EventType.NPCSays or EventType.TrainingHallEvent or
         EventType.TempleEvent or EventType.ShopEvent or EventType.TavernEvent or
-        EventType.WhoPays or EventType.Damage or EventType.Vault => true,
+        EventType.WhoPays or EventType.Damage or EventType.Vault or
+        EventType.SmallTown or EventType.TavernTales or
+        EventType.EncounterEvent or EventType.WhoTries or
+        EventType.EnterPassword => true,
         _ => false,
     };
 
@@ -57,6 +60,22 @@ public static class EventBodyWriter
 
         switch (type)
         {
+            case EventType.SmallTown:
+                TrialEventWriters.WriteSmallTown(ar, Expect<SmallTownEvent>(body, type));
+                return;
+            case EventType.TavernTales:
+                TrialEventWriters.WriteTavernTales(ar, Expect<TavernTalesEvent>(body, type));
+                return;
+            case EventType.EncounterEvent:
+                TrialEventWriters.WriteEncounter(ar, Expect<EncounterEvent>(body, type));
+                return;
+            case EventType.WhoTries:
+                TrialEventWriters.WriteWhoTries(ar, Expect<WhoTriesEvent>(body, type));
+                return;
+            case EventType.EnterPassword:
+                TrialEventWriters.WritePassword(ar, Expect<PasswordEvent>(body, type));
+                return;
+
             case EventType.Damage:
                 PartyEffectEventWriters.WriteDamage(ar, Expect<DamageEvent>(body, type));
                 return;
