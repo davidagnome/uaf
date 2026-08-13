@@ -159,6 +159,28 @@ jobs:
           Write-Host "staged:"
           Get-ChildItem $rel -Directory | ForEach-Object { "  $($_.Name)" }
 
+      # Publish the editor so the FRUA import harness can be run off-CI.
+      #
+      # tools/frua-import-oracle.sh needs a UAFWinEd.exe and a Windows runtime, and nothing else
+      # in this workflow left one downloadable -- the other three artifacts are all data. Without
+      # this there is no way to obtain the binary short of building it on Windows yourself, which
+      # is the whole reason Phase 6's exit criterion has never been exercised.
+      #
+      # The WHOLE staged directory goes up, not just the exe: the editor resolves its resources
+      # from the executable's own directory (EDITOR_ENVIRONMENT::DefaultFoldersFromExecutable,
+      # Globals.cpp:467), so an exe on its own starts and then cannot find EditorResources or its
+      # template design.
+      - name: Upload editor for the import harness
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uafwined-editor
+          path: |
+            src/UAFWinEd/Release/UAFWinEd.exe
+            src/UAFWinEd/Release/EditorResources/**
+            src/UAFWinEd/Release/TemplateDesign.dsn/**
+          if-no-files-found: warn
+
       # Produce the golden file. -dumpjson sets headless mode, which suppresses every modal
       # dialog (MsgBoxError would otherwise block until the job times out). -config is
       # mandatory: OpenDesign("") falls back to XBrowseForFolder, a modal folder picker.

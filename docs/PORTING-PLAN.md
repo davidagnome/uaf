@@ -8518,12 +8518,17 @@ event list included — and the FRUA header is overlaid onto that. An imported `
 back as *Heirs to skull crag* with its own 50,000 starting experience and 100 platinum, on the
 template's money, difficulty and level tables.
 
-**One divergence, stated:** `game.dat` is written **compressed** where the reference would write
-it uncompressed. `DesignFileKind.GameData` has no compression threshold, so `TierFor` classifies a
-modern `game.dat` as `UncompressedCar` — but this port has only `CarArchiveWriter`, which always
-emits compression type 2. The file still reads, because `GameDataReader.Open` honours the type
-byte it finds rather than the one the version implies. It is a smaller file that declares what it
-is, not a wrong one; an uncompressed-`CAR` writer would close the gap.
+**This was recorded as a divergence and is not one.** The claim was that `game.dat` is written
+compressed where the reference would write it uncompressed, on the strength of
+`DesignFileKind.TierFor` calling a modern `game.dat` `UncompressedCar` — which it does, because
+`GameData` has no compression threshold. But **every `game.dat` in the corpus carries compression
+type `02` at offset 16** (`dc-default` 5.28, `Case.dsn` 2.53, `ci-tier3` 5.29 all checked
+directly), which is byte-for-byte the framing this port writes. `GameDataReader.Open` reaches for
+`CarArchiveReader` whenever the magic is present rather than asking what the version implies, and
+**nothing branches on the game-data tier at all** — the three places in `LoadedDesign` that branch
+on `DesignFileHeader.Tier` are all reading databases. So the classification is inert, no
+uncompressed-`CAR` writer is needed, and there is no divergence to close. Worth keeping as a note
+because the classification will look like a bug to the next reader of `DesignFileKind`.
 
 **Both loose ends are closed.** A question's five button labels come from **one caret-delimited
 string**, not five slots — the reference walks it with `strchr` pairs, so all five share the

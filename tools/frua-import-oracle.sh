@@ -13,6 +13,11 @@
 #
 #   tools/frua-import-oracle.sh <UAFWinEd.exe> <frua-design.dsn> <output-dir> [ua-install-dir]
 #
+# Getting the exe: the Oracle workflow publishes it as the `uafwined-editor` artifact. Unzip it
+# and point this script at the UAFWinEd.exe inside -- keep the EditorResources and
+# TemplateDesign.dsn directories beside it, because the editor resolves its resources from the
+# executable's own directory and will not start standalone.
+#
 # CAUTION on trusting the result: Wine is a variable. If the port and the reference disagree,
 # "is it Wine or is it us?" is a question you do not want to be asking. Run the same binary once
 # on Windows CI and diff the two outputs against each other; if they agree, the local loop can be
@@ -81,6 +86,13 @@ echo "runner: ${RUN:-native} ${RUN_ARGS[*]:-}"
 # screen and tile geometry, and without it those stay zero and the editor divides by one of them
 # (an unhandled division by zero at 004240C2, the first time this was tried). So seed a scratch
 # copy of DefaultDesign, exactly as the -savedesign tier-3 step runs on a copy.
+# DefaultDesign is the reference's own template, and the C++ reads it happily -- but its game.dat
+# is SHORT. It ends after questData with no character list, and the port's reader throws where
+# MFC's archive quietly returns zero past EOF (see the standing-gaps table). Seeding from it gives
+# a harness output whose header this port cannot fully read, which is a diff you cannot interpret.
+# Override with a design that reads in full:
+#
+#   UAF_TEMPLATE_DESIGN=reference/Case.dsn tools/frua-import-oracle.sh ...
 TEMPLATE=${UAF_TEMPLATE_DESIGN:-src/UAFWinEd/DefaultDesign.dsn}
 [ -d "$TEMPLATE" ] || { echo "no template design at $TEMPLATE" >&2; exit 2; }
 

@@ -242,14 +242,15 @@ public static class FruaDesignConverter
     /// is. <see cref="GlobalStatsWriter.Write"/> emits the inner one itself.
     /// </para>
     /// <para>
-    /// <b>Divergence: written compressed where the reference would write uncompressed.</b>
-    /// <see cref="DesignFileKind.GameData"/> has no compression threshold, so
-    /// <see cref="DesignFileKind.TierFor"/> classifies a modern <c>game.dat</c> as
-    /// <see cref="ArchiveTier.UncompressedCar"/> — but this port has no uncompressed-<c>CAR</c>
-    /// writer, only <see cref="CarArchiveWriter"/>, which always emits compression type 2. The
-    /// file still reads: <c>GameDataReader.Open</c> honours the type byte it finds rather than the
-    /// one the version implies, which the round trip in the tests demonstrates. It is a smaller
-    /// file that says so in its own header, not a wrong one.
+    /// <b>Compressed, which is what real files are — <see cref="DesignFileKind.TierFor"/>
+    /// disagrees and is not consulted.</b> Because <see cref="DesignFileKind.GameData"/> has no
+    /// compression threshold, <c>TierFor</c> would call a modern <c>game.dat</c>
+    /// <see cref="ArchiveTier.UncompressedCar"/> — but every <c>game.dat</c> in the corpus carries
+    /// compression type <c>02</c> at offset 16, and <c>GameDataReader.Open</c> reaches for
+    /// <see cref="CarArchiveReader"/> whenever the magic is present rather than asking what the
+    /// version implies. Nothing branches on the game-data tier at all: the three places that
+    /// branch on <see cref="DesignFileHeader.Tier"/> all read databases. So this writes the same
+    /// framing real files use, and the classification is inert rather than wrong-and-live.
     /// </para>
     /// </remarks>
     private static string WriteGameData(string path, GlobalStatsPrefix global,
