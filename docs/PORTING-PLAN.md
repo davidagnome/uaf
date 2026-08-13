@@ -8393,7 +8393,7 @@ reader with two masters.
 | `FruaEventEnums` | engine ordinals | The reader enums that are not the engine's |
 | `FruaItemConverter` | `ItemRecord` / `ItemInstance` | The two item files flattened into one record |
 | `FruaArtConverter` | `WallSetSlot` / `BackgroundSlot` / `PicRecord` | The placeholder art the reference assigns |
-| `FruaDesignConverter` | a design directory | Whole-design assembly: levels, `monsters.dat`, `items.dat` |
+| `FruaDesignConverter` | a design directory | Whole-design assembly: levels, `monsters.dat`, `items.dat`, `game.dat` |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
 that produces a design that loads and is quietly wrong:
@@ -8510,11 +8510,24 @@ payload to the LZW decompressor whatever was written there. A plain payload behi
 reads as garbage rather than as a short file. The database round-trip test was written expecting a
 plain archive and was wrong; the assertion is what settled it.
 
-**What is left:** `game.dat` is not written yet — it needs the template read through the full
-`GlobalStatsReader.Read` rather than `ReadThroughCharacters`, since `GlobalStatsWriter.CanWrite`
-requires the `LEVEL_INFO` the prefix reader stops before. Plus three loose ends: question and
-encounter buttons carry their actions but not their labels, and a `SmallTown`'s six generated
-children are not yet emitted as separate chained events. Carried
+**`game.dat` is written, and the design directory is complete.** The blocker was the reader, not
+the writer: `GlobalStatsReader.ReadThroughCharacters` stops before `LEVEL_INFO` and
+`GlobalStatsWriter.CanWrite` refuses a header without it, so a prefix-read template converts fine
+and then cannot be written. `FruaDesignConverter.ReadTemplate` reads the template whole — global
+event list included — and the FRUA header is overlaid onto that. An imported `HEIRS.DSN` now reads
+back as *Heirs to skull crag* with its own 50,000 starting experience and 100 platinum, on the
+template's money, difficulty and level tables.
+
+**One divergence, stated:** `game.dat` is written **compressed** where the reference would write
+it uncompressed. `DesignFileKind.GameData` has no compression threshold, so `TierFor` classifies a
+modern `game.dat` as `UncompressedCar` — but this port has only `CarArchiveWriter`, which always
+emits compression type 2. The file still reads, because `GameDataReader.Open` honours the type
+byte it finds rather than the one the version implies. It is a smaller file that declares what it
+is, not a wrong one; an uncompressed-`CAR` writer would close the gap.
+
+**Two loose ends remain:** question and encounter buttons carry their actions but not their
+labels, and a `SmallTown`'s six generated children are not yet emitted as separate chained events.
+Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

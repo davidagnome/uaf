@@ -11,12 +11,22 @@ namespace UAF.Import.Frua;
 /// <param name="Characters">Creatures that took the NPC branch.</param>
 /// <param name="Items">The design's item database, empty when it ships none.</param>
 /// <param name="AmmoTypes">The ammunition kinds the items between them name.</param>
+/// <param name="Global">
+/// The design header, present only when a template supplied the parts FRUA has no equivalent for.
+/// </param>
+/// <param name="Events">The template's global event list, carried through unchanged.</param>
 public sealed record FruaConvertedDesign(
     IReadOnlyDictionary<int, LevelFile> Levels,
     IReadOnlyList<MonsterRecord> Monsters,
     IReadOnlyList<CharacterRecord> Characters,
     IReadOnlyList<ItemRecord> Items,
-    IReadOnlyList<string> AmmoTypes);
+    IReadOnlyList<string> AmmoTypes,
+    GlobalStatsPrefix? Global = null,
+    IReadOnlyList<(EventType Type, IGameEvent Body)>? Events = null)
+{
+    /// <summary>The global events, never null.</summary>
+    public IReadOnlyList<(EventType Type, IGameEvent Body)> Events { get; init; } = Events ?? [];
+}
 
 /// <summary>
 /// Converts a whole DOS FRUA design and writes it out as a UAF design directory.
@@ -92,6 +102,68 @@ public static class FruaDesignConverter
         return new FruaConvertedDesign(levels, monsters, characters, items, ammo);
     }
 
+    /// <summary>
+    /// Converts a design, taking its header from a template.
+    /// </summary>
+    /// <param name="design">The FRUA design.</param>
+    /// <param name="templateGameData">
+    /// The template's <c>game.dat</c>, read in full. <b>Not through
+    /// <c>GlobalStatsReader.ReadThroughCharacters</c></b>: that stops before <c>LEVEL_INFO</c>,
+    /// and <see cref="GlobalStatsWriter.CanWrite"/> refuses a header without it — so a prefix read
+    /// converts fine and then cannot be written.
+    /// </param>
+    public static FruaConvertedDesign Convert(FruaDesign design, string templateGameData)
+    {
+        ArgumentNullException.ThrowIfNull(design);
+        ArgumentNullException.ThrowIfNull(templateGameData);
+
+        var (template, events) = ReadTemplate(templateGameData);
+        var start = design.Levels.TryGetValue(design.Game.StartLevel + 1, out var level)
+            ? level
+            : null;
+
+        return Convert(design) with
+        {
+            Global = FruaGameDataConverter.Apply(template, design.Game, start),
+            Events = events,
+        };
+    }
+
+    /// <summary>
+    /// Reads a template's <c>game.dat</c> whole, including its global event list.
+    /// </summary>
+    /// <remarks>
+    /// The events are carried through rather than converted: they are the template's, and FRUA has
+    /// no global event list of its own — its events all belong to a level.
+    /// </remarks>
+    public static (GlobalStatsPrefix Global,
+                   IReadOnlyList<(EventType Type, IGameEvent Body)> Events)
+        ReadTemplate(string gameDataPath)
+    {
+        ArgumentNullException.ThrowIfNull(gameDataPath);
+
+        using var stream = File.OpenRead(gameDataPath);
+        var cursor = GameDataReader.Open(stream);
+
+        var events = new List<(EventType, IGameEvent)>();
+
+        var global = GlobalStatsReader.Read(
+            cursor.Body, cursor.Version, ArchiveRole.Editor,
+            (ar, type, version) =>
+            {
+                var body = EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor);
+
+                if (body is not null)
+                {
+                    events.Add((type, body));
+                }
+
+                return body;
+            });
+
+        return (global, events);
+    }
+
     /// <summary>The subdirectory of a design that holds its data files.</summary>
     public const string DataDirectory = "Data";
 
@@ -150,7 +222,56 @@ public static class FruaDesignConverter
                 ar => ItemRecordWriter.WriteDatabase(ar, converted.Items, converted.AmmoTypes)));
         }
 
+        if (converted.Global is { } global)
+        {
+            written.Add(WriteGameData(Path.Combine(data, "game.dat"), global, converted.Events));
+        }
+
         return written;
+    }
+
+    /// <summary>
+    /// Writes <c>game.dat</c>: the magic, the version, then the record inside a <c>CAR</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The version appears twice</b>, once on the raw file and once as the record's own first
+    /// field — which is not redundancy but how <c>GetDesignVersion</c> works:
+    /// <see cref="UnstampedVersionSource.PayloadFirstField"/> says an unstamped <c>game.dat</c>
+    /// takes its version from the payload, so the field has to be there whether or not the magic
+    /// is. <see cref="GlobalStatsWriter.Write"/> emits the inner one itself.
+    /// </para>
+    /// <para>
+    /// <b>Divergence: written compressed where the reference would write uncompressed.</b>
+    /// <see cref="DesignFileKind.GameData"/> has no compression threshold, so
+    /// <see cref="DesignFileKind.TierFor"/> classifies a modern <c>game.dat</c> as
+    /// <see cref="ArchiveTier.UncompressedCar"/> — but this port has no uncompressed-<c>CAR</c>
+    /// writer, only <see cref="CarArchiveWriter"/>, which always emits compression type 2. The
+    /// file still reads: <c>GameDataReader.Open</c> honours the type byte it finds rather than the
+    /// one the version implies, which the round trip in the tests demonstrates. It is a smaller
+    /// file that says so in its own header, not a wrong one.
+    /// </para>
+    /// </remarks>
+    private static string WriteGameData(string path, GlobalStatsPrefix global,
+                                        IReadOnlyList<(EventType Type, IGameEvent Body)> events)
+    {
+        using var stream = File.Create(path);
+
+        WriteMagic(new MfcArchiveWriter(stream));
+
+        using var car = CarArchiveWriter.Open(stream);
+        GlobalStatsWriter.Write(ArchiveWriteCursor.For(car), global, events);
+        return path;
+    }
+
+    /// <summary>The eight-byte sentinel and the version, on the raw file.</summary>
+    private static void WriteMagic(MfcArchiveWriter writer)
+    {
+        Span<byte> magic = stackalloc byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(
+            magic, DesignFileHeader.Magic);
+        writer.WriteBytes(magic);
+        writer.WriteDouble(WrittenVersion.Value);
     }
 
     /// <summary>
@@ -170,13 +291,7 @@ public static class FruaDesignConverter
         using var stream = File.Create(path);
 
         // The magic and version are on the raw file, ahead of the compressed stream.
-        var header = new MfcArchiveWriter(stream);
-
-        Span<byte> magic = stackalloc byte[8];
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(
-            magic, DesignFileHeader.Magic);
-        header.WriteBytes(magic);
-        header.WriteDouble(WrittenVersion.Value);
+        WriteMagic(new MfcArchiveWriter(stream));
 
         using var car = CarArchiveWriter.Open(stream);
         write(ArchiveWriteCursor.For(car));

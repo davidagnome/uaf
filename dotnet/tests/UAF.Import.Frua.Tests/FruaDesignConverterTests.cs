@@ -238,4 +238,88 @@ public class FruaDesignConverterTests : IDisposable
         Assert.Equal(first.Characters.Select(c => c.Name), second.Characters.Select(c => c.Name));
         Assert.Equal(first.Levels.Keys.Order(), second.Levels.Keys.Order());
     }
+
+
+    /// <summary>
+    /// A written <c>game.dat</c> carries the FRUA design's identity and reads back.
+    /// </summary>
+    /// <remarks>
+    /// <b>The template has to be read in full, not as a prefix.</b>
+    /// <c>GlobalStatsReader.ReadThroughCharacters</c> stops before <c>LEVEL_INFO</c> and
+    /// <c>GlobalStatsWriter.CanWrite</c> refuses a header without it — so a prefix read converts
+    /// fine and then cannot be written, which is what blocked this until now.
+    /// </remarks>
+    [Fact]
+    public void A_written_game_data_carries_the_frua_header()
+    {
+        if (Heirs() is not { } path || Design("Case.dsn") is not { } template)
+        {
+            return;
+        }
+
+        string templateGameData = Path.Combine(template, "Data", "game.dat");
+
+        if (!File.Exists(templateGameData))
+        {
+            return;
+        }
+
+        var design = FruaDesign.Open(path);
+        var converted = FruaDesignConverter.Convert(design, templateGameData);
+
+        Assert.NotNull(converted.Global);
+        Assert.Equal(design.Game.DesignName, converted.Global.DesignName);
+
+        FruaDesignConverter.Write(converted, scratch, template);
+
+        string file = Path.Combine(scratch, FruaDesignConverter.DataDirectory, "game.dat");
+        Assert.True(File.Exists(file), file);
+
+        using var stream = File.OpenRead(file);
+        var cursor = GameDataReader.Open(stream);
+        var reread = GlobalStatsReader.Read(
+            cursor.Body, cursor.Version, ArchiveRole.Editor,
+            (ar, type, version) => EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor));
+
+        // The design's own identity came from FRUA.
+        Assert.Equal(design.Game.DesignName, reread.DesignName);
+        Assert.Equal((int)design.Game.StartExperience, reread.StartExp);
+        Assert.Equal((int)design.Game.StartPlatinum, reread.StartPlatinum);
+
+        // And the tables FRUA has no equivalent for came from the template.
+        Assert.NotNull(reread.Money);
+        Assert.NotNull(reread.Difficulty);
+        Assert.NotNull(reread.Levels);
+        // Heirs: "Heirs to skull crag", 50,000 experience, 100 platinum -- the same values
+        // FruaGameDataConverterTests reads straight out of game001.dat.
+        Assert.Equal("Heirs to skull crag", reread.DesignName);
+        Assert.Equal(50_000, reread.StartExp);
+        Assert.Equal(100, reread.StartPlatinum);
+    }
+
+    /// <summary>
+    /// Without a template there is no header to write, and the rest still writes.
+    /// </summary>
+    /// <remarks>
+    /// A design directory with no <c>game.dat</c> is not one the engine can open — this pins that
+    /// the converter says so by omission rather than by writing an unusable header.
+    /// </remarks>
+    [Fact]
+    public void Without_a_template_no_game_data_is_written()
+    {
+        if (Heirs() is not { } path)
+        {
+            return;
+        }
+
+        var converted = FruaDesignConverter.Convert(FruaDesign.Open(path));
+
+        Assert.Null(converted.Global);
+        Assert.Empty(converted.Events);
+
+        var written = FruaDesignConverter.Write(converted, scratch);
+
+        Assert.NotEmpty(written);
+        Assert.DoesNotContain(written, f => Path.GetFileName(f) == "game.dat");
+    }
 }
