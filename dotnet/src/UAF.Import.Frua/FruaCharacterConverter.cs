@@ -40,12 +40,15 @@ public static class FruaCharacterConverter
             PreSpellNameKey: -1,
             Name: creature.Name,
 
-            // The reference points these at the editor's default monster icon and hit/miss
-            // sounds, which are template paths rather than anything FRUA supplies.
-            Icon: null,
+            // The editor's default monster icon and hit/miss sounds -- template paths rather than
+            // anything FRUA supplies, but not optional: a monster with no PIC_DATA is a pre-0.640
+            // shape the writer refuses.
+            Icon: FruaArtConverter.MonsterIcon,
             LegacyIconFile: string.Empty,
-            HitSound: string.Empty,
-            MissSound: string.Empty,
+            HitSound: FruaArtConverter.HitSoundFile,
+            MissSound: FruaArtConverter.MissSoundFile,
+
+            // The reference sets neither of these.
             MoveSound: string.Empty,
             DeathSound: string.Empty,
 

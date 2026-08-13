@@ -52,6 +52,42 @@ public static class FruaArtConverter
     /// <summary>The portrait every picture slot gets.</summary>
     public const string PictureFile = "prt_SPic1.png";
 
+    /// <summary>The icon every imported monster gets (<c>PicSlot.cpp:128</c>).</summary>
+    public const string MonsterIconFile = "cm_DefMI.png";
+
+    /// <summary>The sound an imported creature makes on a hit.</summary>
+    public const string HitSoundFile = "Hit.wav";
+
+    /// <summary>The sound it makes on a miss.</summary>
+    public const string MissSoundFile = "Miss.wav";
+
+    /// <summary><c>IconDib</c> (<c>SurfaceMgr.h:25</c>) — another bit flag, not an ordinal.</summary>
+    public const int IconDib = 64;
+
+    /// <summary>
+    /// The icon an imported monster gets.
+    /// </summary>
+    /// <remarks>
+    /// <b>The one place the reference supplies real art rather than a stand-in for nothing.</b>
+    /// <c>ProcessMonsterCchData</c> sets the editor's default monster icon and calls
+    /// <c>SetDefaults</c>, so an imported monster draws something in combat — and the record
+    /// cannot go out without it: a monster with no <c>PIC_DATA</c> is a pre-0.640 shape the writer
+    /// refuses, because rebuilding one needs <c>PIC_DATA::SetDefaults</c>.
+    /// </remarks>
+    public static PicRecord MonsterIcon { get; } =
+        new(PicType: IconDib,
+            FileName: MonsterIconFile,
+            TimeDelay: 0,
+            NumFrames: 1,
+            FrameWidth: 0,
+            FrameHeight: 0,
+            Flags: 0,
+            MaxLoops: 0,
+            Style: 0,
+            UseAlpha: 0,
+            AlphaValue: 0,
+            RestartFrame: 0);
+
     /// <summary>The backdrop a slot falls back to when its own is missing.</summary>
     public const string DefaultBackdropFile = "bd_Background1.png";
 

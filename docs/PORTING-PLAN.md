@@ -8393,6 +8393,7 @@ reader with two masters.
 | `FruaEventEnums` | engine ordinals | The reader enums that are not the engine's |
 | `FruaItemConverter` | `ItemRecord` / `ItemInstance` | The two item files flattened into one record |
 | `FruaArtConverter` | `WallSetSlot` / `BackgroundSlot` / `PicRecord` | The placeholder art the reference assigns |
+| `FruaDesignConverter` | a design directory | Whole-design assembly: levels, `monsters.dat`, `items.dat` |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
 that produces a design that loads and is quietly wrong:
@@ -8484,13 +8485,36 @@ sets `matchCase = FALSE` on an imported password, because FRUA's six-bit string 
 represent lower case at all — matching case-sensitively would make every imported password
 unanswerable.
 
-**The conversion layer is complete.** All 35 FRUA event types read and convert, a converted level
-round-trips through `LevelFileWriter` and back with its cells, zones, events and art, treasure and
-shop stock and both creature paths resolve their item ordinals, and every slot table an imported
-design needs is filled. What remains is assembly — writing a converted design to disk as a set of
-files — plus three loose ends: question and encounter buttons carry their actions but not their
-labels, a `SmallTown`'s six generated children are not yet emitted as separate chained events, and
-monsters carry items but no money. Carried
+**The importer now produces a design directory.** `FruaDesignConverter.Convert` turns a whole
+`FruaDesign` into levels, monsters, characters and items; `Write` copies a template design for the
+rules FRUA has no equivalent for and writes `Level###.lvl`, `monsters.dat` and `items.dat` over
+it. Both the levels and the monster database read back through the port's own readers, which is
+what establishes the file framing rather than assuming it.
+
+**Writing found four defects the in-memory converters could not.** Each was a writer refusing a
+shape, and each refusal was right: a combat monster arrived with a **null money sack** where the
+written version requires one — FRUA gives every creature its own coin, gem and jewellery counts,
+so the fix was to stop discarding them; a **guided tour carried 7 steps where the format writes
+24**, the count being compile-time in the reference and never on the wire, so a short list
+truncates the event and desynchronises every later one; a **monster arrived with no `PIC_DATA`**,
+which is a pre-0.640 shape the writer cannot rebuild without `PIC_DATA::SetDefaults`, so imported
+monsters now carry the editor's default icon and hit/miss sounds as the reference sets them; and
+`FruaDesign.Open` **could not see a design's own item files**, only an installation's `DISK1`, so
+`RUNELORD.DSN` converted with an empty database. Together with the tavern's five-drink rule found
+earlier, that is five fixed-shape rules the writers enforce that nothing else would have caught.
+
+**And the framing is not uniform.** Every file opens with the magic and a version double, but a
+level is a plain payload while a **database is a compressed `CAR`** — `DesignFileKind.Database`
+puts its compression threshold at 0.930 and an import writes far past it, so the reader feeds the
+payload to the LZW decompressor whatever was written there. A plain payload behind that header
+reads as garbage rather than as a short file. The database round-trip test was written expecting a
+plain archive and was wrong; the assertion is what settled it.
+
+**What is left:** `game.dat` is not written yet — it needs the template read through the full
+`GlobalStatsReader.Read` rather than `ReadThroughCharacters`, since `GlobalStatsWriter.CanWrite`
+requires the `LEVEL_INFO` the prefix reader stops before. Plus three loose ends: question and
+encounter buttons carry their actions but not their labels, and a `SmallTown`'s six generated
+children are not yet emitted as separate chained events. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

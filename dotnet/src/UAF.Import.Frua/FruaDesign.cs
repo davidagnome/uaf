@@ -74,16 +74,21 @@ public sealed class FruaDesign
     /// </summary>
     /// <param name="uaInstallation">
     /// Optional path to a FRUA installation, whose <c>DISK1</c> holds the stock item database.
-    /// Without it <see cref="Items"/> is null, which is what leaving the dialog's box unticked
-    /// does in the reference.
+    /// Only consulted when the design ships no item files of its own. Without either,
+    /// <see cref="Items"/> is null, which is what leaving the dialog's box unticked does in the
+    /// reference.
     /// </param>
     public static FruaDesign Open(string designDirectory, string? uaInstallation = null)
     {
         ArgumentNullException.ThrowIfNull(designDirectory);
 
-        var items = uaInstallation is null
-            ? null
-            : FruaItemDatabase.Read(Path.Combine(uaInstallation, "DISK1"));
+        // A design that ships its own item files uses them; otherwise it inherits the stock ones
+        // from the installation's DISK1. Most designs ship none -- HEIRS.DSN has neither file --
+        // and RUNELORD.DSN is the corpus's only example of one that does.
+        var items = FruaItemDatabase.Read(designDirectory)
+                    ?? (uaInstallation is null
+                        ? null
+                        : FruaItemDatabase.Read(Path.Combine(uaInstallation, "DISK1")));
 
         return new FruaDesign(
             designDirectory,

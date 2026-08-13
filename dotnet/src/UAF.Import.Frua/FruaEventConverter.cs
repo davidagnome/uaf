@@ -560,7 +560,11 @@ public static class FruaEventConverter
                 QtyDiceQty: 0,
                 QtyBonus: 0,
                 UseQty: 1,
-                Money: null,
+
+                // Not null: a monster entry carries a MONEY_SACK at the version this writes, and
+                // FRUA gives each creature its own coin, gem and jewellery counts -- so the
+                // treasure a party takes off it is the design's, not an invented empty purse.
+                Money: Money(m.Monster.Record),
                 Items: new ItemList(
                     m.Monster.Record is { } record
                         ? Items(record.ItemsCarried, design, quantities: record.ItemQuantities)
@@ -572,15 +576,48 @@ public static class FruaEventConverter
     /// <summary><c>MONSTER_TYPE</c> — the counterpart to <c>NPC_TYPE</c>.</summary>
     public const int MonsterType = 1;
 
+    /// <summary>
+    /// What a creature carries, as the engine's money sack.
+    /// </summary>
+    /// <remarks>
+    /// <b>Gems and jewellery are counts of unnamed pieces.</b> FRUA stores how many, not what
+    /// they are worth, and the engine's <c>GEM_TYPE</c> wants a database id and a value — so each
+    /// piece comes across with neither, to be priced by the design's own gem table.
+    /// </remarks>
+    private static MoneySack Money(FruaCharacter? creature)
+    {
+        var coins = new int[MonsterLeafReaders.MaxCoinTypes];
+
+        if (creature is null)
+        {
+            return new MoneySack(coins, [], []);
+        }
+
+        coins[0] = creature.Platinum;
+
+        return new MoneySack(
+            coins,
+            Enumerable.Repeat(new GemType(0, 0), creature.Gems).ToArray(),
+            Enumerable.Repeat(new GemType(0, 0), creature.Jewelry).ToArray());
+    }
+
     private static IGameEvent Tour(FruaEvent source, uint id, FruaDesign? design)
     {
         var payload = FruaGuidedTourEvent.Read(source);
 
         // The engine's step carries a label the editor shows; FRUA's is a bare direction, so the
         // enum's own name is the only text there is to give it.
-        var steps = payload.Steps
-            .Select(s => new TourStep(s.ToString(), (int)s))
-            .ToArray();
+        //
+        // Padded to the full table: a GUIDED_TOUR writes exactly MaxSteps steps and the count is
+        // compile-time in the reference, never on the wire, so a shorter list truncates the event
+        // and every later one is read out of the middle of it. The tail is inert -- a pause.
+        var steps = new TourStep[FruaGuidedTourEvent.MaxSteps];
+
+        for (int i = 0; i < steps.Length; i++)
+        {
+            var step = i < payload.Steps.Count ? payload.Steps[i] : FruaTourStep.Pause;
+            steps[i] = new TourStep(step.ToString(), (int)step);
+        }
 
         return new GuidedTour(
             Base: Base(source, EventType.GuidedTour, id, string.Empty, design),
