@@ -8554,6 +8554,27 @@ pass first. The ordinals are read and kept, so nothing is lost.
 **Not ported:** nothing the reference itself does. The `.GLB` archives and `.XMI` music are
 outside its behaviour entirely (see the note above) and so outside this phase.
 
+**The comparison is written and verified; only the harness run is left.**
+`FruaImportOracleDiffTests` compares a design imported by the reference against one imported by
+this port, activated by `UAF_FRUA_ORACLE_DIR` and `UAF_FRUA_ORACLE_DESIGN`. It asserts what must
+match — the level set, every level's dimensions and every cell's walls, blockage and zone, and
+the design header, all of which both importers take from the same bytes — and asserts *direction*
+rather than equality where the reference is known to drop data. It does not assert event equality,
+because a `SmallTown` legitimately generates six children here; it asserts that no type the
+reference produced is missing.
+
+> **It was verified against a synthetic oracle rather than left as scaffolding.** Pointing it at
+> the port's own written output: four of the five tests pass — levels, geometry, events and header
+> all compare correctly through the real file readers — and the fifth fires with its intended
+> message, having found 482 resolved monsters. That is the whole pipeline exercised end to end
+> (convert → write → read → compare) without the reference binary, and it means the first real
+> harness run reports differences rather than failing on its own plumbing.
+>
+> The monster test is the one that asserts a *divergence holds*: nine of the reference's fourteen
+> `NotImplemented` markers are the disabled `GetMonsterKey`, so its combats carry quantities and no
+> monsters. If a real oracle run ever names one, the reference was rebuilt with that code restored
+> and the divergence list needs revisiting — which is why it checks rather than assumes.
+
 **The harness is the remaining gate.** `-importfrua` and `tools/frua-import-oracle.sh` exist and
 the C++ compiles green in CI, but **no run has yet demonstrably produced an imported design**, so
 nothing has been diffed — and with the criterion now being "loads correctly, with every difference
