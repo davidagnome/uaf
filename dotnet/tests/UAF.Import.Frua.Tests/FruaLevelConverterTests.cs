@@ -197,9 +197,12 @@ public class FruaLevelConverterTests
 
         stream.Position = 0;
 
-        // No event bodies to consume -- this slice writes an empty event list -- so the reader's
-        // event callback is never reached, and returning null would only matter if it were.
-        var reread = LevelFileReader.Read(stream, ArchiveRole.Editor, (_, _, _) => null);
+        // The bodies have to be read back properly now that the level carries them: an event body
+        // has no length prefix, so a callback that declined to read one would leave the stream
+        // positioned inside it and every later event would come out of the middle of this one.
+        var reread = LevelFileReader.Read(
+            stream, ArchiveRole.Editor,
+            (ar, type, ver) => EventBodyReader.TryRead(ar, type, ver, ArchiveRole.Editor));
 
         Assert.Equal(converted.Width, reread.Width);
         Assert.Equal(converted.Height, reread.Height);
@@ -211,5 +214,53 @@ public class FruaLevelConverterTests
             Assert.Equal(converted.Cells[i].Walls, reread.Cells[i].Walls);
             Assert.Equal(converted.Cells[i].Blockage, reread.Cells[i].Blockage);
         }
+
+        // The events are the part with no length prefix, so a round trip that reads them back in
+        // the right order and the right count is what proves the writer and reader agree.
+        Assert.True(converted.EventCount > 0, "the level converted no events");
+        Assert.Equal(converted.EventCount, reread.EventCount);
+        Assert.Equal(converted.Entries.Select(e => e.Type), reread.Entries.Select(e => e.Type));
+    }
+
+    /// <summary>
+    /// A converted level's events keep their text and their trigger through the round trip.
+    /// </summary>
+    /// <remarks>
+    /// The count and types agreeing would still hold if every body were written as zeroes, so this
+    /// checks a field that came from the design.
+    /// </remarks>
+    [Fact]
+    public void A_converted_levels_event_text_survives_the_round_trip()
+    {
+        if (Heirs() is not { } design || FruaLevel.ReadFile(design, 5) is not { } level)
+        {
+            return;
+        }
+
+        var converted = FruaLevelConverter.Convert(level, 5);
+
+        using var stream = new MemoryStream();
+        LevelFileWriter.WriteFile(stream, converted);
+        stream.Position = 0;
+
+        var reread = LevelFileReader.Read(
+            stream, ArchiveRole.Editor,
+            (ar, type, ver) => EventBodyReader.TryRead(ar, type, ver, ArchiveRole.Editor));
+
+        var written = converted.Entries.Select(e => e.Body).OfType<TextEvent>().ToList();
+        var read = reread.Entries.Select(e => e.Body).OfType<TextEvent>().ToList();
+
+        Assert.NotEmpty(written);
+        Assert.Equal(written.Count, read.Count);
+
+        for (int i = 0; i < written.Count; i++)
+        {
+            Assert.Equal(written[i].Base.Text, read[i].Base.Text);
+            Assert.Equal(written[i].Base.Control.EventTrigger, read[i].Base.Control.EventTrigger);
+            Assert.Equal(written[i].Base.Control.OnceOnly, read[i].Base.Control.OnceOnly);
+            Assert.Equal(written[i].WaitForReturn, read[i].WaitForReturn);
+        }
+
+        Assert.Contains(read, t => !string.IsNullOrEmpty(t.Base.Text));
     }
 }

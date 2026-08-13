@@ -8385,9 +8385,11 @@ reader with two masters.
 
 | Converter | Produces | State |
 |---|---|---|
-| `FruaLevelConverter` | `LevelFile` | Cells, zones, rest and step events. Round-trips through `LevelFileWriter` and back |
+| `FruaLevelConverter` | `LevelFile` | Cells, zones, rest and step events, and the events themselves. Round-trips through `LevelFileWriter` and back |
 | `FruaGameDataConverter` | `GlobalStatsPrefix` | Design name, start position, money, keys and items |
 | `FruaCharacterConverter` | `MonsterRecord` / `CharacterRecord` | Both branches of `ImportMonsterToUAF` |
+| `FruaEventControlConverter` | `GameEventBase` / `EventControl` | The base every one of the 35 types shares |
+| `FruaEventConverter` | `IGameEvent` | 15 of the 35 types — **745 of `HEIRS.DSN`'s 1,040 events** |
 
 Three findings from the conversion work are worth stating, because each is the kind of mistake
 that produces a design that loads and is quietly wrong:
@@ -8402,8 +8404,29 @@ that produces a design that loads and is quietly wrong:
 - **An import mutates a design rather than building one.** `GlobalStatsWriter.CanWrite` requires a
   money table and a difficulty table, and FRUA carries neither, so `FruaGameDataConverter` overlays
   onto a template. That is also what the reference does — `-config` takes a design *directory*.
+- **One FRUA trigger byte becomes four engine fields, and the obvious arithmetic is wrong once.**
+  FRUA's triggers step by eight and the engine's are consecutive, so dividing by eight is correct
+  for 8→1 all the way to 128→16. But the engine interleaves `ClassNotInParty` at 17, which FRUA
+  cannot express, so FRUA's 136 is the engine's **18**. A shortcut correct for every value a
+  spot-check would try is exactly the kind that survives review, so the table is written out.
 
-**Still to convert:** the 35 event payload types onto `IGameEvent`, items, and art slots. Carried
+**An unmapped event type is dropped, not stubbed.** `FruaEventConverter.Convert` returns null for a
+type it has no mapping for, and `Converts` names the mapped set so a caller can report coverage
+rather than discovering gaps as silence; a test asserts the two cannot drift apart. A cell whose
+event index no longer resolves is a visible gap — an event written as the wrong type is not.
+
+**The writer was the real constraint, twice.** Wiring events into `FruaLevelConverter` immediately
+failed `LevelFileWriter.CanWrite`, because `EventBodyWriter` had no `DAMAGE_EVENT_DATA` or
+`VAULT_EVENT_DATA` writer — both are types no shipped *native* design contains, so neither had a
+corpus to be built against. They are now ported (`PartyEffectEventWriters`) and the round-trip
+test reads its bodies back through `EventBodyReader` rather than declining them, which is what
+makes it a real check: an event body carries no length prefix, so a mis-written field
+desynchronises every event after it rather than corrupting one.
+
+**Still to convert:** the remaining 20 event payload types — the large ones (`Shop`, `SmallTown`,
+`Encounter`, `TrainingHall`, `Temple`, `Tavern`, `Combat`, `Utilities`, `NpcSays`, `GuidedTour`,
+`QuestionButton`, `WhoTries`) plus the several with no engine writer yet — then items, and art
+slots. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

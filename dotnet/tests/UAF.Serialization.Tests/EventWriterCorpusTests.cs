@@ -252,11 +252,13 @@ public class EventWriterCorpusTests
 
         var body = events[0].Body;
 
-        // Vault is one of the fourteen types no shipped design contains, so it has no corpus to
-        // check a writer against and is deliberately still unported.
-        Assert.False(EventBodyWriter.CanWrite(EventType.Vault));
+        // HealParty is one of the types no shipped design contains, so it has no corpus to check
+        // a writer against and is deliberately still unported. Its sibling Damage does have a
+        // writer -- the FRUA importer produces damage events -- which is why the two are not
+        // ported together.
+        Assert.False(EventBodyWriter.CanWrite(EventType.HealParty));
         var ex = Assert.Throws<NotSupportedException>(
-            () => Write(EventType.Vault, body));
+            () => Write(EventType.HealParty, body));
         Assert.Contains("no writer yet", ex.Message);
     }
 

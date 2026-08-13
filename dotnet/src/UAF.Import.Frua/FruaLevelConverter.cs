@@ -13,9 +13,9 @@ namespace UAF.Import.Frua;
 /// <see cref="FruaLevel"/> mapped onto the model <c>UAF.Serialization</c> already writes.
 /// </para>
 /// <para>
-/// <b>Events are not carried across yet.</b> A converted level writes with an empty event list,
-/// which is a valid <c>.lvl</c> — the cells still name their event indices, so nothing is lost
-/// that a later pass cannot fill in.
+/// <b>Events come across for the types <see cref="FruaEventConverter"/> maps</b>, in file order so
+/// that the chain byte an event carries still names the right neighbour. Types not yet mapped are
+/// left out rather than stubbed.
 /// </para>
 /// </remarks>
 public static class FruaLevelConverter
@@ -42,7 +42,11 @@ public static class FruaLevelConverter
     /// </summary>
     /// <param name="level">The FRUA level.</param>
     /// <param name="number">Its one-based number, used as the UAF level index.</param>
-    public static LevelFile Convert(FruaLevel level, int number)
+    /// <param name="design">
+    /// The design the level belongs to, which resolves the keys, items and quests an event's
+    /// trigger names. Null leaves those blank; everything else converts the same.
+    /// </param>
+    public static LevelFile Convert(FruaLevel level, int number, FruaDesign? design = null)
     {
         ArgumentNullException.ThrowIfNull(level);
 
@@ -56,17 +60,17 @@ public static class FruaLevelConverter
             }
         }
 
+        var events = Events(level, design);
+
         return new LevelFile(
             Version: WrittenVersion,
             Width: (byte)level.Width,
             Height: (byte)level.Height,
             Cells: cells,
             Level: number,
-
-            // Events are a later pass; a level with none is still a valid file.
-            EventCount: 0,
-            Events: [],
-            Entries: [],
+            EventCount: events.Count,
+            Events: events.Select(e => e.Body!).ToArray(),
+            Entries: events,
             Zones: Zones(level),
             Attributes: [],
             StepEvents: StepEvents(level),
@@ -74,6 +78,71 @@ public static class FruaLevelConverter
             BackgroundSets: [],
             BlockageKeys: []);
     }
+
+    /// <summary>
+    /// The level's events, in record order, skipping the ones not yet mapped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An unmapped type is dropped, not faked.</b> <see cref="FruaEventConverter.Convert"/>
+    /// returns null for a type it has no mapping for, and putting a placeholder in its place would
+    /// write an event that claims to be something it is not. A cell whose event index no longer
+    /// resolves is a visible gap; a wrong event is not.
+    /// </para>
+    /// <para>
+    /// <b>The order is the file's.</b> A FRUA event's chain byte names another event by its record
+    /// number, so preserving position is what keeps those references meaningful.
+    /// </para>
+    /// </remarks>
+    private static List<LevelEventEntry> Events(FruaLevel level, FruaDesign? design)
+    {
+        var entries = new List<LevelEventEntry>();
+
+        for (int i = 0; i < level.Events.Count; i++)
+        {
+            var source = level.Events[i];
+
+            if (source.Type == FruaEventType.None)
+            {
+                continue;
+            }
+
+            if (FruaEventConverter.Convert(source, (uint)i, level.Strings, design) is not { } body)
+            {
+                continue;
+            }
+
+            entries.Add(new LevelEventEntry((EventType)BaseOf(body).EventType, body));
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// The shared base of a converted event.
+    /// </summary>
+    /// <remarks>
+    /// <c>IGameEvent</c> does not declare the base — each record names it positionally — so this
+    /// is the one place that has to know the shape of every event the converter produces. The
+    /// throw is deliberate: a new mapping that forgets to come through here fails loudly.
+    /// </remarks>
+    private static GameEventBase BaseOf(IGameEvent body) => body switch
+    {
+        TextEvent t => t.Base,
+        TreasureEvent t => t.Base,
+        DamageEvent d => d.Base,
+        SoundEvent s => s.Base,
+        QuestEvent q => q.Base,
+        GainExperienceEvent g => g.Base,
+        YesNoEvent y => y.Base,
+        VaultEvent v => v.Base,
+        PassTimeEvent p => p.Base,
+        ChainEvent c => c.Base,
+        CampEvent c => c.Base,
+        TransferEvent t => t.Base,
+        _ => throw new InvalidOperationException(
+            $"FruaLevelConverter has no base accessor for {body.GetType().Name}"),
+    };
 
     /// <summary>
     /// The eight zones a FRUA level carries, as UAF's zone table.

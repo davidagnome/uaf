@@ -119,6 +119,21 @@ public sealed class FruaDesign
     }
 
     /// <summary>
+    /// The name of one of the eight special keys, or empty for an index the design has no key for.
+    /// </summary>
+    /// <remarks>
+    /// An event's trigger names a key by a number and the engine's control block wants a name, so
+    /// this is what stands between the two. The bound is the design's own list rather than a fixed
+    /// eight, since a design may name fewer.
+    /// </remarks>
+    public string KeyName(int index) =>
+        index >= 0 && index < Game.SpecialKeys.Count ? Game.SpecialKeys[index] : string.Empty;
+
+    /// <summary>The name of one of the twelve special items, or empty.</summary>
+    public string SpecialItemName(int index) =>
+        index >= 0 && index < Game.SpecialItems.Count ? Game.SpecialItems[index] : string.Empty;
+
+    /// <summary>
     /// Every monster a combat event calls for, with its quantity, resolved.
     /// </summary>
     /// <remarks>

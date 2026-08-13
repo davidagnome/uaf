@@ -48,10 +48,13 @@ public sealed record FruaTextEvent(
     /// 8 and 16 of the byte at offset 5 — so any pause style at all means "wait".
     /// </para>
     /// </remarks>
-    public static FruaTextEvent Read(FruaEvent e, FruaStringTable strings)
+    /// <param name="strings">
+    /// The level's string table. Null yields the flags and slots with empty text, which is what a
+    /// caller converting structure without a table gets.
+    /// </param>
+    public static FruaTextEvent Read(FruaEvent e, FruaStringTable? strings)
     {
         ArgumentNullException.ThrowIfNull(e);
-        ArgumentNullException.ThrowIfNull(strings);
 
         byte control = e.Byte(5);
         byte flags = e.Byte(8);
@@ -62,7 +65,7 @@ public sealed record FruaTextEvent(
 
         foreach (var (at, bit) in new[] { (9, 4), (11, 8), (13, 16), (15, 32), (17, 64) })
         {
-            string chunk = strings.Get(e.Word(at)) ?? string.Empty;
+            string chunk = strings?.Get(e.Word(at)) ?? string.Empty;
             bool highlight = (flags & bit) == bit;
 
             if (highlight)

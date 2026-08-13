@@ -42,7 +42,7 @@ public static class EventBodyWriter
         EventType.Sounds or EventType.GainExperience or EventType.Camp or
         EventType.RemoveNPCEvent or EventType.NPCSays or EventType.TrainingHallEvent or
         EventType.TempleEvent or EventType.ShopEvent or EventType.TavernEvent or
-        EventType.WhoPays => true,
+        EventType.WhoPays or EventType.Damage or EventType.Vault => true,
         _ => false,
     };
 
@@ -57,6 +57,13 @@ public static class EventBodyWriter
 
         switch (type)
         {
+            case EventType.Damage:
+                PartyEffectEventWriters.WriteDamage(ar, Expect<DamageEvent>(body, type));
+                return;
+            case EventType.Vault:
+                PartyEffectEventWriters.WriteVault(ar, Expect<VaultEvent>(body, type));
+                return;
+
             case EventType.ChainEventType:
                 SimpleEventWriters.WriteChain(ar, Expect<ChainEvent>(body, type));
                 return;
