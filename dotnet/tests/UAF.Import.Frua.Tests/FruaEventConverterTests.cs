@@ -570,4 +570,177 @@ public class FruaEventConverterTests
 
         Assert.True(withMonsters > 0, "no combat event resolved any monster");
     }
+
+
+    /// <summary>
+    /// A question's five button labels come from one caret-delimited string.
+    /// </summary>
+    /// <remarks>
+    /// Not five slots — one, split. The leading segment is skipped, and an empty one leaves that
+    /// button unlabelled rather than shifting the rest along.
+    /// </remarks>
+    [Theory]
+    [InlineData("^one^two^three^", new[] { "one", "two", "three", "", "" })]
+    [InlineData("^a^^c^", new[] { "a", "", "c", "", "" })]
+    [InlineData("^1^2^3^4^5^", new[] { "1", "2", "3", "4", "5" })]
+
+    // Anything before the first caret is not a label.
+    [InlineData("junk^one^", new[] { "one", "", "", "", "" })]
+
+    // A string with no caret at all yields nothing -- the reference would dereference null here.
+    [InlineData("no separators", new[] { "", "", "", "", "" })]
+    [InlineData("", new[] { "", "", "", "", "" })]
+    public void The_button_labels_are_one_string_split(string text, string[] expected) =>
+        Assert.Equal(expected, FruaQuestionButtonEvent.Labels(text));
+
+    /// <summary>A converted question carries its labels.</summary>
+    [Fact]
+    public void A_real_question_event_carries_its_labels()
+    {
+        if (Levels() is not { } levels)
+        {
+            return;
+        }
+
+        int labelled = 0;
+
+        foreach (var level in levels)
+        {
+            foreach (var source in level.Events.Where(
+                         e => e.Type is FruaEventType.QuestionButton or FruaEventType.QuestionList))
+            {
+                var question = Assert.IsType<QuestionEvent>(
+                    FruaEventConverter.Convert(source, 1, level.Strings));
+
+                Assert.Equal(FruaQuestionButtonEvent.ButtonCount, question.Options.Count);
+                Assert.All(question.Options, o => Assert.Equal(1, o.Present));
+
+                if (question.Options.Any(o => !string.IsNullOrEmpty(o.Label)))
+                {
+                    labelled++;
+                }
+            }
+        }
+
+        Assert.True(labelled > 0, "no converted question event carried a button label");
+    }
+
+    /// <summary>
+    /// A small town generates its children, and chains to each one it generates.
+    /// </summary>
+    /// <remarks>
+    /// <b>One FRUA event becomes up to seven UAF ones.</b> A chain of zero means the service was
+    /// not selected; a non-zero one has to name a child that actually exists, or the hub leads
+    /// nowhere.
+    /// </remarks>
+    [Fact]
+    public void A_small_town_generates_the_services_it_chains_to()
+    {
+        if (Levels() is not { } levels)
+        {
+            return;
+        }
+
+        int towns = 0;
+
+        foreach (var level in levels)
+        {
+            foreach (var source in level.Events.Where(e => e.Type == FruaEventType.SmallTown))
+            {
+                var hub = Assert.IsType<SmallTownEvent>(
+                    FruaEventConverter.Convert(source, 1, level.Strings));
+
+                var (wired, children) = FruaEventConverter.SmallTownChildren(
+                    source, hub, 100, level.Strings);
+
+                var payload = FruaSmallTownEvent.Read(source);
+
+                // One child per selected service, and a chain for each.
+                var chains = new[]
+                {
+                    (FruaTownServices.Temple, wired.TempleChain),
+                    (FruaTownServices.TrainingHall, wired.TrainingHallChain),
+                    (FruaTownServices.Shop, wired.ShopChain),
+                    (FruaTownServices.Inn, wired.InnChain),
+                    (FruaTownServices.Tavern, wired.TavernChain),
+                    (FruaTownServices.Vault, wired.VaultChain),
+                };
+
+                int selected = chains.Count(c => payload.Services.HasFlag(c.Item1));
+                Assert.Equal(selected, children.Count);
+
+                foreach (var (service, chain) in chains)
+                {
+                    if (payload.Services.HasFlag(service))
+                    {
+                        Assert.True(chain >= 100, $"{service} chains to {chain}");
+                    }
+                    else
+                    {
+                        Assert.Equal(0u, chain);
+                    }
+                }
+
+                // Every chain names a child that was actually generated.
+                var ids = children.Select(c => IdOf(c.Body)).ToHashSet();
+                foreach (var (service, chain) in chains)
+                {
+                    if (chain != 0)
+                    {
+                        Assert.Contains(chain, ids);
+                    }
+                }
+
+                towns++;
+            }
+        }
+
+        Assert.True(towns > 0, "the design has no small towns");
+    }
+
+    /// <summary>The hard-coded English prompts the reference assigns reach the children.</summary>
+    [Fact]
+    public void The_generated_children_carry_their_hard_coded_text()
+    {
+        if (Levels() is not { } levels)
+        {
+            return;
+        }
+
+        int seen = 0;
+
+        foreach (var level in levels)
+        {
+            foreach (var source in level.Events.Where(e => e.Type == FruaEventType.SmallTown))
+            {
+                var hub = Assert.IsType<SmallTownEvent>(
+                    FruaEventConverter.Convert(source, 1, level.Strings));
+
+                var (_, children) = FruaEventConverter.SmallTownChildren(
+                    source, hub, 100, level.Strings);
+
+                foreach (var (type, body) in children)
+                {
+                    string expected = type switch
+                    {
+                        EventType.TempleEvent => FruaSmallTownEvent.TempleText,
+                        EventType.TrainingHallEvent => FruaSmallTownEvent.TrainingHallText,
+                        EventType.ShopEvent => FruaSmallTownEvent.ShopText,
+                        EventType.Camp => FruaSmallTownEvent.InnText,
+                        EventType.Vault => FruaSmallTownEvent.VaultText,
+
+                        // A tavern's text is its tale, which comes from the design.
+                        _ => string.Empty,
+                    };
+
+                    Assert.Equal(expected, BaseOf(body).Text);
+                    seen++;
+                }
+            }
+        }
+
+        Assert.True(seen > 0, "no small town generated a child");
+    }
+
+    private static uint IdOf(IGameEvent e) => BaseOf(e).Id;
 }

@@ -8525,9 +8525,23 @@ emits compression type 2. The file still reads, because `GameDataReader.Open` ho
 byte it finds rather than the one the version implies. It is a smaller file that declares what it
 is, not a wrong one; an uncompressed-`CAR` writer would close the gap.
 
-**Two loose ends remain:** question and encounter buttons carry their actions but not their
-labels, and a `SmallTown`'s six generated children are not yet emitted as separate chained events.
-Carried
+**Both loose ends are closed.** A question's five button labels come from **one caret-delimited
+string**, not five slots — the reference walks it with `strchr` pairs, so all five share the
+228-character budget of a single six-bit string; anything before the first caret is skipped and an
+empty segment leaves that button unlabelled rather than shifting the rest along. Two divergences
+there, both refusals rather than fixes: the reference copies each label into a `char[50]` with an
+unbounded `strncpy`, and a non-empty string containing no caret at all leaves its `start` pointer
+null before passing it to `strchr`.
+
+And a `SmallTown` now generates its children. **One FRUA event becomes up to seven UAF ones** — it
+is a hub whose flag byte spawns a temple, training hall, shop, inn, tavern and vault as *separate*
+events added to the level, with the parent keeping only their keys. Their text is hard-coded
+English the reference assigns as C string literals, so a writer has to emit strings that exist
+nowhere in the design. The children's keys start past the hundred records a level can store, and
+they are appended after every record-backed event so a hub's own position — which its neighbours'
+chain bytes still refer to — does not move. **The inn has no engine event of its own**:
+`InnEvent` is marked obsoleted in the enum ("WhoPays+CampEvent") and the reference builds a `CAMP`
+for it. Carried
 items are the one place the creature converters stop short: both reference paths resolve an item
 ordinal against the design's item database and multiply by its bundle size, which needs the item
 pass first. The ordinals are read and kept, so nothing is lost.

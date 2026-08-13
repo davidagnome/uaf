@@ -642,17 +642,23 @@ public static class FruaEventConverter
     {
         var payload = FruaQuestionButtonEvent.Read(source);
 
+        // All five labels arrive in one caret-delimited string, not one slot each.
+        var labels = FruaQuestionButtonEvent.Labels(Text(strings, payload.LabelSlot));
+
         var options = payload.ButtonActions
-            .Select(a => new QuestionOption(
-                Label: string.Empty,
+            .Select((a, i) => new QuestionOption(
+                Label: i < labels.Count ? labels[i] : string.Empty,
                 Present: 1,
                 PostChainAction: FruaEventEnums.PostChainAction(a),
                 Chain: 0))
             .ToArray();
 
         return new QuestionEvent(
-            Base: Base(source, type, id, Text(strings, payload.TextSlot), design),
-            Title: Text(strings, payload.LabelSlot),
+            Base: Base(source, type, id, Text(strings, payload.TextSlot), design,
+                       (payload.PictureSlot, payload.PictureIsLarge)),
+
+            // The label slot is the buttons' text, not a title -- FRUA has no separate one.
+            Title: string.Empty,
             NumButtons: options.Length,
             Options: options);
     }
@@ -778,8 +784,7 @@ public static class FruaEventConverter
             // FRUA's taverns serve no named drinks, but the engine's record holds a fixed five
             // that are never counted on the wire -- so a shorter list truncates the event and the
             // writer refuses it. Five blanks are what the reference's own defaults write.
-            Drinks: Enumerable.Repeat(new Drink(string.Empty, 0), MoreEventReaders.MaxDrinks)
-                              .ToArray());
+            Drinks: Drinks);
     }
 
     /// <summary>
@@ -973,4 +978,150 @@ public static class FruaEventConverter
             SuccessTransfer: transfer,
             FailTransfer: transfer);
     }
+
+
+    /// <summary>
+    /// The child events a small town generates, with the parent rewired to chain to them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One FRUA event becomes up to seven UAF ones.</b> A <c>SMALL_TOWN</c> is a hub: its flag
+    /// byte spawns a temple, a training hall, a shop, an inn, a tavern and a vault as *separate*
+    /// events added to the level, and the parent keeps only their keys. That is why this returns a
+    /// list rather than mutating one record — the children have to be written too, or the hub
+    /// chains to nothing.
+    /// </para>
+    /// <para>
+    /// <b>Their text is hard-coded English, not read.</b> The reference assigns C string literals
+    /// — "WELCOME TO THE TEMPLE" and its five siblings — so a writer has to emit strings that
+    /// exist nowhere in the design. They are named constants on
+    /// <see cref="FruaSmallTownEvent"/>.
+    /// </para>
+    /// <para>
+    /// <b>The inn has no engine event of its own.</b> <c>InnEvent</c> is marked obsoleted in the
+    /// enum — "WhoPays+CampEvent" — and the reference builds a <c>CAMP</c> for it, which is what
+    /// the hub's <c>InnChain</c> then points at.
+    /// </para>
+    /// </remarks>
+    /// <param name="source">The small-town record.</param>
+    /// <param name="parent">The hub event, whose chains this fills in.</param>
+    /// <param name="firstChildId">The key to give the first child; later ones follow it.</param>
+    /// <param name="strings">The level's string table.</param>
+    /// <param name="design">Resolves the objects a trigger names.</param>
+    public static (SmallTownEvent Parent, IReadOnlyList<(EventType Type, IGameEvent Body)> Children)
+        SmallTownChildren(FruaEvent source, SmallTownEvent parent, uint firstChildId,
+                          FruaStringTable? strings = null, FruaDesign? design = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(parent);
+
+        var payload = FruaSmallTownEvent.Read(source);
+        var children = new List<(EventType, IGameEvent)>();
+        uint next = firstChildId;
+
+        uint Add(EventType type, IGameEvent body)
+        {
+            children.Add((type, body));
+            return next++;
+        }
+
+        uint temple = 0, hall = 0, shop = 0, inn = 0, tavern = 0, vault = 0;
+
+        if (payload.Services.HasFlag(FruaTownServices.Temple))
+        {
+            temple = Add(EventType.TempleEvent, new TempleEvent(
+                Base: Base(source, EventType.TempleEvent, next, FruaSmallTownEvent.TempleText,
+                           design),
+                ForceExit: 0,
+                AllowDonations: 0,
+                CostFactor: FruaEventEnums.CostFactor(payload.TempleCost),
+                MaxLevel: payload.TempleMaxLevel,
+                DonationTrigger: 0,
+                DonationChain: 0,
+                TempleSpells: new SpellBook(0, []),
+                TotalDonation: 0));
+        }
+
+        if (payload.Services.HasFlag(FruaTownServices.TrainingHall))
+        {
+            hall = Add(EventType.TrainingHallEvent, new TrainingHallEvent(
+                Base: Base(source, EventType.TrainingHallEvent, next,
+                           FruaSmallTownEvent.TrainingHallText, design),
+                ForceExit: 0,
+                Trainable: Trainable(payload.Trains),
+                Cost: FruaTrainingHallEvent.BaseCost));
+        }
+
+        if (payload.Services.HasFlag(FruaTownServices.Shop))
+        {
+            shop = Add(EventType.ShopEvent, new ShopEvent(
+                Base: Base(source, EventType.ShopEvent, next, FruaSmallTownEvent.ShopText, design),
+                ForceExit: 0,
+                CostFactor: FruaEventEnums.CostFactor(payload.ShopCost),
+                CostToIdentify: 0,
+                BuybackPercentage: 0,
+                CanIdentify: 0,
+                CanAppraiseGems: 0,
+                CanAppraiseJewels: 0,
+                BuyItemsSoldOnly: 0,
+                ItemsAvailable: new ItemList(Items(payload.ShopItems, design, identified: true),
+                                             ReadyItems.Empty)));
+        }
+
+        if (payload.Services.HasFlag(FruaTownServices.Inn))
+        {
+            // No InnEvent to build: the engine's is obsoleted and the reference makes a camp.
+            inn = Add(EventType.Camp, new CampEvent(
+                Base: Base(source, EventType.Camp, next, FruaSmallTownEvent.InnText, design),
+                ForceExit: 0));
+        }
+
+        if (payload.Services.HasFlag(FruaTownServices.Tavern))
+        {
+            string tale = Text(strings, payload.TavernTaleSlot);
+
+            tavern = Add(EventType.TavernEvent, new TavernEvent(
+                Base: Base(source, EventType.TavernEvent, next, string.Empty, design),
+                ForceExit: 0,
+                Inflation: 0,
+                Barkeep: 0,
+                AllowFights: 0,
+                AllowDrinks: 1,
+                FightChain: 0,
+                DrinkChain: 0,
+                DrinkPointTrigger: 0,
+                TaleOrder: 0,
+                EachTaleOnceOnly: 0,
+                Tales: string.IsNullOrEmpty(tale) ? [] : [new Tale(tale, 0)],
+                Drinks: Drinks));
+        }
+
+        if (payload.Services.HasFlag(FruaTownServices.Vault))
+        {
+            vault = Add(EventType.Vault, new VaultEvent(
+                Base: Base(source, EventType.Vault, next, FruaSmallTownEvent.VaultText, design),
+                ForceBackup: 0,
+                WhichVault: 0));
+        }
+
+        return (parent with
+        {
+            TempleChain = temple,
+            TrainingHallChain = hall,
+            ShopChain = shop,
+            InnChain = inn,
+            TavernChain = tavern,
+            VaultChain = vault,
+        }, children);
+    }
+
+    /// <summary>
+    /// The five blank drinks a tavern's record always holds.
+    /// </summary>
+    /// <remarks>
+    /// The count is compile-time in the reference and never written, so a shorter list truncates
+    /// the event — see <c>TownEventWriters</c>, which refuses one.
+    /// </remarks>
+    private static Drink[] Drinks { get; } =
+        [.. Enumerable.Repeat(new Drink(string.Empty, 0), MoreEventReaders.MaxDrinks)];
 }

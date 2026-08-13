@@ -1021,8 +1021,18 @@ public sealed record FruaQuestionButtonEvent(
     /// Splits a label string into its five labels.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The reference reads pairs of carets, so a string of <c>^one^two^</c> yields "one" then
-    /// "two"; anything before the first caret is ignored, and missing labels come out empty.
+    /// "two"; anything before the first caret is ignored, and missing labels come out empty. An
+    /// empty segment leaves that button unlabelled rather than shifting the rest along.
+    /// </para>
+    /// <para>
+    /// <b>Two divergences, both refusals to reproduce a crash or a truncation.</b> The reference
+    /// copies each label into a <c>char[50]</c> with <c>strncpy</c> and no bound, so a label of 50
+    /// characters or more overruns the buffer; and a non-empty string containing no caret at all
+    /// leaves its <c>start</c> pointer null and passes it straight to <c>strchr</c>. Here a long
+    /// label is kept whole and a string with no caret yields no labels.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<string> Labels(string? labelString)
     {

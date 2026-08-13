@@ -100,6 +100,11 @@ public static class FruaLevelConverter
     {
         var entries = new List<LevelEventEntry>();
 
+        // A small town's children are extra events with no FRUA record of their own, so their
+        // keys start past the hundred a level can store rather than colliding with one.
+        uint nextChild = FruaEvent.PerLevel;
+        var generated = new List<LevelEventEntry>();
+
         for (int i = 0; i < level.Events.Count; i++)
         {
             var source = level.Events[i];
@@ -114,9 +119,22 @@ public static class FruaLevelConverter
                 continue;
             }
 
+            if (body is SmallTownEvent town)
+            {
+                var (wired, children) = FruaEventConverter.SmallTownChildren(
+                    source, town, nextChild, level.Strings, design);
+
+                body = wired;
+                nextChild += (uint)children.Count;
+                generated.AddRange(children.Select(c => new LevelEventEntry(c.Type, c.Body)));
+            }
+
             entries.Add(new LevelEventEntry((EventType)BaseOf(body).EventType, body));
         }
 
+        // The children go after every record-backed event, so a hub's own position -- which its
+        // neighbours' chain bytes still refer to -- does not move.
+        entries.AddRange(generated);
         return entries;
     }
 
