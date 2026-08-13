@@ -44,7 +44,32 @@ public sealed record FruaCharacter(
     IReadOnlyList<byte> SavingThrows,
     IReadOnlyList<byte> ClassLevels,
     IReadOnlyList<byte> ItemsCarried,
-    IReadOnlyList<byte> ItemQuantities)
+    IReadOnlyList<byte> ItemQuantities,
+
+    // Everything below is read only by the conversion layer, not by the reader's own tests.
+    byte CharClass,
+    byte Undead,
+    byte Gender,
+    byte Alignment,
+    byte Status,
+    byte Thac0Raw,
+    byte AdjustedThac0Raw,
+    byte AdjustedArmourClassRaw,
+    byte SizeRaw,
+    byte MaxHitPoints,
+    byte MaxCureDisease,
+    byte MagicResistance,
+    byte ReadyToTrain,
+    byte UniquePartyId,
+    byte IconId,
+    byte SpecialAbilityFlags,
+    byte SpecialAbilityFlags2,
+    ushort Age,
+    ushort ExperienceValue,
+    ushort Encumbrance,
+    FruaAbilities Abilities,
+    IReadOnlyList<byte> ClassLevelsPreDrain,
+    IReadOnlyList<byte> ClassLevelsPreClassChange)
 {
     /// <summary>What the reference actually reads: <c>sizeof(ImportUACCH)</c>.</summary>
     public const int Length = 432;
@@ -113,8 +138,79 @@ public sealed record FruaCharacter(
             // Cleric, knight, fighter, paladin, ranger, mage, thief -- the seven in file order.
             ClassLevels: bytes.Slice(157, 7).ToArray(),
             ItemsCarried: bytes.Slice(398, 16).ToArray(),
-            ItemQuantities: bytes.Slice(414, 16).ToArray());
+            ItemQuantities: bytes.Slice(414, 16).ToArray(),
+
+            CharClass: bytes[89],
+            Undead: bytes[90],
+            Gender: bytes[92],
+            Alignment: bytes[93],
+            Status: bytes[94],
+
+            // Both THAC0s are stored the same way the armour class is: 60 minus the value.
+            Thac0Raw: bytes[127],
+            AdjustedThac0Raw: bytes[384],
+            AdjustedArmourClassRaw: bytes[385],
+
+            SizeRaw: bytes[130],
+            MaxHitPoints: bytes[129],
+            MaxCureDisease: bytes[128],
+            MagicResistance: bytes[196],
+            ReadyToTrain: bytes[197],
+            UniquePartyId: bytes[189],
+            IconId: bytes[188],
+            SpecialAbilityFlags: bytes[191],
+            SpecialAbilityFlags2: bytes[192],
+            Age: Word(bytes, 82),
+            ExperienceValue: Word(bytes, 84),
+            Encumbrance: Word(bytes, 86),
+
+            // The seven scores are interleaved with their modifiers, so they are two apart.
+            Abilities: new FruaAbilities(
+                Strength: bytes[112], Intelligence: bytes[114], Wisdom: bytes[116],
+                Dexterity: bytes[118], Constitution: bytes[120], Charisma: bytes[122],
+                ExceptionalStrength: bytes[124]),
+
+            ClassLevelsPreDrain: bytes.Slice(150, 7).ToArray(),
+            ClassLevelsPreClassChange: bytes.Slice(164, 7).ToArray());
     }
+
+    /// <summary>Base THAC0, undoing the same <c>60 - x</c> storage the armour class uses.</summary>
+    public int Thac0 => 60 - Thac0Raw;
+
+    /// <summary>THAC0 after equipment and bonuses.</summary>
+    public int AdjustedThac0 => 60 - AdjustedThac0Raw;
+
+    /// <summary>Armour class after equipment and bonuses.</summary>
+    public int AdjustedArmourClass => 60 - AdjustedArmourClassRaw;
+
+    /// <summary>
+    /// Combat-icon size, 1&#8211;5, with the "large even if 1x1" flag stripped off.
+    /// </summary>
+    public int Size => SizeRaw & 0x7F;
+
+    /// <summary>
+    /// Whether the design forced this creature to count as large regardless of its icon.
+    /// </summary>
+    /// <remarks>The high bit of the size byte, which the declaration spells out.</remarks>
+    public bool ForcedLarge => (SizeRaw & 0x80) != 0;
+
+    /// <summary>
+    /// Morale as a percentage, with the flag bit stripped and zero read as fifty.
+    /// </summary>
+    /// <remarks>
+    /// <b>Stored as "128 + morale if non-zero".</b> Both import paths mask with <c>0x7F</c> and
+    /// then substitute 50 for zero, so a creature never imports as unshakeably cowardly by
+    /// accident.
+    /// </remarks>
+    public int MoraleValue => (Morale & 0x7F) is var m and > 0 ? m : 50;
+
+    /// <summary>Attacks per round — the file stores attacks per <i>two</i> rounds.</summary>
+    public double AttacksPerRound => AttacksPerTwoRounds / 2.0;
+
+    /// <summary>
+    /// Hit dice, which a level-zero creature gets half of rather than none.
+    /// </summary>
+    public double HitDice => Level <= 0 ? 0.5 : Level;
 
     /// <summary>
     /// Reads every <c>MONST###.DAT</c> a design carries, keyed by the number in its name.
@@ -157,3 +253,14 @@ public sealed record FruaCharacter(
         return FruaGameData.TextEncoding.GetString(field[..(end < 0 ? field.Length : end)]).Trim();
     }
 }
+
+/// <summary>
+/// The seven ability scores a <c>MONST###.DAT</c> carries.
+/// </summary>
+/// <remarks>
+/// Each score is followed in the file by a modifier byte, which no import path reads — the
+/// modifiers are recomputed from race and class rather than carried across.
+/// </remarks>
+public sealed record FruaAbilities(
+    byte Strength, byte Intelligence, byte Wisdom, byte Dexterity,
+    byte Constitution, byte Charisma, byte ExceptionalStrength);

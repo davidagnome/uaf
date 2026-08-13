@@ -8239,9 +8239,13 @@ each a known, listed improvement.
 > - **`ClassInParty`'s missing case 1** yields null rather than the uninitialised `CLASS_ID` the
 >   reference stores. This one is not a fix so much as a refusal: the reference's value is
 >   whatever was on the stack, so there is nothing to reproduce.
+> - **A wight's undead type is capitalised.** `GuessUndeadStatus` (`Monster.cpp:381`) writes
+>   `undeadType = "wight"` where all thirteen of its neighbours are capitalised, so the value does
+>   not match the corresponding entry in `UndeadTypeText` and the editor's dropdown cannot display
+>   it. `FruaCharacterConverter.UndeadFromName` capitalises every match uniformly.
 >
-> **With those four, every one of the reference's fourteen `NotImplemented` markers is closed** —
-> nine were the `GetMonsterKey` lookup, five the training flags.
+> **With the first four, every one of the reference's fourteen `NotImplemented` markers is
+> closed** — nine were the `GetMonsterKey` lookup, five the training flags.
 
 ##### The FRUA importer, as ported so far
 
@@ -8370,6 +8374,39 @@ layer resolves the monster and NPC references the reference importer drops.
 > chained to the parent and populated with **hard-coded English text**
 > (`"WELCOME TO THE TEMPLE"`, `"HOW MAY WE AID YOU?"`). Those strings are kept as named constants
 > on `FruaSmallTownEvent`, since a writer has to emit them and they exist nowhere in the data.
+
+#### The conversion layer
+
+Reading a DOS design and *building a UAF one* are two different jobs, and the second is now
+underway. `UAF.Import.Frua` holds both: the `Frua*` types model what is on the DOS disk, and the
+`Frua*Converter` types map those onto what `UAF.Serialization` writes. Keeping the readers free of
+UAF types is deliberate — it is what makes each converter a single readable mapping rather than a
+reader with two masters.
+
+| Converter | Produces | State |
+|---|---|---|
+| `FruaLevelConverter` | `LevelFile` | Cells, zones, rest and step events. Round-trips through `LevelFileWriter` and back |
+| `FruaGameDataConverter` | `GlobalStatsPrefix` | Design name, start position, money, keys and items |
+| `FruaCharacterConverter` | `MonsterRecord` / `CharacterRecord` | Both branches of `ImportMonsterToUAF` |
+
+Three findings from the conversion work are worth stating, because each is the kind of mistake
+that produces a design that loads and is quietly wrong:
+
+- **Wall slots are ordered differently.** UAF stores north, *south*, east, west; FRUA stores north,
+  east, south, west. Writing FRUA's order straight through swaps every east wall with every south
+  one — a bug that reads as a design error rather than an importer error.
+- **Alignment and status ordinals are permuted, not shared.** FRUA orders alignment law-to-chaos
+  within each moral column and the engine orders it good-to-evil within each ethical one. The
+  identity mapping is correct for exactly three of the nine values, so a passing spot-check proves
+  nothing. Status diverges from its second entry onward.
+- **An import mutates a design rather than building one.** `GlobalStatsWriter.CanWrite` requires a
+  money table and a difficulty table, and FRUA carries neither, so `FruaGameDataConverter` overlays
+  onto a template. That is also what the reference does — `-config` takes a design *directory*.
+
+**Still to convert:** the 35 event payload types onto `IGameEvent`, items, and art slots. Carried
+items are the one place the creature converters stop short: both reference paths resolve an item
+ordinal against the design's item database and multiply by its bundle size, which needs the item
+pass first. The ordinals are read and kept, so nothing is lost.
 
 **Not ported:** nothing the reference itself does. The `.GLB` archives and `.XMI` music are
 outside its behaviour entirely (see the note above) and so outside this phase.
@@ -8855,6 +8892,7 @@ the round both call and neither has.
 | ~~**`ArchiveWriter`**~~ | **Done.** All six record types, every shared leaf, both halves of the `CAR` write path, 30 of the 44 event bodies, and the four whole-file framings — `.chr`, `.lvl`, `game.dat`, `.pty`. Three shipped databases are reproduced byte for byte and everything else round-trips. **Phase 1's exit criterion is met**, and Phase 5 is unblocked | — |
 | ~~**GPDL reference bytecode**~~ | **Done — `gpdlc` is byte-identical to `GPDLcomp.exe`.** Five of the six corpus scripts have reference goldens and the port reproduces every one exactly, bytecode *and* assembly listing; `GpdlOracleDiffTests` no longer returns early, so **Phase 2's exit criterion is demonstrated rather than asserted**. The sixth, `prototypes.txt`, can never have a golden: a forward declaration walks the reference compiler into a use-after-free and it loops inside `WriteDictionary` (§the GPDL goldens). The port compiles it correctly, so it stays in the corpus, named in `ReferenceCannotCompile` | — |
 | **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
+| **`GlobalStatsReader` over-runs on 0.915 by exactly one `int32`** | `ReadThroughCharacters` cannot read `DefaultDesign`'s `game.dat` (4,343 bytes, v0.915025). Measured: the reader consumes the record to **exactly** EOF and then asks for four more bytes — the failing read is `CharacterReader.ReadList`'s count. **Not a regression:** that path's corpus is `Case.dsn`, `SomethingWild.dsn` and `dc-default`, all 2.5-and-up; 0.915 designs are otherwise only exercised through narrower paths that seek field by field. **Two candidate causes ruled in and one ruled out.** *Ruled out:* a missing version gate on the character list — `CHAR_LIST::Serialize` (`Char.cpp:9531`) reads the count unconditionally, and the tail call order `sounds`/`keyData`/`specialItemData`/`questData`/`charData` (`GlobalData.cpp:4525`–`4529`) is ungated and matches the port. *Ruled in:* either an **earlier** reader over-consumes and lands on EOF by coincidence, or the reference's `CAR` tolerates the short read where the port throws. Landing exactly on EOF is suspicious, not proof the preceding reads were right. **Why it matters:** `frua-import-oracle.sh` seeds its scratch design from `DefaultDesign`. Bisect by recording each tail reader's start offset against the file's true tail | Small |
 | **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
 | **148 GPDL sub-opcodes** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. **The Forth VM is no longer part of this row: it runs whole** — kernel, the 21 combat-summary words, `RunTHINK` and the six filters, checked against the transcription on the real shipped script | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
