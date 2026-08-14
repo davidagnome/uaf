@@ -550,6 +550,29 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// Gives an actor one bundle of an item (<c>$GIVE_CHAR_ITEM</c>, <c>GPDLexec.cpp:4243</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A bundle, not a piece.</b> The reference passes <c>GetItemBundleQty(itemID)</c> as the
+    /// quantity, so giving arrows gives the whole bundle the design defined — the same rule the
+    /// FRUA importer's carried items follow.
+    /// </remarks>
+    /// <returns>Whether the item existed and could be carried.</returns>
+    bool GiveItem(string actor, string itemId);
+
+    /// <summary>
+    /// Takes one bundle of an item back (<c>$TAKE_CHAR_ITEM</c>, <c>GPDLexec.cpp:4274</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The first matching item goes, unless the script's own item is among them.</b> The
+    /// reference walks the inventory keeping the first match, but prefers one whose key equals the
+    /// script context's item key — so a script running <i>from</i> an item takes that copy rather
+    /// than an arbitrary duplicate.
+    /// </remarks>
+    /// <returns>Whether the actor had one.</returns>
+    bool TakeItem(string actor, string itemId);
+
+    /// <summary>
     /// What kind of thing an actor is (<c>$GET_CHAR_TYPE</c>, <c>GPDLexec.cpp:4155</c>).
     /// </summary>
     /// <remarks>
@@ -1042,6 +1065,12 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual bool GiveItem(string actor, string itemId) => false;
+
+    /// <inheritdoc/>
+    public virtual bool TakeItem(string actor, string itemId) => false;
 
     /// <inheritdoc/>
     public virtual string CharacterType(string actor) => string.Empty;

@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,552 tests, green on macOS; both CI workflows green.**
+**4,557 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **270 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **272 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,15 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **`$GIVE_CHAR_ITEM` and `$TAKE_CHAR_ITEM` are done.** Both move a **whole bundle**, not a
+   > piece — the reference passes `GetItemBundleQty` as the quantity, the same rule the FRUA
+   > importer's carried items follow. Giving an item the design does not have is refused rather
+   > than conjured, as `$SET_CHAR_RACE` refuses an unknown race. **One divergence:** the reference
+   > prefers to take the copy whose key matches the *script context's item*, so a script running
+   > from an item takes that one rather than a duplicate; this port has no item context on a
+   > script, so it takes the first match — which is the reference's own fallback when no copy
+   > matches.
    >
    > **`$GET_CHAR_TYPE`, the race pair and `$GET_VAULT_MONEYAVAILABLE` are done.** Three details
    > worth keeping: `$GET_CHAR_TYPE` is **a type test for two kinds and an identity for the

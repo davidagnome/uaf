@@ -1142,6 +1142,21 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // The item pair. Both take (actor, itemName) and work in whole bundles.
+            case SubOp.SUBOP_GIVE_CHAR_ITEM:
+            case SubOp.SUBOP_TAKE_CHAR_ITEM:
+                {
+                    string itemId = PopSp();
+                    string actor = PopSp();
+
+                    bool done = op == SubOp.SUBOP_GIVE_CHAR_ITEM
+                        ? _host.GiveItem(actor, itemId)
+                        : _host.TakeItem(actor, itemId);
+
+                    PushSp(done ? True : False);
+                    break;
+                }
+
             case SubOp.SUBOP_GET_CHAR_TYPE:
                 PushSp(_host.CharacterType(PopSp()));
                 break;

@@ -569,6 +569,59 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>One bundle, and only of an item the design has.</b> A name the item database does not
+    /// carry is refused rather than conjured — the reference locates the item before adding it.
+    /// </remarks>
+    public override bool GiveItem(string actor, string itemId)
+    {
+        if (Resolve(actor) is not { } character
+            || string.IsNullOrEmpty(itemId)
+            || game.Design.Item(itemId) is not { } record)
+        {
+            return false;
+        }
+
+        character.Items.Add(new ItemInstance(
+            Key: 0,
+            ItemId: itemId,
+            LegacyItemId: 0,
+            ReadyLocation: ReadiedLocation.NotReady,
+            Quantity: Math.Max(record.Scalars.BundleQty, 1),
+            Identified: 1,
+            Charges: record.Scalars.NumCharges,
+            Cursed: (byte)record.Scalars.Cursed,
+            Paid: 0));
+
+        return true;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The first match goes.</b> The reference prefers a copy whose key matches the script
+    /// context's item — a script running from an item takes that one rather than a duplicate — but
+    /// this port has no item context on a script, so the first is the only rule it can apply.
+    /// </remarks>
+    public override bool TakeItem(string actor, string itemId)
+    {
+        if (Resolve(actor) is not { } character || string.IsNullOrEmpty(itemId))
+        {
+            return false;
+        }
+
+        int index = character.Items.FindIndex(
+            i => string.Equals(i.ItemId, itemId, StringComparison.OrdinalIgnoreCase));
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        character.Items.RemoveAt(index);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <b>A monster answers its own name, not a type.</b> The reference pushes <c>monsterID</c>
     /// for the monster case, so this call is a type test for characters and NPCs and an identity
     /// for monsters — which is why the two literals carry at-signs and the third does not.
