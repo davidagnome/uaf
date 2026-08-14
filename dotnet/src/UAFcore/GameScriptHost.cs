@@ -569,6 +569,19 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>Quests are addressed by name here and by id everywhere else.</b> The reference's
+    /// <c>questData.GetStage</c> takes the key a script writes, so the name has to be resolved to
+    /// an id before the world can answer — the same seam <c>GameLogicBlockHost</c> crosses.
+    /// </remarks>
+    public override int QuestStage(string quest) =>
+        game.LogicBlockHost?.QuestStage(quest) ?? 0;
+
+    /// <inheritdoc/>
+    public override void SetQuestStage(string quest, int stage) =>
+        game.LogicBlockHost?.SetQuestStage(quest, stage);
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <b>One bundle, and only of an item the design has.</b> A name the item database does not
     /// carry is refused rather than conjured — the reference locates the item before adding it.
     /// </remarks>

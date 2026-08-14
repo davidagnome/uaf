@@ -549,6 +549,12 @@ public interface IGpdlHost
     /// </param>
     int MoneyAvailable(int coinType);
 
+    /// <summary>The stage a quest is at, or zero when the design has no such quest.</summary>
+    int QuestStage(string quest);
+
+    /// <summary>Sets a quest's stage (<c>$SET_QUEST</c>, <c>GPDLexec.cpp:5613</c>).</summary>
+    void SetQuestStage(string quest, int stage);
+
     /// <summary>
     /// Gives an actor one bundle of an item (<c>$GIVE_CHAR_ITEM</c>, <c>GPDLexec.cpp:4243</c>).
     /// </summary>
@@ -1065,6 +1071,15 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <summary>Quest stages this environment was asked to keep.</summary>
+    public Dictionary<string, int> QuestStages { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual int QuestStage(string quest) => QuestStages.GetValueOrDefault(quest);
+
+    /// <inheritdoc/>
+    public virtual void SetQuestStage(string quest, int stage) => QuestStages[quest] = stage;
 
     /// <inheritdoc/>
     public virtual bool GiveItem(string actor, string itemId) => false;

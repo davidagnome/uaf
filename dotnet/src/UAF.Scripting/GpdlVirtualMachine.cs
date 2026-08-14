@@ -1142,6 +1142,20 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            case SubOp.SUBOP_SET_QUEST:
+                {
+                    string request = PopSp();
+                    string quest = PopSp();
+
+                    int value = QuestValue(request, _host.QuestStage(quest));
+                    _host.SetQuestStage(quest, value);
+
+                    // Read back rather than echoed: the store may clamp, and a script is told
+                    // what the quest is now, not what it asked for.
+                    PushSp(_host.QuestStage(quest).ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
             // The item pair. Both take (actor, itemName) and work in whole bundles.
             case SubOp.SUBOP_GIVE_CHAR_ITEM:
             case SubOp.SUBOP_TAKE_CHAR_ITEM:
@@ -1524,6 +1538,42 @@ public sealed class GpdlVirtualMachine
     }
 
     /// <summary>Which stat a <c>GET_CHAR_*</c> sub-opcode asks for.</summary>
+    /// <summary>
+    /// What a <c>$SET_QUEST</c> value string asks for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Not a parse — a scan.</b> The reference walks every character: a <c>-</c> anywhere sets
+    /// the sign to minus, a <c>+</c> anywhere sets it to plus, and every digit is accumulated
+    /// wherever it sits. So <c>"1-2"</c> is minus twelve, not one minus two, and <c>"+-5"</c> is
+    /// minus five because the later sign wins. Nothing is rejected and nothing is a syntax error.
+    /// </para>
+    /// <para>
+    /// <b>A sign makes it relative.</b> With one, the quest moves by the amount; without one, it
+    /// is set to the amount outright — which is why <c>"5"</c> and <c>"+5"</c> mean different
+    /// things.
+    /// </para>
+    /// </remarks>
+    private static int QuestValue(string request, int current)
+    {
+        char sign = ' ';
+        int value = 0;
+
+        foreach (char c in request)
+        {
+            if (c == '-') { sign = '-'; }
+            if (c == '+') { sign = '+'; }
+            if (c is >= '0' and <= '9') { value = (value * 10) + (c - '0'); }
+        }
+
+        return sign switch
+        {
+            '+' => current + value,
+            '-' => current - value,
+            _ => value,
+        };
+    }
+
     /// <summary>
     /// The level a level-attribute call names, or the current one.
     /// </summary>

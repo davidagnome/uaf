@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,557 tests, green on macOS; both CI workflows green.**
+**4,566 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **272 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **273 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,15 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **`$SET_QUEST` is done, and its value argument is scanned rather than parsed.** The
+   > reference walks every character: a `-` *anywhere* sets the sign to minus, a `+` *anywhere*
+   > sets it to plus, and every digit accumulates wherever it sits. So `"1-2"` is **minus twelve**
+   > rather than one minus two, `"+-5"` is minus five because the later sign wins, and `"x9y"` is
+   > an assignment of nine. Nothing is rejected, so there is no malformed value — only a
+   > surprising one. A sign makes the change relative and its absence makes it absolute, which is
+   > why `"5"` and `"+5"` differ. **The answer is read back from the store rather than echoed**, so
+   > a design that clamps tells the script what the quest is now rather than what it asked for.
    >
    > **`$GIVE_CHAR_ITEM` and `$TAKE_CHAR_ITEM` are done.** Both move a **whole bundle**, not a
    > piece — the reference passes `GetItemBundleQty` as the quantity, the same rule the FRUA
