@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,601 tests, green on macOS; both CI workflows green.**
+**4,610 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9065,12 +9065,21 @@ What is left, in order:
    >   > for the script inside **that** record, checks its flags for `SPECAB_SCRIPT`, and compiles
    >   > `frontEnd + value + backEnd` on the spot.
    >   >
-   >   > So the chain is: read **`specialAbilities.dat`** (present in the corpus, and the one
-   >   > design database this port has no reader for at all — the `SpecabBlock` on a record holds
-   >   > only ability *names*), then the front/back-end script wrapper, then compile-and-run per
-   >   > script with the results concatenated, then re-entrant VM invocation while a script is
-   >   > already running. That is Phase 4 engine work beginning with a new file format, not the
-   >   > tail of the GPDL item.
+   >   > So the chain is: read **`specialAbilities.dat`**, then the front/back-end script wrapper,
+   >   > then compile-and-run per script with the results concatenated, then re-entrant VM
+   >   > invocation while a script is already running. That is Phase 4 engine work beginning with a
+   >   > new file format, not the tail of the GPDL item.
+   >   >
+   >   > **The first link is now done.** `SpecialAbilityDatabaseReader` reads the file — the last
+   >   > design database the port had no reader for — and `Case.dsn` yields **836 script entries**
+   >   > across its abilities. Its framing is unlike every other design file: **no magic sentinel
+   >   > and no version `double`**, just a counted string naming the format, after which
+   >   > `car.Compress(true)` switches the archive to LZW — so the stamp is plain and everything
+   >   > past it is compressed. And **the reference repairs ability names on load**, adding
+   >   > `0x20` to any character below it (`ASL.cpp:2296`); skipping that leaves a name nothing
+   >   > else in the design can match. One of the 836 entries is flagged as a script and holds
+   >   > nothing — `monster_GiantSlugSpit`'s `DoesSpellAttackSucceed` — which is the design as
+   >   > shipped rather than a decode fault, and the test says so rather than asserting it away.
    > - `$CURR_CHANGE_BY_VAL` — reads `GetIntermediateResult()`, a VM concept this port has no
    >   equivalent for.
    > - `$GET_CHAR_EFFAC` — needs the *attacker* as well as the target, which the call's own
