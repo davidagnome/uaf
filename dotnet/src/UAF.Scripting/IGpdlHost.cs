@@ -361,6 +361,61 @@ public enum GpdlAslScope
     Party,
 }
 
+/// <summary>
+/// Which layer of a map square an override applies to (<c>OVERRIDE_TYPE</c>,
+/// <c>GlobalData.h:471</c>).
+/// </summary>
+/// <remarks>
+/// <para>
+/// Every square of every level carries four bytes per side — one for each of these — that let a
+/// script repaint the map while the game runs. The five sub-opcode pairs
+/// (<c>$GetWall</c>/<c>$SetWall</c> and friends) differ only in which of these they pass.
+/// </para>
+/// <para>
+/// <b>These are the "user" halves of a wider enum.</b> The reference's <c>OVERRIDE_TYPE</c> also
+/// has <c>_INDEX</c> forms that shift the value by one to convert between what a designer numbers
+/// from and what is stored. Scripts never reach those — every one of the ten sub-opcodes passes a
+/// user form, where the adjustment is zero — so only these five are here.
+/// </para>
+/// </remarks>
+public enum GpdlMapOverrideKind
+{
+    /// <summary>The wall drawn on that side (<c>WALL_OVERRIDE_USER</c>).</summary>
+    Wall = 0,
+
+    /// <summary>A door in it (<c>DOOR_OVERRIDE_USER</c>).</summary>
+    Door = 1,
+
+    /// <summary>What is behind it (<c>BACKGROUND_OVERRIDE_USER</c>).</summary>
+    Background = 2,
+
+    /// <summary>Something drawn over it (<c>OVERLAY_OVERRIDE_USER</c>).</summary>
+    Overlay = 3,
+
+    /// <summary>
+    /// Whether it can be walked through (<c>BLOCKAGE_OVERRIDE</c>).
+    /// </summary>
+    /// <remarks>
+    /// The one kind with no <c>_INDEX</c> twin, because it is a fact rather than a picture number.
+    /// </remarks>
+    Blockage = 4,
+}
+
+/// <summary>Values every map override shares.</summary>
+public static class GpdlMapOverride
+{
+    /// <summary>
+    /// "No override here" — and the largest value a square can hold.
+    /// </summary>
+    /// <remarks>
+    /// <b>One value doing two jobs.</b> A square stores a single byte, so 255 has to mean both the
+    /// top of the range and the absence of an entry. Reading an unset square gives it; writing it
+    /// clears the square instead of storing 255; and a read that fails for any other reason — no
+    /// such level, a row or column that was never allocated — gives it as well.
+    /// </remarks>
+    public const int None = 255;
+}
+
 public interface IGpdlHost
 {
     /// <summary>
@@ -765,6 +820,46 @@ public interface IGpdlHost
     /// <summary>Deletes a level's attribute (<c>$DELETE_LEVEL_STATS_ASL</c>).</summary>
     /// <inheritdoc cref="SetLevelAsl" path="/param[@name='level']"/>
     void DeleteLevelAsl(int level, string key);
+
+    /// <summary>
+    /// Reads one of a map square's overrides (<c>GetMapOverride</c>,
+    /// <c>GlobalData.cpp:2513</c>) — what <c>$GetWall</c> and its four siblings do.
+    /// </summary>
+    /// <param name="kind">Which of the five layers.</param>
+    /// <param name="level">
+    /// The <b>one-based</b> level. Outside 1–255 the reference answers
+    /// <see cref="GpdlMapOverride.None"/> rather than reading anything.
+    /// </param>
+    /// <param name="x">Column, <b>wrapped</b> into the level's width — see the remarks.</param>
+    /// <param name="y">Row, wrapped into the level's height.</param>
+    /// <param name="facing">Which of the square's four sides, wrapped into 0–3.</param>
+    /// <returns>
+    /// The stored value, or <see cref="GpdlMapOverride.None"/> when the square has no override —
+    /// which is also the answer for a level, row or column that does not exist. <b>A script cannot
+    /// tell "no override here" from "no such level"</b>; the reference collapses both to 255.
+    /// </returns>
+    /// <remarks>
+    /// <b>Coordinates wrap rather than fail.</b> <c>x</c> and <c>y</c> are taken modulo the level's
+    /// size and negatives are folded back up, so <c>-1</c> is the last column and a coordinate past
+    /// the edge comes round the other side. This is the map's own toroidal geometry, not a bounds
+    /// check, and a script relying on an out-of-range read returning nothing would be wrong.
+    /// </remarks>
+    int GetMapOverride(GpdlMapOverrideKind kind, int level, int x, int y, int facing);
+
+    /// <summary>
+    /// Writes one of a map square's overrides (<c>SetMapOverride</c>,
+    /// <c>GlobalData.cpp:2530</c>) — <c>$SetWall</c> and its siblings.
+    /// </summary>
+    /// <inheritdoc cref="GetMapOverride" path="/param"/>
+    /// <param name="value">
+    /// What to store. <b>Clamped at 255</b>, which is itself the "no override" marker — so writing
+    /// anything above 255 clears the square instead of setting it.
+    /// </param>
+    /// <remarks>
+    /// Storage is allocated as it is written, but <b>only for a real value</b>: clearing a square
+    /// that was never set allocates nothing. A level outside 1–255 is ignored silently.
+    /// </remarks>
+    void SetMapOverride(GpdlMapOverrideKind kind, int level, int x, int y, int facing, int value);
 
     /// <summary>
     /// The level the party is on, <b>one-based</b> (<c>$GET_GAME_CURRLEVEL</c>).
@@ -1330,6 +1425,65 @@ public class GpdlUnhostedEnvironment : IGpdlHost
         {
             attributes.Remove(key);
         }
+    }
+
+    /// <summary>
+    /// Map overrides this environment was asked to keep, by layer, level, square and side.
+    /// </summary>
+    /// <remarks>
+    /// A dictionary rather than the reference's grown-in-place rows, because without a level
+    /// loaded there is no width or height to wrap coordinates into — see
+    /// <see cref="GetMapOverride"/>.
+    /// </remarks>
+    public Dictionary<(GpdlMapOverrideKind Kind, int Level, int X, int Y, int Facing), int>
+        MapOverrides { get; } = [];
+
+    /// <summary>
+    /// The level range a script may address, matching the reference's <c>MAX_LEVELS</c>.
+    /// </summary>
+    private static bool IsAddressableLevel(int level) => level is >= 1 and <= 255;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Coordinates are not wrapped here, and that is a real difference.</b> The reference folds
+    /// x and y into the level's width and height, so <c>-1</c> reads the far edge. Nothing is
+    /// loaded in this environment, so there is no size to fold into; a script that relies on the
+    /// wrap gets <see cref="GpdlMapOverride.None"/> instead. Only facing is wrapped, since four
+    /// sides is fixed.
+    /// </remarks>
+    public virtual int GetMapOverride(GpdlMapOverrideKind kind, int level, int x, int y, int facing)
+        => IsAddressableLevel(level)
+           && MapOverrides.TryGetValue((kind, level, x, y, WrapFacing(facing)), out int value)
+            ? value
+            : GpdlMapOverride.None;
+
+    /// <inheritdoc/>
+    public virtual void SetMapOverride(
+        GpdlMapOverrideKind kind, int level, int x, int y, int facing, int value)
+    {
+        if (!IsAddressableLevel(level))
+        {
+            return;
+        }
+
+        var square = (kind, level, x, y, WrapFacing(facing));
+
+        // Writing the "none" marker clears the square rather than storing it -- the reference
+        // refuses to allocate storage for it, so a square that was never set stays unset.
+        if (value >= GpdlMapOverride.None)
+        {
+            MapOverrides.Remove(square);
+            return;
+        }
+
+        MapOverrides[square] = value;
+    }
+
+    /// <summary>Folds a facing into the four sides a square has, negatives included.</summary>
+    private static int WrapFacing(int facing)
+    {
+        int wrapped = facing % 4;
+        return wrapped < 0 ? wrapped + 4 : wrapped;
     }
 
     /// <inheritdoc/>

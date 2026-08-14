@@ -65,6 +65,23 @@ public sealed record WallOverrides(IReadOnlyList<WallOverrideEntry> Entries)
         (Entries ?? throw new ArgumentNullException(nameof(Entries)))
             .Where(e => e.Row is not null)
             .ToDictionary(e => e.RowNumber, e => e.Row!);
+
+    /// <summary>
+    /// One square's override for a layer and side, or null when it has none.
+    /// </summary>
+    /// <remarks>
+    /// <b>The table is sparse in both directions, and the second one is easy to miss.</b> A row may
+    /// be absent altogether — but a row that is present may also be <i>shorter than the level is
+    /// wide</i>, because <c>SetMapOverride</c> grows a row only as far as the furthest column
+    /// anyone has written. Reading past its end is a miss, not an error
+    /// (<c>GlobalData.cpp:2405</c>).
+    /// </remarks>
+    /// <param name="kind">Which layer, as an <c>OVERRIDE_TYPE</c> ordinal.</param>
+    /// <param name="facing">Which of the square's four sides.</param>
+    public byte? At(int kind, int x, int y, int facing) =>
+        Rows.TryGetValue(y, out var row) && x >= 0 && x < row.Cells.Count
+            ? row.Cells[x][kind, facing]
+            : null;
 }
 
 /// <summary>One entry of a <c>WALL_OVERRIDES</c> table: a row number, and its cells when present.</summary>

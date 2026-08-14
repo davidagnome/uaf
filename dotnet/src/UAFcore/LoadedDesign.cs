@@ -107,7 +107,13 @@ public sealed class LoadedDesign : IDisposable
 
         using var stream = File.OpenRead(Path.Combine(data, "game.dat"));
         var cursor = GameDataReader.Open(stream);
-        var globals = GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version);
+        // Past the character list, not stopping at it. ReadThroughCharacters leaves LEVEL_INFO
+        // unread, which makes Globals.Levels null -- and a null level table silently disables
+        // every script path that falls through to the design's own level data: the map-override
+        // family and the design's shipped level attributes both read as empty. Passing no event
+        // reader still stops before the global event list, so this reads the level table, the
+        // money data and the difficulty settings and no further.
+        var globals = GlobalStatsReader.Read(cursor.Body, cursor.Version, ArchiveRole.Editor, null);
 
         // The engine reads config.txt and nothing else -- rte.ConfigDir() + "config.txt" at both
         // call sites (Dungeon.cpp:191, RunEvent.cpp:27063), and "config640" appears nowhere in the

@@ -1065,6 +1065,105 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         }
     }
 
+    /// <summary>
+    /// Map overrides a script has written, over the design's own.
+    /// </summary>
+    /// <remarks>
+    /// The same overlay arrangement as <see cref="levelAsl"/>, and for the same reason:
+    /// <c>WallOverrides</c> is an immutable record. Reads fall through to the design; writes land
+    /// here and <b>do not survive a save</b>.
+    /// </remarks>
+    private readonly Dictionary<(GpdlMapOverrideKind Kind, int Level, int X, int Y, int Facing),
+                                int> mapOverrides = [];
+
+    /// <summary>
+    /// Folds a script's coordinates onto the level's grid, and finds the level.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The wrap is the map's geometry, not a bounds check.</b> The reference takes x and y
+    /// modulo the level's width and height and folds negatives back up, so <c>-1</c> is the last
+    /// column and a coordinate past the edge comes round the other side. Doing this before the
+    /// overlay is looked up is what keeps a wrapped write and an unwrapped read of the same square
+    /// agreeing.
+    /// </para>
+    /// <para>
+    /// <b>The level number a script writes is one-based; the table is keyed from zero.</b>
+    /// <c>GetMapOverride</c> indexes <c>stats[parameters[0] - 1]</c>, and the reference comments the
+    /// point twice over — "there is no level 0". The design's table is written out under the raw
+    /// <c>stats[]</c> index (<c>GlobalData.cpp:3547</c>), so the subtraction happens here.
+    /// <b>The level-attribute family does not do this</b>, and the difference is real: those
+    /// sub-opcodes index <c>stats[level]</c> with no adjustment at all.
+    /// </para>
+    /// </remarks>
+    private bool TryLocate(int level, ref int x, ref int y, ref int facing, out LevelStats? stats)
+    {
+        stats = null;
+
+        // One-based, and a script may name a level that does not exist.
+        if (level is < 1 or > 255)
+        {
+            return false;
+        }
+
+        facing = ((facing % 4) + 4) % 4;
+
+        if (game.Design.Globals.Levels?.Levels.TryGetValue((uint)(level - 1), out stats) != true
+            || stats is null || stats.Height <= 0 || stats.Width <= 0)
+        {
+            // No such level, or one with no extent: the coordinates cannot be wrapped, so they
+            // stand as given and the read will simply find nothing.
+            return true;
+        }
+
+        x = ((x % stats.Width) + stats.Width) % stats.Width;
+        y = ((y % stats.Height) + stats.Height) % stats.Height;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public override int GetMapOverride(
+        GpdlMapOverrideKind kind, int level, int x, int y, int facing)
+    {
+        if (!TryLocate(level, ref x, ref y, ref facing, out var stats))
+        {
+            return GpdlMapOverride.None;
+        }
+
+        if (mapOverrides.TryGetValue((kind, level, x, y, facing), out int written))
+        {
+            return written;
+        }
+
+        // The design's own.
+        return stats?.Overrides?.At((int)kind, x, y, facing) ?? GpdlMapOverride.None;
+    }
+
+    /// <inheritdoc/>
+    public override void SetMapOverride(
+        GpdlMapOverrideKind kind, int level, int x, int y, int facing, int value)
+    {
+        if (!TryLocate(level, ref x, ref y, ref facing, out _))
+        {
+            return;
+        }
+
+        var square = (kind, level, x, y, facing);
+
+        // 255 clears rather than stores, and anything above it clamps down to 255 -- so a script
+        // writing a number too large for a byte erases the square.
+        if (value >= GpdlMapOverride.None)
+        {
+            // An explicit "none" has to be RECORDED, not just removed: the design may ship an
+            // override for this square, and dropping the entry would let the design's own value
+            // come back on the next read.
+            mapOverrides[square] = GpdlMapOverride.None;
+            return;
+        }
+
+        mapOverrides[square] = value;
+    }
+
     /// <inheritdoc/>
     public override int CurrentLevel => game.LevelIndex + 1;
 

@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,628 tests, green on macOS; both CI workflows green.**
+**4,654 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,18 +9015,36 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **291 of 387 are implemented** (2026-08-13, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
+3. **The rest of the GPDL sub-opcodes.** **301 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **71 of the missing are
+   named callable functions**; the other 14 have no name in the table.
 
-   > **Every count in this item has been wrong at least once, and the last one badly.** The
+   > **Every count in this item has been wrong at least once, including the correction.** The
    > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
    > `[A-Z_0-9]+`, which silently skipped every mixed-case name — `$CharacterContext`, `$Myself`,
-   > `$GrPrint` and dozens more. The real remaining count is **~74**, not 14, and it contains
-   > several coherent families rather than singles: the eleven `$Gr*` graphics calls, ten map
-   > `$Get*`/`$Set*` pairs, six alignment tests, and the actor-identity group
-   > (`$Myself`, `$MyIndex`, `$IndexOf`, `$Name`, `$Status`, `$Gender`). **"No callable group
-   > remains" has now been false twice.** Count with a case-insensitive pattern, or do not quote a
-   > number.
+   > `$GrPrint` and dozens more. That was corrected to "~74"; the measured figure at the time was
+   > **81**, and "~74" was arithmetic done in the summary rather than a count. **Do not carry a
+   > number forward across a turn — re-run the measurement:**
+   >
+   > ```python
+   > import re
+   > vm   = open('dotnet/src/UAF.Scripting/GpdlVirtualMachine.cs').read()
+   > tbl  = open('dotnet/src/UAF.Scripting/GpdlSystemFunctions.cs').read()
+   > ops  = open('dotnet/src/UAF.Scripting/GpdlOpCodes.cs').read()
+   > impl  = set(re.findall(r'case SubOp\.(\w+)', vm))
+   > every = set(re.findall(r'^\s*(SUBOP_\w+)\s*=', ops, re.M))
+   > named = {o: n for n, _, o in
+   >          re.findall(r'new\("(\$[A-Za-z_0-9]+)",\s*(-?\d+),\s*SubOp\.(\w+)', tbl)}
+   > print(len(impl & every), 'of', len(every),
+   >       '— still callable:', sorted(named[o] for o in every - impl if o in named))
+   > ```
+   >
+   > The `[A-Za-z_0-9]` in the name pattern is the part that matters; `[A-Z_0-9]` is what produced
+   > every wrong figure above.
+   >
+   > What remains is still in families rather than singles: the eleven `$Gr*` graphics calls, six
+   > alignment tests, and the actor-identity group (`$Myself`, `$MyIndex`, `$IndexOf`, `$Name`,
+   > `$Status`, `$Gender`). **"No callable group remains" has now been false twice.**
    >
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
    > in `GpdlSystemFunctions`, so aliases counted twice. Parsing the table's rows instead gives
@@ -9098,6 +9116,50 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The ten map get/set calls are done** (2026-08-14). `$GetWall`/`$SetWall` and their four
+   > siblings — door, background, overlay, blockage — are one dispatch over a five-value layer
+   > enum, reading and writing a byte per square per side through two new host methods.
+   >
+   > **`$GetDoor` cannot ever have worked in the reference.** It declares four parameters
+   > (`GPDLcomp.cpp:1613`) and its handler pops **five** (`GPDLexec.cpp:6247`) — the only one of
+   > the ten that disagrees with itself. The extra pop shifts every argument one place, so it reads
+   > whatever was under the arguments as its level, the level as x, x as y, y as facing, and drops
+   > facing; it also eats a value belonging to the caller. **The port pops four**, matching the
+   > declaration and the other nine. No design can depend on the old behaviour, because the old
+   > behaviour depended on stack contents.
+   >
+   > **Three index conventions collide here, and the reference is genuinely inconsistent:**
+   > - `LEVEL_INFO` writes each level under its raw `stats[]` index — **zero-based**
+   >   (`GlobalData.cpp:3547`), so `LevelInfo.Levels` is keyed from zero.
+   > - The map-override family reads `stats[level - 1]` — the script's level is **one-based**, and
+   >   the reference comments the point twice ("there is no level 0").
+   > - **The level-attribute family does neither.** `InsertLevelASL` indexes `stats[level]` with no
+   >   adjustment at all, and its "current level" default is the raw `currLevel`. So
+   >   `$SET_LEVEL_STATS_ASL("1", …)` and `$GetWall("1", …)` address **different levels**.
+   >
+   >   This is not a port decision to make — it is what the two families do. The port matches each.
+   >   **But `LevelOf("")` is off by one against the reference**: it falls back to
+   >   `IGpdlHost.CurrentLevel`, which is `LevelIndex + 1`, where the reference uses the raw
+   >   `currLevel`. Currently harmless because the overlay is self-consistent; it will matter the
+   >   moment a design's own level attributes are read. **Not yet fixed.**
+   >
+   > **`LoadedDesign` was not reading the level table at all**, and this is the finding with the
+   > widest reach. `Open` called `GlobalStatsReader.ReadThroughCharacters`, which stops before
+   > `LEVEL_INFO` — so `Globals.Levels` was **null for every live game**. That silently disabled
+   > the design fall-through in `GetLevelAsl`, which has been dead since it was written, and would
+   > have done the same to the map overrides. Now `Open` calls the full `Read` with no event
+   > reader, which takes in the level table, money and difficulty and still stops before the global
+   > event list. Both corpus designs load and the whole suite stays green.
+   >
+   > **Neither corpus design can exercise the fall-through**, and this is worth stating rather than
+   > leaving as a silent gap: `LEVEL_STATS` only carries the override table from design version
+   > 5.0, and Case.dsn is 2.53 and SomethingWild.dsn is 3.55 — so `Overrides` is null on every
+   > level of both. A test walking the corpus for a shipped override finds none and passes without
+   > asserting anything. **It did**, until a probe that threw on success proved it never threw.
+   > The lookup is now covered by `WallOverridesLookupTests` against a table built by hand, and
+   > `No_corpus_design_ships_an_override_to_fall_through_to` pins the premise so that adding a 5.x
+   > design fails loudly rather than quietly enabling a path nothing checks.
+
    >   > **The five context calls are done too**, and they were the first thing a design's own
    >   > scripts reached for. `GpdlScriptContext` already had the enum entries — only the dispatch
    >   > and the frame were missing. `SpecialAbilityScripts` now pushes a context frame around

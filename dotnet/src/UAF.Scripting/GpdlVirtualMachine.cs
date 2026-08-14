@@ -1343,6 +1343,47 @@ public sealed class GpdlVirtualMachine
                     break;
                 }
 
+            // The ten map-override calls. Each names a layer and a square: level, x, y, facing --
+            // pushed in that order, so the rightmost pops first and the level comes off last.
+            //
+            // $GetDoor is NOT dispatched here. In the reference it alone pops five where its own
+            // declaration passes four, which shifts every argument one place and takes a value
+            // belonging to the caller off the stack; it is handled below, correctly.
+            case SubOp.SUBOP_GetWall:
+            case SubOp.SUBOP_GetBackground:
+            case SubOp.SUBOP_GetOverlay:
+            case SubOp.SUBOP_GetBlockage:
+            case SubOp.SUBOP_GetDoor:
+                {
+                    int facing = PopInteger();
+                    int y = PopInteger();
+                    int x = PopInteger();
+                    int level = PopInteger();
+
+                    PushSp(_host.GetMapOverride(MapOverrideKindOf(op), level, x, y, facing)
+                               .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_SetWall:
+            case SubOp.SUBOP_SetBackground:
+            case SubOp.SUBOP_SetOverlay:
+            case SubOp.SUBOP_SetDoor:
+            case SubOp.SUBOP_SetBlockage:
+                {
+                    int value = PopInteger();
+                    int facing = PopInteger();
+                    int y = PopInteger();
+                    int x = PopInteger();
+                    int level = PopInteger();
+
+                    _host.SetMapOverride(MapOverrideKindOf(op), level, x, y, facing, value);
+
+                    // A setter answers nothing -- the reference pushes an empty string, so the
+                    // call is a statement rather than an expression with a value.
+                    PushSp(False);
+                    break;
+                }
+
             case SubOp.SUBOP_GET_GAME_CURRLEVEL:
                 PushSp(_host.CurrentLevel.ToString(CultureInfo.InvariantCulture));
                 break;
@@ -1893,6 +1934,17 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_ClassContext => GpdlContext.Class,
         SubOp.SUBOP_RaceContext => GpdlContext.Race,
         _ => GpdlContext.MonsterType,
+    };
+
+    /// <summary>Which map layer a get/set pair addresses.</summary>
+    private static GpdlMapOverrideKind MapOverrideKindOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_GetWall or SubOp.SUBOP_SetWall => GpdlMapOverrideKind.Wall,
+        SubOp.SUBOP_GetDoor or SubOp.SUBOP_SetDoor => GpdlMapOverrideKind.Door,
+        SubOp.SUBOP_GetBackground or SubOp.SUBOP_SetBackground
+            => GpdlMapOverrideKind.Background,
+        SubOp.SUBOP_GetOverlay or SubOp.SUBOP_SetOverlay => GpdlMapOverrideKind.Overlay,
+        _ => GpdlMapOverrideKind.Blockage,
     };
 
     /// <summary>Which combatant a selector wants.</summary>
