@@ -550,6 +550,38 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// Removes every spell effect on an actor cast at or below <paramref name="level"/>, and
+    /// answers how many went (<c>$CHAR_REMOVEALLSPELLS</c>, <c>GPDLexec.cpp:3959</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Level is a ceiling, not a target.</b> The reference loops from the given level down to
+    /// one, but each pass already takes everything at or below its argument — so every pass after
+    /// the first finds nothing and the loop is a no-op. One sweep at the ceiling is the whole
+    /// behaviour.
+    /// </remarks>
+    int RemoveSpellEffects(string actor, int level);
+
+    /// <summary>
+    /// The same sweep, but only over what a dispel can touch
+    /// (<c>$CHAR_DISPELMAGIC</c>, <c>GPDLexec.cpp:4012</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Two things separate this from <see cref="RemoveSpellEffects"/>.</b> A spell effect is
+    /// only taken when its spell is marked <c>CanBeDispelled</c> — so an undispellable curse
+    /// survives a dispel and does not survive a remove. And an <i>item</i> special ability is
+    /// taken when the level reaches <b>12</b>, whatever spell it came from, which is the only
+    /// place that number appears in the family.
+    /// </remarks>
+    int DispelSpellEffects(string actor, int level);
+
+    /// <summary>
+    /// Clears the cursed flag on everything an actor carries
+    /// (<c>$CHAR_REMOVEALLITEMCURSE</c>, <c>GPDLexec.cpp:4038</c>).
+    /// </summary>
+    /// <returns>Whether the actor resolved; the reference pushes false when it does not.</returns>
+    bool RemoveItemCurses(string actor);
+
+    /// <summary>
     /// The name of a coin denomination, by its <b>one-based</b> ordinal
     /// (<c>$COINNAME</c>, <c>GPDLexec.cpp:3325</c>).
     /// </summary>
@@ -918,6 +950,15 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual int RemoveSpellEffects(string actor, int level) => 0;
+
+    /// <inheritdoc/>
+    public virtual int DispelSpellEffects(string actor, int level) => 0;
+
+    /// <inheritdoc/>
+    public virtual bool RemoveItemCurses(string actor) => false;
 
     /// <inheritdoc/>
     public virtual string CoinName(int ordinal) => string.Empty;

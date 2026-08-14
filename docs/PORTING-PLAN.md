@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,536 tests, green on macOS; both CI workflows green.**
+**4,540 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **259 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **262 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,16 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **The three `$CHAR_*` calls are done** — remove-all-spells, dispel-magic and
+   > remove-item-curse. The first two look alike and are not: a **dispel takes only what its spell
+   > marks `CanBeDispelled`**, so an undispellable curse survives a dispel and does not survive a
+   > remove, and a dispel at **level 12 or above also takes item special abilities**, whatever
+   > spell they came from — the only place that number appears in the family. Two further details:
+   > `$CHAR_REMOVEALLSPELLS`'s loop from the given level down to one is a **no-op after the first
+   > pass**, because each pass already takes everything at or below its argument; and an effect
+   > knows its source spell by *name*, not by level, so every level test is a database lookup and
+   > an effect whose spell the design no longer carries has no level at all.
    >
    > **The coin family is done** — `$COINNAME`, `$COINRATE` and `$COINCOUNT`, all taking a
    > one-based ordinal the reference decrements before indexing. Two divergences, both refusals:

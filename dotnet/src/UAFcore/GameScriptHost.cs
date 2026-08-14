@@ -567,6 +567,85 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
                                        MoneyRules.ClassOf(coinType - 1));
     }
 
+    /// <summary>
+    /// The spell an effect came from, or null when nothing names it.
+    /// </summary>
+    /// <remarks>
+    /// <b>An effect knows its source spell by name, not its level.</b> The level lives on the
+    /// spell record, so every level test in this family is a database lookup rather than a field
+    /// read — and an effect whose spell the design no longer carries has no level at all, which is
+    /// why the reference's own <c>pSpell != NULL</c> guard matters.
+    /// </remarks>
+    private SpellRecord? SourceSpell(ActiveSpellEffect effect) =>
+        string.IsNullOrEmpty(effect.SourceSpell) ? null : game.Design.Spell(effect.SourceSpell);
+
+    /// <summary>The effect list an actor carries, whether they are fighting or not.</summary>
+    private SpellEffectList? EffectsOf(string actor) =>
+        Fighter(actor)?.Effects ?? Resolve(actor)?.Effects;
+
+    /// <summary>Whether an effect is one a spell put there.</summary>
+    /// <remarks>
+    /// Both sweeps consider only <c>EFFECT_SPELL</c> and <c>EFFECT_SPELLSPECAB</c>; a dispel adds
+    /// item special abilities separately, at level 12.
+    /// </remarks>
+    private static bool FromSpell(ActiveSpellEffect effect) =>
+        (effect.Effect.Flags & (SpellEffectFlags.Spell |
+                                SpellEffectFlags.SpellSpecialAbility)) != 0;
+
+    /// <inheritdoc/>
+    public override int RemoveSpellEffects(string actor, int level)
+    {
+        if (EffectsOf(actor) is not { } effects)
+        {
+            return 0;
+        }
+
+        return effects.RemoveWhere(
+            e => FromSpell(e) && SourceSpell(e) is { } spell && spell.Level <= level);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Level 12 is the item threshold and appears nowhere else.</b> A dispel at 12 or above
+    /// takes item special abilities as well, whatever spell they came from and whether or not that
+    /// spell could be dispelled.
+    /// </remarks>
+    public override int DispelSpellEffects(string actor, int level)
+    {
+        if (EffectsOf(actor) is not { } effects)
+        {
+            return 0;
+        }
+
+        return effects.RemoveWhere(e =>
+            (FromSpell(e) && SourceSpell(e) is { } spell
+                          && spell.Level <= level && spell.CanBeDispelled != 0)
+            || (level >= ItemSpecialAbilityDispelLevel
+                && (e.Effect.Flags & SpellEffectFlags.ItemSpecialAbility) != 0));
+    }
+
+    /// <summary>The level at which a dispel starts taking item special abilities.</summary>
+    public const int ItemSpecialAbilityDispelLevel = 12;
+
+    /// <inheritdoc/>
+    public override bool RemoveItemCurses(string actor)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < character.Items.Count; i++)
+        {
+            if (character.Items[i].Cursed != 0)
+            {
+                character.Items[i] = character.Items[i] with { Cursed = 0 };
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>The coin a one-based ordinal names, or null when it names none.</summary>
     /// <remarks>
     /// <b>Ordinal 0 is refused rather than wrapped.</b> The reference clamps an ordinal above the

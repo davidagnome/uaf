@@ -167,4 +167,21 @@ public sealed class SpellEffectList
 
     /// <summary>Removes everything, as the end of a fight does.</summary>
     public void Clear() => effects.Clear();
+
+    /// <summary>
+    /// Removes every effect matching <paramref name="match"/>, and answers how many went.
+    /// </summary>
+    /// <remarks>
+    /// <b>Intrinsic effects are not exempt here.</b> <see cref="Add"/>'s
+    /// <see cref="SpellEffectFlags.RemoveAll"/> path deliberately spares them — they are part of
+    /// what the creature is rather than something cast on it — but the caller of this decides,
+    /// because a script's <c>$CHAR_REMOVEALLSPELLS</c> selects on the source spell's level and has
+    /// its own rule about what it may take.
+    /// </remarks>
+    public int RemoveWhere(Func<ActiveSpellEffect, bool> match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+
+        return effects.RemoveAll(e => match(e));
+    }
 }

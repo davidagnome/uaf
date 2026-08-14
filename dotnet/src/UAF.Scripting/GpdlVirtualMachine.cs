@@ -1142,6 +1142,28 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // The three $CHAR_* spell/curse calls. The first two take (actor, level) and the
+            // rightmost pops first, so the level comes off before the actor.
+            case SubOp.SUBOP_CHAR_REMOVEALLSPELLS:
+            case SubOp.SUBOP_CHAR_DISPELMAGIC:
+                {
+                    int level = PopInteger();
+                    string actor = PopSp();
+
+                    int count = op == SubOp.SUBOP_CHAR_REMOVEALLSPELLS
+                        ? _host.RemoveSpellEffects(actor, level)
+                        : _host.DispelSpellEffects(actor, level);
+
+                    PushSp(count.ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_CHAR_REMOVEALLITEMCURSE:
+
+                // A BOOL, not a count -- the reference pushes true once the actor resolves,
+                // whether or not anything was actually cursed.
+                PushSp(_host.RemoveItemCurses(PopSp()) ? True : False);
+                break;
+
             // The coin family. Each takes a ONE-based ordinal, which the reference decrements
             // before indexing -- see IGpdlHost.CoinName.
             case SubOp.SUBOP_COINNAME:
