@@ -1142,6 +1142,33 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // The level-attribute pair. Both take a LEVEL as their first parameter, and both
+            // treat an empty one as "wherever the party is" -- the reference tests the popped
+            // string against "" before atoi'ing it, so a script that passes nothing gets the
+            // current level rather than level zero.
+            case SubOp.SUBOP_SET_LEVEL_STATS_ASL:
+                {
+                    string value = PopSp();
+                    string key = PopSp();
+                    _host.SetLevelAsl(LevelOf(PopSp()), key, value);
+                    PushSp(value);
+                    break;
+                }
+            case SubOp.SUBOP_DELETE_LEVEL_STATS_ASL:
+                {
+                    string key = PopSp();
+                    _host.DeleteLevelAsl(LevelOf(PopSp()), key);
+                    PushSp(False);
+                    break;
+                }
+
+            case SubOp.SUBOP_GET_GAME_CURRLEVEL:
+                PushSp(_host.CurrentLevel.ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_GET_GAME_VERSION:
+                PushSp(_host.GameVersion);
+                break;
+
             // The three $CHAR_* spell/curse calls. The first two take (actor, level) and the
             // rightmost pops first, so the level comes off before the actor.
             case SubOp.SUBOP_CHAR_REMOVEALLSPELLS:
@@ -1460,6 +1487,20 @@ public sealed class GpdlVirtualMachine
     }
 
     /// <summary>Which stat a <c>GET_CHAR_*</c> sub-opcode asks for.</summary>
+    /// <summary>
+    /// The level a level-attribute call names, or the current one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty means "here", not zero.</b> The reference compares the popped string against
+    /// <c>""</c> and only then falls back to <c>atoi</c>, which would otherwise turn both an empty
+    /// string and unparseable text into level 0 — a level no design has.
+    /// </remarks>
+    private int LevelOf(string level) =>
+        string.IsNullOrEmpty(level)
+        || !int.TryParse(level, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number)
+            ? _host.CurrentLevel
+            : number;
+
     private static GpdlCharStat StatOf(SubOp op) => op switch
     {
         SubOp.SUBOP_GET_ISMAMMAL => GpdlCharStat.IsMammal,

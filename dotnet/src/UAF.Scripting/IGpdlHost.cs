@@ -550,6 +550,42 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// Writes a level's attribute (<c>$SET_LEVEL_STATS_ASL</c>, <c>GPDLexec.cpp:5522</c>).
+    /// </summary>
+    /// <param name="level">
+    /// The <b>one-based</b> level number, or a negative for "wherever the party is". The reference
+    /// takes an empty <i>string</i> to mean the current level and <c>atoi</c>s anything else — so
+    /// a caller that passes nothing gets the current level rather than level zero.
+    /// </param>
+    void SetLevelAsl(int level, string key, string value);
+
+    /// <summary>Reads a level's attribute.</summary>
+    /// <inheritdoc cref="SetLevelAsl" path="/param[@name='level']"/>
+    string GetLevelAsl(int level, string key);
+
+    /// <summary>Deletes a level's attribute (<c>$DELETE_LEVEL_STATS_ASL</c>).</summary>
+    /// <inheritdoc cref="SetLevelAsl" path="/param[@name='level']"/>
+    void DeleteLevelAsl(int level, string key);
+
+    /// <summary>
+    /// The level the party is on, <b>one-based</b> (<c>$GET_GAME_CURRLEVEL</c>).
+    /// </summary>
+    /// <remarks>
+    /// The reference pushes <c>currLevel + 1</c>: the stored index is zero-based and the script
+    /// sees the number a designer would write.
+    /// </remarks>
+    int CurrentLevel { get; }
+
+    /// <summary>
+    /// The design's format version (<c>$GET_GAME_VERSION</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Formatted to eight decimal places</b> — <c>"%1.8f"</c>. A script comparing it against a
+    /// literal is comparing strings, so the trailing zeroes are part of the answer.
+    /// </remarks>
+    string GameVersion { get; }
+
+    /// <summary>
     /// Removes every spell effect on an actor cast at or below <paramref name="level"/>, and
     /// answers how many went (<c>$CHAR_REMOVEALLSPELLS</c>, <c>GPDLexec.cpp:3959</c>).
     /// </summary>
@@ -950,6 +986,43 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <summary>Per-level attributes this environment was asked to keep, by level number.</summary>
+    public Dictionary<int, Dictionary<string, string>> LevelAttributes { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual void SetLevelAsl(int level, string key, string value)
+    {
+        if (!LevelAttributes.TryGetValue(level, out var attributes))
+        {
+            attributes = [];
+            LevelAttributes[level] = attributes;
+        }
+
+        attributes[key] = value;
+    }
+
+    /// <inheritdoc/>
+    public virtual string GetLevelAsl(int level, string key) =>
+        LevelAttributes.TryGetValue(level, out var attributes)
+        && attributes.TryGetValue(key, out string? value)
+            ? value
+            : string.Empty;
+
+    /// <inheritdoc/>
+    public virtual void DeleteLevelAsl(int level, string key)
+    {
+        if (LevelAttributes.TryGetValue(level, out var attributes))
+        {
+            attributes.Remove(key);
+        }
+    }
+
+    /// <inheritdoc/>
+    public virtual int CurrentLevel => 1;
+
+    /// <inheritdoc/>
+    public virtual string GameVersion => "0.00000000";
 
     /// <inheritdoc/>
     public virtual int RemoveSpellEffects(string actor, int level) => 0;

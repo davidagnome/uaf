@@ -568,6 +568,78 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     }
 
     /// <summary>
+    /// Per-level attributes a script has written, over the design's own.
+    /// </summary>
+    /// <remarks>
+    /// <b>An overlay, because <c>LevelStats.Attributes</c> is immutable.</b> The reference writes
+    /// straight into <c>globalData</c>'s level stats, where a saved game later picks them up; the
+    /// port's record cannot be mutated in place, so reads fall through to the design and writes
+    /// land here. <b>They do not survive a save</b> — persisting them belongs with Phase 4a's
+    /// save-game work, and pretending otherwise would be worse than saying so.
+    /// </remarks>
+    private readonly Dictionary<int, Dictionary<string, string>> levelAsl = [];
+
+    /// <inheritdoc/>
+    public override void SetLevelAsl(int level, string key, string value)
+    {
+        if (!levelAsl.TryGetValue(level, out var attributes))
+        {
+            attributes = [];
+            levelAsl[level] = attributes;
+        }
+
+        attributes[key] = value;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>The overlay first, then whatever the design shipped for that level.</remarks>
+    public override string GetLevelAsl(int level, string key)
+    {
+        if (levelAsl.TryGetValue(level, out var attributes)
+            && attributes.TryGetValue(key, out string? written))
+        {
+            return written;
+        }
+
+        // The design's own: LevelInfo is keyed by the ONE-based level number, as the script sees
+        // it, so no adjustment here.
+        // NOTE: game.Globals is the ATTRIBUTE list; the design header is game.Design.Globals.
+        if (game.Design.Globals.Levels?.Levels.TryGetValue((uint)level, out var stats) == true)
+        {
+            foreach (var entry in stats.Attributes)
+            {
+                if (string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    return entry.Value;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Removes from the overlay only.</b> A key the design shipped comes back on the next read,
+    /// which is the honest consequence of not owning the design's own list.
+    /// </remarks>
+    public override void DeleteLevelAsl(int level, string key)
+    {
+        if (levelAsl.TryGetValue(level, out var attributes))
+        {
+            attributes.Remove(key);
+        }
+    }
+
+    /// <inheritdoc/>
+    public override int CurrentLevel => game.LevelIndex + 1;
+
+    /// <inheritdoc/>
+    public override string GameVersion =>
+        game.Design.Globals.Version.Value.ToString(
+            "F8", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
     /// The spell an effect came from, or null when nothing names it.
     /// </summary>
     /// <remarks>
