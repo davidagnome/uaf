@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,585 tests, green on macOS; both CI workflows green.**
+**4,589 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9052,6 +9052,15 @@ What is left, in order:
    > the stack, exactly as `$COINCOUNT` does. Three instances now. This port pops every declared
    > argument and discards the character, which is the only reading under which the expression is
    > well-formed.
+   >
+   > **They act on a live character, not a list.** `GameScriptHost` adds a real
+   > `ActiveSpellEffect` carrying the three flags the reference sets — cumulative, script-made and
+   > **timed** — where the timed one is what `$REMOVE_CHAR_MODIFICATION` filters on, so an effect
+   > missing it could never be removed by the script that added it. The stop time is the party's
+   > clock plus the duration, and `FromScript` is set for the same reason the flag is: it shifts
+   > the expiry test by one. **One divergence:** the reference acts on `Dude()`, the script's
+   > current character context, which this port does not model — the party's active character is
+   > the nearest thing, and it is what `$COINCOUNT` already uses.
    >
    > Two more details worth keeping. **`MINUTES` is the only duration unit**: anything else warns
    > to the debug log, adds nothing, and pushes the same empty string as a success, so a design

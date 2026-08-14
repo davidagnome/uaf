@@ -569,6 +569,87 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <para>
+    /// <b>The three flags the reference sets are what make this findable again.</b>
+    /// <c>AddTemporaryEffect</c> (<c>Char.cpp:12389</c>) marks the effect cumulative, script-made
+    /// and timed — and it is the <b>timed</b> one that
+    /// <see cref="RemoveCharacterModification"/> filters on, so an effect missing it could never
+    /// be removed by a script that added it.
+    /// </para>
+    /// <para>
+    /// <b>The stop time is the party's clock plus the duration</b>, in minutes — the only unit the
+    /// caller lets through. <c>FromScript</c> is set for the same reason the flag is: it shifts
+    /// the expiry test by one, so a script effect and a spell effect of the same length do not
+    /// expire on the same tick.
+    /// </para>
+    /// </remarks>
+    public override void ModifyCharacterAttribute(string attribute, int amount, int minutes,
+                                                  string text, string source)
+    {
+        if (Resolve(CurrentActor) is not { } character || string.IsNullOrEmpty(attribute))
+        {
+            return;
+        }
+
+        character.Effects.Add(new ActiveSpellEffect(
+            new UAF.Rules.SpellEffect(attribute, amount,
+                            SpellEffectFlags.Cumulative
+                            | SpellEffectFlags.Script
+                            | SpellEffectFlags.TimedSpecialAbility),
+            StopTime: game.Minutes + minutes,
+            FromScript: true,
+
+            // The source is the effect's handle: RemoveCharacterModification matches on it.
+            SourceSpell: source));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Only timed effects are candidates, and only one goes.</b> The reference walks the list,
+    /// skips anything without <c>EFFECT_TIMEDSA</c>, and returns on the first match — so a script
+    /// that added three has to call this three times.
+    /// </remarks>
+    public override bool RemoveCharacterModification(string mask)
+    {
+        if (Resolve(CurrentActor) is not { } character)
+        {
+            return false;
+        }
+
+        var effects = character.Effects.Effects;
+
+        for (int i = 0; i < effects.Count; i++)
+        {
+            if ((effects[i].Effect.Flags & SpellEffectFlags.TimedSpecialAbility) != 0
+                && GpdlMask.Matches(mask, effects[i].SourceSpell))
+            {
+                // RemoveWhere takes every match, so the predicate has to identify this one.
+                int index = i;
+                int taken = 0;
+                character.Effects.RemoveWhere(_ => taken++ == index);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whose character these calls act on.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference uses <c>Dude()</c> — the script's current character context — which this
+    /// port does not model.</b> The party's active character is the nearest thing, and it is what
+    /// <see cref="CoinCount"/> already uses for the same reason.
+    /// </remarks>
+    private string CurrentActor =>
+        game.Party.Members.Count == 0
+            ? string.Empty
+            : game.Party.Members[
+                Math.Clamp(game.Party.ActiveCharacter, 0, game.Party.Members.Count - 1)].Name;
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <b>Quests are addressed by name here and by id everywhere else.</b> The reference's
     /// <c>questData.GetStage</c> takes the key a script writes, so the name has to be resolved to
     /// an id before the world can answer — the same seam <c>GameLogicBlockHost</c> crosses.
