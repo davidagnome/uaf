@@ -569,6 +569,96 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>Read without consuming.</b> <c>DesignConfig.TryGetValue</c> defaults to consuming the
+    /// entry so that a loader can report what nothing claimed; a script asking twice must get the
+    /// same answer both times, so this asks not to.
+    /// </remarks>
+    public override string ConfigValue(string token) =>
+        !string.IsNullOrEmpty(token)
+        && game.Design.Config.TryGetValue(token, out string value, consume: false)
+            ? value
+            : string.Empty;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>A spell the design has no record of is refused before the character is touched.</b>
+    /// Teaching one would put a name in a spellbook that nothing could ever cast.
+    /// </remarks>
+    public override bool KnowSpell(string actor, string spellId, bool know)
+    {
+        if (Resolve(actor) is not { } character
+            || string.IsNullOrEmpty(spellId)
+            || game.Design.Spell(spellId) is not { } spell)
+        {
+            return false;
+        }
+
+        if (know)
+        {
+            character.Book.Add(spellId, spell.Level);
+            return true;
+        }
+
+        return character.Book.Remove(spellId);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Matches on the effect's source, the same handle
+    /// <see cref="RemoveCharacterModification"/> uses — but takes <b>every</b> match rather than
+    /// one, because this names a script rather than a single change.
+    /// </remarks>
+    public override string RemoveSpellEffect(string actor, string scriptName)
+    {
+        if (EffectsOf(actor) is not { } effects || string.IsNullOrEmpty(scriptName))
+        {
+            return string.Empty;
+        }
+
+        int removed = effects.RemoveWhere(
+            e => string.Equals(e.SourceSpell, scriptName, StringComparison.OrdinalIgnoreCase));
+
+        return removed.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc/>
+    public override void DumpCharacterSpecialAbilities(string actor)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return;
+        }
+
+        foreach (var entry in character.Attributes.Entries)
+        {
+            DebugLog.Add(
+                $" Character Special Ability = {entry.Key}; value = {entry.Value}");
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Not implemented: this port has no current-event picture to set.</b> The reference
+    /// reaches for <c>m_pGPDLevent-&gt;pic</c> and returns early when there is no event running —
+    /// which is the state this port is always in, so the early return is the whole behaviour.
+    /// </remarks>
+    public override void SmallPicture(string fileName)
+    {
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Deliberately does nothing.</b> The reference calls <c>Sleep(ms)</c>, which blocks the
+    /// whole game — including its rendering and input. Reproducing that in a port whose engine
+    /// drives itself from a loop would freeze the window; a script that asks to pause gets the
+    /// same empty result and the game keeps running.
+    /// </remarks>
+    public override void Sleep(int milliseconds)
+    {
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <b>Matches the effect's source spell, and refuses a spell the design does not have</b> —
     /// the reference checks <c>IsValidSpell</c> before walking anything, so a typo answers false
     /// rather than searching for a name nothing can carry.

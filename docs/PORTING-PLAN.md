@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,594 tests, green on macOS; both CI workflows green.**
+**4,601 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **277 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **283 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,44 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **Everything implementable without a new subsystem is now done.** The last batch —
+   > `$GET_CONFIG`, `$KNOW_SPELL`, `$REMOVE_SPELL_EFFECT`, `$DUMP_CHARACTER_SAS`,
+   > `$SMALL_PICTURE` and `$SLEEP` — was read from the reference in **one pass** and implemented
+   > in one edit, which is how the remaining work should be taken: the cost of these has been one
+   > investigation round-trip per function, not the code.
+   >
+   > **Eight remain, and every one is blocked on something real, not on effort:**
+   > - `$RUN_CHAR_SCRIPTS`, `$RUN_CHAR_SE_SCRIPTS`, `$RUN_CHAR_PS_SCRIPTS`,
+   >   `$RUN_AREA_SE_SCRIPTS` and `$CALL_GLOBAL_SCRIPT` — all five run a *script attached to
+   >   something else*, and **nothing in this port executes one**.
+   >
+   >   > **The prerequisite is a file format, not a function — and it is bigger than it looks.**
+   >   > The obvious guess is wrong: these do not run `SpellRecord.Scripts`, the seven slots on a
+   >   > spell. `RunSpellScripts` (`Spell.h:517`) delegates to the spell's **`SPECIAL_ABILITIES`
+   >   > block**, and `SPECIAL_ABILITIES::RunScripts` (`Specab.cpp:1876`) treats each entry there
+   >   > as a *name* to look up in the global `specialAbilitiesData` — then finds a string named
+   >   > for the script inside **that** record, checks its flags for `SPECAB_SCRIPT`, and compiles
+   >   > `frontEnd + value + backEnd` on the spot.
+   >   >
+   >   > So the chain is: read **`specialAbilities.dat`** (present in the corpus, and the one
+   >   > design database this port has no reader for at all — the `SpecabBlock` on a record holds
+   >   > only ability *names*), then the front/back-end script wrapper, then compile-and-run per
+   >   > script with the results concatenated, then re-entrant VM invocation while a script is
+   >   > already running. That is Phase 4 engine work beginning with a new file format, not the
+   >   > tail of the GPDL item.
+   > - `$CURR_CHANGE_BY_VAL` — reads `GetIntermediateResult()`, a VM concept this port has no
+   >   equivalent for.
+   > - `$GET_CHAR_EFFAC` — needs the *attacker* as well as the target, which the call's own
+   >   parameters do not carry.
+   > - `$LOGIC_BLOCK_VALUE` — decodes a packed blob out of the global ASL key
+   >   `LOGICBLOCKVALUES`, which nothing in this port ever writes; implementing the reader would
+   >   be a decoder for data that cannot exist yet.
+   >
+   > Five more are **dead in the reference too** and should not be counted as gaps at all:
+   > `$LAST_HITTER_OF` and `$LAST_TARGETER_OF` point at `SUBOP_NOT_USED_FOR_ANYTHING1`/`2`, and
+   > `$GET_SPELLBOOK`, `$SET_CHAR_CLASS` and `$TESTKEY` are declared with no handler in
+   > `GPDLexec.cpp`.
    >
    > **`$IS_AFFECTED_BY_SPELL` and `$IS_AFFECTED_BY_SPELL_ATTR` are done, and they ask different
    > questions despite reading alike.** The first matches an effect's *source spell* — "is this

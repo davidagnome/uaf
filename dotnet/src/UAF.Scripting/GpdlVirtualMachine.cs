@@ -1142,6 +1142,54 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            case SubOp.SUBOP_GET_CONFIG:
+                PushSp(_host.ConfigValue(PopSp()));
+                break;
+
+            case SubOp.SUBOP_KNOW_SPELL:
+                {
+                    // (actor, spellId, know) -- rightmost first.
+                    bool know = PopInteger() != 0;
+                    string spellId = PopSp();
+                    string actor = PopSp();
+
+                    PushSp(_host.KnowSpell(actor, spellId, know) ? True : False);
+                    break;
+                }
+
+            case SubOp.SUBOP_REMOVE_SPELL_EFFECT:
+                {
+                    string script = PopSp();
+                    PushSp(_host.RemoveSpellEffect(PopSp(), script));
+                    break;
+                }
+
+            case SubOp.SUBOP_DUMP_CHARACTER_SAS:
+                {
+                    string actor = PopSp();
+                    _host.DumpCharacterSpecialAbilities(actor);
+
+                    // A diagnostic that still has to leave a result behind.
+                    PushSp(string.Empty);
+                    break;
+                }
+
+            case SubOp.SUBOP_SMALL_PICTURE:
+                {
+                    // The filename goes back on the stack BEFORE the picture is set -- the
+                    // reference pushes it and only then checks whether an event is running, so
+                    // the call yields the name either way.
+                    string file = PopSp();
+                    PushSp(file);
+                    _host.SmallPicture(file);
+                    break;
+                }
+
+            case SubOp.SUBOP_SLEEP:
+                _host.Sleep(PopInteger());
+                PushSp(string.Empty);
+                break;
+
             // Both take (actor, name) and the name pops first.
             case SubOp.SUBOP_IS_AFFECTED_BY_SPELL:
             case SubOp.SUBOP_IS_AFFECTED_BY_SPELL_ATTR:

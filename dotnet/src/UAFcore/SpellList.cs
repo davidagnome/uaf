@@ -144,6 +144,18 @@ public sealed class SpellList
     }
 
     /// <summary>The entry for a spell, or null when it is not in the book.</summary>
+    /// <summary>
+    /// Forgets a spell entirely, memorised copies and all.
+    /// </summary>
+    /// <remarks>
+    /// <b>The counterpart to <see cref="Add"/>, and not the same as un-memorising.</b> A script's
+    /// <c>$KNOW_SPELL(…, 0)</c> takes the spell out of the book rather than emptying its slots —
+    /// after it the character cannot memorise it again without being taught it afresh.
+    /// </remarks>
+    /// <returns>Whether the spell was there.</returns>
+    public bool Remove(string spellId) =>
+        Find(spellId) is { } entry && entries.Remove(entry);
+
     public SpellListEntry? Find(string spellId) =>
         entries.FirstOrDefault(e => e.SpellId == spellId);
 

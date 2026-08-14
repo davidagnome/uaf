@@ -550,6 +550,56 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// A value from the design's configuration (<c>$GET_CONFIG</c>, <c>GPDLexec.cpp</c>).
+    /// </summary>
+    /// <returns>The value, or empty for a token the design does not set.</returns>
+    string ConfigValue(string token);
+
+    /// <summary>
+    /// Teaches or unteaches a spell (<c>$KNOW_SPELL</c>, <c>GPDLexec.cpp:6141</c>).
+    /// </summary>
+    /// <param name="know">True to add it, false to take it away.</param>
+    /// <returns>
+    /// Whether it worked. <b>A spell the design has no record of is refused</b> — the reference
+    /// looks it up before touching the character, so a typo answers false rather than teaching a
+    /// spell nothing can cast.
+    /// </returns>
+    bool KnowSpell(string actor, string spellId, bool know);
+
+    /// <summary>
+    /// Removes the spell effects a named script put on an actor
+    /// (<c>$REMOVE_SPELL_EFFECT</c>).
+    /// </summary>
+    /// <returns>Whatever the removal reports — the reference pushes its result string.</returns>
+    string RemoveSpellEffect(string actor, string scriptName);
+
+    /// <summary>
+    /// Writes an actor's special abilities to the debug log
+    /// (<c>$DUMP_CHARACTER_SAS</c>).
+    /// </summary>
+    /// <remarks>A diagnostic: it changes nothing and is only ever read in a log.</remarks>
+    void DumpCharacterSpecialAbilities(string actor);
+
+    /// <summary>
+    /// Sets the picture the current event shows (<c>$SMALL_PICTURE</c>).
+    /// </summary>
+    /// <remarks>
+    /// Does nothing when no event is running, which is the reference's own guard — it returns
+    /// early on a null event after pushing the filename back.
+    /// </remarks>
+    void SmallPicture(string fileName);
+
+    /// <summary>
+    /// Pauses (<c>$SLEEP</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference blocks the thread outright</b> with <c>Sleep(ms)</c>, which stops the
+    /// whole game. A host is free to do something less drastic; the sub-opcode's own contract is
+    /// only that it yields the empty string.
+    /// </remarks>
+    void Sleep(int milliseconds);
+
+    /// <summary>
     /// Whether an actor is under a named spell
     /// (<c>$IS_AFFECTED_BY_SPELL</c>, <c>GPDLexec.cpp:4456</c>).
     /// </summary>
@@ -1119,6 +1169,39 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual string ConfigValue(string token) => string.Empty;
+
+    /// <summary>Spells this environment was asked to teach or unteach.</summary>
+    public List<(string Actor, string SpellId, bool Know)> SpellsTaught { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual bool KnowSpell(string actor, string spellId, bool know)
+    {
+        SpellsTaught.Add((actor, spellId, know));
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public virtual string RemoveSpellEffect(string actor, string scriptName) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual void DumpCharacterSpecialAbilities(string actor) =>
+        DebugLog.Add($"$DUMP_CHARACTER_SAS({actor})");
+
+    /// <summary>The picture this environment was last asked to show.</summary>
+    public string? Picture { get; private set; }
+
+    /// <inheritdoc/>
+    public virtual void SmallPicture(string fileName) => Picture = fileName;
+
+    /// <summary>How long this environment was asked to pause, in milliseconds.</summary>
+    public List<int> Sleeps { get; } = [];
+
+    /// <inheritdoc/>
+    /// <remarks>Recorded rather than performed: a test that really slept would just be slow.</remarks>
+    public virtual void Sleep(int milliseconds) => Sleeps.Add(milliseconds);
 
     /// <inheritdoc/>
     public virtual bool IsAffectedBySpell(string actor, string spellId) => false;
