@@ -108,6 +108,11 @@ public static class SpecialAbilityScripts
     /// Told about a script that would not compile, with the compiler's message. Null discards it —
     /// which is what the reference does apart from a debug line.
     /// </param>
+    /// <param name="contexts">
+    /// What the scripts are running <i>for</i> — the character, item, spell, class or race that
+    /// carried the abilities. Set on a fresh frame around each script and torn down after, which
+    /// is what <c>$CharacterContext</c> and its siblings read.
+    /// </param>
     /// <returns>
     /// The last result produced, or empty when no ability carried the script. <b>Not a
     /// concatenation:</b> the reference keeps one hook parameter and each script overwrites it, so
@@ -119,7 +124,8 @@ public static class SpecialAbilityScripts
         string scriptName,
         IGpdlHost host,
         Func<string, SpecialAbilityScriptVerdict>? examine = null,
-        Action<string, string>? onError = null)
+        Action<string, string>? onError = null,
+        IReadOnlyDictionary<GpdlContext, string>? contexts = null)
     {
         ArgumentNullException.ThrowIfNull(abilityNames);
         ArgumentNullException.ThrowIfNull(lookup);
@@ -142,7 +148,25 @@ public static class SpecialAbilityScripts
 
             // A machine of its own -- the gpdlStack.Push()/Pop() the reference wraps each
             // execution in. The host is shared; the interpreter is not.
-            result = new GpdlVirtualMachine(program, host).Execute(EntryPoint);
+            //
+            // The context frame is pushed alongside, because RunScripts records what the script is
+            // running FOR (SetAbility, SetSA_Source_*) before executing and clears it after. A
+            // script reading $CharacterContext outside one gets nothing, which is the reference's
+            // "called when no character context exists".
+            using (host.Context.Push())
+            {
+                host.Context.SetAbility(abilityName, string.Empty);
+
+                if (contexts is not null)
+                {
+                    foreach (var (which, value) in contexts)
+                    {
+                        host.Context.Set(which, value);
+                    }
+                }
+
+                result = new GpdlVirtualMachine(program, host).Execute(EntryPoint);
+            }
 
             if (examine?.Invoke(result) == SpecialAbilityScriptVerdict.Stop)
             {

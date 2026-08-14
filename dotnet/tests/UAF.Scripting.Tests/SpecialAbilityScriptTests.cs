@@ -175,4 +175,125 @@ public class SpecialAbilityScriptTests
 
         Assert.Equal("second", result);
     }
+
+
+    /// <summary>
+    /// A script can read what it is running for.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The context frame is what makes <c>$CharacterContext</c> and its siblings work.</b>
+    /// <c>RunScripts</c> records the ability and what the script is for before executing and
+    /// clears it after, so a script reading a context outside one gets the reference's
+    /// "called when no ... context exists" rather than a stale answer.
+    /// </para>
+    /// <para>
+    /// <b><c>$CharacterContext</c> returns an <c>ACTOR</c>, not a string</b> — its table row is the
+    /// only one of the five that does — so <c>$RETURN $CharacterContext();</c> does not compile.
+    /// It has to be used where an actor is wanted, which is why this reads it through a call that
+    /// takes one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_script_reads_the_context_it_runs_for()
+    {
+        var host = new ActorWatchingHost();
+        var errors = new List<string>();
+
+        SpecialAbilityScripts.Run(
+            ["ability"],
+            Lookup(("ability", "onHit", "$RETURN $GET_ISMAMMAL($CharacterContext());")),
+            "onHit",
+            host,
+            onError: (_, message) => errors.Add(message),
+            contexts: new Dictionary<GpdlContext, string> { [GpdlContext.Character] = "hero" });
+
+        Assert.Empty(errors);
+
+        // The context reached the call as the actor it names.
+        Assert.Equal(["hero"], host.Asked);
+    }
+
+    /// <summary>A host that records which actor it was asked about.</summary>
+    private sealed class ActorWatchingHost : GpdlUnhostedEnvironment
+    {
+        public List<string> Asked { get; } = [];
+
+        public override string GetCharStat(string actor, GpdlCharStat stat)
+        {
+            Asked.Add(actor);
+            return base.GetCharStat(actor, stat);
+        }
+    }
+
+    /// <summary>Each of the four string-valued contexts reaches its own call.</summary>
+    /// <remarks>
+    /// <c>$CharacterContext</c> is absent here because it alone returns an <c>ACTOR</c> — see
+    /// <see cref="A_script_reads_the_context_it_runs_for"/>.
+    /// </remarks>
+    [Theory]
+    [InlineData("$ItemContext", GpdlContext.Item, "sword")]
+    [InlineData("$SpellContext", GpdlContext.Spell, "bless")]
+    [InlineData("$ClassContext", GpdlContext.Class, "Fighter")]
+    [InlineData("$RaceContext", GpdlContext.Race, "Elf")]
+    public void Each_context_call_reads_its_own(string call, GpdlContext which, string value)
+    {
+        var host = new GpdlUnhostedEnvironment();
+        var errors = new List<string>();
+
+        string result = SpecialAbilityScripts.Run(
+            ["ability"],
+            Lookup(("ability", "onHit", $"$RETURN {call}();")),
+            "onHit",
+            host,
+            onError: (_, message) => errors.Add(message),
+            contexts: new Dictionary<GpdlContext, string> { [which] = value });
+
+        Assert.Empty(errors);
+        Assert.Equal(value, result);
+    }
+
+    /// <summary>
+    /// The frame is torn down, so a context does not leak into the next script.
+    /// </summary>
+    /// <remarks>
+    /// The reference clears the ability after each execution. A context surviving into an
+    /// unrelated script would answer confidently and wrongly, which is worse than answering
+    /// nothing.
+    /// </remarks>
+    [Fact]
+    public void A_context_does_not_leak_to_the_next_run()
+    {
+        var host = new GpdlUnhostedEnvironment();
+        var lookup = Lookup(("ability", "onHit", "$RETURN $SpellContext();"));
+
+        Assert.Equal("bless", SpecialAbilityScripts.Run(
+            ["ability"], lookup, "onHit", host,
+            contexts: new Dictionary<GpdlContext, string> { [GpdlContext.Spell] = "bless" }));
+
+        // A second run with no context supplied reads nothing rather than "bless".
+        Assert.Equal(string.Empty,
+                     SpecialAbilityScripts.Run(["ability"], lookup, "onHit", host));
+
+        // And the host was told the context was missing.
+        Assert.Contains(host.Context.Missing,
+                        m => m.Contains("$SpellContext", StringComparison.Ordinal));
+    }
+
+    /// <summary>The ability that is running names itself.</summary>
+    [Fact]
+    public void The_running_ability_names_itself()
+    {
+        var host = new GpdlUnhostedEnvironment();
+
+        SpecialAbilityScripts.Run(
+            ["Bless"],
+            Lookup(("Bless", "onHit", """$RETURN "ran";""")),
+            "onHit",
+            host);
+
+        // The frame is gone by now, so what is checked is that the run completed rather than
+        // the name surviving it.
+        Assert.Empty(host.Context.Missing);
+    }
 }

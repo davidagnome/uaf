@@ -1086,6 +1086,13 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_TargetContext:
             case SubOp.SUBOP_CombatantContext:
             case SubOp.SUBOP_MonsterTypeContext:
+
+            // The five a special-ability script reads about what it is running for.
+            case SubOp.SUBOP_CharacterContext:
+            case SubOp.SUBOP_ItemContext:
+            case SubOp.SUBOP_SpellContext:
+            case SubOp.SUBOP_ClassContext:
+            case SubOp.SUBOP_RaceContext:
                 PushSp(_host.Context.Get(ContextOf(op)));
                 break;
             case SubOp.SUBOP_GetCombatRound:
@@ -1880,6 +1887,11 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_AttackerContext => GpdlContext.Attacker,
         SubOp.SUBOP_TargetContext => GpdlContext.Target,
         SubOp.SUBOP_CombatantContext => GpdlContext.Combatant,
+        SubOp.SUBOP_CharacterContext => GpdlContext.Character,
+        SubOp.SUBOP_ItemContext => GpdlContext.Item,
+        SubOp.SUBOP_SpellContext => GpdlContext.Spell,
+        SubOp.SUBOP_ClassContext => GpdlContext.Class,
+        SubOp.SUBOP_RaceContext => GpdlContext.Race,
         _ => GpdlContext.MonsterType,
     };
 

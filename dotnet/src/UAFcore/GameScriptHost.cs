@@ -596,7 +596,10 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         return SpecialAbilityScripts.Run(
             AbilityNames(character.Record.SpecialAbilities), AbilityScript, scriptName, this,
             onError: (ability, message) =>
-                DebugLog.Add($"* * * * Script Error in {ability}[{scriptName}]: {message}"));
+                DebugLog.Add($"* * * * Script Error in {ability}[{scriptName}]: {message}"),
+
+            // What the script is running for: $CharacterContext reads this back.
+            contexts: new Dictionary<GpdlContext, string> { [GpdlContext.Character] = actor });
     }
 
     /// <inheritdoc/>
@@ -621,8 +624,14 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
                 continue;
             }
 
+            // Both contexts: the spell whose abilities these are, and the character it is on.
             result.Append(SpecialAbilityScripts.Run(
-                AbilityNames(spell.SpecialAbilities), AbilityScript, scriptName, this));
+                AbilityNames(spell.SpecialAbilities), AbilityScript, scriptName, this,
+                contexts: new Dictionary<GpdlContext, string>
+                {
+                    [GpdlContext.Character] = actor,
+                    [GpdlContext.Spell] = effect.SourceSpell,
+                }));
         }
 
         return result.ToString();

@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,621 tests, green on macOS; both CI workflows green.**
+**4,628 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,9 +9015,19 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **286 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **291 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
+   > **Every count in this item has been wrong at least once, and the last one badly.** The
+   > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
+   > `[A-Z_0-9]+`, which silently skipped every mixed-case name — `$CharacterContext`, `$Myself`,
+   > `$GrPrint` and dozens more. The real remaining count is **~74**, not 14, and it contains
+   > several coherent families rather than singles: the eleven `$Gr*` graphics calls, ten map
+   > `$Get*`/`$Set*` pairs, six alignment tests, and the actor-identity group
+   > (`$Myself`, `$MyIndex`, `$IndexOf`, `$Name`, `$Status`, `$Gender`). **"No callable group
+   > remains" has now been false twice.** Count with a case-insensitive pattern, or do not quote a
+   > number.
+   >
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
    > in `GpdlSystemFunctions`, so aliases counted twice. Parsing the table's rows instead gives
    > **37 named functions**, and five of those are dead in the reference as well: `$LAST_HITTER_OF`
@@ -9087,6 +9097,22 @@ What is left, in order:
    >   > than the database itself — `UAF.Scripting` and `UAF.Serialization` are independent
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
+   >   >
+   >   > **The five context calls are done too**, and they were the first thing a design's own
+   >   > scripts reached for. `GpdlScriptContext` already had the enum entries — only the dispatch
+   >   > and the frame were missing. `SpecialAbilityScripts` now pushes a context frame around
+   >   > every script, sets what it is running for, and tears it down after, which is what makes a
+   >   > second unrelated script read *nothing* rather than the previous one's answer.
+   >   >
+   >   > **`$CharacterContext` returns an `ACTOR` where the other four return strings** — the only
+   >   > one of the five that does — so `$RETURN $CharacterContext();` does not compile and it can
+   >   > only be used where an actor is wanted. That cost a round of failed tests, and it is the
+   >   > third time in this item that a table's parameter or return type has decided how a call may
+   >   > be written.
+   >   >
+   >   > **A silent-skip trap worth knowing:** `SpecialAbilityScripts.Run` drops a script that will
+   >   > not compile, so a test passing no `onError` cannot tell "the context was empty" from "the
+   >   > script never ran". Both look like an empty result. Pass `onError` in tests.
    >   >
    >   > **The chain is now connected, and three of the five are done**:
    >   > `$RUN_CHAR_SCRIPTS` runs the character's own abilities, `$RUN_CHAR_SE_SCRIPTS` runs the

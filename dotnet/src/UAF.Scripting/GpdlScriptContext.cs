@@ -43,6 +43,7 @@ public enum GpdlSaRecord
     Baseclass,
     Spell,
     MonsterType,
+
     Race,
     Ability,
 }
@@ -61,6 +62,29 @@ public enum GpdlContext
 
     /// <summary>The monster's database id (<c>pMonstertypeContext-&gt;monsterID</c>).</summary>
     MonsterType,
+
+
+    // ---- The five the special-ability scripts read -----------------------------------------------
+    //
+    // These are set by whatever is running a script on someone's behalf, not by combat: when
+    // SPECIAL_ABILITIES::RunScripts executes an ability's script it records what the script is
+    // FOR, and $CharacterContext and its siblings read that back. A design's own scripts reach for
+    // them immediately, which is what made them worth having.
+
+    /// <summary>The character a script is running on behalf of (<c>$CharacterContext</c>).</summary>
+    Character,
+
+    /// <summary>The item, by its unique name (<c>$ItemContext</c>).</summary>
+    Item,
+
+    /// <summary>The spell, by its unique name (<c>$SpellContext</c>).</summary>
+    Spell,
+
+    /// <summary>The class (<c>$ClassContext</c>).</summary>
+    Class,
+
+    /// <summary>The race (<c>$RaceContext</c>).</summary>
+    Race,
 }
 
 /// <summary>
@@ -352,6 +376,11 @@ public sealed class GpdlScriptContext
         GpdlContext.Attacker => "$AttackerContext() called when no attacker context exists",
         GpdlContext.Target => "$TargetContext() called when no target context exists",
         GpdlContext.Combatant => "$CombatantContext() called when no combatant context exists",
+        GpdlContext.Character => "$CharacterContext() called when no character context exists",
+        GpdlContext.Item => "$ItemContext() called when no item context exists",
+        GpdlContext.Spell => "$SpellContext() called when no spell context exists",
+        GpdlContext.Class => "$ClassContext() called when no class context exists",
+        GpdlContext.Race => "$RaceContext() called when no race context exists",
         _ => "$MonsterTypeContext() called when no monster type context exists",
     };
 }
