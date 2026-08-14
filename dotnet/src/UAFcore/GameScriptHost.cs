@@ -567,6 +567,80 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
                                        MoneyRules.ClassOf(coinType - 1));
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>A monster answers its own name, not a type.</b> The reference pushes <c>monsterID</c>
+    /// for the monster case, so this call is a type test for characters and NPCs and an identity
+    /// for monsters — which is why the two literals carry at-signs and the third does not.
+    /// </remarks>
+    public override string CharacterType(string actor)
+    {
+        if (Fighter(actor) is { } fighter)
+        {
+            return fighter.Kind switch
+            {
+                CombatantKind.Character => IGpdlHost.PlayerCharacterType,
+                CombatantKind.Npc => IGpdlHost.NpcType,
+                _ => fighter.Name,
+            };
+        }
+
+        // Outside combat only the party is reachable, and every member of it is a character.
+        return Resolve(actor) is null ? string.Empty : IGpdlHost.PlayerCharacterType;
+    }
+
+    /// <inheritdoc/>
+    public override string CharacterRace(string actor) =>
+        Resolve(actor) is { } character ? character.Race : IGpdlHost.NoSuchCharacter;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Refused when the design has no race by that name.</b> The reference looks the name up in
+    /// <c>raceData</c> and leaves the character alone when it is not there — a script cannot
+    /// invent a race by assigning one.
+    /// </remarks>
+    public override bool SetCharacterRace(string actor, string race)
+    {
+        if (Resolve(actor) is not { } character
+            || string.IsNullOrEmpty(race)
+            || game.Design.Races?.ContainsKey(race) != true)
+        {
+            return false;
+        }
+
+        character.Race = race;
+        return true;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Coin type 0 is not a denomination, it is "do not convert".</b> The same shape as
+    /// <see cref="MoneyAvailable"/> — see there for why the conversion runs through the design's
+    /// own base type rather than assuming one.
+    /// </remarks>
+    public override int VaultMoneyAvailable(int coinType)
+    {
+        double total = 0.0;
+
+        for (int vault = 0; vault < GlobalVaults.Count; vault++)
+        {
+            total += game.Vaults.MoneyIn(vault)?.Total() ?? 0.0;
+        }
+
+        if (coinType == 0)
+        {
+            return (int)total;
+        }
+
+        if (coinType is < 1 or > MoneyRules.MaxCoinTypes)
+        {
+            return 0;
+        }
+
+        return (int)game.Money.Convert(total, game.Money.BaseType,
+                                       MoneyRules.ClassOf(coinType - 1));
+    }
+
     /// <summary>
     /// Per-level attributes a script has written, over the design's own.
     /// </summary>

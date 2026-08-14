@@ -72,6 +72,7 @@ public sealed class Character : ISpellSubject
         MaxHitPoints = record.MaxHitPoints;
         Abilities = record.Abilities;
         ClassId = record.ClassId;
+        Race = record.Race;
 
         foreach (var spell in record.SpellBook.Spells)
         {
@@ -100,7 +101,11 @@ public sealed class Character : ISpellSubject
     public string CharacterId => Record.CharacterId;
 
 
-    public string Race => Record.Race;
+    /// <remarks>
+    /// <b>Loaded from the record but not tied to it</b>, like <see cref="ClassId"/> — a script's
+    /// <c>$SET_CHAR_RACE</c> changes the character in play without rewriting the design.
+    /// </remarks>
+    public string Race { get; set; }
 
     public Gender Gender => (Gender)Record.Gender;
 

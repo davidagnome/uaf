@@ -1142,6 +1142,28 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            case SubOp.SUBOP_GET_CHAR_TYPE:
+                PushSp(_host.CharacterType(PopSp()));
+                break;
+            case SubOp.SUBOP_GET_CHAR_RACE:
+                PushSp(_host.CharacterRace(PopSp()));
+                break;
+            case SubOp.SUBOP_SET_CHAR_RACE:
+                {
+                    // Name first, then the actor -- the rightmost pops first.
+                    string race = PopSp();
+                    string actor = PopSp();
+
+                    // The name back on success, empty when the design has no such race, so a
+                    // script can tell a rename from a refusal.
+                    PushSp(_host.SetCharacterRace(actor, race) ? race : False);
+                    break;
+                }
+            case SubOp.SUBOP_GET_VAULT_MONEYAVAILABLE:
+                PushSp(_host.VaultMoneyAvailable(PopInteger())
+                            .ToString(CultureInfo.InvariantCulture));
+                break;
+
             // The level-attribute pair. Both take a LEVEL as their first parameter, and both
             // treat an empty one as "wherever the party is" -- the reference tests the popped
             // string against "" before atoi'ing it, so a script that passes nothing gets the

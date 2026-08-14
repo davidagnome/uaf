@@ -550,6 +550,46 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// What kind of thing an actor is (<c>$GET_CHAR_TYPE</c>, <c>GPDLexec.cpp:4155</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Not a number, and not symmetrical.</b> A player character answers the literal
+    /// <c>"@PC@"</c> and an NPC <c>"@NPC@"</c> — the at-signs are part of the value — but a
+    /// monster answers its own <c>monsterID</c>, so the call is a type test for two of the three
+    /// kinds and an identity for the third. Anything unresolved answers empty.
+    /// </remarks>
+    string CharacterType(string actor);
+
+    /// <summary>
+    /// An actor's race (<c>$GET_CHAR_RACE</c>, <c>GPDLexec.cpp:3450</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>An unresolved actor answers <c>"NoSuchCharacter"</c>, not empty.</b> That string is the
+    /// reference's, and a script can test for it — so returning empty would silently turn "who?"
+    /// into "no race".
+    /// </remarks>
+    string CharacterRace(string actor);
+
+    /// <summary>
+    /// Changes an actor's race, if the design has one by that name
+    /// (<c>$SET_CHAR_RACE</c>).
+    /// </summary>
+    /// <returns>
+    /// Whether the race existed. The reference pushes the name back on success and the empty
+    /// string when the design has no such race, so a script can tell the difference.
+    /// </returns>
+    bool SetCharacterRace(string actor, string race);
+
+    /// <summary>
+    /// What the vaults hold (<c>$GET_VAULT_MONEYAVAILABLE</c>, <c>GPDLexec.cpp:4189</c>).
+    /// </summary>
+    /// <param name="coinType">
+    /// <b>Zero means "do not convert"</b> and gives the base-currency total; 1–10 converts into
+    /// that denomination. Anything else is not a denomination and gives zero.
+    /// </param>
+    int VaultMoneyAvailable(int coinType);
+
+    /// <summary>
     /// Writes a level's attribute (<c>$SET_LEVEL_STATS_ASL</c>, <c>GPDLexec.cpp:5522</c>).
     /// </summary>
     /// <param name="level">
@@ -712,6 +752,22 @@ public interface IGpdlHost
 
     /// <summary>The actor string that means nobody (<c>NULL_ACTOR</c>).</summary>
     string NullActor { get; }
+
+    /// <summary>
+    /// What <c>$GET_CHAR_RACE</c> answers for an actor nobody recognises.
+    /// </summary>
+    /// <remarks>
+    /// A literal the reference spells out (<c>GPDLexec.cpp:3460</c>), and one a script can test
+    /// for — which is why it is not the empty string.
+    /// </remarks>
+    public const string NoSuchCharacter = "NoSuchCharacter";
+
+    /// <summary>What <c>$GET_CHAR_TYPE</c> answers for a player character.</summary>
+    /// <remarks>The at-signs are part of the value, not punctuation in the source.</remarks>
+    public const string PlayerCharacterType = "@PC@";
+
+    /// <summary>And for an NPC. A monster answers its own id instead.</summary>
+    public const string NpcType = "@NPC@";
 
     /// <summary>
     /// The ambient actors a script reads with <c>$AttackerContext()</c> and its siblings.
@@ -986,6 +1042,18 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual string CharacterType(string actor) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual string CharacterRace(string actor) => IGpdlHost.NoSuchCharacter;
+
+    /// <inheritdoc/>
+    public virtual bool SetCharacterRace(string actor, string race) => false;
+
+    /// <inheritdoc/>
+    public virtual int VaultMoneyAvailable(int coinType) => 0;
 
     /// <summary>Per-level attributes this environment was asked to keep, by level number.</summary>
     public Dictionary<int, Dictionary<string, string>> LevelAttributes { get; } = [];

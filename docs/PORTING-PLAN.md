@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,546 tests, green on macOS; both CI workflows green.**
+**4,552 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **266 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **270 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,20 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **`$GET_CHAR_TYPE`, the race pair and `$GET_VAULT_MONEYAVAILABLE` are done.** Three details
+   > worth keeping: `$GET_CHAR_TYPE` is **a type test for two kinds and an identity for the
+   > third** — a character answers `"@PC@"` and an NPC `"@NPC@"`, at-signs included, but a monster
+   > answers its own `monsterID`, so a script cannot switch on it as an enum. `$GET_CHAR_RACE`
+   > answers the literal **`"NoSuchCharacter"`** for an actor nobody recognises rather than empty,
+   > which is a value a script can test. And `$SET_CHAR_RACE` **refuses a race the design does not
+   > have**, pushing empty instead of the name — a script cannot invent a race by assigning one.
+   >
+   > **These take a plain string where the creature traits take an `ACTOR`.** Their table rows
+   > declare every parameter `STRING`, so `$GET_CHAR_RACE($MOST_DAMAGED_ENEMY())` does not compile
+   > while `$GET_ISMAMMAL($MOST_DAMAGED_ENEMY())` must. The reference reaches one family through
+   > `m_popCharacter` and the other through the actor context; the parameter type is what says
+   > which, and it is not guessable from the name.
    >
    > **The level-attribute pair and the two game queries are done** —
    > `$SET_LEVEL_STATS_ASL`, `$DELETE_LEVEL_STATS_ASL`, `$GET_GAME_CURRLEVEL` and
