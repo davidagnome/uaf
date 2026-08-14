@@ -90,6 +90,14 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// </remarks>
     public override string GetCharStat(string actor, GpdlCharStat stat)
     {
+        // The sixteen creature traits are answered before anything else, because they are the one
+        // family that reads off a COMBATANT rather than a Character -- the flags live on the
+        // monster record, and Resolve only ever finds party members.
+        if (GpdlCharStats.IsTrait(stat))
+        {
+            return Trait(actor, stat);
+        }
+
         if (Resolve(actor) is not { } character)
         {
             return string.Empty;
@@ -300,6 +308,81 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         && index >= 0 && index < session.Combatants.Count
             ? session.Combatants[index]
             : null;
+
+    /// <summary>
+    /// One of the sixteen creature traits, for whoever the actor names.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Anything that is not a monster in this fight gets the reference's literal.</b> Every
+    /// accessor on <c>CHARACTER</c> tests <c>GetType() == MONSTER_TYPE</c> first and returns a
+    /// constant otherwise — and two of those constants are <c>TRUE</c>, so falling through to
+    /// "false" would make hold-person and charm fail against the party. A party member, an
+    /// unresolvable actor and a combatant outside combat all take that path.
+    /// </para>
+    /// <para>
+    /// The four bitfields have <b>overlapping values</b> and cannot be merged: bit 2 is
+    /// <c>FormAnimal</c> in one and <c>CanBeHeldCharmed</c> in another, so each trait has to name
+    /// its own field as well as its own bit.
+    /// </para>
+    /// </remarks>
+    private string Trait(string actor, GpdlCharStat stat)
+    {
+        if (Fighter(actor) is not { Kind: CombatantKind.Monster } monster)
+        {
+            return GpdlCharStats.NonMonsterTrait(stat);
+        }
+
+        (uint Field, uint Bit) test = stat switch
+        {
+            GpdlCharStat.IsMammal => (monster.FormType, FormMammal),
+            GpdlCharStat.IsAnimal => (monster.FormType, FormAnimal),
+            GpdlCharStat.IsSnake => (monster.FormType, FormSnake),
+            GpdlCharStat.IsGiant => (monster.FormType, FormGiant),
+            GpdlCharStat.IsAlwaysLarge => (monster.FormType, FormLarge),
+
+            GpdlCharStat.HasPoisonImmunity => (monster.ImmunityType, ImmunePoison),
+            GpdlCharStat.HasDeathImmunity => (monster.ImmunityType, ImmuneDeath),
+            GpdlCharStat.HasConfusionImmunity => (monster.ImmunityType, ImmuneConfusion),
+            GpdlCharStat.HasVorpalImmunity => (monster.ImmunityType, ImmuneVorpal),
+
+            GpdlCharStat.HasDwarfArmorClassPenalty => (monster.PenaltyType, PenaltyDwarfAc),
+            GpdlCharStat.HasGnomeArmorClassPenalty => (monster.PenaltyType, PenaltyGnomeAc),
+            GpdlCharStat.HasDwarfThac0Penalty => (monster.PenaltyType, PenaltyDwarfThac0),
+            GpdlCharStat.HasGnomeThac0Penalty => (monster.PenaltyType, PenaltyGnomeThac0),
+            GpdlCharStat.HasRangerDamagePenalty => (monster.PenaltyType, PenaltyRangerDamage),
+
+            GpdlCharStat.CanBeHeldOrCharmed => (monster.MiscOptionsType, OptionCanBeHeldCharmed),
+            _ => (monster.MiscOptionsType, OptionAffectedByDispelEvil),
+        };
+
+        return (test.Field & test.Bit) == test.Bit ? "1" : "0";
+    }
+
+    // MonsterFormType (Monster.h:60).
+    private const uint FormMammal = 1;
+    private const uint FormAnimal = 2;
+    private const uint FormSnake = 4;
+    private const uint FormGiant = 8;
+    private const uint FormLarge = 16;
+
+    // MonsterPenaltyType (Monster.h:87).
+    private const uint PenaltyDwarfAc = 1;
+    private const uint PenaltyGnomeAc = 2;
+    private const uint PenaltyDwarfThac0 = 4;
+    private const uint PenaltyGnomeThac0 = 8;
+    private const uint PenaltyRangerDamage = 16;
+
+    // MonsterImmunityType (Monster.h:110) -- note poison is 1 and death is 2, which is the
+    // opposite of the order the $GET_HAS*IMMUNITY calls are declared in.
+    private const uint ImmunePoison = 1;
+    private const uint ImmuneDeath = 2;
+    private const uint ImmuneConfusion = 4;
+    private const uint ImmuneVorpal = 8;
+
+    // MonsterMiscOptionsType (Monster.h:126).
+    private const uint OptionCanBeHeldCharmed = 1;
+    private const uint OptionAffectedByDispelEvil = 2;
 
     private static string ActorOf(Combatant? who) =>
         who is null ? string.Empty : Text(who.Index);

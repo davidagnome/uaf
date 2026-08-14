@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,526 tests, green on macOS; both CI workflows green.**
+**4,529 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9030,6 +9030,13 @@ What is left, in order:
    > all sixteen would make hold-person and charm fail against the whole party, presenting as a
    > spell bug rather than a missing default. `GpdlCharStats.NonMonsterTrait` holds the table and
    > a test pins that exactly two are true.
+   >
+   > **The host answers them from a live monster**, not from the default:
+   > `EncounterBuilder.FromMonster` was dropping all four bitfields on the floor, so every monster
+   > in a fight answered the non-monster literals. They now reach `Combatant`, and
+   > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
+   > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
+   > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
    >
    > A second thing worth recording, because it cost the first three attempts at the tests: an
    > **ACTOR-typed parameter cannot be a quoted string.** `compileTypedSystemFunctionCall`

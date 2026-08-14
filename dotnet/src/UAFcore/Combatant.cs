@@ -380,6 +380,28 @@ public sealed class Combatant : ISpellSubject
     /// <summary>Whether this combatant is undead, for the invisibility rules.</summary>
     public bool IsUndead { get; set; }
 
+    /// <summary>
+    /// The four trait bitfields a monster carries (<c>Monster.h:60</c>–<c>126</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Four unrelated fields, not one.</b> Form, penalty, immunity and misc options are
+    /// separate words with overlapping bit values, so they cannot be merged — bit 2 is
+    /// <c>FormAnimal</c> in one and <c>CanBeHeldCharmed</c> in another. They reach a script
+    /// through <c>$GET_ISMAMMAL</c> and its fifteen siblings; a combatant that is not a monster
+    /// leaves them zero and answers the non-monster literals instead
+    /// (<c>GpdlCharStats.NonMonsterTrait</c>).
+    /// </remarks>
+    public uint FormType { get; set; }
+
+    /// <inheritdoc cref="FormType"/>
+    public uint PenaltyType { get; set; }
+
+    /// <inheritdoc cref="FormType"/>
+    public uint ImmunityType { get; set; }
+
+    /// <inheritdoc cref="FormType"/>
+    public uint MiscOptionsType { get; set; }
+
     /// <summary>Whether this combatant is an animal, for the invisibility rules.</summary>
     public bool IsAnimal { get; set; }
 

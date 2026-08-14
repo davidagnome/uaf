@@ -168,6 +168,12 @@ public static class EncounterBuilder
             TotalAttacks = Math.Max(1, record.Attacks.Count),
             AvailableAttacks = Math.Max(1, record.Attacks.Count),
             IsUndead = !string.IsNullOrEmpty(record.UndeadType),
+
+            // The four trait bitfields, which the sixteen $GET_IS*/$GET_HAS* calls read.
+            FormType = record.FormType,
+            PenaltyType = record.PenaltyType,
+            ImmunityType = record.ImmunityType,
+            MiscOptionsType = record.MiscOptionsType,
         };
 
     /// <summary>
