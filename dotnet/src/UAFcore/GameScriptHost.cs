@@ -567,6 +567,71 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
                                        MoneyRules.ClassOf(coinType - 1));
     }
 
+    /// <summary>
+    /// The GPDL source an ability holds for a named script, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>The design's abilities carry bare bodies, not whole functions.</b> The commented sample
+    /// at the top of <c>specialAbilities.txt</c> shows a full <c>$PUBLIC $FUNC</c>, but every real
+    /// entry is statements alone — which is why <see cref="SpecialAbilityScripts.Wrap"/> exists
+    /// and why running one without it compiles nothing.
+    /// </remarks>
+    private string? AbilityScript(string abilityName, string scriptName) =>
+        game.Design.SpecialAbilities
+            .FirstOrDefault(a => string.Equals(a.Name, abilityName, StringComparison.Ordinal))
+            ?.Script(scriptName);
+
+    /// <summary>The ability names an object's specab block carries.</summary>
+    private static IEnumerable<string> AbilityNames(SpecabBlock? block) =>
+        block?.Pairs.Select(p => p.Key) ?? [];
+
+    /// <inheritdoc/>
+    public override string RunCharacterScripts(string actor, string scriptName)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return string.Empty;
+        }
+
+        return SpecialAbilityScripts.Run(
+            AbilityNames(character.Record.SpecialAbilities), AbilityScript, scriptName, this,
+            onError: (ability, message) =>
+                DebugLog.Add($"* * * * Script Error in {ability}[{scriptName}]: {message}"));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The spells affecting the character, not the character's own abilities</b> — and the
+    /// results are <b>concatenated</b> rather than overwritten, which is the one place in the
+    /// family that accumulates (<c>Char.cpp:11576</c>, <c>result += …</c>).
+    /// </remarks>
+    public override string RunSpellEffectScripts(string actor, string scriptName)
+    {
+        if (EffectsOf(actor) is not { } effects)
+        {
+            return string.Empty;
+        }
+
+        var result = new System.Text.StringBuilder();
+
+        foreach (var effect in effects.Effects)
+        {
+            if (SourceSpell(effect) is not { } spell)
+            {
+                continue;
+            }
+
+            result.Append(SpecialAbilityScripts.Run(
+                AbilityNames(spell.SpecialAbilities), AbilityScript, scriptName, this));
+        }
+
+        return result.ToString();
+    }
+
+    /// <inheritdoc/>
+    public override string CallGlobalScript(string abilityName, string scriptName) =>
+        SpecialAbilityScripts.Run([abilityName], AbilityScript, scriptName, this);
+
     /// <inheritdoc/>
     /// <remarks>
     /// <b>Read without consuming.</b> <c>DesignConfig.TryGetValue</c> defaults to consuming the

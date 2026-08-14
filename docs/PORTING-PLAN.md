@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,618 tests, green on macOS; both CI workflows green.**
+**4,621 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **283 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **286 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9088,8 +9088,26 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
-   >   > What is left of the chain is only the wiring: giving each of the five sub-opcodes the
-   >   > right ability list and script name.
+   >   > **The chain is now connected, and three of the five are done**:
+   >   > `$RUN_CHAR_SCRIPTS` runs the character's own abilities, `$RUN_CHAR_SE_SCRIPTS` runs the
+   >   > abilities of the *spells affecting* it — a different set entirely, and the one place in
+   >   > the family whose results **concatenate** rather than overwrite — and
+   >   > `$CALL_GLOBAL_SCRIPT` runs one ability named outright.
+   >   >
+   >   > **A design's own scripts now compile and execute**, which is what the end-to-end test
+   >   > pins. It asserts they *start*, not that they finish: real scripts reach sub-opcodes this
+   >   > port has not implemented — the first one tried hits `$CharacterContext` — and that throw
+   >   > is evidence the chain works. A compile error is the failure it rules out.
+   >   >
+   >   > **The abilities carry bare bodies, not whole functions.** The commented sample at the top
+   >   > of `specialAbilities.txt` shows a full `$PUBLIC $FUNC`, and every real entry is statements
+   >   > alone — so the sample misleads and the wrapper is what makes any of them compile.
+   >   >
+   >   > **The remaining two are not merely unwired.** `$RUN_CHAR_PS_SCRIPTS` calls
+   >   > `COMBATANT::RunPSScripts`, which is **declared nowhere in the source tree** — it is called
+   >   > at `GPDLexec.cpp:5191` and has no definition. `$RUN_AREA_SE_SCRIPTS` needs
+   >   > `ACTIVE_SPELL_LIST::RunSEScripts(x, y, …)` (`Spell.cpp:8280`), which walks spell effects
+   >   > standing at a map square — a model this port does not have.
    >   >
    >   > **The first link is now done.** `SpecialAbilityDatabaseReader` reads the file — the last
    >   > design database the port had no reader for — and `Case.dsn` yields **836 script entries**

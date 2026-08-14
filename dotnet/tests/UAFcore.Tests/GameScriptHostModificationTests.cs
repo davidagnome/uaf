@@ -202,4 +202,99 @@ public class GameScriptHostModificationTests
         Assert.False(host.IsAffectedBySpell(actor, "No Such Spell"));
         Assert.False(host.IsAffectedBySpell(actor, string.Empty));
     }
+
+
+    /// <summary>
+    /// A character with no special abilities runs nothing, rather than failing.
+    /// </summary>
+    /// <remarks>
+    /// The common case: most characters carry no abilities at all, and the family has to be quiet
+    /// about it rather than treating an empty set as an error.
+    /// </remarks>
+    [Fact]
+    public void A_character_without_abilities_runs_nothing()
+    {
+        var game = Load();
+
+        if (game is null || game.Party.Members.Count == 0)
+        {
+            return;
+        }
+
+        var host = new GameScriptHost(game);
+        string actor = game.Party.Members[Math.Max(game.Party.ActiveCharacter, 0)].Name;
+
+        Assert.Equal(string.Empty, host.RunCharacterScripts(actor, "Ability"));
+        Assert.Equal(string.Empty, host.RunSpellEffectScripts(actor, "Ability"));
+    }
+
+    /// <summary>An ability the design does not have runs nothing.</summary>
+    [Fact]
+    public void An_unknown_ability_runs_nothing()
+    {
+        var game = Load();
+
+        if (game is null)
+        {
+            return;
+        }
+
+        var host = new GameScriptHost(game);
+
+        Assert.Equal(string.Empty, host.CallGlobalScript("no such ability", "Ability"));
+    }
+
+    /// <summary>
+    /// A real ability from the design compiles and runs through the whole chain.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>This is the end-to-end check the five sub-opcodes were blocked on</b>: design database →
+    /// ability lookup → wrapper → compile → execute.
+    /// </para>
+    /// <para>
+    /// <b>What it asserts is that the script COMPILES and starts</b>, not that it finishes. Real
+    /// design scripts reach sub-opcodes this port has not implemented — the first one tried hits
+    /// <c>$CharacterContext</c> — and that throw is proof the chain is connected rather than a
+    /// failure of it. A compile error would be the real failure, and is what this rules out.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_designs_own_script_compiles_and_runs()
+    {
+        var game = Load();
+
+        if (game is null)
+        {
+            return;
+        }
+
+        // Any ability the design ships that carries a script.
+        var withScript = game.Design.SpecialAbilities
+            .Select(a => (a.Name, Entry: a.Entries.FirstOrDefault(
+                e => e.Kind == UAF.Data.SpecialAbilityEntryKind.Script)))
+            .FirstOrDefault(x => x.Entry is not null);
+
+        if (withScript.Entry is null)
+        {
+            return;
+        }
+
+        var host = new GameScriptHost(game);
+
+        try
+        {
+            host.CallGlobalScript(withScript.Name, withScript.Entry.Name);
+        }
+        catch (NotSupportedException)
+        {
+            // Reached execution and hit a sub-opcode this port has not implemented. That is the
+            // chain working -- compilation and dispatch both happened.
+        }
+
+        // The failure that would matter: the script never compiled. SpecialAbilityScripts logs
+        // that through onError, and nothing else writes this line.
+        Assert.DoesNotContain(host.DebugLog, line => line.Contains("Script Error",
+                                                                  StringComparison.Ordinal));
+    }
 }

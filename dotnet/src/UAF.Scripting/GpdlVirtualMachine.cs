@@ -1142,6 +1142,28 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // The script-running family. All three pop the script name first.
+            case SubOp.SUBOP_RUN_CHAR_SCRIPTS:
+                {
+                    string script = PopSp();
+                    PushSp(_host.RunCharacterScripts(PopSp(), script));
+                    break;
+                }
+            case SubOp.SUBOP_RUN_CHAR_SE_SCRIPTS:
+                {
+                    string script = PopSp();
+                    PushSp(_host.RunSpellEffectScripts(PopSp(), script));
+                    break;
+                }
+            case SubOp.SUBOP_CALL_GLOBAL_SCRIPT:
+                {
+                    // (specialAbilityName, scriptName) -- the ability is named outright rather
+                    // than walked, which is what makes this the "global" one.
+                    string script = PopSp();
+                    PushSp(_host.CallGlobalScript(PopSp(), script));
+                    break;
+                }
+
             case SubOp.SUBOP_GET_CONFIG:
                 PushSp(_host.ConfigValue(PopSp()));
                 break;

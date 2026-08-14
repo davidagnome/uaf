@@ -550,6 +550,38 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// Runs the scripts a character's own special abilities carry
+    /// (<c>$RUN_CHAR_SCRIPTS</c>, <c>GPDLexec.cpp:5098</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The character's own abilities, not a spell's.</b> <c>RunCharacterScripts</c>
+    /// (<c>Char.h:1237</c>) hands the character's <c>specAbs</c> straight to
+    /// <c>SPECIAL_ABILITIES::RunScripts</c> — so this is the plainest of the family.
+    /// </remarks>
+    /// <returns>The last script's result, or empty when no ability carried one.</returns>
+    string RunCharacterScripts(string actor, string scriptName);
+
+    /// <summary>
+    /// Runs the scripts carried by the <i>spells</i> currently affecting a character
+    /// (<c>$RUN_CHAR_SE_SCRIPTS</c>, <c>GPDLexec.cpp:5144</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A different set from <see cref="RunCharacterScripts"/> entirely.</b>
+    /// <c>RunSEScripts</c> (<c>Char.cpp:11537</c>) walks the character's active spell effects,
+    /// finds each one's source spell, and runs <i>that spell's</i> abilities — so an unaffected
+    /// character runs nothing however many abilities it has of its own. The results are
+    /// concatenated here rather than overwritten, which is the one place in the family that
+    /// accumulates.
+    /// </remarks>
+    string RunSpellEffectScripts(string actor, string scriptName);
+
+    /// <summary>
+    /// Runs one named ability's script (<c>$CALL_GLOBAL_SCRIPT</c>, <c>GPDLexec.cpp</c>).
+    /// </summary>
+    /// <param name="abilityName">The ability to look up, rather than a set to walk.</param>
+    string CallGlobalScript(string abilityName, string scriptName);
+
+    /// <summary>
     /// A value from the design's configuration (<c>$GET_CONFIG</c>, <c>GPDLexec.cpp</c>).
     /// </summary>
     /// <returns>The value, or empty for a token the design does not set.</returns>
@@ -1169,6 +1201,15 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual string RunCharacterScripts(string actor, string scriptName) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual string RunSpellEffectScripts(string actor, string scriptName) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual string CallGlobalScript(string abilityName, string scriptName) => string.Empty;
 
     /// <inheritdoc/>
     public virtual string ConfigValue(string token) => string.Empty;
