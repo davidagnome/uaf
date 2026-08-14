@@ -1142,6 +1142,41 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // The coin family. Each takes a ONE-based ordinal, which the reference decrements
+            // before indexing -- see IGpdlHost.CoinName.
+            case SubOp.SUBOP_COINNAME:
+                PushSp(_host.CoinName(PopInteger()));
+                break;
+            case SubOp.SUBOP_COINRATE:
+                PushSp(_host.CoinRate(PopInteger()).ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_COINCOUNT:
+                {
+                    // TWO parameters -- $COINCOUNT(coin_ordinal, party_index) -- and the rightmost
+                    // pops first, as everywhere else.
+                    //
+                    // *** Two divergences here, and the first is a stack bug. ***
+                    //
+                    // The reference pops ONCE (GPDLexec.cpp:3318, "m_popInteger1(); // Coin
+                    // Ordinal") for a function its own table declares with two parameters. So it
+                    // reads the party index and uses it as the coin ordinal, and leaves the real
+                    // coin ordinal on the stack -- which desynchronises everything after the call.
+                    // Popping both is the only way the expression can be well-formed.
+                    //
+                    // The party index is then discarded, which is the reference's OTHER shape:
+                    // the block that used it is commented out in favour of Dude(), the script's
+                    // current character context. Honouring the index would resurrect a path the
+                    // reference deliberately abandoned.
+                    PopInteger();
+                    int ordinal = PopInteger();
+
+                    // Refused mid-fight: the call reads the party's active character, and the
+                    // reference logs an interpreter error and pushes zero rather than guessing.
+                    PushSp(_host.InCombat
+                        ? "0"
+                        : _host.CoinCount(ordinal).ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
             case SubOp.SUBOP_GET_PARTY_MONEYAVAILABLE:
                 PushSp(_host.MoneyAvailable(PopInteger())
                             .ToString(CultureInfo.InvariantCulture));

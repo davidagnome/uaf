@@ -549,6 +549,33 @@ public interface IGpdlHost
     /// </param>
     int MoneyAvailable(int coinType);
 
+    /// <summary>
+    /// The name of a coin denomination, by its <b>one-based</b> ordinal
+    /// (<c>$COINNAME</c>, <c>GPDLexec.cpp:3325</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The ordinal is one-based and the table is not.</b> The reference subtracts one before
+    /// indexing, so ordinal 1 is the first coin — and it does that subtraction without checking
+    /// the lower bound, which is why this port refuses 0 rather than reading behind the array.
+    /// </remarks>
+    string CoinName(int ordinal);
+
+    /// <summary>
+    /// How many base coins one of this denomination is worth (<c>$COINRATE</c>).
+    /// </summary>
+    /// <remarks>A rate of zero means the design never configured that slot.</remarks>
+    double CoinRate(int ordinal);
+
+    /// <summary>
+    /// How many coins of a denomination the current character is carrying
+    /// (<c>$COINCOUNT</c>, <c>GPDLexec.cpp:3293</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Refused during combat.</b> The reference logs an interpreter error and pushes zero,
+    /// because the call reads the party's active character and there is no such thing mid-fight.
+    /// </remarks>
+    int CoinCount(int ordinal);
+
     /// <summary>Whether an actor is in the party (<c>$InParty</c>, <c>GPDLexec.cpp:4483</c>).</summary>
     /// <remarks>An actor that resolves to nobody is false, not an error.</remarks>
     bool IsInParty(string actor);
@@ -891,6 +918,15 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual string CoinName(int ordinal) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual double CoinRate(int ordinal) => 0.0;
+
+    /// <inheritdoc/>
+    public virtual int CoinCount(int ordinal) => 0;
 
     /// <inheritdoc/>
     public virtual bool IsInParty(string actor) => false;

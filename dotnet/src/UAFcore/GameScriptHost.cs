@@ -567,6 +567,41 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
                                        MoneyRules.ClassOf(coinType - 1));
     }
 
+    /// <summary>The coin a one-based ordinal names, or null when it names none.</summary>
+    /// <remarks>
+    /// <b>Ordinal 0 is refused rather than wrapped.</b> The reference clamps an ordinal above the
+    /// maximum back to 1 but never checks the lower bound, so <c>$COINCOUNT(0)</c> indexes
+    /// <c>Coins[-1]</c> — a read behind the array. Refusing is the only defensible reading; there
+    /// is no value to reproduce.
+    /// </remarks>
+    private Coin? CoinAt(int ordinal) =>
+        ordinal is >= 1 and <= MoneyRules.MaxCoinTypes
+            ? game.Money[MoneyRules.ClassOf(ordinal - 1)]
+            : null;
+
+    /// <inheritdoc/>
+    public override string CoinName(int ordinal) => CoinAt(ordinal)?.Name ?? string.Empty;
+
+    /// <inheritdoc/>
+    public override double CoinRate(int ordinal) => CoinAt(ordinal)?.Rate ?? 0.0;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Counts what the <b>active character</b> carries, not the party — the reference reaches for
+    /// <c>Dude()</c>, which is the script's current character context.
+    /// </remarks>
+    public override int CoinCount(int ordinal)
+    {
+        if (CoinAt(ordinal) is null || game.Party.Members.Count == 0)
+        {
+            return 0;
+        }
+
+        int index = Math.Clamp(game.Party.ActiveCharacter, 0, game.Party.Members.Count - 1);
+
+        return game.Party.Members[index].Purse[MoneyRules.ClassOf(ordinal - 1)];
+    }
+
     /// <inheritdoc/>
     public override bool IsInParty(string actor) => Resolve(actor) is not null;
 

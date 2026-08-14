@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,529 tests, green on macOS; both CI workflows green.**
+**4,536 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,9 +9015,17 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **256 of 387 are implemented** (2026-08-13, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **116 callable ones are
-   left** — the others have no `systemfunctions[]` entry and are compiler-internal or dead.
+3. **The rest of the GPDL sub-opcodes.** **259 of 387 are implemented** (2026-08-13, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
+
+   > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
+   > in `GpdlSystemFunctions`, so aliases counted twice. Parsing the table's rows instead gives
+   > **37 named functions**, and five of those are dead in the reference as well: `$LAST_HITTER_OF`
+   > and `$LAST_TARGETER_OF` are wired to `SUBOP_NOT_USED_FOR_ANYTHING1`/`2` and have no handler in
+   > `GPDLexec.cpp` at all, and `$GET_SPELLBOOK`, `$SET_CHAR_CLASS` and `$TESTKEY` are likewise
+   > declared and never implemented. So the real remaining work is **32 functions**, and the
+   > measurement that separates "we have not done it" from "the reference never did it" is worth
+   > redoing rather than trusting the summary.
 
    > **"No callable group remains — what is left is scattered singles" was wrong**, and stood from
    > 2026-08-06 to 2026-08-13. A group of **seventeen** remained: the sixteen creature traits
@@ -9037,6 +9045,17 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **The coin family is done** — `$COINNAME`, `$COINRATE` and `$COINCOUNT`, all taking a
+   > one-based ordinal the reference decrements before indexing. Two divergences, both refusals:
+   > the reference never bounds-checks the ordinal downward, so `$COINCOUNT(0)` reads `Coins[-1]`;
+   > and **it pops one argument for a two-argument function** (`GPDLexec.cpp:3318`), so it reads
+   > the party index as the coin ordinal *and leaves the real one on the stack*, desynchronising
+   > everything after the call. This port pops both and uses the first, which is the only reading
+   > under which the expression is well-formed. The discarded party index matches the reference's
+   > own choice: the block that used it is commented out in favour of `Dude()`.
+   > `$CURR_CHANGE_BY_VAL` is the family's fourth member and is **blocked** — it reads
+   > `GetIntermediateResult()`, a VM concept this port does not have.
    >
    > A second thing worth recording, because it cost the first three attempts at the tests: an
    > **ACTOR-typed parameter cannot be a quoted string.** `compileTypedSystemFunctionCall`
