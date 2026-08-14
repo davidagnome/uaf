@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,610 tests, green on macOS; both CI workflows green.**
+**4,618 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9069,6 +9069,27 @@ What is left, in order:
    >   > then compile-and-run per script with the results concatenated, then re-entrant VM
    >   > invocation while a script is already running. That is Phase 4 engine work beginning with a
    >   > new file format, not the tail of the GPDL item.
+   >   >
+   >   > **The second link is now done too.** `SpecialAbilityScripts` compiles and runs them.
+   >   > The wrapper is exact and not optional: the database holds a bare *body*, so every script
+   >   > is compiled as `$PUBLIC $FUNC SA(){` + source + `\n} SA ;` and entered at `SA`
+   >   > (`Specab.cpp:1776`) — **the newline in the epilogue is what stops a script ending in a
+   >   > comment from swallowing its own closing brace**. Two behaviours worth keeping: a script
+   >   > that will not compile is **dropped, not raised** (the reference logs it, flags the entry
+   >   > `SPECAB_SCRIPTERROR` so it is never retried, and runs the others — a typo in one ability
+   >   > does not break a design), and the answer is the **last** script's result rather than all
+   >   > of them joined, because the reference keeps one hook parameter that each overwrites.
+   >   >
+   >   > **Re-entrancy is a stack of interpreters, not a re-entrant one.** `gpdlStack.Push()` and
+   >   > `Pop()` wrap every execution, so a script running another cannot disturb the stack it was
+   >   > called from; a fresh `GpdlVirtualMachine` per script is that, with the host shared and
+   >   > nothing else. The runner lives in `UAF.Scripting` and takes a **lookup delegate** rather
+   >   > than the database itself — `UAF.Scripting` and `UAF.Serialization` are independent
+   >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
+   >   > on the serialization one.
+   >   >
+   >   > What is left of the chain is only the wiring: giving each of the five sub-opcodes the
+   >   > right ability list and script name.
    >   >
    >   > **The first link is now done.** `SpecialAbilityDatabaseReader` reads the file — the last
    >   > design database the port had no reader for — and `Case.dsn` yields **836 script entries**

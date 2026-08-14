@@ -80,7 +80,7 @@ public class SpecialAbilityDatabaseTests
 
         var scripts = abilities
             .SelectMany(a => a.Strings.Select(s => (a.Name, s.Key, s.Flags, s.Value)))
-            .Where(s => (s.Flags & SpecialAbilityDatabaseReader.ScriptFlag) != 0)
+            .Where(s => s.Flags == SpecialAbilityDatabaseReader.ScriptFlag)
             .ToList();
 
         // Case.dsn carries 836 of them.
@@ -102,6 +102,11 @@ public class SpecialAbilityDatabaseTests
     /// <summary>
     /// A script is found by name, and only when its flags say it is one.
     /// </summary>
+    /// <remarks>
+    /// <b>The flags are values, not bits.</b> <c>SPECAB_BINARYCODE</c> is 5, so a mask test
+    /// against <c>SCRIPT</c> (1) would match it too and treat compiled bytecode as source. The
+    /// reference compares for equality and so does this.
+    /// </remarks>
     [Fact]
     public void A_script_is_looked_up_by_name_and_flag()
     {
@@ -111,7 +116,7 @@ public class SpecialAbilityDatabaseTests
         }
 
         var withScript = abilities.FirstOrDefault(
-            a => a.Strings.Any(s => (s.Flags & SpecialAbilityDatabaseReader.ScriptFlag) != 0));
+            a => a.Strings.Any(s => s.Flags == SpecialAbilityDatabaseReader.ScriptFlag));
 
         if (withScript is null)
         {
@@ -119,7 +124,7 @@ public class SpecialAbilityDatabaseTests
         }
 
         var entry = withScript.Strings.First(
-            s => (s.Flags & SpecialAbilityDatabaseReader.ScriptFlag) != 0);
+            s => s.Flags == SpecialAbilityDatabaseReader.ScriptFlag);
 
         Assert.Equal(entry.Value, SpecialAbilityDatabaseReader.Script(withScript, entry.Key));
 
@@ -128,7 +133,7 @@ public class SpecialAbilityDatabaseTests
 
         // And a constant is not returned as a script, however it is named.
         var constant = withScript.Strings.FirstOrDefault(
-            s => (s.Flags & SpecialAbilityDatabaseReader.ScriptFlag) == 0);
+            s => s.Flags != SpecialAbilityDatabaseReader.ScriptFlag);
 
         if (constant is not null)
         {

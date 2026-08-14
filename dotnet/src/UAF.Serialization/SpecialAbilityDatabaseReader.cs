@@ -43,14 +43,35 @@ public static class SpecialAbilityDatabaseReader
     public const string MapName = "SPECIAL_ABILITIES_DB";
 
     /// <summary>
-    /// The flag marking an entry as GPDL source rather than a constant
-    /// (<c>SPECAB_SCRIPT</c>).
+    /// An entry holding GPDL source (<c>SPECAB_SCRIPT</c>, <c>Specab.h:286</c>).
     /// </summary>
     /// <remarks>
-    /// <c>RunScripts</c> tests this before compiling — an entry without it is a message or a
-    /// number the ability carries, and running it would be nonsense.
+    /// <b>These are values, not bits, and the reference compares them for equality.</b> Testing
+    /// <c>flags &amp; 1</c> instead would also match <see cref="BinaryCodeFlag"/>, which is 5 — so
+    /// an already-compiled script would read as uncompiled source. <c>RunScripts</c> writes
+    /// <c>== SPECAB_SCRIPT</c> and this port does the same.
     /// </remarks>
     public const byte ScriptFlag = 1;
+
+    /// <summary>A constant the ability carries — a message or a number (<c>SPECAB_CONSTANT</c>).</summary>
+    public const byte ConstantFlag = 2;
+
+    /// <summary>
+    /// Source that has been compiled, with the entry rewritten to hold the bytecode
+    /// (<c>SPECAB_BINARYCODE</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference caches in place.</b> After a successful compile it overwrites the entry's
+    /// value with the binary and re-flags it, so the next run skips compilation entirely — and
+    /// only entries at this flag are actually executed.
+    /// </remarks>
+    public const byte BinaryCodeFlag = 5;
+
+    /// <summary>
+    /// Source that failed to compile (<c>SPECAB_SCRIPTERROR</c>).
+    /// </summary>
+    /// <remarks>The error text replaces the source, so a broken script is never retried.</remarks>
+    public const byte ScriptErrorFlag = 6;
 
     /// <summary>Reads the whole database from the start of a stream.</summary>
     /// <param name="stream">Positioned at the beginning of the file.</param>
@@ -130,7 +151,7 @@ public static class SpecialAbilityDatabaseReader
         foreach (var entry in ability.Strings)
         {
             if (string.Equals(entry.Key, scriptName, StringComparison.OrdinalIgnoreCase)
-                && (entry.Flags & ScriptFlag) != 0)
+                && entry.Flags == ScriptFlag)
             {
                 return entry.Value;
             }
