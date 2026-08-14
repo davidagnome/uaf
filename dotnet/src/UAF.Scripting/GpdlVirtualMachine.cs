@@ -1142,6 +1142,44 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // *** Both pop FEWER arguments in the reference than they declare. ***
+            //
+            // This is the third instance of the same defect, after $COINCOUNT: the engine path
+            // reaches for Dude() -- the script's current character -- while the table still
+            // declares a character parameter, so the reference leaves it on the stack and
+            // desynchronises everything after the call. Popping every declared argument is the
+            // only way the expression is well-formed; the character is then discarded, which is
+            // the engine path's own choice.
+            case SubOp.SUBOP_MODIFY_CHAR_ATTRIBUTE:
+                {
+                    // Declared: (character, attribute, amount, timeUnits, duration, text, source).
+                    string source = PopSp();
+                    string text = PopSp();
+                    int duration = PopInteger();
+                    string units = PopSp();
+                    int amount = PopInteger();
+                    string attribute = PopSp();
+                    PopSp();                                     // the declared character
+
+                    // MINUTES is the only unit the reference accepts; anything else warns and
+                    // adds nothing, so refusing here is the whole behaviour.
+                    if (string.Equals(units, MinutesUnit, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _host.ModifyCharacterAttribute(attribute, amount, duration, text, source);
+                    }
+
+                    PushSp(string.Empty);
+                    break;
+                }
+            case SubOp.SUBOP_REMOVE_CHAR_MODIFICATION:
+                {
+                    string mask = PopSp();
+                    PopSp();                                     // the declared character
+
+                    PushSp(_host.RemoveCharacterModification(mask) ? True : False);
+                    break;
+                }
+
             case SubOp.SUBOP_SET_QUEST:
                 {
                     string request = PopSp();
@@ -1538,6 +1576,16 @@ public sealed class GpdlVirtualMachine
     }
 
     /// <summary>Which stat a <c>GET_CHAR_*</c> sub-opcode asks for.</summary>
+    /// <summary>
+    /// The only duration unit <c>$MODIFY_CHAR_ATTRIBUTE</c> accepts.
+    /// </summary>
+    /// <remarks>
+    /// <c>AddTemporaryEffect</c> (<c>Char.cpp:12375</c>) tests for this one string and returns
+    /// false for anything else — so a script asking for rounds or days adds nothing at all, and
+    /// gets the same empty answer as one that succeeded.
+    /// </remarks>
+    private const string MinutesUnit = "MINUTES";
+
     /// <summary>
     /// What a <c>$SET_QUEST</c> value string asks for.
     /// </summary>

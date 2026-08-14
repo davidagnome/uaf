@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,566 tests, green on macOS; both CI workflows green.**
+**4,585 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **273 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **275 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,22 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **`$MODIFY_CHAR_ATTRIBUTE` and `$REMOVE_CHAR_MODIFICATION` are done, and they make the
+   > argument-count defect a pattern rather than a one-off.** Both declare a character parameter
+   > the engine path never pops — it reaches for `Dude()` instead — so the reference leaves it on
+   > the stack, exactly as `$COINCOUNT` does. Three instances now. This port pops every declared
+   > argument and discards the character, which is the only reading under which the expression is
+   > well-formed.
+   >
+   > Two more details worth keeping. **`MINUTES` is the only duration unit**: anything else warns
+   > to the debug log, adds nothing, and pushes the same empty string as a success, so a design
+   > asking for rounds gets silence. And **`MatchMask` is a word matcher, not a glob**
+   > (`Char.cpp:12660`) — mask and data are walked whitespace-delimited word by word, `*` stands
+   > for exactly one word, and a mask that runs out matches whatever is left. So `"fire*"` does
+   > **not** match `"firestorm"`, and `"storm"` does not either. Its skip loops test the pointer
+   > rather than the character, so a trailing `*` reads past the terminator; `GpdlMask` stops at
+   > the end of the string instead.
    >
    > **`$SET_QUEST` is done, and its value argument is scanned rather than parsed.** The
    > reference walks every character: a `-` *anywhere* sets the sign to minus, a `+` *anywhere*

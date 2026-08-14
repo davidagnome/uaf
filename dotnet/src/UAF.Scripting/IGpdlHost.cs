@@ -549,6 +549,31 @@ public interface IGpdlHost
     /// </param>
     int MoneyAvailable(int coinType);
 
+    /// <summary>
+    /// Adds a timed attribute change to the current character
+    /// (<c>$MODIFY_CHAR_ATTRIBUTE</c>, <c>GPDLexec.cpp:5459</c>).
+    /// </summary>
+    /// <param name="attribute">An attribute name — <c>STR</c>, <c>INT</c> and their siblings.</param>
+    /// <param name="amount">How much to add; negative subtracts.</param>
+    /// <param name="minutes">
+    /// How long it lasts. <b>Minutes are the only unit the reference accepts</b> — anything else
+    /// logs a warning and adds nothing at all, so the caller has already refused it.
+    /// </param>
+    /// <param name="text">What the character sheet shows for it.</param>
+    /// <param name="source">
+    /// A label the effect is later found by. <see cref="RemoveCharacterModification"/> matches
+    /// against this, so it is the effect's handle rather than decoration.
+    /// </param>
+    void ModifyCharacterAttribute(string attribute, int amount, int minutes,
+                                  string text, string source);
+
+    /// <summary>
+    /// Removes one timed change whose source matches <paramref name="mask"/>
+    /// (<c>$REMOVE_CHAR_MODIFICATION</c>).
+    /// </summary>
+    /// <returns>Whether one was found. <b>At most one goes</b>, however many match.</returns>
+    bool RemoveCharacterModification(string mask);
+
     /// <summary>The stage a quest is at, or zero when the design has no such quest.</summary>
     int QuestStage(string quest);
 
@@ -1072,6 +1097,30 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
 
+    /// <summary>Timed changes this environment was asked to add, newest last.</summary>
+    public List<(string Attribute, int Amount, int Minutes, string Text, string Source)>
+        Modifications
+    { get; } = [];
+
+    /// <inheritdoc/>
+    public virtual void ModifyCharacterAttribute(string attribute, int amount, int minutes,
+                                                 string text, string source) =>
+        Modifications.Add((attribute, amount, minutes, text, source));
+
+    /// <inheritdoc/>
+    public virtual bool RemoveCharacterModification(string mask)
+    {
+        int index = Modifications.FindIndex(m => GpdlMask.Matches(mask, m.Source));
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        Modifications.RemoveAt(index);
+        return true;
+    }
+
     /// <summary>Quest stages this environment was asked to keep.</summary>
     public Dictionary<string, int> QuestStages { get; } = [];
 
@@ -1376,4 +1425,63 @@ public static class GpdlCharStats
     /// </remarks>
     public static string NonMonsterTrait(GpdlCharStat stat) =>
         stat is GpdlCharStat.IsMammal or GpdlCharStat.CanBeHeldOrCharmed ? "1" : "0";
+}
+
+/// <summary>
+/// The reference's <c>MatchMask</c> (<c>Char.cpp:12660</c>) — a <b>word</b> matcher, not a glob.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b><c>*</c> matches one whitespace-delimited word, and nothing else is a wildcard.</b> The
+/// mask and the data are both walked word by word: a mask word of exactly <c>*</c> skips the
+/// data's word, and any other mask word must equal the data's word outright. A mask that runs out
+/// matches whatever is left, so <c>"fire"</c> matches <c>"fire spell"</c> — but <c>"fire*"</c>
+/// does not match <c>"firestorm"</c>, because that is one word and the mask is not <c>*</c>.
+/// </para>
+/// <para>
+/// <b>Divergence: the reference walks off the end of the string.</b> Its skip loops test the
+/// <i>pointer</i> against null rather than the character (<c>while (pData != 0)</c>), so a
+/// <c>*</c> word with no trailing space reads past the terminator. This stops at the end of the
+/// string instead; there is no value in the bytes beyond it to reproduce.
+/// </para>
+/// </remarks>
+public static class GpdlMask
+{
+    /// <summary>Whether <paramref name="data"/> matches <paramref name="mask"/>.</summary>
+    public static bool Matches(string? mask, string? data)
+    {
+        string m = mask ?? string.Empty;
+        string d = data ?? string.Empty;
+        int mi = 0;
+        int di = 0;
+
+        while (mi < m.Length)
+        {
+            while (mi < m.Length && m[mi] == ' ') { mi++; }
+
+            // A mask with nothing left matches whatever the data still holds.
+            if (mi >= m.Length) { return true; }
+
+            while (di < d.Length && d[di] == ' ') { di++; }
+
+            if (m[mi] == '*')
+            {
+                while (di < d.Length && d[di] != ' ') { di++; }
+                while (mi < m.Length && m[mi] != ' ') { mi++; }
+                continue;
+            }
+
+            while (mi < m.Length && m[mi] != ' ')
+            {
+                if (di >= d.Length || m[mi] != d[di]) { return false; }
+                mi++;
+                di++;
+            }
+
+            // The data's word has to end where the mask's did.
+            if (di < d.Length && d[di] != ' ') { return false; }
+        }
+
+        return true;
+    }
 }
