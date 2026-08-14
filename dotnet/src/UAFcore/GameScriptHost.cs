@@ -569,6 +569,55 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>Matches the effect's source spell, and refuses a spell the design does not have</b> —
+    /// the reference checks <c>IsValidSpell</c> before walking anything, so a typo answers false
+    /// rather than searching for a name nothing can carry.
+    /// </remarks>
+    public override bool IsAffectedBySpell(string actor, string spellId)
+    {
+        if (EffectsOf(actor) is not { } effects
+            || string.IsNullOrEmpty(spellId)
+            || game.Design.Spell(spellId) is null)
+        {
+            return false;
+        }
+
+        return effects.Effects.Any(
+            e => string.Equals(e.SourceSpell, spellId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The character's own attributes are the fallback, not an afterthought.</b> The effects
+    /// are searched first — each one's source spell, and whether that spell's ASL holds the name —
+    /// and only when none does is the character's own ASL consulted. So an innate attribute
+    /// answers true with no spell involved at all.
+    /// </remarks>
+    public override bool IsAffectedBySpellAttribute(string actor, string attribute)
+    {
+        if (string.IsNullOrEmpty(attribute))
+        {
+            return false;
+        }
+
+        if (EffectsOf(actor) is { } effects)
+        {
+            foreach (var effect in effects.Effects)
+            {
+                if (SourceSpell(effect) is { } spell
+                    && spell.Attributes.Any(a => string.Equals(
+                        a.Key, attribute, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return Resolve(actor)?.Attributes.Find(attribute) is not null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// <para>
     /// <b>The three flags the reference sets are what make this findable again.</b>
     /// <c>AddTemporaryEffect</c> (<c>Char.cpp:12389</c>) marks the effect cumulative, script-made

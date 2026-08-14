@@ -1142,6 +1142,21 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_PARTY_LOCATION:
                 PushSp(_host.PartyLocation);
                 break;
+            // Both take (actor, name) and the name pops first.
+            case SubOp.SUBOP_IS_AFFECTED_BY_SPELL:
+            case SubOp.SUBOP_IS_AFFECTED_BY_SPELL_ATTR:
+                {
+                    string name = PopSp();
+                    string actor = PopSp();
+
+                    bool affected = op == SubOp.SUBOP_IS_AFFECTED_BY_SPELL
+                        ? _host.IsAffectedBySpell(actor, name)
+                        : _host.IsAffectedBySpellAttribute(actor, name);
+
+                    PushSp(affected ? True : False);
+                    break;
+                }
+
             // *** Both pop FEWER arguments in the reference than they declare. ***
             //
             // This is the third instance of the same defect, after $COINCOUNT: the engine path

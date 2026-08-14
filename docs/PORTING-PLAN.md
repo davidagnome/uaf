@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,589 tests, green on macOS; both CI workflows green.**
+**4,594 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,7 +9015,7 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **275 of 387 are implemented** (2026-08-13, counted from
+3. **The rest of the GPDL sub-opcodes.** **277 of 387 are implemented** (2026-08-13, counted from
    `GpdlVirtualMachine`'s switch); the rest throw with a source citation.
 
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
@@ -9045,6 +9045,15 @@ What is left, in order:
    > `GameScriptHost` reads them there rather than through `Resolve`, which only ever finds party
    > members. The four fields **cannot be merged** — bit 2 is `FormAnimal` in one and
    > `CanBeHeldCharmed` in another — so each trait names its field as well as its bit.
+   >
+   > **`$IS_AFFECTED_BY_SPELL` and `$IS_AFFECTED_BY_SPELL_ATTR` are done, and they ask different
+   > questions despite reading alike.** The first matches an effect's *source spell* — "is this
+   > spell on them", not "does anything on them do what it does" — and refuses a spell the design
+   > has no record of before walking anything. The second searches each effect's source spell for
+   > an ASL entry by that name and, **finding none, falls back to the character's own ASL**
+   > (`Char.cpp:11414`), so an attribute a character carries innately answers true with no spell
+   > involved at all. The name gives no hint of that fallback, which is why it has a test of its
+   > own.
    >
    > **`$MODIFY_CHAR_ATTRIBUTE` and `$REMOVE_CHAR_MODIFICATION` are done, and they make the
    > argument-count defect a pattern rather than a one-off.** Both declare a character parameter

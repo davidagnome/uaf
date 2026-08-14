@@ -154,4 +154,52 @@ public class GameScriptHostModificationTests
         // But a whole-word wildcard does match it.
         Assert.True(host.RemoveCharacterModification("*"));
     }
+
+
+    /// <summary>
+    /// The attribute form falls back to the character's own attributes.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the behaviour the name hides.</b> The reference searches the effects first and,
+    /// finding nothing, returns whether the <i>character's</i> ASL holds the name — so an innate
+    /// attribute answers true with no spell involved at all.
+    /// </remarks>
+    [Fact]
+    public void An_innate_attribute_counts_as_affected()
+    {
+        var game = Load();
+
+        if (game is null || game.Party.Members.Count == 0)
+        {
+            return;
+        }
+
+        var host = new GameScriptHost(game);
+        var who = game.Party.Members[Math.Max(game.Party.ActiveCharacter, 0)];
+
+        Assert.False(host.IsAffectedBySpellAttribute(who.Name, "BLESSED"));
+
+        who.Attributes.Insert("BLESSED", "yes");
+
+        // No spell was cast, and yet.
+        Assert.True(host.IsAffectedBySpellAttribute(who.Name, "BLESSED"));
+    }
+
+    /// <summary>A spell the design does not have is refused before anything is searched.</summary>
+    [Fact]
+    public void An_unknown_spell_is_refused()
+    {
+        var game = Load();
+
+        if (game is null || game.Party.Members.Count == 0)
+        {
+            return;
+        }
+
+        var host = new GameScriptHost(game);
+        string actor = game.Party.Members[Math.Max(game.Party.ActiveCharacter, 0)].Name;
+
+        Assert.False(host.IsAffectedBySpell(actor, "No Such Spell"));
+        Assert.False(host.IsAffectedBySpell(actor, string.Empty));
+    }
 }

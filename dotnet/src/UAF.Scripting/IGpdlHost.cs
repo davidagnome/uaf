@@ -550,6 +550,29 @@ public interface IGpdlHost
     int MoneyAvailable(int coinType);
 
     /// <summary>
+    /// Whether an actor is under a named spell
+    /// (<c>$IS_AFFECTED_BY_SPELL</c>, <c>GPDLexec.cpp:4456</c>).
+    /// </summary>
+    /// <remarks>
+    /// Matches on the effect's <i>source spell</i>, so it answers "is this spell on them", not
+    /// "does anything on them do what this spell does". A spell the design does not have is
+    /// refused before the effects are walked at all.
+    /// </remarks>
+    bool IsAffectedBySpell(string actor, string spellId);
+
+    /// <summary>
+    /// Whether an actor is under anything carrying a named attribute
+    /// (<c>$IS_AFFECTED_BY_SPELL_ATTR</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It falls back to the character's own attributes.</b> The reference walks the effects
+    /// looking for a source spell whose ASL holds the name — and if none does, returns whether the
+    /// <i>character's</i> ASL holds it (<c>Char.cpp:11414</c>). So an attribute a character
+    /// carries innately answers true with no spell involved, which the name does not suggest.
+    /// </remarks>
+    bool IsAffectedBySpellAttribute(string actor, string attribute);
+
+    /// <summary>
     /// Adds a timed attribute change to the current character
     /// (<c>$MODIFY_CHAR_ATTRIBUTE</c>, <c>GPDLexec.cpp:5459</c>).
     /// </summary>
@@ -1096,6 +1119,12 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int MoneyAvailable(int coinType) => 0;
+
+    /// <inheritdoc/>
+    public virtual bool IsAffectedBySpell(string actor, string spellId) => false;
+
+    /// <inheritdoc/>
+    public virtual bool IsAffectedBySpellAttribute(string actor, string attribute) => false;
 
     /// <summary>Timed changes this environment was asked to add, newest last.</summary>
     public List<(string Attribute, int Amount, int Minutes, string Text, string Source)>
