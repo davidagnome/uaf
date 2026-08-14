@@ -189,6 +189,79 @@ public enum GpdlCharStat
 
     /// <inheritdoc cref="HitDice"/>
     NumberOfAttacks,
+
+    // ---- The sixteen creature traits (GPDLexec.cpp:3493 onward) -------------------------------
+    //
+    // These are BOOLs, not numbers, and they all reach the same place: CHARACTER::IsMammal and
+    // its fifteen siblings test one bit of one of the FOUR unrelated bitfields a MONSTER_DATA
+    // carries -- form, penalty, immunity and misc options (Monster.h:60-126).
+    //
+    // *** THE DEFAULT FOR A NON-MONSTER IS NOT ALWAYS FALSE. ***
+    //
+    // Each accessor tests `GetType() == MONSTER_TYPE` first and returns a literal for anything
+    // else. Fourteen return FALSE -- but IsMammal and CanBeHeldOrCharmed return TRUE, because a
+    // player character IS a mammal and CAN be held or charmed. A host that answered false for
+    // everything would make hold-person fail against the whole party, which is a rules bug that
+    // looks like a spell bug.
+
+    /// <summary>
+    /// <c>$GET_ISMAMMAL</c> — <c>FormMammal</c>. <b>TRUE</b> for a non-monster.
+    /// </summary>
+    IsMammal,
+
+    /// <summary><c>$GET_ISANIMAL</c> — <c>FormAnimal</c>. False for a non-monster.</summary>
+    IsAnimal,
+
+    /// <summary><c>$GET_ISSNAKE</c> — <c>FormSnake</c>. False for a non-monster.</summary>
+    IsSnake,
+
+    /// <summary><c>$GET_ISGIANT</c> — <c>FormGiant</c>. False for a non-monster.</summary>
+    IsGiant,
+
+    /// <summary>
+    /// <c>$GET_ISALWAYSLARGE</c> — <c>FormLarge</c>, the "large even if 1x1" flag. False for a
+    /// non-monster.
+    /// </summary>
+    IsAlwaysLarge,
+
+    /// <summary><c>$GET_HASDEATHIMMUNITY</c> — <c>ImmuneDeath</c>.</summary>
+    HasDeathImmunity,
+
+    /// <summary><c>$GET_HASPOISONIMMUNITY</c> — <c>ImmunePoison</c>.</summary>
+    HasPoisonImmunity,
+
+    /// <summary><c>$GET_HASCONFUSIONIMMUNITY</c> — <c>ImmuneConfusion</c>.</summary>
+    HasConfusionImmunity,
+
+    /// <summary><c>$GET_HASVORPALIMMUNITY</c> — <c>ImmuneVorpal</c>.</summary>
+    HasVorpalImmunity,
+
+    /// <summary><c>$GET_HASDWARFACPENALTY</c> — <c>PenaltyDwarfAC</c>.</summary>
+    HasDwarfArmorClassPenalty,
+
+    /// <summary><c>$GET_HASDWARFTHAC0PENALTY</c> — <c>PenaltyDwarfTHAC0</c>.</summary>
+    HasDwarfThac0Penalty,
+
+    /// <summary><c>$GET_HASGNOMEACPENALTY</c> — <c>PenaltyGnomeAC</c>.</summary>
+    HasGnomeArmorClassPenalty,
+
+    /// <summary><c>$GET_HASGNOMETHAC0PENALTY</c> — <c>PenaltyGnomeTHAC0</c>.</summary>
+    HasGnomeThac0Penalty,
+
+    /// <summary><c>$GET_HASRANGERDMGPENALTY</c> — <c>PenaltyRangerDmg</c>.</summary>
+    HasRangerDamagePenalty,
+
+    /// <summary>
+    /// <c>$GET_CANBEHELDORCHARMED</c> — <c>OptionCanBeHeldCharmed</c>. <b>TRUE</b> for a
+    /// non-monster.
+    /// </summary>
+    CanBeHeldOrCharmed,
+
+    /// <summary>
+    /// <c>$GET_AFFECTEDBYDISPELEVIL</c> — <c>OptionAffectedByDispelEvil</c>. False for a
+    /// non-monster.
+    /// </summary>
+    AffectedByDispelEvil,
 }
 
 /// <summary>
@@ -841,11 +914,23 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     }
 
     /// <inheritdoc/>
-    public virtual string GetCharStat(string actor, GpdlCharStat stat) =>
-        CharacterStats.TryGetValue(actor, out var stats)
-        && stats.TryGetValue(stat, out string? value)
-            ? value
+    /// <remarks>
+    /// A trait nobody has set answers with <see cref="GpdlCharStats.NonMonsterTrait"/> rather than
+    /// the empty string: an unhosted character is not a monster, and that is precisely the case
+    /// the reference's accessors return a literal for.
+    /// </remarks>
+    public virtual string GetCharStat(string actor, GpdlCharStat stat)
+    {
+        if (CharacterStats.TryGetValue(actor, out var stats)
+            && stats.TryGetValue(stat, out string? value))
+        {
+            return value;
+        }
+
+        return GpdlCharStats.IsTrait(stat)
+            ? GpdlCharStats.NonMonsterTrait(stat)
             : string.Empty;
+    }
 
     /// <inheritdoc/>
     public virtual bool HasAsl(GpdlAslScope scope, string key) =>
@@ -988,4 +1073,45 @@ public class GpdlUnhostedEnvironment : IGpdlHost
         {
         }
     }
+}
+
+/// <summary>
+/// The sixteen creature traits, and what a non-monster answers for each.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Fourteen are false and two are true, and the two are the ones that matter.</b> Every trait
+/// accessor on <c>CHARACTER</c> tests <c>GetType() == MONSTER_TYPE</c> and returns a literal for
+/// anything else (<c>Char.cpp:17853</c> onward). <c>IsMammal</c> and <c>CanBeHeldOrCharmed</c>
+/// return <c>TRUE</c> — a player character is a mammal, and can be held or charmed. A host that
+/// answered false for all sixteen would make hold-person and charm fail against the entire party,
+/// which presents as a spell bug rather than as a missing default.
+/// </para>
+/// <para>
+/// Kept here rather than inside the unhosted environment so the real host answers the same way
+/// without restating the table.
+/// </para>
+/// </remarks>
+public static class GpdlCharStats
+{
+    /// <summary>Whether a stat is one of the sixteen creature traits.</summary>
+    public static bool IsTrait(GpdlCharStat stat) => stat is
+        GpdlCharStat.IsMammal or GpdlCharStat.IsAnimal or GpdlCharStat.IsSnake or
+        GpdlCharStat.IsGiant or GpdlCharStat.IsAlwaysLarge or
+        GpdlCharStat.HasDeathImmunity or GpdlCharStat.HasPoisonImmunity or
+        GpdlCharStat.HasConfusionImmunity or GpdlCharStat.HasVorpalImmunity or
+        GpdlCharStat.HasDwarfArmorClassPenalty or GpdlCharStat.HasDwarfThac0Penalty or
+        GpdlCharStat.HasGnomeArmorClassPenalty or GpdlCharStat.HasGnomeThac0Penalty or
+        GpdlCharStat.HasRangerDamagePenalty or GpdlCharStat.CanBeHeldOrCharmed or
+        GpdlCharStat.AffectedByDispelEvil;
+
+    /// <summary>
+    /// What a creature that is not a monster answers for a trait, as GPDL sees it.
+    /// </summary>
+    /// <remarks>
+    /// The reference pushes a <c>BOOL</c> through <c>m_pushInteger1</c>, so a script sees "1" or
+    /// "0" — not "true", and not the empty string.
+    /// </remarks>
+    public static string NonMonsterTrait(GpdlCharStat stat) =>
+        stat is GpdlCharStat.IsMammal or GpdlCharStat.CanBeHeldOrCharmed ? "1" : "0";
 }

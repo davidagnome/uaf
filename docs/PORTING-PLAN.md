@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,490 tests, green on macOS; both CI workflows green.**
+**4,526 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,10 +9015,26 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **239 of 387 are implemented** (2026-08-06, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. Of the 148 left, **134 are
-   callable at all** — the others have no `systemfunctions[]` entry and are compiler-internal or
-   dead. **No callable group remains**: what is left is scattered singles.
+3. **The rest of the GPDL sub-opcodes.** **256 of 387 are implemented** (2026-08-13, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **116 callable ones are
+   left** — the others have no `systemfunctions[]` entry and are compiler-internal or dead.
+
+   > **"No callable group remains — what is left is scattered singles" was wrong**, and stood from
+   > 2026-08-06 to 2026-08-13. A group of **seventeen** remained: the sixteen creature traits
+   > (`$GET_ISMAMMAL` and its fifteen siblings) plus `$SET_AFFECTEDBYDISPELEVIL`. They read as
+   > unrelated singles from their names, which is presumably how the claim survived — but each
+   > tests one bit of one of the four bitfields a `MONSTER_DATA` carries, and they share a single
+   > dispatch. Now done. **The trap in them is the default:** every accessor tests
+   > `GetType() == MONSTER_TYPE` and returns a literal otherwise, and while fourteen return
+   > `FALSE`, `IsMammal` and `CanBeHeldOrCharmed` return **`TRUE`** — a host answering false for
+   > all sixteen would make hold-person and charm fail against the whole party, presenting as a
+   > spell bug rather than a missing default. `GpdlCharStats.NonMonsterTrait` holds the table and
+   > a test pins that exactly two are true.
+   >
+   > A second thing worth recording, because it cost the first three attempts at the tests: an
+   > **ACTOR-typed parameter cannot be a quoted string.** `compileTypedSystemFunctionCall`
+   > (`GPDLcomp.cpp:2787`) demands one system-function call of the matching type, so
+   > `$GET_ISMAMMAL("ATTACKER")` does not compile and `$GET_ISMAMMAL($MOST_DAMAGED_ENEMY())` does.
 
    Done and backed by real game state: the attribute family (global, party, per-character), the
    whole character block including the three ability-score layers, the party block, the combat

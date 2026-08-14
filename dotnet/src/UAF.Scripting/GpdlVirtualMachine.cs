@@ -818,6 +818,26 @@ public sealed class GpdlVirtualMachine
                     PushSp(_host.GetCharAsl(PopSp(), key));
                     break;
                 }
+            // The sixteen creature traits (GPDLexec.cpp:3493 onward). They take the same shape as
+            // every other actor stat -- pop the actor, push the value -- because the reference's
+            // GET_ACTOR_BOOL macro is m_GetActorBOOL, which is m_GetCharInt with a BOOL member.
+            case SubOp.SUBOP_GET_ISMAMMAL:
+            case SubOp.SUBOP_GET_ISANIMAL:
+            case SubOp.SUBOP_GET_ISSNAKE:
+            case SubOp.SUBOP_GET_ISGIANT:
+            case SubOp.SUBOP_GET_ISALWAYSLARGE:
+            case SubOp.SUBOP_GET_HASDEATHIMMUNITY:
+            case SubOp.SUBOP_GET_HASPOISONIMMUNITY:
+            case SubOp.SUBOP_GET_HASCONFUSIONIMMUNITY:
+            case SubOp.SUBOP_GET_HASVORPALIMMUNITY:
+            case SubOp.SUBOP_GET_HASDWARFACPENALTY:
+            case SubOp.SUBOP_GET_HASDWARFTHAC0PENALTY:
+            case SubOp.SUBOP_GET_HASGNOMEACPENALTY:
+            case SubOp.SUBOP_GET_HASGNOMETHAC0PENALTY:
+            case SubOp.SUBOP_GET_HASRANGERDMGPENALTY:
+            case SubOp.SUBOP_GET_CANBEHELDORCHARMED:
+            case SubOp.SUBOP_GET_AFFECTEDBYDISPELEVIL:
+
             case SubOp.SUBOP_GET_CHAR_NAME:
             case SubOp.SUBOP_GET_CHAR_AC:
             case SubOp.SUBOP_GET_CHAR_ADJAC:
@@ -895,6 +915,10 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_SET_CHAR_PERM_CON:
             case SubOp.SUBOP_SET_CHAR_PERM_CHA:
             case SubOp.SUBOP_SET_CHAR_RDYTOTRAIN:
+
+            // The only writable trait: SET_ACTOR_BOOL is m_SetActorBOOL, which pops in the same
+            // order as m_SetCharInt. The other fifteen are read-only in the reference too.
+            case SubOp.SUBOP_SET_AFFECTEDBYDISPELEVIL:
                 {
                     // Value first, then the actor -- m_SetCharInt pops in that order -- and the
                     // call yields the empty string because it ends in m_pushEmptyString.
@@ -1381,6 +1405,23 @@ public sealed class GpdlVirtualMachine
     /// <summary>Which stat a <c>GET_CHAR_*</c> sub-opcode asks for.</summary>
     private static GpdlCharStat StatOf(SubOp op) => op switch
     {
+        SubOp.SUBOP_GET_ISMAMMAL => GpdlCharStat.IsMammal,
+        SubOp.SUBOP_GET_ISANIMAL => GpdlCharStat.IsAnimal,
+        SubOp.SUBOP_GET_ISSNAKE => GpdlCharStat.IsSnake,
+        SubOp.SUBOP_GET_ISGIANT => GpdlCharStat.IsGiant,
+        SubOp.SUBOP_GET_ISALWAYSLARGE => GpdlCharStat.IsAlwaysLarge,
+        SubOp.SUBOP_GET_HASDEATHIMMUNITY => GpdlCharStat.HasDeathImmunity,
+        SubOp.SUBOP_GET_HASPOISONIMMUNITY => GpdlCharStat.HasPoisonImmunity,
+        SubOp.SUBOP_GET_HASCONFUSIONIMMUNITY => GpdlCharStat.HasConfusionImmunity,
+        SubOp.SUBOP_GET_HASVORPALIMMUNITY => GpdlCharStat.HasVorpalImmunity,
+        SubOp.SUBOP_GET_HASDWARFACPENALTY => GpdlCharStat.HasDwarfArmorClassPenalty,
+        SubOp.SUBOP_GET_HASDWARFTHAC0PENALTY => GpdlCharStat.HasDwarfThac0Penalty,
+        SubOp.SUBOP_GET_HASGNOMEACPENALTY => GpdlCharStat.HasGnomeArmorClassPenalty,
+        SubOp.SUBOP_GET_HASGNOMETHAC0PENALTY => GpdlCharStat.HasGnomeThac0Penalty,
+        SubOp.SUBOP_GET_HASRANGERDMGPENALTY => GpdlCharStat.HasRangerDamagePenalty,
+        SubOp.SUBOP_GET_CANBEHELDORCHARMED => GpdlCharStat.CanBeHeldOrCharmed,
+        SubOp.SUBOP_GET_AFFECTEDBYDISPELEVIL => GpdlCharStat.AffectedByDispelEvil,
+
         SubOp.SUBOP_GET_CHAR_AC => GpdlCharStat.ArmorClass,
         SubOp.SUBOP_GET_CHAR_ADJAC => GpdlCharStat.AdjustedArmorClass,
         SubOp.SUBOP_GET_CHAR_THAC0 => GpdlCharStat.Thac0,
@@ -1439,6 +1480,7 @@ public sealed class GpdlVirtualMachine
     {
         SubOp.SUBOP_SET_CHAR_HITPOINTS => GpdlCharStat.HitPoints,
         SubOp.SUBOP_SET_CHAR_MAXHITPOINTS => GpdlCharStat.MaxHitPoints,
+        SubOp.SUBOP_SET_AFFECTEDBYDISPELEVIL => GpdlCharStat.AffectedByDispelEvil,
         SubOp.SUBOP_SET_CHAR_AC => GpdlCharStat.ArmorClass,
         SubOp.SUBOP_SET_CHAR_THAC0 => GpdlCharStat.Thac0,
         SubOp.SUBOP_SET_CHAR_MORALE => GpdlCharStat.Morale,
