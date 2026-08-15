@@ -900,6 +900,58 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         }
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Read off the running fight, which sets it for the duration of each swing — see
+    /// <see cref="CombatSession.ToHitRoll"/>.
+    /// </remarks>
+    public override int? ToHitRoll => game.Combat?.ToHitRoll;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>It rolls, so asking twice gives two answers.</b> The reference runs a real to-hit
+    /// computation and then a real damage computation; this is one sampled outcome, not an average
+    /// and not a maximum. A miss is zero — indistinguishable from a hit that did nothing, and from
+    /// a combatant that does not exist.
+    /// </para>
+    /// <para>
+    /// <b>Not <see cref="Attack.Resolve"/>, and that matters twice over.</b> First, <c>Resolve</c>
+    /// begins with a targeting check, and the reference does <i>no</i> range or side test at all —
+    /// it goes straight to the computations, so this answers "if these two fought, what would
+    /// happen" however far apart they are standing. Second, <c>Resolve</c> spends the attacker's
+    /// swing and records a last-attacker; a question must not do either. So the two steps are run
+    /// directly here.
+    /// </para>
+    /// </remarks>
+    public override int ComputeAttackDamage(int attacker, int target)
+    {
+        if (At(attacker) is null || At(target) is null)
+        {
+            return 0;
+        }
+
+        // The same placeholder weapon and numbers the session's own Strike uses -- a real one
+        // needs the readied-weapon and THAC0 wiring that combat itself is still missing.
+        int roll = game.Dice(20);
+        int targetNumber = ToHit.TargetNumber(attackerThac0: 18, targetArmorClass: 6);
+
+        if (!ToHit.Hits(roll, targetNumber))
+        {
+            return 0;
+        }
+
+        var damage = new DamageRoll(1, 8, 0);
+        int rolled = 0;
+
+        for (int i = 0; i < damage.Count; i++)
+        {
+            rolled += game.Dice(damage.Sides);
+        }
+
+        return ToHit.Damage(rolled, damage.Bonus);
+    }
+
     /// <summary>The combatant at an index, or null.</summary>
     private Combatant? At(int index) =>
         game.Combat is { } session && index >= 0 && index < session.Combatants.Count

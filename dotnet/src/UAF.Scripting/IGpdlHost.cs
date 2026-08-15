@@ -452,6 +452,17 @@ public static class GpdlCombat
     /// so arithmetic on the result reads it as zero.
     /// </remarks>
     public const string NoSuchAnswer = "Huh?";
+
+    /// <summary>
+    /// What <c>$ToHitComputation_Roll</c> answers outside an attack.
+    /// </summary>
+    /// <remarks>
+    /// <b>Ten, not zero and not an error.</b> A script asking outside an attack gets a plausible
+    /// middling d20 roll and no indication that there was nothing to ask about — the reference
+    /// writes a debug line and carries on. So a special ability that reads it in the wrong place
+    /// behaves as though every swing rolled ten.
+    /// </remarks>
+    public const int NoToHitRoll = 10;
 }
 
 /// <summary>
@@ -1641,6 +1652,29 @@ public interface IGpdlHost
                             string adjustmentType, int value);
 
     /// <summary>
+    /// The to-hit roll of the attack now being worked out
+    /// (<c>$ToHitComputation_Roll</c>, <c>GPDLexec.cpp</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Only meaningful inside an attack.</b> The engine builds a <c>ToHitComputation</c> for
+    /// each swing and hangs it on the script context, so a spell effect or special ability running
+    /// mid-attack can ask what was rolled. Null outside one — see
+    /// <see cref="GpdlCombat.NoToHitRoll"/> for what a script then sees.
+    /// </remarks>
+    int? ToHitRoll { get; }
+
+    /// <summary>
+    /// What one combatant would do to another, if it attacked right now
+    /// (<c>$ComputeAttackDamage</c>, <c>UAFWin/Combatant.cpp:5600</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It rolls.</b> The reference runs a whole to-hit computation and then a damage
+    /// computation, so this is one sampled outcome and not an average or a maximum — asking twice
+    /// gives two answers. A miss is zero, and so is a combatant that does not exist.
+    /// </remarks>
+    int ComputeAttackDamage(int attacker, int target);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -2005,6 +2039,12 @@ public class GpdlUnhostedEnvironment : IGpdlHost
                                         int firstLevel, int lastLevel, int percent, int bonus)
     {
     }
+
+    /// <inheritdoc/>
+    public virtual int? ToHitRoll => null;
+
+    /// <inheritdoc/>
+    public virtual int ComputeAttackDamage(int attacker, int target) => 0;
 
     /// <inheritdoc/>
     public virtual string? SkillAdjustment(string actor, string skill, string adjustment,

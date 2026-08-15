@@ -1178,6 +1178,24 @@ public sealed class GpdlVirtualMachine
                 PushSp(_host.ActorNamed(PopSp()));
                 break;
 
+            case SubOp.SUBOP_ToHitComputation_Roll:
+
+                // Ten outside an attack, which is a plausible middling d20 and not a marker -- a
+                // script reading this in the wrong place cannot tell.
+                PushSp((_host.ToHitRoll ?? GpdlCombat.NoToHitRoll)
+                           .ToString(CultureInfo.InvariantCulture));
+                break;
+
+            case SubOp.SUBOP_ComputeAttackDamage:
+                {
+                    // The target pops first, then the attacker.
+                    int target = PopInteger();
+
+                    PushSp(_host.ComputeAttackDamage(PopInteger(), target)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
             case SubOp.SUBOP_SpellAdj:
                 {
                     int bonus = PopInteger();

@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,959 tests, green on macOS; both CI workflows green.**
+**4,968 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,16 +9015,16 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **365 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **7 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **367 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **5 of the missing are
    named callable functions**; the other 14 have no name in the table.
    >
-   > **The seven that remain, and why:** `$AddCombatant`, `$ComputeAttackDamage`,
-   > `$ToHitComputation_Roll`, `$CastSpellOnTarget` and `$CastSpellOnTargetAs` need combat and
-   > spell-casting machinery; `$RUN_CHAR_PS_SCRIPTS` and `$RUN_AREA_SE_SCRIPTS` are blocked
-   > (§the `$RUN_*_SCRIPTS` family). **Plus one partial**: `$SkillAdj`'s four *computed* reads
-   > (`F`, `f`, `b`, `B`) need `GetAdjSkillValue` and the skill computation behind it, and refuse
-   > with a citation rather than guessing — the writes and the stored read work.
+   > **The five that remain, and why:** `$AddCombatant` spawns a monster into a running fight;
+   > `$CastSpellOnTarget` and `$CastSpellOnTargetAs` need spell casting; `$RUN_CHAR_PS_SCRIPTS` and
+   > `$RUN_AREA_SE_SCRIPTS` are blocked (§the `$RUN_*_SCRIPTS` family). **Plus one partial**:
+   > `$SkillAdj`'s four *computed* reads (`F`, `f`, `b`, `B`) need `GetAdjSkillValue` and the skill
+   > computation behind it, and refuse with a citation rather than guessing — the writes and the
+   > stored read work.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
    > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
@@ -9128,6 +9128,27 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **`$ToHitComputation_Roll` and `$ComputeAttackDamage` are done** (2026-08-14).
+   >
+   > **`$ToHitComputation_Roll` answers TEN outside an attack** — not zero, not an error, and not
+   > distinguishable from a real roll of ten. The engine hangs a `ToHitComputation` on the script
+   > context for each swing so an ability running mid-attack can ask what was rolled; asked
+   > anywhere else it writes a debug line and carries on with 10. So a special ability reading it
+   > in the wrong place behaves as though every swing rolled ten and nothing says otherwise.
+   > `CombatSession.ToHitRoll` is the same window, cleared when the swing ends so a script does not
+   > read the *previous* attack's roll.
+   >
+   > **`$ComputeAttackDamage` does no targeting check at all**, and this is where the port's own
+   > `Attack.Resolve` was the wrong tool twice over. The reference goes straight to the to-hit and
+   > damage computations (`UAFWin/Combatant.cpp:5600`) — no range test, no side test — so it
+   > answers "if these two fought, what would happen" however far apart they stand. And
+   > `Attack.Resolve` **spends the attacker's swing and records a last-attacker**, which a question
+   > must not do. Reaching for it produced two zeroes immediately, because the corpus's starting
+   > placement puts the combatants out of range. The two steps are run directly instead.
+   >
+   > **It rolls**, so asking twice gives two answers — one sampled outcome, not an average or a
+   > maximum. A miss, a hit that did nothing, and a combatant that does not exist are all zero.
+
    > **`$SpellAdj` is done and `$SkillAdj` is done in part** (2026-08-14). Both exist to change a
    > list at run time, so `Character.SpellAdjustments` and `SkillAdjustments` had to become mutable
    > copies off the record — the same arrangement `Items` already used.

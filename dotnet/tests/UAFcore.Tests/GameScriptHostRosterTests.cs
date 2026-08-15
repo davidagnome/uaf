@@ -388,6 +388,112 @@ public class GameScriptHostRosterTests
         Assert.Equal(GpdlLineOfSight.NotVisible, fight.Host.VisualDistance(999, 0));
     }
 
+    /// <summary>
+    /// Computed damage is a sampled outcome, not a fixed number.
+    /// </summary>
+    /// <remarks>
+    /// <b>It rolls.</b> The reference runs a real to-hit computation and then a real damage
+    /// computation, so this is one attack's worth of luck. With dice that always show their
+    /// maximum the answer is stable and non-zero; with dice that always show one it can miss.
+    /// </remarks>
+    [Fact]
+    public void Computed_damage_rolls_rather_than_averaging()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var attacker = fight.Game.Combat!.Combatants[0];
+        var defender = fight.Game.Combat.Combatants[1];
+
+        int hitPoints = defender.HitPoints;
+        double swings = attacker.AvailableAttacks;
+
+        // Every die at its maximum: the attack lands and does its most.
+        fight.Game.Dice = sides => sides;
+        int best = fight.Host.ComputeAttackDamage(0, 1);
+
+        // Every die at one: the same pair, and a miss.
+        fight.Game.Dice = _ => 1;
+        int worst = fight.Host.ComputeAttackDamage(0, 1);
+
+        Assert.True(best > worst, $"max dice gave {best}, min dice gave {worst}");
+
+        // Nothing was hurt by asking, and no swing was spent -- this is a question, not an attack.
+        Assert.Equal(hitPoints, defender.HitPoints);
+        Assert.Equal(swings, attacker.AvailableAttacks);
+    }
+
+    /// <summary>
+    /// Distance and side are not considered, because the reference does not consider them.
+    /// </summary>
+    /// <remarks>
+    /// <b>No targeting check at all.</b> <c>ComputeAttackDamage</c> goes straight to the to-hit and
+    /// damage computations, so it answers "if these two fought, what would happen" however far
+    /// apart they are standing and whichever sides they are on. Using the port's own
+    /// <c>Attack.Resolve</c> here would have added a refusal the reference has not got — and it
+    /// showed up immediately as two zeroes.
+    /// </remarks>
+    [Fact]
+    public void Neither_distance_nor_side_is_considered()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        fight.Game.Dice = sides => sides;
+
+        var roster = fight.Game.Combat!.Combatants;
+
+        // Right next to each other...
+        roster[0].X = 5;
+        roster[0].Y = 5;
+        roster[1].X = 6;
+        roster[1].Y = 5;
+        int near = fight.Host.ComputeAttackDamage(0, 1);
+
+        // ...and at opposite corners of the map.
+        roster[1].X = fight.Game.Combat.Map.Width - 1;
+        roster[1].Y = fight.Game.Combat.Map.Height - 1;
+
+        Assert.Equal(near, fight.Host.ComputeAttackDamage(0, 1));
+        Assert.True(near > 0);
+    }
+
+    /// <summary>A combatant that is not there deals nothing.</summary>
+    [Fact]
+    public void A_missing_combatant_deals_nothing()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        Assert.Equal(0, fight.Host.ComputeAttackDamage(0, 999));
+        Assert.Equal(0, fight.Host.ComputeAttackDamage(999, 0));
+    }
+
+    /// <summary>
+    /// The to-hit roll is visible only while a swing is being resolved.
+    /// </summary>
+    /// <remarks>
+    /// <b>Cleared afterwards, so a script asking outside an attack gets nothing rather than the
+    /// last one's roll</b> — which the VM then reports as the reference's plausible ten.
+    /// </remarks>
+    [Fact]
+    public void The_to_hit_roll_is_only_visible_during_a_swing()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        Assert.Null(fight.Game.Combat!.ToHitRoll);
+        Assert.Null(fight.Host.ToHitRoll);
+    }
+
     private static List<int> Walk(GameScriptHost host, int filter)
     {
         var seen = new List<int>();

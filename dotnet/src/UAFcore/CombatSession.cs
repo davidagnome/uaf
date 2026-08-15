@@ -1423,6 +1423,18 @@ public sealed class CombatSession
         Message = steps > 0 ? $"{actor.Name} moves." : $"{actor.Name} cannot move.";
     }
 
+    /// <summary>
+    /// What the attack now being worked out rolled, or null between attacks.
+    /// </summary>
+    /// <remarks>
+    /// <b>What <c>$ToHitComputation_Roll</c> reads.</b> The reference builds a
+    /// <c>ToHitComputation</c> per swing and hangs it on the script context so an ability running
+    /// mid-attack can ask what was rolled; this is the same window, narrowed to the one field a
+    /// script can actually see. It is cleared when the swing is over, so a script asking outside
+    /// one gets nothing rather than the last attack's roll.
+    /// </remarks>
+    public int? ToHitRoll { get; private set; }
+
     private void Strike(Combatant actor, Combatant target)
     {
         var result = Attack.Resolve(actor, target, Map, dice, new DamageRoll(1, 8, 0),
@@ -1430,6 +1442,21 @@ public sealed class CombatSession
                                     attackerThac0: 18, targetArmorClass: 6,
                                     currentRound: Round.Round);
 
+        // Visible for as long as this swing is being resolved, and no longer.
+        ToHitRoll = result.Happened ? result.Roll : null;
+
+        try
+        {
+            Resolve(actor, target, result);
+        }
+        finally
+        {
+            ToHitRoll = null;
+        }
+    }
+
+    private void Resolve(Combatant actor, Combatant target, AttackResult result)
+    {
         if (!result.Happened)
         {
             Message = $"{actor.Name} cannot attack.";
