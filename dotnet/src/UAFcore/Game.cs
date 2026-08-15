@@ -380,6 +380,24 @@ public sealed class Game
             && (Party.MoneyPooled != 0 && Party.Pooled.HaveEnough(Money.BaseType, cost)
                 || who.Purse.HaveEnough(Money.BaseType, cost));
 
+        // EXAMINE runs the item's own scripts, so it needs the design's script table and the
+        // active character's record -- neither of which the runner has.
+        Runner.ExamineItem = row =>
+        {
+            if (Party.Active is not { } who
+                || row < 0 || row >= who.Items.Count
+                || design.Item(who.Items[row].ItemId) is not { } record)
+            {
+                return string.Empty;
+            }
+
+            using var frame = ScriptHost.Context.Push();
+            ScriptHost.Context.Set(GpdlContext.Character, who.CharacterId);
+            ScriptHost.Context.Set(GpdlContext.Item, who.Items[row].ItemId);
+
+            return ItemExamine.Choose(who.Record, record, Scripts, ScriptHost);
+        };
+
         // TRADE hands a row from a remembered giver to whoever TAB left active, so the whole move
         // belongs here -- the runner has one character's items and this needs two.
         Runner.GiverIndex = () => Party.ActiveCharacter;

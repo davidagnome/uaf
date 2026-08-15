@@ -1796,6 +1796,41 @@ public sealed class EventRunner
                 return EventStep.Running;
             }
 
+            case InventoryCommand.Examine:
+            {
+                if (ExamineItem is null || ActiveCharacterItems?.Invoke() is not { } holding)
+                {
+                    return EventStep.Running;
+                }
+
+                var examinePage = InventoryPageRows;
+                int examineRow = InventoryRowIndex;
+                if (examineRow < 0 || examineRow >= examinePage.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                int which = examinePage[examineRow].Index;
+                if (which < 0 || which >= holding.Items.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                // Whatever the item's scripts answered -- "CastSpell" and its siblings. Kept
+                // rather than acted on: what each answer means is the spell and use machinery,
+                // and nothing here should guess.
+                LastExamineResult = ExamineItem(which);
+
+                // The scripts can have changed what the character carries, so the list is rebuilt.
+                if (ActiveCharacterItems?.Invoke() is { } afterExamine)
+                {
+                    InventoryRows = Inventory.Rows(afterExamine, ItemNames);
+                    PopulateInventoryForm();
+                }
+
+                return EventStep.Running;
+            }
+
             case InventoryCommand.Trade:
             {
                 if (ActiveCharacterItems?.Invoke() is not { } toGive || GiveItemTo is null)
@@ -2107,6 +2142,25 @@ public sealed class EventRunner
         PopulateInventoryForm();
         return EventStep.Running;
     }
+
+    /// <summary>
+    /// Runs a carried item's EXAMINE hook; set by the host, which owns the scripts.
+    /// </summary>
+    /// <remarks>
+    /// <b>"EXAMINE" is a default label, not the command's name</b> — a design renames the entry
+    /// per item, so this is the machinery behind READ, DRINK, LIGHT and anything else it puts
+    /// there. See <see cref="ItemExamine"/>.
+    /// </remarks>
+    public Func<int, string>? ExamineItem { get; set; }
+
+    /// <summary>
+    /// What the last EXAMINE answered — <c>"CastSpell"</c> and its siblings, or empty.
+    /// </summary>
+    /// <remarks>
+    /// Kept rather than acted on: what each answer means is the spell and use machinery, and
+    /// nothing on this screen should guess.
+    /// </remarks>
+    public string LastExamineResult { get; private set; } = string.Empty;
 
     /// <summary>Why the last READY was refused, or <see cref="ReadyRefusal.None"/>.</summary>
     /// <remarks>

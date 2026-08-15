@@ -434,6 +434,53 @@ public class EventInventoryScreenTests
         Assert.Equal("READY", Labels(runner)[0]);
     }
 
+    /// <summary>EXAMINE runs the item's hook and keeps what it answered.</summary>
+    /// <remarks>
+    /// <b>The result is kept rather than acted on.</b> What <c>"CastSpell"</c> and its siblings
+    /// mean is the spell and use machinery, and nothing on this screen should guess.
+    /// </remarks>
+    [Fact]
+    public void Examine_runs_the_hook_and_keeps_the_answer()
+    {
+        ItemList? held = Carrying(Bundle(1, 3));
+        var asked = new List<int>();
+
+        var runner = new EventRunner
+        {
+            PageSize = Page,
+            IsValidEvent = _ => true,
+            ItemDatabase = Bundles,
+            ActiveCharacterItems = () => held,
+            ApplyItemChange = changed => held = changed,
+            ExamineItem = row =>
+            {
+                asked.Add(row);
+                return "CastSpell";
+            },
+        };
+        runner.Begin(Vault(), Font(), Box, Anchors);
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Examine);
+
+        Assert.Equal([0], asked);
+        Assert.Equal("CastSpell", runner.LastExamineResult);
+        Assert.Null(runner.Unimplemented);
+    }
+
+    /// <summary>Without a host to run the hook, EXAMINE does nothing rather than throwing.</summary>
+    [Fact]
+    public void Examine_without_a_host_does_nothing()
+    {
+        var runner = Splitting(Carrying(Bundle(1, 3)));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Examine);
+
+        Assert.Equal(string.Empty, runner.LastExamineResult);
+        Assert.Single(runner.InventoryRows!);
+    }
+
     /// <summary>HALVE splits the selected row, and the screen shows both halves.</summary>
     [Fact]
     public void Halve_splits_the_selected_row()

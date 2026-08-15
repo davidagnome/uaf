@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**5,035 tests, green on macOS; both CI workflows green.**
+**5,051 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -5756,9 +5756,9 @@ Two things written here a round ago were wrong, and are corrected:
 and the camp all push, and so does combat**. Taken first among the inner screens for that reason:
 it is the one with the most callers per screen built.
 
-**Nine of its thirteen commands run** — READY, HALVE, JOIN, DEPOSIT, SELL, TRADE, NEXT, PREV,
-EXIT. The other four each want machinery this port does not have (the item's use-event chain, the
-level's cell contents, the scribe rules) and are named below.
+**Ten of its thirteen commands run** — READY, HALVE, JOIN, DEPOSIT, SELL, TRADE, EXAMINE, NEXT,
+PREV, EXIT. The other three each want machinery this port does not have (the item's use-event
+chain, the level's cell contents, the identify service) and are named below.
 
 > **The screen shows a *word*, not a tick.** `readyLocation` names a slot — WEAPON, SHIELD, ARMOR,
 > HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER, and seven more the engine can reach — so
@@ -5908,6 +5908,37 @@ two steps: an offer, then a yes/no, then the sale.
 > **Money cannot be traded to yourself, where an item can.** The reference guards the money branch
 > with `tradeGiver != activeCharacter` and deliberately does not guard the item one — money goes
 > through a quantity prompt the port has not built.
+
+##### EXAMINE, or whatever
+
+`ItemExamine` — the inventory's EXAMINE (`RunEvent.cpp:8640` for the entry, `:8239` for the
+command). Taken expecting a display screen and it is nothing of the sort.
+
+> **"EXAMINE" is a default label, not the command's name.** The entry is renamed per item from the
+> item's own `ExamineLabel`, and a script may rename it again — the reference's own comments say
+> "EXAMINE (or whatever)" throughout. A design puts READ, DRINK or LIGHT there, and this is the
+> machinery behind all of them.
+
+> **An item with no `ExamineLabel` has no entry at all.** That emptiness is the gate, checked before
+> any script runs, and it is what greys the entry out for most of what a character carries.
+
+> **The label travels in a hook parameter, not a return value.** Slot 5 is seeded with the item's
+> label and read back afterwards, so a script renames the menu entry by writing to it. Slot 6 is a
+> keyboard shortcut, and left empty means "derive one later".
+
+> **The character's answer and the item's CHAIN, and reading the C++ alone says otherwise.** The
+> reference never captures `RunCharacterScripts`' return value (`RunEvent.cpp:8653`) — which looks
+> like the character cannot decide. But every run seeds its result from hook parameter 0 and writes
+> back to it, and **slot 0 *is* the return value**: the character's answer carries into the item's
+> run and stands whenever the item has nothing of its own to say. The first port of this asserted
+> the opposite in a doc comment and two tests, and the tests caught it.
+
+> **Only the first character of the answer is looked at, and only `Y` enables** — but an *empty*
+> answer leaves the entry alone. So a design that says nothing keeps the entry and one that says
+> anything but Y loses it.
+
+> **The result of choosing it is kept, not acted on.** `"CastSpell"` and its siblings belong to the
+> spell and use machinery; the screen records what was said rather than guessing what it means.
 
 ##### The town-service shells, complete
 
@@ -8873,16 +8904,20 @@ What is left, in order:
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
      shells, complete). The **inventory** is done and on screen in the shop and the vault, with a
      row cursor, paging and the full ready rules (§the shared inventory, §the inventory on screen,
-     §the ready rules). **HALVE, JOIN, DEPOSIT, SELL and TRADE now run too** (§splitting and
-     merging bundles, §depositing into a vault, §selling to a shop, §trading between characters),
-     so nine of its thirteen commands work — READY, HALVE, JOIN, DEPOSIT, SELL, TRADE and the three
-     navigation ones. **The shop is complete.**
+     §the ready rules). **HALVE, JOIN, DEPOSIT, SELL, TRADE and EXAMINE now run too** (§splitting
+     and merging bundles, §depositing into a vault, §selling to a shop, §trading between
+     characters, §EXAMINE, or whatever), so ten of its thirteen commands work. **The shop is
+     complete.**
 
-     What is left there is **USE, DROP, IDENTIFY and the two EXAMINEs**.
+     What is left there is **USE, DROP and IDENTIFY**.
      **DROP is the largest**: it drops the item into the level's `CELL_LEVEL_CONTENTS`, so it needs
      the level's mutable cell-contents table first — which `SaveGameProjection` still writes as an
-     empty `CellLevelContents([])`. **The two EXAMINEs are the cheapest** — one shows an item's
-     details, the other reads the special-item list, and neither moves anything.
+     empty `CellLevelContents([])`. **IDENTIFY is the closest to done** — it is the same hook shape
+     EXAMINE turned out to be, run against the shop's identify service.
+
+     > **"The two EXAMINEs are the cheapest — one shows an item's details" was wrong**, and it was
+     > written here one turn earlier without reading the handler. Neither shows anything: both are
+     > script hooks. See the section for what they actually are.
 
      The **party menu** behind the training hall runs, and with it **training** (§the party menu,
      and training). There is no separate character picker — an earlier note here said there was,
