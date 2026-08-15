@@ -1178,6 +1178,30 @@ public sealed class GpdlVirtualMachine
                 PushSp(_host.ActorNamed(PopSp()));
                 break;
 
+            case SubOp.SUBOP_IsLineOfSight:
+                {
+                    // FIVE declared parameters and only four are used: the reference pops
+                    // m_Integer5 and never reads it (GPDLexec.cpp). Popped here too, so the stack
+                    // balances -- but it means nothing.
+                    PopInteger();
+
+                    int y1 = PopInteger();
+                    int x1 = PopInteger();
+                    int y0 = PopInteger();
+
+                    PushSp(_host.IsLineOfSight(PopInteger(), y0, x1, y1) ? True : False);
+                    break;
+                }
+
+            case SubOp.SUBOP_VisualDistance:
+                {
+                    int other = PopInteger();
+
+                    PushSp(_host.VisualDistance(PopInteger(), other)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
             case SubOp.SUBOP_DRAWADVENTURESCREEN:
                 _host.DrawAdventureScreen();
                 PushSp(False);

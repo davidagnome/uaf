@@ -1515,6 +1515,28 @@ public interface IGpdlHost
     string LogicBlockValue(string letter);
 
     /// <summary>
+    /// Whether the octant walk finds a clear line between two squares
+    /// (<c>$IsLineOfSight</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Terrain only — combatants block nothing.</b> And it is not the same test
+    /// <see cref="VisualDistance"/> uses: the engine has two line-of-sight algorithms that disagree,
+    /// notably about squares off the map and squares with no terrain in them. See
+    /// <see cref="GpdlLineOfSight"/>.
+    /// </remarks>
+    bool IsLineOfSight(int x0, int y0, int x1, int y1);
+
+    /// <summary>
+    /// How far apart two combatants are, when one can see the other
+    /// (<c>$VisualDistance</c>).
+    /// </summary>
+    /// <returns>
+    /// The distance, <b>truncated</b>, or <see cref="GpdlLineOfSight.NotVisible"/> when the line is
+    /// blocked, either combatant is missing, or no fight is running.
+    /// </returns>
+    int VisualDistance(int combatant, int other);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -1860,6 +1882,19 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     /// <inheritdoc/>
     public virtual string LogicBlockValue(string letter) =>
         GpdlLogicBlock.Value(LogicBlockValues, letter);
+
+    /// <summary>
+    /// The map the sight walks read, when this environment has been given one.
+    /// </summary>
+    /// <remarks>Null answers "blocked everywhere", which is what no map at all means.</remarks>
+    public IGpdlSightMap? SightMap { get; set; }
+
+    /// <inheritdoc/>
+    public virtual bool IsLineOfSight(int x0, int y0, int x1, int y1) =>
+        SightMap is { } map && GpdlLineOfSight.IsClear(map, x0, y0, x1, y1);
+
+    /// <inheritdoc/>
+    public virtual int VisualDistance(int combatant, int other) => GpdlLineOfSight.NotVisible;
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

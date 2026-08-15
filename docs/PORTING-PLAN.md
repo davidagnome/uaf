@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,893 tests, green on macOS; both CI workflows green.**
+**4,920 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,13 +9015,12 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **361 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **11 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **363 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **9 of the missing are
    named callable functions**; the other 14 have no name in the table.
    >
-   > **The eleven that remain, and why:** `$SkillAdj` and `$SpellAdj` need mutable adjustment lists
-   > on a character (the port's are on the immutable record); `$IsLineOfSight` and
-   > `$VisualDistance` need wall-walking the port does not have; `$AddCombatant`,
+   > **The nine that remain, and why:** `$SkillAdj` and `$SpellAdj` need mutable adjustment lists
+   > on a character (the port's are on the immutable record); `$AddCombatant`,
    > `$ComputeAttackDamage`, `$ToHitComputation_Roll`, `$CastSpellOnTarget` and
    > `$CastSpellOnTargetAs` need combat and spell-casting machinery; and `$RUN_CHAR_PS_SCRIPTS`
    > and `$RUN_AREA_SE_SCRIPTS` are blocked (§the `$RUN_*_SCRIPTS` family). **No cheap ones are
@@ -9129,6 +9128,43 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **`$IsLineOfSight` and `$VisualDistance` are done** (2026-08-14), and they needed a whole
+   > subsystem: `GpdlLineOfSight` over an `IGpdlSightMap`. The port already had the data — the
+   > combat map's terrain and `CombatTile.SeeThrough` — only the two algorithms were missing.
+   >
+   > **The engine has TWO line-of-sight algorithms and these two calls use different ones.**
+   > `$IsLineOfSight` calls `IsLineOfSight` (`Drawtile.cpp:3460`), an octant-decomposed walk that
+   > tests **both** squares the line passes between; `$VisualDistance` calls `HaveLineOfSight`
+   > (`:3509`), a plain Bresenham that tests one square at a time. **They disagree**, and not
+   > subtly:
+   > - **A square with no terrain**: clear to the octant walk, blocked to Bresenham. The first only
+   >   blocks on a square it can positively identify as opaque; the second requires a terrain index
+   >   of at least one.
+   > - **A square off the map**: clear to the octant walk, blocked to Bresenham.
+   > - **A diagonal through a corner pinch**: blocked by the octant walk, *let through* by
+   >   Bresenham — which is presumably why the first exists.
+   >
+   > So on a real map a script can be told it has a clear line and then be given
+   > `NotVisible` for the distance along it. Both transcribed; `IGpdlSightMap` asks three questions
+   > (in bounds / has terrain / see-through) rather than one, because a single "can I see through
+   > this?" predicate cannot express both views.
+   >
+   > **`$IsLineOfSight` declares FIVE parameters and the reference reads four.** The fifth is
+   > popped and never looked at, so it means nothing — but it is still required, and still has to
+   > be popped or the stack is left one deep.
+   >
+   > **Neither walk considers combatants**, only terrain — so a wall of allies blocks nothing. And
+   > `HaveLineOfSight` skips both endpoints, so a combatant standing in a wall can see out.
+   > `$VisualDistance` **truncates**: a two-square diagonal (2.83) reads as 2.
+   >
+   > **The `(i | c) != 0` guard in the octant walk is dead code** — a *bitwise* or of the loop
+   > counter and the error term, false only when both are zero, and the error term starts positive
+   > whenever the loop runs. Transcribed anyway.
+   >
+   > **`An_unported_subop_throws_with_a_citation` moved again**, from `$VisualDistance` to
+   > `$AddCombatant` — the third repointing. It has now named `$PARTYSIZE`, `$GET_CHAR_EFFAC`,
+   > `$VisualDistance` and `$AddCombatant` in turn.
+
    > **Four more are done** (2026-08-14): `$LOGIC_BLOCK_VALUE`, `$CURR_CHANGE_BY_VAL`,
    > `$GET_EVENT_Attribute`, `$DrawAdventureScreen`.
    >

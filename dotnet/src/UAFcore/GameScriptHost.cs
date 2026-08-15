@@ -712,6 +712,61 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// <summary>The global attribute a logic block writes its captures into.</summary>
     private const string LogicBlockValuesKey = "LOGICBLOCKVALUES";
 
+    /// <summary>
+    /// The running fight's map, as the sight walks want to see it.
+    /// </summary>
+    /// <remarks>
+    /// A thin adapter rather than a change to <see cref="CombatMap"/>: the two walks need to tell
+    /// "off the map", "no terrain here" and "opaque terrain" apart, because they disagree about the
+    /// first two.
+    /// </remarks>
+    private sealed class CombatSightMap(CombatMap map) : IGpdlSightMap
+    {
+        public bool Contains(int x, int y) => map.Contains(x, y);
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// <b>The upper bound is the reference's, and the two callers disagree about it too.</b>
+        /// <c>TestLineOfSight</c> requires <c>cell &lt; CurrentTileCount</c> while
+        /// <c>HaveVisibility</c> allows <c>cell &lt;= CurrentTileCount</c> — an off-by-one between
+        /// the two. The table's last index is unreachable either way here, since a
+        /// <c>CombatMap</c> never stores one past its own tile list.
+        /// </remarks>
+        public bool HasTerrain(int x, int y) =>
+            map.CellAt(x, y) is > CombatMap.NoTerrain and var cell
+            && cell < map.Tiles.Length;
+
+        public bool SeeThrough(int x, int y) =>
+            map.CellAt(x, y) is var cell
+            && cell > CombatMap.NoTerrain && cell < map.Tiles.Length
+            && map.Tiles[cell].SeeThrough;
+    }
+
+    /// <inheritdoc/>
+    public override bool IsLineOfSight(int x0, int y0, int x1, int y1) =>
+        game.Combat is { } session
+        && GpdlLineOfSight.IsClear(new CombatSightMap(session.Map), x0, y0, x1, y1);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>A different algorithm from <see cref="IsLineOfSight"/>, deliberately.</b> The reference
+    /// asks <c>HaveLineOfSight</c> here and <c>IsLineOfSight</c> there, and the two disagree about
+    /// squares off the map and squares with no terrain — so a script really can be told it has a
+    /// clear line and then be given <see cref="GpdlLineOfSight.NotVisible"/> for the distance along
+    /// it.
+    /// </remarks>
+    public override int VisualDistance(int combatant, int other)
+    {
+        if (game.Combat is not { } session
+            || At(combatant) is not { } from
+            || At(other) is not { } to)
+        {
+            return GpdlLineOfSight.NotVisible;
+        }
+
+        return GpdlLineOfSight.Distance(new CombatSightMap(session.Map), from.X, from.Y, to.X, to.Y);
+    }
+
     /// <summary>The combatant at an index, or null.</summary>
     private Combatant? At(int index) =>
         game.Combat is { } session && index >= 0 && index < session.Combatants.Count

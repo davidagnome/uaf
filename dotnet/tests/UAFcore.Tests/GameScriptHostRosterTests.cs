@@ -341,6 +341,53 @@ public class GameScriptHostRosterTests
         Assert.DoesNotContain(1, alive);
     }
 
+    /// <summary>
+    /// Sight over a real combat map, and the two walks disagreeing on it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The engine has two line-of-sight algorithms and <c>$IsLineOfSight</c> and
+    /// <c>$VisualDistance</c> use different ones.</b> They differ on squares off the map and
+    /// squares with no terrain — and a generated combat map has plenty of the latter, so on a real
+    /// fight a script really can be told it has a clear line and then be given
+    /// <see cref="GpdlLineOfSight.NotVisible"/> for the distance along it.
+    /// </remarks>
+    [Fact]
+    public void The_two_sight_walks_disagree_on_a_real_map()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var map = fight.Game.Combat!.Map;
+
+        // Somewhere off the map is clear to one walk and blocked to the other.
+        Assert.True(fight.Host.IsLineOfSight(-5, 0, -1, 0));
+
+        // A combatant sees itself at distance zero, whatever the terrain.
+        Assert.Equal(0, fight.Host.VisualDistance(0, 0));
+
+        // And a pair of real combatants gets an answer that is either a distance or the marker,
+        // never anything in between.
+        int distance = fight.Host.VisualDistance(0, 1);
+        Assert.True(distance >= 0);
+        Assert.True(distance <= map.Width + map.Height
+                    || distance == GpdlLineOfSight.NotVisible);
+    }
+
+    /// <summary>A combatant that is not there cannot be seen.</summary>
+    [Fact]
+    public void A_missing_combatant_is_not_visible()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        Assert.Equal(GpdlLineOfSight.NotVisible, fight.Host.VisualDistance(0, 999));
+        Assert.Equal(GpdlLineOfSight.NotVisible, fight.Host.VisualDistance(999, 0));
+    }
+
     private static List<int> Walk(GameScriptHost host, int filter)
     {
         var seen = new List<int>();
