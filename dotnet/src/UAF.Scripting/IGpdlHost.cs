@@ -1008,6 +1008,32 @@ public interface IGpdlHost
     string NullActor { get; }
 
     /// <summary>
+    /// An actor's index, as <c>$IndexOf</c> and <c>$MyIndex</c> report it
+    /// (<c>m_IndexOf</c>, <c>GPDLexec.cpp:7546</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A string, and not always a number.</b> An actor with no valid instance answers the
+    /// literal <c>"Invalid Context"</c> — so a script doing arithmetic on the result gets zero from
+    /// <c>atoi</c> rather than an error, and a script comparing it against a number silently fails.
+    /// The port keeps the literal because a design can test for it.
+    /// </para>
+    /// <para>
+    /// <b>What the number counts depends on where the game is.</b> Out of combat it is the
+    /// character's unique id, not a position in the party — the reference's own comment warns that
+    /// "Instance is uniqueCharID for party, not 0..numCharacters". In combat it is the combat
+    /// order. A combatant created mid-fight is offset by <c>NewCombatantInstanceOffset</c> (10000)
+    /// so it cannot collide with either, and a character the party built during play answers
+    /// <c>"-2"</c> whatever its instance is.
+    /// </para>
+    /// <para>
+    /// This is why it is a host call rather than something the VM can work out: an actor string is
+    /// opaque here, and only the host knows how to take it apart.
+    /// </para>
+    /// </remarks>
+    string IndexOf(string actor);
+
+    /// <summary>
     /// What <c>$GET_CHAR_RACE</c> answers for an actor nobody recognises.
     /// </summary>
     /// <remarks>
@@ -1232,6 +1258,13 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual string NullActor => string.Empty;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing here can take an actor string apart, so every actor is an invalid context — which
+    /// is the reference's answer for one, rather than an invented number.
+    /// </remarks>
+    public virtual string IndexOf(string actor) => GpdlActorIndex.InvalidContext;
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

@@ -182,6 +182,71 @@ public sealed class GpdlScriptContext
         return string.Empty;
     }
 
+    // ---- the character the engine is operating on -----------------------------------------------
+
+    private readonly List<string> actors = [];
+
+    /// <summary>
+    /// Pushes the character the engine is currently working on
+    /// (<c>SetCharContext</c>, <c>RunTimeIF.cpp:84</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A different stack from <see cref="GpdlContext.Character"/>, and deliberately so.</b> The
+    /// reference keeps two: <c>charContextStack</c>, pushed by whoever is operating on a character
+    /// — rolling its stats, updating them, enabling its abilities — and the script context's own
+    /// character, set when a script is run <i>for</i> someone. <c>$Myself</c> reads the first and
+    /// <c>$CharacterContext</c> the second. They usually agree, which is exactly why collapsing
+    /// them would be hard to notice and wrong in the cases that matter.
+    /// </para>
+    /// <para>
+    /// Independent of <see cref="Push"/>: the engine pushes and pops this around operations that
+    /// are not scripts at all.
+    /// </para>
+    /// </remarks>
+    public IDisposable PushActor(string actor)
+    {
+        actors.Add(actor ?? string.Empty);
+        return new PopActor(actors);
+    }
+
+    /// <summary>
+    /// The character being operated on, or empty when nothing is
+    /// (<c>GetCharContext</c>).
+    /// </summary>
+    /// <remarks>
+    /// The reference puts an error box in front of the player for an empty stack and carries on
+    /// with the null actor; the complaint is collected in <see cref="Missing"/> instead.
+    /// </remarks>
+    public string CurrentActor
+    {
+        get
+        {
+            if (actors.Count > 0 && actors[^1].Length > 0)
+            {
+                return actors[^1];
+            }
+
+            missing.Add("Missing Character Context");
+            return string.Empty;
+        }
+    }
+
+    /// <summary>Undoes one <see cref="PushActor"/>.</summary>
+    private sealed class PopActor(List<string> stack) : IDisposable
+    {
+        private bool done;
+
+        public void Dispose()
+        {
+            if (!done && stack.Count > 0)
+            {
+                stack.RemoveAt(stack.Count - 1);
+                done = true;
+            }
+        }
+    }
+
     private readonly List<string> missing = [];
 
     /// <summary>

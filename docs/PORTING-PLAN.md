@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,654 tests, green on macOS; both CI workflows green.**
+**4,700 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,8 +9015,8 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **301 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **71 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **313 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **59 of the missing are
    named callable functions**; the other 14 have no name in the table.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
@@ -9042,9 +9042,8 @@ What is left, in order:
    > The `[A-Za-z_0-9]` in the name pattern is the part that matters; `[A-Z_0-9]` is what produced
    > every wrong figure above.
    >
-   > What remains is still in families rather than singles: the eleven `$Gr*` graphics calls, six
-   > alignment tests, and the actor-identity group (`$Myself`, `$MyIndex`, `$IndexOf`, `$Name`,
-   > `$Status`, `$Gender`). **"No callable group remains" has now been false twice.**
+   > What remains is still in families rather than singles — the largest by far is the eleven
+   > `$Gr*` graphics calls. **"No callable group remains" has now been false twice.**
    >
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
    > in `GpdlSystemFunctions`, so aliases counted twice. Parsing the table's rows instead gives
@@ -9116,6 +9115,51 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The alignment and identity families are done** (2026-08-14) — twelve calls: the six
+   > `$Alignment*`, plus `$Status`, `$Gender`, `$HitPoints`, `$Myself`, `$MyIndex` and `$IndexOf`.
+   > Nine of them needed **no new host method at all**: they read the same stat the `$GET_CHAR_*`
+   > family already reads and differ only in what they make of it, so a design has both a numeric
+   > form (`$GET_CHAR_ALIGNMENT`) and a textual one (`$Alignment`) for the same fact.
+   >
+   > **`$AlignmentNeutral` is true for five alignments, not three**, and this is the detail worth
+   > guarding. Lawful and Chaotic test the ethical axis only; Good and Evil the moral axis only;
+   > but Neutral takes in Neutral Good and Neutral Evil as well as the three ethical neutrals
+   > (`GPDLexec.cpp:7723`). So a Neutral Good character answers yes to both `$AlignmentGood` and
+   > `$AlignmentNeutral`, and True Neutral is the only alignment answering yes to exactly one of
+   > the five. **The symmetric reading — "neutral means neither lawful nor chaotic" — is the
+   > obvious tidy-up and gets three alignments wrong.** `Neutral_covers_five_alignments_not_three`
+   > is the assertion that catches it.
+   >
+   > **`$Myself` and `$CharacterContext` read different stacks.** The reference keeps two:
+   > `charContextStack` (`RunTimeIF.cpp:84`), pushed by whoever is *operating on* a character —
+   > rolling its stats, updating them, enabling its abilities — and the script context's own
+   > Character, set when a script runs *for* someone. They usually hold the same actor, which is
+   > exactly why collapsing them would be hard to notice and wrong where it matters.
+   > `GpdlScriptContext.PushActor` is the first, independent of `Push`.
+   >
+   > **`$Myself` returns an `ACTOR`**, like `$CharacterContext` — so `$RETURN $Myself();` does not
+   > compile and it has to be read through a call that takes one. That is now the third time a
+   > table's return or parameter type has decided how a call may be written; **check the type slots
+   > before writing the test.**
+   >
+   > **`$IndexOf` can answer a sentence.** An actor with no valid instance gives the literal
+   > `"Invalid Context"`, which `atoi` reads as 0 — so a script doing arithmetic on it silently
+   > gets index zero. The port keeps the literal because a design can test for it. It also answers
+   > `"Invalid Context"` for a party member **outside combat**, which is a divergence: the
+   > reference gives the character's unique id there, and the port identifies party members by a
+   > *string* `CharacterId` with no integer behind it. Inventing a party position would be a
+   > different quantity wearing the same name — the reference's own comment warns against exactly
+   > that confusion ("Instance is uniqueCharID for party, not 0..numCharacters").
+   >
+   > **Two divergences taken where the reference indexes past an array.** `CharGenderTypeText` has
+   > two rows for three `genderType` values, and `CharAlignmentTypeText` is indexed with no bounds
+   > check at all. Both answer empty here instead. The engine's own `GetGenderName` agrees the
+   > third gender has no name (it returns `"??"`).
+   >
+   > **The three text tables now live once**, in `GpdlCharacterText`, shared with
+   > `CharacterSheetBuilder` — the sheet and the script calls print the same strings, and two
+   > copies would have been free to drift.
+
    > **The ten map get/set calls are done** (2026-08-14). `$GetWall`/`$SetWall` and their four
    > siblings — door, background, overlay, blockage — are one dispatch over a five-value layer
    > enum, reading and writing a byte per square per side through two new host methods.

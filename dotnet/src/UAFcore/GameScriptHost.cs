@@ -388,6 +388,28 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         who is null ? string.Empty : Text(who.Index);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>In a fight the index is the combat order; out of one there is no number to give.</b> The
+    /// reference answers a character's <i>unique id</i> outside combat — a number packed into
+    /// <c>ActorType</c> — but the port identifies a party member by <c>CharacterId</c>, a string,
+    /// and there is no integer behind it to report. Rather than invent one (a party position would
+    /// be a different quantity wearing the same name, and the reference's own comment warns against
+    /// exactly that confusion), a party member outside combat answers
+    /// <see cref="GpdlActorIndex.InvalidContext"/>.
+    /// </para>
+    /// <para>
+    /// <b>So <c>$IndexOf</c> is usable in combat and honest outside it.</b> A design relying on the
+    /// out-of-combat number gets the literal rather than a plausible wrong index — which is the
+    /// failure a script can actually notice.
+    /// </para>
+    /// </remarks>
+    public override string IndexOf(string actor) =>
+        Fighter(actor) is { } who
+            ? Text(who.Index)
+            : GpdlActorIndex.InvalidContext;
+
+    /// <inheritdoc/>
     public override string CombatantState(string actor) =>
         Fighter(actor) is { } who ? who.State.ToString() : string.Empty;
 

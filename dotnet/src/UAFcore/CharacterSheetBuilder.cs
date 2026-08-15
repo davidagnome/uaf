@@ -1,5 +1,6 @@
 using UAF.Media;
 using UAF.Rules;
+using UAF.Scripting;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -23,23 +24,13 @@ namespace UAFcore;
 /// </remarks>
 public static class CharacterSheetBuilder
 {
-    /// <summary><c>CharStatusTypeText</c>.</summary>
-    private static readonly string[] StatusNames =
-    [
-        "OKAY", "UNCONSCIOUS", "DEAD", "FLED", "PETRIFIED",
-        "GONE", "ANIMATED", "TEMP GONE", "RUNNING", "DYING",
-    ];
+    // The sheet and the $Status / $Alignment script calls print the same strings, so the tables
+    // live in one place rather than two that are free to drift apart.
+    private static readonly string[] StatusNames = GpdlAlignment.StatusNames;
 
-    /// <summary><c>CharAlignmentTypeText</c>.</summary>
-    private static readonly string[] AlignmentNames =
-    [
-        "LAWFUL GOOD", "NEUTRAL GOOD", "CHAOTIC GOOD",
-        "LAWFUL NEUTRAL", "TRUE NEUTRAL", "CHAOTIC NEUTRAL",
-        "LAWFUL EVIL", "NEUTRAL EVIL", "CHAOTIC EVIL",
-    ];
+    private static readonly string[] AlignmentNames = GpdlAlignment.Names;
 
-    private static string Name(string[] table, int index) =>
-        index >= 0 && index < table.Length ? table[index] : string.Empty;
+    private static string Name(string[] table, int index) => GpdlAlignment.Text(table, index);
 
     /// <summary>
     /// A combat-block number as the sheet writes it — <c>%5i</c>, right-aligned in five characters.

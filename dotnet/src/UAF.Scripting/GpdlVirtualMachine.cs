@@ -888,6 +888,58 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_CHAR_NBRATTACKS:
                 PushSp(_host.GetCharStat(PopSp(), StatOf(op)));
                 break;
+
+            // The six alignment calls, all reading the one accessor $GET_CHAR_ALIGNMENT does
+            // (GetAdjAlignment) and differing only in what they make of it.
+            //
+            // $Alignment answers the NAME; the other five answer a BOOL. So a script has both a
+            // numeric form ($GET_CHAR_ALIGNMENT) and a textual one for the same fact.
+            case SubOp.SUBOP_Alignment:
+                PushSp(GpdlAlignment.NameOf(AlignmentOf(PopSp())));
+                break;
+
+            // $Myself reads the engine's OWN character stack, not the script context's character
+            // -- two different things in the reference that usually hold the same actor. $MyIndex
+            // is literally m_IndexOf(m_Myself()), so it inherits both.
+            case SubOp.SUBOP_Myself:
+                PushSp(_host.Context.CurrentActor);
+                break;
+            case SubOp.SUBOP_MYINDEX:
+                PushSp(_host.IndexOf(_host.Context.CurrentActor));
+                break;
+            case SubOp.SUBOP_IndexOf:
+                PushSp(_host.IndexOf(PopSp()));
+                break;
+
+            // $Status and $Gender are the same shape: an ordinal off the character, named through
+            // the character sheet's own table.
+            case SubOp.SUBOP_Status:
+                PushSp(GpdlAlignment.Text(GpdlAlignment.StatusNames,
+                                          OrdinalOf(PopSp(), GpdlCharStat.Status)));
+                break;
+            case SubOp.SUBOP_Gender:
+                PushSp(GpdlAlignment.Text(GpdlAlignment.GenderNames,
+                                          OrdinalOf(PopSp(), GpdlCharStat.Gender)));
+                break;
+
+            case SubOp.SUBOP_HitPoints:
+
+                // The one of the four that answers "0" rather than empty when the actor does not
+                // resolve (GPDLexec.cpp:7760) -- so a script adding it up gets a number either way,
+                // and cannot tell a missing actor from a dead one.
+                PushSp(OrdinalOf(PopSp(), GpdlCharStat.HitPoints) is { } hp
+                           ? hp.ToString(CultureInfo.InvariantCulture)
+                           : "0");
+                break;
+            case SubOp.SUBOP_AlignmentGood:
+            case SubOp.SUBOP_AlignmentEvil:
+            case SubOp.SUBOP_AlignmentLawful:
+            case SubOp.SUBOP_AlignmentNeutral:
+            case SubOp.SUBOP_AlignmentChaotic:
+                PushSp(GpdlAlignment.Is(AlignmentOf(PopSp()), AlignmentTestOf(op))
+                           ? True
+                           : False);
+                break;
             case SubOp.SUBOP_SET_CHAR_HITPOINTS:
             case SubOp.SUBOP_SET_CHAR_MAXHITPOINTS:
             case SubOp.SUBOP_SET_CHAR_AC:
@@ -1934,6 +1986,35 @@ public sealed class GpdlVirtualMachine
         SubOp.SUBOP_ClassContext => GpdlContext.Class,
         SubOp.SUBOP_RaceContext => GpdlContext.Race,
         _ => GpdlContext.MonsterType,
+    };
+
+    /// <summary>
+    /// An actor's alignment, or null when the actor does not resolve.
+    /// </summary>
+    /// <remarks>
+    /// <b>An unresolved actor is false, not an error.</b> The reference's helpers all begin
+    /// <c>GetCurrentlyActiveContext(...)</c> and return <c>m_false</c> when it gives null — so
+    /// asking about nobody is indistinguishable from asking about someone who is not good.
+    /// </remarks>
+    private int? AlignmentOf(string actor) => OrdinalOf(actor, GpdlCharStat.Alignment);
+
+    /// <summary>
+    /// A numeric stat off an actor, or null when the actor or the stat does not resolve.
+    /// </summary>
+    private int? OrdinalOf(string actor, GpdlCharStat stat) =>
+        int.TryParse(_host.GetCharStat(actor, stat),
+                     NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+            ? value
+            : null;
+
+    /// <summary>Which alignment question one of the five predicates asks.</summary>
+    private static GpdlAlignmentTest AlignmentTestOf(SubOp op) => op switch
+    {
+        SubOp.SUBOP_AlignmentGood => GpdlAlignmentTest.Good,
+        SubOp.SUBOP_AlignmentEvil => GpdlAlignmentTest.Evil,
+        SubOp.SUBOP_AlignmentLawful => GpdlAlignmentTest.Lawful,
+        SubOp.SUBOP_AlignmentNeutral => GpdlAlignmentTest.Neutral,
+        _ => GpdlAlignmentTest.Chaotic,
     };
 
     /// <summary>Which map layer a get/set pair addresses.</summary>
