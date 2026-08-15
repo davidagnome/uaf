@@ -1477,6 +1477,44 @@ public interface IGpdlHost
     string ActorNamed(string name);
 
     /// <summary>
+    /// Redraws the adventure screen (<c>$DrawAdventureScreen</c> → <c>UpdateAdventureScreen</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The only GPDL call whose whole purpose is a side effect on the display.</b> It takes
+    /// nothing, answers nothing, and exists so a script that has changed the map or the party can
+    /// make the change visible before it goes on.
+    /// </remarks>
+    void DrawAdventureScreen();
+
+    /// <summary>
+    /// An attribute off an event on the task stack (<c>$GET_EVENT_Attribute</c>).
+    /// </summary>
+    /// <param name="depth">
+    /// How far down the stack of running events — 0 is the innermost. Events nest, so a script in a
+    /// chained event can reach the one that started it.
+    /// </param>
+    /// <returns>
+    /// The value, or <see cref="GpdlScriptContext.NoSuchAbility"/> when there is no event at that
+    /// depth. <b>The same <c>-?-?-</c> sentinel the ability calls use</b>, so a design can test for
+    /// it — and it is not the empty string, which is what an attribute set to nothing would give.
+    /// </returns>
+    string EventAttribute(int depth, string name);
+
+    /// <summary>
+    /// One of the twelve logic-block values (<c>$LOGIC_BLOCK_VALUE</c>).
+    /// </summary>
+    /// <param name="letter">
+    /// <c>"A"</c> through <c>"L"</c> — the twelfth letter is the last, because a logic block
+    /// records exactly twelve. Anything else answers empty.
+    /// </param>
+    /// <remarks>
+    /// The values are packed into one global attribute (<c>LOGICBLOCKVALUES</c>) as twelve
+    /// length-prefixed strings, written whole by the logic-block system
+    /// (<c>RecordLogicBlockValues</c>, <c>UAFWin/RunEvent.cpp:14333</c>).
+    /// </remarks>
+    string LogicBlockValue(string letter);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -1804,6 +1842,24 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual string ActorNamed(string name) => string.Empty;
+
+    /// <inheritdoc/>
+    /// <remarks>Nothing draws here, so the calls are counted instead.</remarks>
+    public virtual void DrawAdventureScreen() => AdventureScreenDraws++;
+
+    /// <summary>How many times a script asked for the screen to be redrawn.</summary>
+    public int AdventureScreenDraws { get; private set; }
+
+    /// <inheritdoc/>
+    public virtual string EventAttribute(int depth, string name) =>
+        GpdlScriptContext.NoSuchAbility;
+
+    /// <summary>The packed logic-block values, as the global attribute would hold them.</summary>
+    public string LogicBlockValues { get; set; } = string.Empty;
+
+    /// <inheritdoc/>
+    public virtual string LogicBlockValue(string letter) =>
+        GpdlLogicBlock.Value(LogicBlockValues, letter);
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

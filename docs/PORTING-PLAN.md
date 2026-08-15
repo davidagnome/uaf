@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,869 tests, green on macOS; both CI workflows green.**
+**4,893 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,9 +9015,17 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **357 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **15 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **361 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **11 of the missing are
    named callable functions**; the other 14 have no name in the table.
+   >
+   > **The eleven that remain, and why:** `$SkillAdj` and `$SpellAdj` need mutable adjustment lists
+   > on a character (the port's are on the immutable record); `$IsLineOfSight` and
+   > `$VisualDistance` need wall-walking the port does not have; `$AddCombatant`,
+   > `$ComputeAttackDamage`, `$ToHitComputation_Roll`, `$CastSpellOnTarget` and
+   > `$CastSpellOnTargetAs` need combat and spell-casting machinery; and `$RUN_CHAR_PS_SCRIPTS`
+   > and `$RUN_AREA_SE_SCRIPTS` are blocked (§the `$RUN_*_SCRIPTS` family). **No cheap ones are
+   > left** — everything from here needs a subsystem first.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
    > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
@@ -9121,6 +9129,35 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **Four more are done** (2026-08-14): `$LOGIC_BLOCK_VALUE`, `$CURR_CHANGE_BY_VAL`,
+   > `$GET_EVENT_Attribute`, `$DrawAdventureScreen`.
+   >
+   > **`$LOGIC_BLOCK_VALUE` cannot work in the reference, and the port implements the intent.**
+   > A logic block packs exactly twelve captures into one global attribute as length-prefixed
+   > records (`RecordLogicBlockValues`, `UAFWin/RunEvent.cpp:14333`) and the letter `A`–`L` selects
+   > one. But the reader's selector variable `k` holds the letter's ordinal **and** is reassigned to
+   > each record's length inside the loop (`GPDLexec.cpp:4630`) — so the loop bound changes as it
+   > runs, and the match test `if (i != k)` compares the loop counter against a byte length rather
+   > than the requested index. A value comes back only when a record's length happens to equal its
+   > position, and the loop does not stop when it does. Nothing could depend on that; the writer
+   > makes the intent unambiguous. **Twelve is fixed, not a maximum** — an unused capture is written
+   > with length zero rather than left out.
+   >
+   > **`$CURR_CHANGE_BY_VAL` takes no arguments and reads the VM itself.** The spell-effect system
+   > rolls a change and leaves it in `m_IntermediateResult` before running the effect's modification
+   > script, so the script can ask "how much was rolled?". It is the only value that crosses from
+   > the engine into a script without going through the stack or an attribute — now
+   > `GpdlVirtualMachine.IntermediateResult`. Rounded **half away from zero**, spelled out in the
+   > reference as `ceil(x - 0.5)` below zero and `floor(x + 0.5)` above: −2.5 is −3, where .NET's
+   > default rounding gives −2.
+   >
+   > **`$GET_EVENT_Attribute` indexes a stack of nested events, and this port has one event.** The
+   > reference keeps up to `MAXTASK` running events so a chained one can reach what started it;
+   > `EventRunner` has a single `Current`. Depth 0 is answered and anything deeper gets the
+   > reference's own `-?-?-` for an empty slot — the honest answer rather than a different event's
+   > attribute. **The sentinel is not the empty string**, so a design can tell "no such attribute"
+   > from "an attribute set to nothing".
+
    > **The six combat-roster calls are done** (2026-08-14): `$GetFriendly`, `$SetFriendly`,
    > `$ListAdjacentCombatants`, `$NextCreatureIndex`, `$IndexToActor`, `$Name`.
    >

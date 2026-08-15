@@ -77,6 +77,18 @@ public sealed class GpdlVirtualMachine
     /// <summary>The status the last run ended with.</summary>
     public GpdlState Status { get; private set; } = GpdlState.GPDL_IDLE;
 
+    /// <summary>
+    /// A number carried between scripts (<c>m_IntermediateResult</c>, <c>GPDLexec.h:405</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Set by the spell-effect system, read by <c>$CURR_CHANGE_BY_VAL</c>.</b> Before running a
+    /// spell effect's modification script the engine rolls the change and leaves it here, so the
+    /// script can ask "how much was rolled?" and adjust it. That is the whole of its use — it is
+    /// the only value that crosses from the engine into a script without going through the stack
+    /// or an attribute.
+    /// </remarks>
+    public double IntermediateResult { get; set; }
+
     /// <summary>Instructions executed by the last run.</summary>
     public int InstructionCount => _interpretCount;
 
@@ -1164,6 +1176,32 @@ public sealed class GpdlVirtualMachine
                 break;
             case SubOp.SUBOP_Name:
                 PushSp(_host.ActorNamed(PopSp()));
+                break;
+
+            case SubOp.SUBOP_DRAWADVENTURESCREEN:
+                _host.DrawAdventureScreen();
+                PushSp(False);
+                break;
+
+            case SubOp.SUBOP_GET_EVENT_Attribute:
+                {
+                    string name = PopSp();
+                    PushSp(_host.EventAttribute(PopInteger(), name));
+                    break;
+                }
+
+            case SubOp.SUBOP_LOGIC_BLOCK_VALUE:
+                PushSp(_host.LogicBlockValue(PopSp()));
+                break;
+
+            case SubOp.SUBOP_CURR_CHANGE_BY_VAL:
+
+                // Takes nothing: it reads the VM's own intermediate result, which the spell-effect
+                // system sets before running a modification script. Rounded half AWAY FROM ZERO,
+                // because GPDL's stack holds no floats -- the reference does ceil(x - 0.5) below
+                // zero and floor(x + 0.5) above it, which is that rule spelled out.
+                PushSp(Math.Round(IntermediateResult, MidpointRounding.AwayFromZero)
+                           .ToString("F0", CultureInfo.InvariantCulture));
                 break;
 
             case SubOp.SUBOP_Alignment:

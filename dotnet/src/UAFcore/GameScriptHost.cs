@@ -675,6 +675,43 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// <summary><c>HIGHEST_CHARACTER_LEVEL</c> (<c>Externs.h:199</c>).</summary>
     private const int HighestCharacterLevel = 40;
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Only depth 0 can be answered, because this port runs one event at a time.</b> The
+    /// reference keeps a stack of up to <c>MAXTASK</c> nested events and lets a chained event reach
+    /// the one that started it; <see cref="EventRunner"/> has a single <c>Current</c>. Deeper
+    /// requests get the same <c>-?-?-</c> the reference gives for an empty slot, which is at least
+    /// the honest answer rather than a wrong event's attribute.
+    /// </remarks>
+    public override string EventAttribute(int depth, string name)
+    {
+        if (depth != 0 || game.Runner.Current is not { } current)
+        {
+            return GpdlScriptContext.NoSuchAbility;
+        }
+
+        foreach (var entry in current.Base.Attributes)
+        {
+            if (string.Equals(entry.Key, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return entry.Value;
+            }
+        }
+
+        return GpdlScriptContext.NoSuchAbility;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The values are packed into one global attribute by the logic-block system, so this is a read
+    /// of the design's own store rather than of anything the host keeps.
+    /// </remarks>
+    public override string LogicBlockValue(string letter) =>
+        GpdlLogicBlock.Value(game.Globals.Find(LogicBlockValuesKey) ?? string.Empty, letter);
+
+    /// <summary>The global attribute a logic block writes its captures into.</summary>
+    private const string LogicBlockValuesKey = "LOGICBLOCKVALUES";
+
     /// <summary>The combatant at an index, or null.</summary>
     private Combatant? At(int index) =>
         game.Combat is { } session && index >= 0 && index < session.Combatants.Count
