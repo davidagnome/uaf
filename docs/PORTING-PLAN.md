@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**5,003 tests, green on macOS; both CI workflows green.**
+**5,011 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -5756,9 +5756,9 @@ Two things written here a round ago were wrong, and are corrected:
 and the camp all push, and so does combat**. Taken first among the inner screens for that reason:
 it is the one with the most callers per screen built.
 
-**Six of its thirteen commands run** — READY, HALVE, JOIN, NEXT, PREV, EXIT. The other seven each
-want machinery this port does not have (a trade partner picker, the level's cell contents, the
-scribe rules) and are named below.
+**Seven of its thirteen commands run** — READY, HALVE, JOIN, DEPOSIT, NEXT, PREV, EXIT. The other
+six each want machinery this port does not have (a trade partner picker, the level's cell contents,
+a yes/no confirmation, the scribe rules) and are named below.
 
 > **The screen shows a *word*, not a tick.** `readyLocation` names a slot — WEAPON, SHIELD, ARMOR,
 > HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER, and seven more the engine can reach — so
@@ -5812,6 +5812,39 @@ these need only arithmetic.
 
 > **A refused command changes nothing and says nothing.** The reference simply redraws; there is no
 > message for a HALVE that could not happen, so a player sees the command do nothing at all.
+
+##### Depositing into a vault
+
+`InventoryBundles.Deposit` — the inventory's DEPOSIT (`RunEvent.cpp:8067`), taken next because the
+vault it writes into was already tracked and the whole command is one move.
+
+> **The whole stack goes, not one of it.** The row is deleted with its full quantity, so a
+> character depositing forty arrows deposits forty. HALVE is how you keep some — which is part of
+> why those two came first.
+
+> **One record flag governs four different ways an item can leave the party.** The field is
+> literally `CanBeTradeDropSoldDep`, and `itemCanBeDeposited`, `itemCanBeSold`, `itemCanBeTraded`
+> and `itemCanBeDropped` all just return it (`Items.cpp:398`–`:462`) — so a design cannot allow
+> selling but forbid dropping.
+
+> **That flag is checked when the reference builds its MENU, not when it runs the command.** DEPOSIT
+> is greyed out for an item whose record forbids it (`RunEvent.cpp:8528`) and the handler then
+> re-tests only the item's *class*. The port's menu does not grey entries yet, so the same gate is
+> applied at the point of use — the same outcome, one step later. **Worth knowing before anyone
+> "moves the check to where the reference has it"**: there, that would mean building the greying.
+
+> **The class gate is not applied at all, and does not need to be.** It excludes special items,
+> keys and quest items — which live on a *different list* behind the same screen, the reason two
+> menu entries are both called EXAMINE. Nothing on the ordinary-items list can be one of them.
+
+> **Money is a different screen, not a refusal.** Coins, gems and jewellery are deposited by
+> *quantity* through a prompt (`GET_MONEY_QTY_DATA`), so `DepositRefusal.IsMoney` says which screen
+> is missing rather than pretending the item cannot go in. It is checked first, because money would
+> also fail the record test for want of a database entry and the wrong reason is worse than none.
+
+> **The runner takes a `Func<GlobalVaults?>`, not the vaults.** `Game.Vaults` is rebuilt from the
+> save file on load, so a runner holding the object it was handed at construction would write into
+> the vaults of the game that was thrown away.
 
 ##### The town-service shells, complete
 
@@ -8777,15 +8810,16 @@ What is left, in order:
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
      shells, complete). The **inventory** is done and on screen in the shop and the vault, with a
      row cursor, paging and the full ready rules (§the shared inventory, §the inventory on screen,
-     §the ready rules). **HALVE and JOIN now run too** (§splitting and merging bundles), so eight
-     of its thirteen commands work — READY, HALVE, JOIN and the four navigation ones.
+     §the ready rules). **HALVE, JOIN and DEPOSIT now run too** (§splitting and merging bundles,
+     §depositing into a vault), so seven of its thirteen commands work — READY, HALVE, JOIN,
+     DEPOSIT and the three navigation ones.
 
-     What is left there is **USE, TRADE, DROP, DEPOSIT, SELL, IDENTIFY and the two EXAMINEs**.
+     What is left there is **USE, TRADE, DROP, SELL, IDENTIFY and the two EXAMINEs**.
      **DROP is the largest**: it drops the item into the level's `CELL_LEVEL_CONTENTS`, so it needs
      the level's mutable cell-contents table first — which `SaveGameProjection` still writes as an
-     empty `CellLevelContents([])`. **DEPOSIT and SELL are the cheapest**: the vault is already
-     tracked and the shop's price scale is already shared, so each is a call into machinery that
-     exists.
+     empty `CellLevelContents([])`. **SELL is the next cheapest**, and unlike DEPOSIT it is not a
+     single action: it prices the stack against the shop's buyback percentage and then pushes a
+     yes/no confirmation (`ASK_YES_NO_MENU_DATA`), so it needs that flow as well as the arithmetic.
 
      The **party menu** behind the training hall runs, and with it **training** (§the party menu,
      and training). There is no separate character picker — an earlier note here said there was,

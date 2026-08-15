@@ -59,6 +59,11 @@ public sealed class Game
         // READY needs the record itself: how many hands the thing takes, and which slot it goes in.
         Runner.ItemDatabase = design.Item;
 
+        // DEPOSIT moves an item out of the party and into a vault, so the screen needs the vaults.
+        // A lookup, not the object: Vaults is not built until further down this constructor, and
+        // loading a save replaces it outright.
+        Runner.Vaults = () => Vaults;
+
         // VIEW shows whoever is active. Built here rather than in the runner, which has no party.
         Runner.ActiveCharacterSheet = () => Party?.Active is { } active
             ? CharacterSheetBuilder.Build(active, design.Baseclasses, design.Item)

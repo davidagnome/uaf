@@ -10,12 +10,12 @@ namespace UAFcore.Tests;
 public class InventoryBundleTests
 {
     /// <summary>An item record with the two fields these rules read.</summary>
-    private static ItemRecord Record(int bundleQty, int canHalveJoin) =>
+    private static ItemRecord Record(int bundleQty, int canHalveJoin, int canLeave = 1) =>
         new(new ItemNames(0, "", "", "", "", "", ""),
             HitArt: null, MissileArt: null,
             new ItemScalars("", 0, 0, 0, 0, 0, bundleQty, 0),
             new ItemCombat(ReadiedLocation.WeaponHand, 1, 0, 0, 0, 0, 0, 0, 0.0, 0, 0),
-            new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null, canHalveJoin, 0,
+            new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null, canHalveJoin, canLeave,
                          new SpecabBlock([], [], []), []));
 
     private static ItemInstance Item(string id, int key, int quantity, uint? where = null) =>
@@ -237,6 +237,110 @@ public class InventoryBundleTests
     [InlineData(ItemClass.Quest, false)]
     public void Three_classes_are_excluded_outright(ItemClass kind, bool allowed) =>
         Assert.Equal(allowed, InventoryBundles.ClassCanSplitOrMerge(kind));
+
+    /// <summary>An item moves out of the party and into the vault, whole.</summary>
+    /// <remarks>
+    /// <b>The whole stack goes, not one of it.</b> A character depositing forty arrows deposits
+    /// forty — HALVE is how you keep some.
+    /// </remarks>
+    [Fact]
+    public void Depositing_moves_the_whole_stack()
+    {
+        var items = new List<ItemInstance> { Item("arrow", 1, 40), Item("sword", 2, 1) };
+        var vaults = new GlobalVaults(MoneyRules.Default);
+
+        Assert.Equal(InventoryBundles.DepositRefusal.None,
+                     InventoryBundles.Deposit(items, 0, vaults, 0, Database()));
+
+        Assert.Single(items);
+        Assert.Equal("sword", items[0].ItemId);
+
+        var deposited = Assert.Single(vaults.ItemsIn(0));
+        Assert.Equal("arrow", deposited.ItemId);
+        Assert.Equal(40, deposited.Quantity);
+    }
+
+    /// <summary>
+    /// A worn item is refused, and that is the one refusal the reference reports.
+    /// </summary>
+    [Fact]
+    public void A_worn_item_cannot_be_deposited()
+    {
+        var items = new List<ItemInstance>
+        {
+            Item("arrow", 1, 4, ReadiedLocation.Base38("WEAPON")),
+        };
+        var vaults = new GlobalVaults(MoneyRules.Default);
+
+        Assert.Equal(InventoryBundles.DepositRefusal.IsReadied,
+                     InventoryBundles.Deposit(items, 0, vaults, 0, Database()));
+
+        Assert.Single(items);
+        Assert.Empty(vaults.ItemsIn(0));
+    }
+
+    /// <summary>
+    /// Money is not refused so much as sent elsewhere.
+    /// </summary>
+    /// <remarks>
+    /// Coins, gems and jewellery are deposited by <i>quantity</i> through a prompt, not as a
+    /// carried item — a different screen the port has not built, which is why it has its own code
+    /// rather than sharing "cannot be deposited".
+    /// </remarks>
+    [Fact]
+    public void Money_goes_down_a_different_path()
+    {
+        var items = new List<ItemInstance> { Item("_$GEM$_", 1, 5) };
+        var vaults = new GlobalVaults(MoneyRules.Default);
+
+        Assert.Equal(InventoryBundles.DepositRefusal.IsMoney,
+                     InventoryBundles.Deposit(items, 0, vaults, 0, Database()));
+    }
+
+    /// <summary>
+    /// One record flag governs depositing, trading, dropping and selling alike.
+    /// </summary>
+    /// <remarks>
+    /// The field is literally <c>CanBeTradeDropSoldDep</c> and every one of those four checks just
+    /// returns it — so a design cannot allow selling but forbid dropping.
+    /// </remarks>
+    [Fact]
+    public void One_flag_governs_all_four_ways_out()
+    {
+        var items = new List<ItemInstance> { Item("arrow", 1, 4) };
+        var vaults = new GlobalVaults(MoneyRules.Default);
+
+        // The bundle flag is set, so this is not the halve/join rule refusing it.
+        Assert.True(InventoryBundles.CanSplitOrMerge(items[0], Database()));
+
+        Assert.False(InventoryBundles.CanLeaveTheParty(items[0], Locked()));
+        Assert.Equal(InventoryBundles.DepositRefusal.CannotBeDeposited,
+                     InventoryBundles.Deposit(items, 0, vaults, 0, Locked()));
+    }
+
+    /// <summary>A database whose items may be split but never leave the party.</summary>
+    private static Func<string, ItemRecord?> Locked() =>
+        _ => new(new ItemNames(0, "", "", "", "", "", ""),
+                 HitArt: null, MissileArt: null,
+                 new ItemScalars("", 0, 0, 0, 0, 0, 10, 0),
+                 new ItemCombat(ReadiedLocation.WeaponHand, 1, 0, 0, 0, 0, 0, 0, 0.0, 0, 0),
+                 new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null, 1,
+                              CanBeTradeDropSoldDep: 0, new SpecabBlock([], [], []), []));
+
+    /// <summary>A vault that does not exist is refused rather than created.</summary>
+    [Fact]
+    public void A_vault_that_does_not_exist_is_refused()
+    {
+        var items = new List<ItemInstance> { Item("arrow", 1, 4) };
+        var vaults = new GlobalVaults(MoneyRules.Default);
+
+        Assert.Equal(InventoryBundles.DepositRefusal.NoSuchVault,
+                     InventoryBundles.Deposit(items, 0, vaults, GlobalVaults.Count, Database()));
+        Assert.Equal(InventoryBundles.DepositRefusal.NoSuchVault,
+                     InventoryBundles.Deposit(items, 0, vaults, -1, Database()));
+
+        Assert.Single(items);
+    }
 
     /// <summary>An index off the end is refused rather than throwing.</summary>
     [Fact]

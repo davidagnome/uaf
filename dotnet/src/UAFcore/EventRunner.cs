@@ -1796,6 +1796,44 @@ public sealed class EventRunner
                 return EventStep.Running;
             }
 
+            case InventoryCommand.Deposit:
+            {
+                // Only meaningful over a vault -- the reference asserts the parent event's type
+                // rather than checking it, so a DEPOSIT anywhere else is a programming error there
+                // and simply does nothing here.
+                if (Current is not VaultEvent vault
+                    || Vaults?.Invoke() is not { } vaults
+                    || ActiveCharacterItems?.Invoke() is not { } carried)
+                {
+                    return EventStep.Running;
+                }
+
+                var page = InventoryPageRows;
+                int row = InventoryRowIndex;
+                if (row < 0 || row >= page.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                var stack = new List<ItemInstance>(carried.Items);
+
+                LastDepositRefusal = InventoryBundles.Deposit(
+                    stack, page[row].Index, vaults, vault.WhichVault,
+                    ItemDatabase ?? (_ => null));
+
+                if (LastDepositRefusal is not InventoryBundles.DepositRefusal.None)
+                {
+                    return EventStep.Running;
+                }
+
+                var afterDeposit = carried with { Items = stack };
+                ApplyItemChange?.Invoke(afterDeposit);
+
+                InventoryRows = Inventory.Rows(afterDeposit, ItemNames);
+                PopulateInventoryForm();
+                return EventStep.Running;
+            }
+
             case InventoryCommand.Halve:
             case InventoryCommand.Join:
             {
@@ -1841,6 +1879,27 @@ public sealed class EventRunner
                 return EventStep.Running;
         }
     }
+
+    /// <summary>
+    /// The vaults a DEPOSIT writes into, when the runner has been given them.
+    /// </summary>
+    /// <remarks>
+    /// <b>A lookup rather than a reference, because the game replaces its vaults on load.</b>
+    /// <c>Game.Vaults</c> is rebuilt from the save file, so a runner holding the object it was
+    /// given at construction would write into the vaults of the game that was thrown away.
+    /// Injected like the item database: the runner draws screens and does not own world state.
+    /// </remarks>
+    public Func<GlobalVaults?>? Vaults { get; set; }
+
+    /// <summary>
+    /// Why the last DEPOSIT was refused, or <see cref="InventoryBundles.DepositRefusal.None"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference reports only one of these</b> — an item being worn gets a message and every
+    /// other refusal simply redraws. Exposed here for the same reason <see cref="LastRefusal"/>
+    /// is: nothing should fail silently just because the original had nowhere to say so.
+    /// </remarks>
+    public InventoryBundles.DepositRefusal LastDepositRefusal { get; private set; }
 
     /// <summary>Why the last READY was refused, or <see cref="ReadyRefusal.None"/>.</summary>
     /// <remarks>

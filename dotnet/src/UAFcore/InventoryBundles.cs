@@ -53,6 +53,126 @@ public static class InventoryBundles
         kind is not (ItemClass.SpecialItem or ItemClass.SpecialKey or ItemClass.Quest);
 
     /// <summary>
+    /// Why a DEPOSIT was refused.
+    /// </summary>
+    /// <remarks>
+    /// <b>The reference reports only one of these to the player</b> — <c>ItemIsReadied</c> gets a
+    /// message and the rest simply redraw. Named separately here because "nothing happened" is the
+    /// hardest kind of bug to see.
+    /// </remarks>
+    public enum DepositRefusal
+    {
+        None,
+
+        /// <summary>The row does not exist.</summary>
+        NoSuchItem,
+
+        /// <summary>
+        /// Money, which the reference sends down a separate path.
+        /// </summary>
+        /// <remarks>
+        /// Coins, gems and jewellery are deposited by <i>quantity</i> through a prompt
+        /// (<c>GET_MONEY_QTY_DATA</c>), not as a carried item — so this is not a refusal so much as
+        /// a different screen, and the port has not built it.
+        /// </remarks>
+        IsMoney,
+
+        /// <summary>The item's record or class forbids it.</summary>
+        CannotBeDeposited,
+
+        /// <summary>It is being worn, and the reference says so.</summary>
+        IsReadied,
+
+        /// <summary>There is no such vault.</summary>
+        NoSuchVault,
+    }
+
+    /// <summary>
+    /// Whether an item may be deposited, traded, dropped or sold
+    /// (<c>itemCanBeDeposited</c>, <c>Items.cpp:433</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>One flag covers all four.</b> The record field is literally
+    /// <c>CanBeTradeDropSoldDep</c>, and <c>itemCanBeDeposited</c>, <c>itemCanBeSold</c> and their
+    /// siblings all just return it — so a design cannot allow selling but forbid dropping. The
+    /// three-class exclusion is the same one splitting uses.
+    /// </remarks>
+    public static bool CanLeaveTheParty(ItemInstance item, Func<string, ItemRecord?> database)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(database);
+
+        return database(item.ItemId) is { } record && record.Tail.CanBeTradeDropSoldDep != 0;
+    }
+
+    /// <summary>
+    /// Moves an item from a character into a vault (<c>RunEvent.cpp:8067</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The whole stack goes, not one of it.</b> The reference deletes the row with its full
+    /// quantity, so a character depositing forty arrows deposits forty — HALVE is how you keep
+    /// some.
+    /// </para>
+    /// <para>
+    /// <b>The record flag is checked here where the reference checks it when it builds the
+    /// menu.</b> Its DEPOSIT entry is greyed out for an item whose record forbids it
+    /// (<c>RunEvent.cpp:8528</c>) and the command handler then re-tests only the item's
+    /// <i>class</i>. The port's menu does not grey entries yet, so the same gate is applied at the
+    /// point of use — the same outcome, one step later.
+    /// </para>
+    /// <para>
+    /// <b>The class gate is not applied at all, and does not need to be.</b> It excludes special
+    /// items, keys and quest items, which live on a <i>different list</i> behind the same screen —
+    /// the reason two menu entries are both called EXAMINE. Nothing on the ordinary-items list can
+    /// be one of them.
+    /// </para>
+    /// </remarks>
+    public static DepositRefusal Deposit(List<ItemInstance> items, int index,
+                                         GlobalVaults vaults, int vault,
+                                         Func<string, ItemRecord?> database)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(vaults);
+        ArgumentNullException.ThrowIfNull(database);
+
+        if (index < 0 || index >= items.Count)
+        {
+            return DepositRefusal.NoSuchItem;
+        }
+
+        if (!GlobalVaults.IsValid(vault))
+        {
+            return DepositRefusal.NoSuchVault;
+        }
+
+        var item = items[index];
+
+        // Money first: it is a different screen rather than a refusal, and saying so is more use
+        // than the flag check below, which money would also fail for want of a database record.
+        if (Inventory.IsMoney(item.ItemId))
+        {
+            return DepositRefusal.IsMoney;
+        }
+
+        if (!CanLeaveTheParty(item, database))
+        {
+            return DepositRefusal.CannotBeDeposited;
+        }
+
+        // The one refusal the reference tells the player about.
+        if (Inventory.IsReady(item))
+        {
+            return DepositRefusal.IsReadied;
+        }
+
+        vaults.Deposit(vault, item);
+        items.RemoveAt(index);
+
+        return DepositRefusal.None;
+    }
+
+    /// <summary>
     /// Splits a bundle in two (<c>ITEM_LIST::halveItem</c>).
     /// </summary>
     /// <returns>Whether anything was split.</returns>

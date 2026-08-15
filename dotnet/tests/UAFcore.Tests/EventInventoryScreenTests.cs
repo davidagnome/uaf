@@ -1,5 +1,6 @@
 using UAF.Common;
 using UAF.Media;
+using UAF.Rules;
 using UAF.Serialization;
 using UAFcore;
 
@@ -127,7 +128,8 @@ public class EventInventoryScreenTests
             new ItemScalars("", 0, 0, 0, 0, 0, BundleQty: 20, 0),
             new ItemCombat(ReadiedLocation.Fingers, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 0),
             new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null,
-                         CanBeHalvedJoined: 1, 0, new SpecabBlock([], [], []), []));
+                         CanBeHalvedJoined: 1, CanBeTradeDropSoldDep: 1,
+                         new SpecabBlock([], [], []), []));
 
     private static EventRunner Splitting(ItemList carried)
     {
@@ -142,6 +144,79 @@ public class EventInventoryScreenTests
         };
         runner.Begin(Vault(), Font(), Box, Anchors);
         return runner;
+    }
+
+    /// <summary>A vault screen with real vaults behind it.</summary>
+    private static (EventRunner Runner, GlobalVaults Vaults) Depositing(ItemList carried)
+    {
+        ItemList? held = carried;
+        var vaults = new GlobalVaults(MoneyRules.Default);
+
+        var runner = new EventRunner
+        {
+            PageSize = Page,
+            IsValidEvent = _ => true,
+            ItemDatabase = Bundles,
+            ActiveCharacterItems = () => held,
+            ApplyItemChange = changed => held = changed,
+            Vaults = () => vaults,
+        };
+        runner.Begin(Vault(), Font(), Box, Anchors);
+        return (runner, vaults);
+    }
+
+    /// <summary>DEPOSIT moves the row out of the party and into the vault.</summary>
+    [Fact]
+    public void Deposit_moves_the_row_into_the_vault()
+    {
+        var (runner, vaults) = Depositing(Carrying(Bundle(1, 12), Bundle(2, 3)));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Deposit);
+
+        Assert.Equal(InventoryBundles.DepositRefusal.None, runner.LastDepositRefusal);
+        Assert.Single(runner.InventoryRows!);
+
+        var deposited = Assert.Single(vaults.ItemsIn(0));
+        Assert.Equal(12, deposited.Quantity);
+        Assert.Null(runner.Unimplemented);
+    }
+
+    /// <summary>
+    /// A worn item stays put, and the screen says why.
+    /// </summary>
+    /// <remarks>
+    /// The one refusal the reference reports to the player; the rest simply redraw.
+    /// </remarks>
+    [Fact]
+    public void Deposit_refuses_a_worn_item()
+    {
+        var worn = new ItemInstance(1, "Arrows", 0, ReadiedLocation.Fingers, 5, 1, 0, 0, 0);
+        var (runner, vaults) = Depositing(Carrying(worn));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Deposit);
+
+        Assert.Equal(InventoryBundles.DepositRefusal.IsReadied, runner.LastDepositRefusal);
+        Assert.Single(runner.InventoryRows!);
+        Assert.Empty(vaults.ItemsIn(0));
+    }
+
+    /// <summary>Without vaults the command does nothing rather than throwing.</summary>
+    /// <remarks>
+    /// The runner draws screens and does not own world state, so it can legitimately be built
+    /// without any.
+    /// </remarks>
+    [Fact]
+    public void Deposit_without_vaults_does_nothing()
+    {
+        var runner = Splitting(Carrying(Bundle(1, 5)));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Deposit);
+
+        Assert.Single(runner.InventoryRows!);
+        Assert.Null(runner.Unimplemented);
     }
 
     /// <summary>HALVE splits the selected row, and the screen shows both halves.</summary>
