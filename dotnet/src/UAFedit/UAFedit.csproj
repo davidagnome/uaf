@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 5's editor. Avalonia rather than MFC, per the target architecture (§5).
+
+    It references UAFcore for the whole data model and both halves of the archive layer. That is the
+    point of Phase 1 having been done first: the editor reads and writes no bytes of its own, and
+    what it adds is dialogs and view models over records that already load and save.
+
+    UAFcore.App stays separate. The editor must not drag SDL, a window and an audio device along
+    with it, which is exactly why that split was made.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>UAFedit</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <!--
+    The transpiled dialogs are RAW MATERIAL, not code. Avalonia's build tasks glob every .axaml
+    under the project, so without this they are compiled in and embedded: UAFedit.dll grew to
+    937 KB with 393 references to Generated/IDD_*. They carry no x:Class, so the build succeeds
+    and nothing warns. That is exactly why this line has to be here rather than discovered
+    later. Each one is meant to be hand-refined into Views/ and deleted from here.
+  -->
+  <ItemGroup>
+    <AvaloniaXaml Remove="Views\Generated\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\UAFcore\UAFcore.csproj" />
+  </ItemGroup>
+
+</Project>

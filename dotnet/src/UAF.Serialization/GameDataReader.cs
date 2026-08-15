@@ -69,6 +69,15 @@ public static class GameDataReader
         public IArchiveCursor Body { get; } =
             car is not null ? ArchiveCursor.For(car) : ArchiveCursor.For(plain!);
 
+        /// <summary>
+        /// Where the file ran out, when it was short and the framing tolerated it.
+        /// </summary>
+        /// <remarks>
+        /// Null for every complete file, and for the framed path, which never tolerates a short
+        /// read. See <see cref="MfcArchiveReader.ZeroFillPastEnd"/> for why the unframed path does.
+        /// </remarks>
+        public long? TruncatedAt => plain?.TruncatedAt;
+
         public int ReadInt32() => car?.ReadInt32() ?? plain!.ReadInt32();
 
         public byte ReadByte() => car?.ReadByte() ?? plain!.ReadByte();
@@ -96,7 +105,18 @@ public static class GameDataReader
         {
             // Those same 8 bytes are the version; rewind so the payload reader sees them.
             stream.Seek(0, SeekOrigin.Begin);
-            var plain = new MfcArchiveReader(stream);
+
+            // The unframed path is the only one that meets a SHORT file in practice, and it meets
+            // one in the corpus: the editor's own DefaultDesign.dsn/Data/game.dat is 4,343 bytes
+            // and its GLOBAL_STATS runs exactly to the last byte, then wants four more. MFC opens
+            // it anyway -- CArchive's >> discards the read count -- so refusing it means File > New
+            // cannot work, and the template design is precisely the one an editor must be able to
+            // read. The parse lands ON the end rather than running off into it, which is what
+            // distinguishes this from corruption; MfcArchiveReader.TruncatedAt records where.
+            //
+            // Not enabled on the framed path: a CAR stream that ends early is a decompression
+            // failure, and zero-filling one would turn a broken file into plausible data.
+            var plain = new MfcArchiveReader(stream) { ZeroFillPastEnd = true };
             return new Cursor(GameDataFraming.Plain, new DesignVersion(plain.ReadDouble()),
                               null, plain);
         }

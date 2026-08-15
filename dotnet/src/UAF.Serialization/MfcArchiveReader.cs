@@ -48,6 +48,38 @@ public sealed class MfcArchiveReader
     /// <summary>Byte offset into the underlying stream.</summary>
     public long Position => _stream.Position;
 
+    /// <summary>
+    /// Whether a read past the end of the file yields zeroes instead of throwing
+    /// (<c>CArchive::Read</c>'s actual behaviour).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>MFC's extraction operators do not check how much they read.</b> <c>ar &gt;&gt; n</c> is
+    /// <c>Read(&amp;n, sizeof n)</c> with the return value discarded, so a file that ends mid-record
+    /// leaves the destination holding whatever was there — in practice zero. The reference
+    /// therefore <i>opens</i> a truncated design and treats the missing tail as absent, where this
+    /// port would refuse it.
+    /// </para>
+    /// <para>
+    /// <b>Off by default, and deliberately.</b> Silently zero-filling past EOF everywhere would
+    /// turn genuine corruption — a mis-parse that runs off the end — into plausible data, which is
+    /// the failure this reader exists to prevent. It is switched on only where a shipped file is
+    /// known to be short and the reference is known to read it anyway. See
+    /// <see cref="TruncatedAt"/> for telling the two apart afterwards.
+    /// </para>
+    /// </remarks>
+    public bool ZeroFillPastEnd { get; set; }
+
+    /// <summary>
+    /// Where the file first ran out, when <see cref="ZeroFillPastEnd"/> let a read past it succeed.
+    /// </summary>
+    /// <remarks>
+    /// <b>A short read is a fact about the file, not a detail to swallow.</b> A caller that
+    /// tolerated the truncation still needs to be able to say so — and a value here on a file
+    /// nobody expected to be short is a mis-parse, not a short file.
+    /// </remarks>
+    public long? TruncatedAt { get; private set; }
+
     private void ReadExactly(Span<byte> buffer)
     {
         int read = 0;
@@ -56,6 +88,16 @@ public sealed class MfcArchiveReader
             int n = _stream.Read(buffer[read..]);
             if (n == 0)
             {
+                if (ZeroFillPastEnd)
+                {
+                    // CArchive's own behaviour: the bytes that were not there stay as they were,
+                    // which for a freshly zeroed destination is zero. Recorded so a caller can
+                    // still tell a short file from a clean one.
+                    TruncatedAt ??= _stream.Position;
+                    buffer[read..].Clear();
+                    return;
+                }
+
                 throw new EndOfStreamException(
                     $"Expected {buffer.Length} bytes at offset {_stream.Position}, got {read}.");
             }

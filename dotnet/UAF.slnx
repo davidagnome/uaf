@@ -10,6 +10,7 @@
     <Project Path="src/UAF.Serialization/UAF.Serialization.csproj" />
     <Project Path="src/UAFcore/UAFcore.csproj" />
     <Project Path="src/UAFcore.App/UAFcore.App.csproj" />
+    <Project Path="src/UAFedit/UAFedit.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/UAF.Import.Frua.Tests/UAF.Import.Frua.Tests.csproj" />
@@ -18,9 +19,14 @@
     <Project Path="tests/UAF.Scripting.Tests/UAF.Scripting.Tests.csproj" />
     <Project Path="tests/UAF.Serialization.Tests/UAF.Serialization.Tests.csproj" />
     <Project Path="tests/UAFcore.Tests/UAFcore.Tests.csproj" />
+    <Project Path="tests/UAFedit.Tests/UAFedit.Tests.csproj" />
+    <Project Path="tests/UAFedit.Map.Tests/UAFedit.Map.Tests.csproj" />
+    <Project Path="tests/UAFedit.RoundTrip.Tests/UAFedit.RoundTrip.Tests.csproj" />
+    <Project Path="tests/rc2axaml.Tests/rc2axaml.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/gpdlc/gpdlc.csproj" />
+    <Project Path="tools/rc2axaml/rc2axaml.csproj" />
     <Project Path="tools/uaf-fileprobe/uaf-fileprobe.csproj" />
   </Folder>
 </Solution>

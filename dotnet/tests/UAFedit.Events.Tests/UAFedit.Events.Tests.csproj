@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- UAFedit is a WinExe; referencing it from a test project is what UAFedit.Tests and
+       UAFedit.Map.Tests already do. Nothing here constructs a control or opens a window, so no
+       display is needed and the suite runs headless. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\UAFedit\UAFedit.csproj" />
+  </ItemGroup>
+
+</Project>

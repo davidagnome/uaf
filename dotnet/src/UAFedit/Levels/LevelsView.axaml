@@ -1,0 +1,294 @@
+<!--
+  The Level menu, as one pane rather than five modal dialogs.
+
+  Left is CSelectLevel's list (SelectLevel.cpp:170) with two columns it never had — the file's name
+  and its position in the design's directory listing — because those are the only way to tell a
+  level's number from its position on a design with holes in its numbering.
+
+  Right is CUAFWinEdView with the map on one tab and the tables the Level menu's other three
+  commands each opened a dialog for on the rest. Everything on the right binds through Panel, so the
+  right-hand DataContext is a LevelPanelViewModel and the left-hand one is a LevelsViewModel.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:levels="using:UAFedit.Levels"
+             xmlns:map="using:UAFedit.Map"
+             x:Class="UAFedit.Levels.LevelsView"
+             x:DataType="levels:LevelsViewModel">
+
+  <UserControl.Resources>
+    <levels:MapColorBrushConverter x:Key="MapColorBrush" />
+  </UserControl.Resources>
+
+  <Grid ColumnDefinitions="380,4,*">
+
+    <DockPanel Grid.Column="0" Margin="4">
+
+      <TextBlock DockPanel.Dock="Top" Text="Levels" FontWeight="SemiBold" Margin="4,2,4,6" />
+
+      <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#20808080"
+              Padding="4,6,4,2">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" FontSize="11" Opacity="0.8" />
+      </Border>
+
+      <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#40808080"
+              Padding="0,0,0,3" Margin="0,0,0,3">
+        <StackPanel Orientation="Horizontal">
+          <TextBlock Text="Lvl" Width="34" FontWeight="SemiBold" Margin="4,0" />
+          <TextBlock Text="Name" Width="150" FontWeight="SemiBold" Margin="4,0" />
+          <TextBlock Text="Size" Width="56" FontWeight="SemiBold" Margin="4,0" />
+          <TextBlock Text="Used" Width="34" FontWeight="SemiBold" Margin="4,0" />
+          <TextBlock Text="Ovl" Width="30" FontWeight="SemiBold" Margin="4,0" />
+          <TextBlock Text="Pos" Width="28" FontWeight="SemiBold" Margin="4,0" />
+        </StackPanel>
+      </Border>
+
+      <ListBox ItemsSource="{Binding Levels}"
+               SelectedItem="{Binding SelectedLevel}">
+        <ListBox.ItemTemplate>
+          <DataTemplate DataType="levels:LevelCatalogEntry">
+            <StackPanel Orientation="Horizontal" ToolTip.Tip="{Binding FileName}">
+              <TextBlock Text="{Binding Number}" Width="34" Margin="4,0" />
+              <TextBlock Text="{Binding Name}" Width="150" Margin="4,0"
+                         TextTrimming="CharacterEllipsis" />
+              <TextBlock Text="{Binding StatsSize}" Width="56" Margin="4,0" />
+              <TextBlock Text="{Binding IsUsed}" Width="34" Margin="4,0" />
+              <TextBlock Text="{Binding IsOverland}" Width="30" Margin="4,0" />
+              <TextBlock Text="{Binding Position}" Width="28" Margin="4,0" Opacity="0.6" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+    </DockPanel>
+
+    <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+    <!--
+      DataContext is rebound to the open level so the whole right-hand side is one x:DataType. A
+      DataTemplate would do the same, but the map control has to be reachable by name from the
+      code-behind and a templated one is not.
+    -->
+    <DockPanel Grid.Column="2" Margin="6,4,4,4" DataContext="{Binding Panel}"
+               x:DataType="levels:LevelPanelViewModel">
+
+      <StackPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+        <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" />
+        <TextBlock Text="{Binding Subtitle}" FontSize="11" Opacity="0.7"
+                   TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+
+      <TabControl>
+
+        <TabItem Header="Map">
+          <DockPanel>
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8"
+                        Margin="0,4,0,6">
+              <TextBlock Text="Show" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{x:Static levels:LevelPanelViewModel.DisplayModes}"
+                        SelectedItem="{Binding Mode}" MinWidth="140" />
+              <CheckBox Content="Tile" IsChecked="{Binding Tile}" />
+              <CheckBox Content="Overrides" IsChecked="{Binding ShowOverrides}"
+                        IsEnabled="{Binding HasOverrides}"
+                        ToolTip.Tip="Apply the 5.x per-cell override tables, which the engine honours and the original editor's map does not." />
+              <TextBlock Text="Zoom" VerticalAlignment="Center" />
+              <Slider Minimum="0.5" Maximum="8" Width="140" Value="{Binding Zoom}"
+                      VerticalAlignment="Center" />
+              <Button Content="Start" Command="{Binding ShowStartLocationCommand}" />
+              <Button Content="Entry point" Command="{Binding ShowSelectedEntryPointCommand}" />
+            </StackPanel>
+
+            <Border DockPanel.Dock="Bottom" Padding="2,6,2,0">
+              <TextBlock Text="{Binding SelectionDescription}" FontSize="11"
+                         TextTrimming="CharacterEllipsis" />
+            </Border>
+
+            <Panel>
+              <map:LevelMapView Name="MapView"
+                                Model="{Binding EffectiveModel}"
+                                Mode="{Binding Mode}"
+                                Palette="{Binding Palette}"
+                                Geometry="{Binding Geometry}"
+                                Zoom="{Binding Zoom, Mode=TwoWay}"
+                                ScrollX="{Binding ScrollX, Mode=TwoWay}"
+                                ScrollY="{Binding ScrollY, Mode=TwoWay}"
+                                Tile="{Binding Tile}"
+                                SelectedCell="{Binding SelectedCell, Mode=TwoWay}"
+                                SelectedSide="{Binding SelectedSide, Mode=TwoWay}"
+                                IsVisible="{Binding HasMap}" />
+
+              <TextBlock Text="This level could not be read whole — it holds an event type this port has no reader for, and the wall and zone tables sit after the event list."
+                         IsVisible="{Binding !HasMap}"
+                         TextWrapping="Wrap" MaxWidth="420" Opacity="0.7"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Panel>
+
+          </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Entry Points" DataContext="{Binding EntryPoints}"
+                 x:DataType="levels:EntryPointsViewModel">
+          <DockPanel Margin="4">
+
+            <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" FontSize="11" Opacity="0.75"
+                       Margin="0,4,0,8"
+                       Text="Where a teleport arriving on this level puts the party. Eight slots, always. A slot never set holds (0, its own number) — not (0, 0) — so an untouched level shows a column of entry points down its west edge." />
+
+            <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#40808080"
+                    Padding="0,0,0,3" Margin="0,0,0,4">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="#" Width="30" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="X" Width="70" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Y" Width="70" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Facing" Width="100" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Default" Width="60" FontWeight="SemiBold" Margin="4,0" />
+              </StackPanel>
+            </Border>
+
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10"
+                        Margin="0,10,0,0">
+              <TextBlock VerticalAlignment="Center" FontSize="11" Opacity="0.75"
+                         Text="{Binding MaxX, StringFormat='Valid X: 0 – {0}'}" />
+              <TextBlock VerticalAlignment="Center" FontSize="11" Opacity="0.75"
+                         Text="{Binding MaxY, StringFormat='Valid Y: 0 – {0}'}" />
+              <TextBlock VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold"
+                         IsVisible="{Binding IsDirty}" Text="edited" />
+            </StackPanel>
+
+            <ListBox ItemsSource="{Binding Points}"
+                     SelectedIndex="{Binding SelectedIndex}">
+              <ListBox.ItemTemplate>
+                <DataTemplate DataType="levels:EntryPointViewModel">
+                  <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Number}" Width="30" Margin="4,0"
+                               VerticalAlignment="Center" />
+                    <NumericUpDown Value="{Binding X}" Width="70" Margin="4,0"
+                                   FormatString="0" Increment="1" ShowButtonSpinner="False" />
+                    <NumericUpDown Value="{Binding Y}" Width="70" Margin="4,0"
+                                   FormatString="0" Increment="1" ShowButtonSpinner="False" />
+                    <ComboBox ItemsSource="{x:Static levels:EntryPointViewModel.Facings}"
+                              SelectedItem="{Binding Facing}" Width="100" Margin="4,0" />
+                    <TextBlock Text="{Binding IsDefault}" Width="60" Margin="4,0"
+                               VerticalAlignment="Center" Opacity="0.6" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+          </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Wall Slots" DataContext="{Binding WallSlots}"
+                 x:DataType="levels:WallSlotsViewModel">
+          <DockPanel Margin="4">
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10"
+                        Margin="0,4,0,8">
+              <CheckBox Content="Only slots this level uses" IsChecked="{Binding ShowUsedOnly}" />
+              <TextBlock VerticalAlignment="Center" FontSize="11" Opacity="0.75"
+                         Text="{Binding UsedSlotCount, StringFormat='{}{0} slots in use'}" />
+              <TextBlock VerticalAlignment="Center" FontSize="11" Opacity="0.75"
+                         Text="{Binding InvisibleSlotCount, StringFormat='{}{0} of them draw black on black'}" />
+              <TextBlock Text="Blockage" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{x:Static levels:WallSlotsViewModel.Blockages}"
+                        SelectedItem="{Binding Blockage}" MinWidth="150" />
+            </StackPanel>
+
+            <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#40808080"
+                    Padding="0,0,0,3" Margin="0,0,0,4">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Slot" Width="40" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="" Width="18" Margin="4,0" />
+                <TextBlock Text="Wall art" Width="150" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Door art" Width="150" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Overlay" Width="120" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Unlock spell" Width="120" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Uses" Width="50" FontWeight="SemiBold" Margin="4,0" />
+              </StackPanel>
+            </Border>
+
+            <ListBox ItemsSource="{Binding Visible}"
+                     SelectedIndex="{Binding SelectedIndex}">
+              <ListBox.ItemTemplate>
+                <DataTemplate DataType="levels:WallSlotViewModel">
+                  <StackPanel Orientation="Horizontal"
+                              ToolTip.Tip="{Binding TabLabel}">
+                    <TextBlock Text="{Binding Index}" Width="40" Margin="4,0" />
+                    <Border Width="14" Height="14" Margin="4,0" CornerRadius="2"
+                            BorderBrush="#60808080" BorderThickness="1"
+                            Background="{Binding Color, Converter={StaticResource MapColorBrush}}" />
+                    <TextBlock Text="{Binding WallFile}" Width="150" Margin="4,0"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding DoorFile}" Width="150" Margin="4,0"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding OverlayFile}" Width="120" Margin="4,0"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding UnlockSpellId}" Width="120" Margin="4,0"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding UsageCount}" Width="50" Margin="4,0" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+          </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Zones" DataContext="{Binding Zones}"
+                 x:DataType="levels:ZonesViewModel">
+          <DockPanel Margin="4">
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10"
+                        Margin="0,4,0,8">
+              <TextBlock VerticalAlignment="Center" FontSize="11" Opacity="0.75"
+                         Text="{Binding UsedZoneCount, StringFormat='{}{0} zones hold squares'}" />
+              <TextBlock VerticalAlignment="Center" FontSize="11" Opacity="0.75"
+                         Text="{Binding AreaViewArt, StringFormat='Area view art: {0}'}" />
+            </StackPanel>
+
+            <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#40808080"
+                    Padding="0,0,0,3" Margin="0,0,0,4">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Text="#" Width="30" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="" Width="18" Margin="4,0" />
+                <TextBlock Text="Name" Width="150" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Squares" Width="60" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Mapping" Width="80" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Magic" Width="50" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Rest" Width="50" FontWeight="SemiBold" Margin="4,0" />
+                <TextBlock Text="Turning" Width="60" FontWeight="SemiBold" Margin="4,0" />
+              </StackPanel>
+            </Border>
+
+            <ListBox ItemsSource="{Binding Zones}"
+                     SelectedIndex="{Binding SelectedIndex}">
+              <ListBox.ItemTemplate>
+                <DataTemplate DataType="levels:ZoneViewModel">
+                  <StackPanel Orientation="Horizontal" ToolTip.Tip="{Binding Message}">
+                    <TextBlock Text="{Binding Index}" Width="30" Margin="4,0" />
+                    <Border Width="14" Height="14" Margin="4,0" CornerRadius="2"
+                            BorderBrush="#60808080" BorderThickness="1"
+                            Background="{Binding Color, Converter={StaticResource MapColorBrush}}" />
+                    <TextBlock Text="{Binding Name}" Width="150" Margin="4,0"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding CellCount}" Width="60" Margin="4,0" />
+                    <TextBlock Text="{Binding MappingText}" Width="80" Margin="4,0" />
+                    <TextBlock Text="{Binding AllowMagic}" Width="50" Margin="4,0" />
+                    <TextBlock Text="{Binding AllowResting}" Width="50" Margin="4,0" />
+                    <TextBlock Text="{Binding AddedTurningDifficulty}" Width="60" Margin="4,0" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+          </DockPanel>
+        </TabItem>
+
+      </TabControl>
+
+    </DockPanel>
+
+  </Grid>
+
+</UserControl>

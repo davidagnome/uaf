@@ -1,0 +1,96 @@
+<!--
+  The inspector's shell: a menu, a navigation tree, and a record list.
+
+  Everything the panes show comes from MainWindowViewModel; the view holds no design state. The
+  right pane is a header row plus a virtualising ListBox rather than a DataGrid, which would mean
+  another package for a read-only table whose columns are already known per category.
+-->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:UAFedit.ViewModels"
+        x:Class="UAFedit.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding Title}" Width="1100" Height="750">
+
+  <DockPanel>
+
+    <Menu DockPanel.Dock="Top">
+      <MenuItem Header="_File">
+        <MenuItem Header="_Open Design…" Command="{Binding OpenDesignCommand}" />
+        <Separator />
+        <MenuItem Header="E_xit" Command="{Binding ExitCommand}" />
+      </MenuItem>
+    </Menu>
+
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#20808080"
+            Padding="10,5">
+      <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+    </Border>
+
+    <Grid ColumnDefinitions="280,4,*">
+
+      <TreeView Grid.Column="0"
+                ItemsSource="{Binding Roots}"
+                SelectedItem="{Binding SelectedNode}">
+        <TreeView.ItemTemplate>
+          <TreeDataTemplate DataType="vm:DesignNodeViewModel" ItemsSource="{Binding Children}">
+            <TextBlock Text="{Binding Label}" />
+          </TreeDataTemplate>
+        </TreeView.ItemTemplate>
+        <TreeView.Styles>
+          <!-- The design's own node opens itself, so the categories are visible on load. -->
+          <Style Selector="TreeViewItem" x:DataType="vm:DesignNodeViewModel">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+          </Style>
+        </TreeView.Styles>
+      </TreeView>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <DockPanel Grid.Column="2" Margin="8,4,4,4">
+
+        <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#40808080"
+                Padding="0,0,0,4" Margin="0,0,0,4">
+          <ItemsControl ItemsSource="{Binding Columns}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:RecordColumn">
+                <TextBlock Text="{Binding Header}" Width="{Binding Width}"
+                           FontWeight="SemiBold" Margin="4,0"
+                           TextTrimming="CharacterEllipsis" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Border>
+
+        <ListBox ItemsSource="{Binding Rows}">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="vm:RecordRow">
+              <ItemsControl ItemsSource="{Binding Cells}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate DataType="vm:RecordCell">
+                    <TextBlock Text="{Binding Text}" Width="{Binding Width}" Margin="4,0"
+                               TextTrimming="CharacterEllipsis" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+      </DockPanel>
+
+    </Grid>
+
+  </DockPanel>
+
+</Window>

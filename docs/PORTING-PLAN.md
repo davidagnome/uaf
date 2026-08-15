@@ -8355,6 +8355,63 @@ and grows into the full editor. Then the databases (`ItemDB.cpp` 9,000, `SpellDB
 then the event editor (`EventViewer.cpp` 4,072, `LogicBlock`, `Script`), then cross-reference and
 utilities.
 
+**Phase 5 has begun (2026-08-15).** The shell, the transpiler, the inspector, the map view and the
+round-trip gate exist; the databases, the event editor and the cross-reference tooling do not.
+
+> **The scope figures in this section were estimates and two of them were low.** Measured:
+> **131 dialogs** (not 118), **93 menu items across 7 top-level menus**, 87,533 lines. The largest
+> single dialog, `IDD_ITEMDB`, carries **100 controls**. What was *right* is the transpiler
+> recommendation — the control vocabulary is only **13 keywords**, and all 131 dialogs convert with
+> no diagnostics.
+
+> **`.rc` grammar traps, all of which cost the transpiler real work.** There is **no
+> line-continuation marker** — 49 statements wrap onto a second line with nothing to mark it, so
+> the keyword set has to be part of the tokeniser rather than just the mapper. `COMBOBOX`'s `cy` is
+> the **drop-down** height, not the control's: `IDC_EVENT_TYPE` is written 239 DLU tall and taken
+> literally covers its dialog. `NOT` appears **inside** style expressions, so splitting on `|`
+> without keeping it attached inverts the meaning. And **the generic `CONTROL` statement is never
+> used for the obvious thing** — all 370 `"Static"` controls are picture frames and not one is a
+> label; all 573 `"Button"` controls are checkbox, radio or push-*like* and not one is a plain push
+> button. Dispatching on the window class alone would have been wrong 943 times.
+
+> **DLU conversion is `MapDialogRect`'s arithmetic, and the truncation is load-bearing.** Width is
+> the difference of two mapped edges, not `cx` mapped alone — so a 7-DLU-wide control is 10 px at
+> x=0 and 11 px at x=7. That is real, not rounding noise.
+
+> **The generated `.axaml` files are raw material and must stay out of the build.** Avalonia's build
+> tasks glob every `.axaml` under the project, and they carry no `x:Class`, so they compile in
+> silently: `UAFedit.dll` was **937 KB with 393 embedded dialog references** before
+> `<AvaloniaXaml Remove="Views\Generated\**" />` went in, and **nothing warned**. It is 114 KB
+> after.
+
+> **A live engine bug, found by the inspector and confirmed independently.** A level file's number
+> is its **index plus one** (`Shared/Level.cpp:3643`), *not* its position in
+> `LoadedDesign.LevelFiles` — which is a sorted directory listing. `Game.LevelIndex` is used as
+> **both**: as the argument to `design.Level(index)` (a list position, `Game.cs:2747`) and as the
+> key into `design.Globals.Levels.Levels` (a raw `stats[]` index, `GameScriptHost.cs:2082`). Those
+> coincide only in a design numbered without holes. **`Case.dsn` has holes** — ten files running
+> `001–004, 011–013, 016, 018, 255` — so its last file sits at position 9 and is level 255, and
+> every entry-point lookup and level-attribute read on that design is keyed wrongly. **Not fixed;
+> it is engine work, not editor work.**
+
+> **The wall arrays are stored north, SOUTH, east, west — and in the C++ two permutations cancel.**
+> `DrawSquare` indexes `WallOffsetRects` with the raw subscript while the rect table is *also*
+> written in storage order, so nobody ever had to notice. They stop cancelling the moment a side is
+> asked for by `Facing`. Backgrounds are the exception and are genuinely compass-ordered, so they
+> must **not** be permuted. Getting this wrong draws east walls along the bottom edge.
+
+> **A quarter of `Case.dsn` is black-on-black in the original editor.** 282 of its 1,155 level-0
+> walls sit in palette slots ≥16, and every shipped `config.txt` declares only
+> `EDITOR_COLOR_1..16` — the rest stay at the static black. The port makes filling them a caller
+> decision and defaults to faithful.
+
+> **The editor cannot be launched from this shell**, and that is the environment rather than the
+> code: Avalonia dies in `AppBuilder.Setup()` with `RenderTimer ... -6661` before any window is
+> constructed, because the process tree has no window-server access. It is verified instead by
+> building the real `MainWindow` on Avalonia's headless platform and asserting the menu, the tree
+> selection and the list contents — which is a stronger check than "a window appeared" and runs in
+> CI. **Someone with a desktop session needs to confirm it visually.**
+
 **Exit:** open a design, make an edit, save; the resulting files load correctly in *both* UAFcore
 and the original C++ `UAFWinEd.exe`.
 
@@ -10069,3 +10126,66 @@ the round both call and neither has.
 | Format compatibility | **Read all versions, write current** | Matches original behaviour; preserves ~25 years of community designs |
 | Post-Phase-1 priority | **UAFedit first** | A read-only inspector validates the data layer end-to-end and grows into the editor; visible cross-platform result in ~2 months instead of ~8 |
 | Video decoding | **FFmpeg / libav** (LGPL build) | Only realistic way to decode the legacy VfW codecs in existing designs (Cinepak, Indeo, MS-Video1); optional at runtime, and in its own assembly because the C# bindings are LGPL v3 (§6.1 correction) |
+
+## 12. Phase 5's round-trip gate, measured
+
+`dotnet/tests/UAFedit.RoundTrip.Tests/` reads every design file in the corpus through the existing
+readers, writes it straight back through the existing writers, and compares the result — as bytes
+against the original, and field by field against the decoded model. It is the gate the rest of
+Phase 5 rests on, and it had not been run before. What it found:
+
+### Byte identity against a shipped design is impossible, by design
+
+**Not one file in `SomethingWild` or `Case` comes back byte-identical, and none can.** Every
+writer stamps its own `WrittenVersion` — 5.24 for the record types, 5.26 for `GLOBAL_STATS` —
+because the payload always goes out in the modern shape and a header claiming an older version is
+the one combination nothing can read. The first differing byte is **byte 8 in every single file**:
+the version stamp. The reference behaves the same way, stamping `ENGINE_VER` rather than whatever
+it loaded, so this is the format working as intended and not a defect. It does mean the exit
+criterion has to be read as *"UAFWinEd.exe loads the upgraded file"*, not *"the file is
+unchanged"* — the C++ editor used for the check must be a build that accepts 5.26.
+
+### What the gate does prove
+
+Over `SomethingWild` (18 writable files) and `Case` (14):
+
+- **Nothing is lost.** Every field the reader found comes back with the same value. `items.dat`,
+  `monsters.dat` and `spells.dat` differ from the original in the version stamp *only* — their
+  decoded models are identical. Levels and `.chr` files likewise.
+- **A second save is a byte-for-byte fixpoint.** All 32 files reach it. This is the property an
+  editor actually needs and the one byte identity cannot give: the first save upgrades, and every
+  save after it must change nothing. It is also the only check that reads the port's own output
+  rather than the reference's.
+- **A deliberate edit survives and moves nothing else.** Renaming an item and changing its cost
+  produces exactly two field differences against the port's own unedited save; renaming the design
+  in `game.dat` produces exactly one. The item edit is made near the front of the database on
+  purpose — a string interned there takes an index every later record must agree about.
+- **The upgrade adds as well as restamps.** `game.dat` materialises `creditsData` (a 5.25 field)
+  and per-level `Overrides`/`Contents`; `SomethingWild`'s `Level002` grows a 20-entry tale list to
+  the modern fixed 255, with the first 20 unchanged. Additions, not losses — but a diff that
+  stopped at the first difference would have reported the version stamp for every file and never
+  seen them.
+
+### Three gaps that block the exit criterion
+
+1. **Five databases have a reader and no writer at all**: `ability.dat`, `baseclass.dat`,
+   `classes.dat`, `races.dat`, `specialAbilities.dat`. Every corpus design carries them.
+   `SpecabWriter` and `BaseclassListWriter` are name traps — they write blocks embedded inside
+   item/monster/spell records, not these files. An editor that cannot save `baseclass.dat` or
+   `classes.dat` cannot edit a design's character generation.
+2. **`SomethingWild` ships a JSON character file the port cannot see.** `Data/Uril Kabo.CHAR`
+   opens `{"charVersion":…}` — it is `CHARACTER::Export(JWriter&)` / `Import(JReader&)`
+   (`Shared/Char.cpp:3128`, `:3303`), a second character format with no reader or writer in the
+   port. `CharacterFileReader` rejects it as "version 0.563, below the 0.93 floor", which reads
+   like a corrupt file and is not one.
+3. **`DefaultDesign`'s own `game.dat` cannot be read.** At 0.915025, with `GameDataFraming.Plain`,
+   `GlobalStatsReader` overruns the end of the 4343-byte file inside `PicDataReader.Read`
+   (`PicDataReader.cs:53`, reading `frameWidth`). This is the editor's *template design*, so
+   nothing built on this layer can create a new design from it. No existing test caught it:
+   `WholeDesignTests` reads only the version and design name from `game.dat`, never the whole
+   record.
+
+Below 0.998101 the writers refuse rather than guess, each with a reason — `DefaultDesign`'s
+`items.dat`, `monsters.dat`, `spells.dat` and `Level000.lvl` are all declined. That is correct
+behaviour and is recorded rather than failed, but it means the round trip is only demonstrated on
+designs at or above that version.
