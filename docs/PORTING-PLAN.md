@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,700 tests, green on macOS; both CI workflows green.**
+**4,740 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,8 +9015,8 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **313 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **59 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **324 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **48 of the missing are
    named callable functions**; the other 14 have no name in the table.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
@@ -9042,8 +9042,11 @@ What is left, in order:
    > The `[A-Za-z_0-9]` in the name pattern is the part that matters; `[A-Z_0-9]` is what produced
    > every wrong figure above.
    >
-   > What remains is still in families rather than singles — the largest by far is the eleven
-   > `$Gr*` graphics calls. **"No callable group remains" has now been false twice.**
+   > **With the graphics family done, what remains genuinely is scattered** — the largest
+   > groupings left are five `$*_CHAR_Exp`/`Lvl`/`Ready` accessor pairs and four spell-book calls,
+   > and the rest are singles needing combat, spells or the event system. **But "no callable group
+   > remains" has been false twice already**, so re-run the measurement rather than trusting this
+   > sentence.
    >
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
    > in `GpdlSystemFunctions`, so aliases counted twice. Parsing the table's rows instead gives
@@ -9115,6 +9118,53 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The eleven `$Gr*` graphics calls are done** (2026-08-14), and they are a bigger deal than
+   > their count suggests: **this is how the character sheet is drawn.** The engine looks for a
+   > `Global_Display` special ability and runs its script; failing that it runs a built-in one
+   > (`defaultCharStats`, `CharStatsForm.cpp:1055`). Either way the sheet's whole layout is a GPDL
+   > script over these eleven primitives, so a design can replace it without touching the engine.
+   > `GpdlGraphics` is the `GR_CONTROL` state machine; only `DrawText` crosses the host seam.
+   >
+   > **Two cursors, not one, and that is the load-bearing detail.** An *anchor* marks where the
+   > current line begins and a *cursor* is where the next glyph goes. `$GrTab` moves the cursor
+   > relative to the **anchor** — which is what makes a column line up down the sheet — while
+   > `$GrPrtLF` advances the anchor by the linefeed and drags the cursor back to it. Collapsing
+   > them would leave every column after the first drifting right by the width of what was printed
+   > before it, and the sheet would still look almost right.
+   >
+   > **`$GrPrint` and `$GrPrtLF` are not "print" and "print then newline".** The first advances the
+   > cursor by the text's measured width; the second **discards the measurement** and jumps to the
+   > next line. So a `$GrPrint` following a `$GrPrtLF` starts at the line's beginning, not after
+   > the text.
+   >
+   > **`$GrColor` is case-sensitive and silently falls back to white.** It compares with
+   > `CString::operator==` where the engine's *other* colour lookup (`ASCII_TO_COLOR`) uses
+   > `CompareNoCase` — so `$GrColor("Red")` draws in **white**. Kept as-is: making it
+   > case-insensitive would be a visible change to every existing design with a lower-case colour
+   > name in it, turning text that renders white today red. That is a rendering contract, not a
+   > defect that stops a design loading — a different call than the ones below.
+   >
+   > **Two calls are inert in the reference and are kept only for stack balance:** `$GrPic`'s whole
+   > body is `return "";`, and `$GrFormat` assigns `grc.format` which nothing ever reads.
+   >
+   > **Two deliberate divergences.** `GR_CONTROL::Clear` resets the points, linefeed, anchor and
+   > format but **leaves the cursor and the colour**, so both carry over from the previous sheet;
+   > the port clears them, because a sheet's appearance depending on which character was looked at
+   > last is not worth reproducing. And `$GrSet`'s handler pops its third argument *inside*
+   > `#ifdef UAFEngine` while popping the other two outside it — so an editor build leaves one
+   > value on the stack. The port pops all three unconditionally.
+   >
+   > **The live host measures but does not yet draw.** `GameScriptHost.DrawText` returns the real
+   > advance width from the design's font — which is what the layout depends on — and records the
+   > call, but nothing reaches the screen: the character-sheet screen still renders through
+   > `CharacterSheetBuilder` rather than through a script. So positions agree with the reference
+   > today and the pixels follow when the sheet screen is driven from GPDL.
+   >
+   > **The usage masks are not enforced on either side.** These eleven are `GRAPHICS_USAGE` rather
+   > than `ALL_USAGE`, and neither the reference's compiler nor the port checks the mask before
+   > allowing a call. Noted rather than fixed — it is a pre-existing gap, not one this work
+   > introduced.
+
    > **The alignment and identity families are done** (2026-08-14) — twelve calls: the six
    > `$Alignment*`, plus `$Status`, `$Gender`, `$HitPoints`, `$Myself`, `$MyIndex` and `$IndexOf`.
    > Nine of them needed **no new host method at all**: they read the same stat the `$GET_CHAR_*`

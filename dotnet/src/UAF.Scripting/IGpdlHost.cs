@@ -1034,6 +1034,29 @@ public interface IGpdlHost
     string IndexOf(string actor);
 
     /// <summary>
+    /// The drawing state the <c>$Gr*</c> calls share (<c>grc</c>, a single global).
+    /// </summary>
+    /// <remarks>
+    /// <b>One per host, because it is one per engine.</b> The reference keeps a single
+    /// <c>GR_CONTROL</c> and every script that draws uses it, so a sheet begun by one script and
+    /// finished by another shares the cursor — which is the point.
+    /// </remarks>
+    GpdlGraphics Graphics { get; }
+
+    /// <summary>
+    /// Draws a line of text and answers how wide it was
+    /// (<c>GrPrint</c>, <c>UAFWin/CharStatsForm.cpp:1489</c>).
+    /// </summary>
+    /// <param name="color">A <c>FONT_COLOR_NUM</c> ordinal — see <see cref="GpdlGraphics.Color"/>.</param>
+    /// <returns>
+    /// The advance width, which is what moves the cursor along. <b>A host that cannot measure text
+    /// should answer zero</b> rather than estimate: everything on the line then overprints, which is
+    /// at least visibly wrong, where a guessed width produces a sheet that looks plausible and is
+    /// misaligned.
+    /// </returns>
+    int DrawText(string text, int x, int y, int color);
+
+    /// <summary>
     /// What <c>$GET_CHAR_RACE</c> answers for an actor nobody recognises.
     /// </summary>
     /// <remarks>
@@ -1265,6 +1288,28 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     /// is the reference's answer for one, rather than an invented number.
     /// </remarks>
     public virtual string IndexOf(string actor) => GpdlActorIndex.InvalidContext;
+
+    /// <inheritdoc/>
+    public GpdlGraphics Graphics { get; } = new();
+
+    /// <summary>Every call this environment was asked to draw, in order.</summary>
+    /// <remarks>
+    /// Nothing renders here, so the calls are collected instead — which is what makes the layout
+    /// testable without a font or a screen.
+    /// </remarks>
+    public List<(string Text, int X, int Y, int Color)> Drawn { get; } = [];
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Answers zero, because there is no font to measure with.</b> A sheet drawn against this
+    /// environment overprints everything on a line rather than laying it out plausibly and wrongly
+    /// — see the interface's remarks. Override to supply a width.
+    /// </remarks>
+    public virtual int DrawText(string text, int x, int y, int color)
+    {
+        Drawn.Add((text, x, y, color));
+        return 0;
+    }
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

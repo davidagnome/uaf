@@ -894,6 +894,62 @@ public sealed class GpdlVirtualMachine
             //
             // $Alignment answers the NAME; the other five answer a BOOL. So a script has both a
             // numeric form ($GET_CHAR_ALIGNMENT) and a textual one for the same fact.
+            // The eleven $Gr* drawing calls -- how the character sheet is drawn. All of them
+            // answer the empty string, so every one is a statement rather than an expression.
+            //
+            // $GrSet is the only one taking three arguments; the rightmost pops first.
+            case SubOp.SUBOP_GrSet:
+                {
+                    string y = PopSp();
+                    string x = PopSp();
+                    _host.Graphics.Set(PopSp(), x, y);
+                    PushSp(False);
+                    break;
+                }
+            case SubOp.SUBOP_GrSetLinefeed:
+                _host.Graphics.SetLinefeed(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrMoveTo:
+                _host.Graphics.MoveTo(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrMove:
+                _host.Graphics.Move(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrTab:
+                _host.Graphics.Tab(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrMark:
+                _host.Graphics.Mark(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrFormat:
+                _host.Graphics.SetFormat(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrColor:
+                _host.Graphics.SetColor(PopSp());
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrPrint:
+                _host.Graphics.Print(PopSp(), _host.DrawText);
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrPrtLF:
+                _host.Graphics.PrintLine(PopSp(), _host.DrawText);
+                PushSp(False);
+                break;
+            case SubOp.SUBOP_GrPic:
+
+                // Declared, and does nothing at all -- GrPic's whole body is `return "";`
+                // (CharStatsForm.cpp:1484). The argument is still popped so the stack balances.
+                PopSp();
+                PushSp(False);
+                break;
+
             case SubOp.SUBOP_Alignment:
                 PushSp(GpdlAlignment.NameOf(AlignmentOf(PopSp())));
                 break;

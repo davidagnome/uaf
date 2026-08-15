@@ -410,6 +410,34 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
             : GpdlActorIndex.InvalidContext;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The text is measured but not yet drawn, and that asymmetry is deliberate.</b> The width
+    /// is what the layout depends on — every column on a sheet is placed relative to how wide the
+    /// last thing was — so measuring correctly is what makes a script's positions mean anything.
+    /// Where the glyphs land on screen belongs with the character-sheet screen, which still renders
+    /// through <see cref="CharacterSheetBuilder"/> rather than through a script.
+    /// </para>
+    /// <para>
+    /// So a script can lay a sheet out and the port agrees with the reference about where
+    /// everything goes; nothing appears until the sheet screen is driven from GPDL. The calls are
+    /// recorded on <c>Drawn</c> either way, which is what a test reads.
+    /// </para>
+    /// <para>
+    /// A design with no rasterizer measures zero, like the unhosted environment — the port's
+    /// standing contract that a missing font degrades to no text rather than to a guess.
+    /// </para>
+    /// </remarks>
+    public override int DrawText(string text, int x, int y, int color)
+    {
+        base.DrawText(text, x, y, color);
+
+        return game.Design.Font(game.Design.RequestedFontHeight) is { } font
+            ? font.GetTextWidth(text ?? string.Empty)
+            : 0;
+    }
+
+    /// <inheritdoc/>
     public override string CombatantState(string actor) =>
         Fighter(actor) is { } who ? who.State.ToString() : string.Empty;
 
