@@ -70,8 +70,44 @@ public sealed class Combatant : ISpellSubject
     /// <summary>Its place in the combatant list, and its id in the grid's occupancy layer.</summary>
     public int Index { get; }
 
-    /// <summary>Party and NPCs; everything else is a monster.</summary>
+    /// <summary>
+    /// Party and NPCs; everything else is a monster.
+    /// </summary>
+    /// <remarks>
+    /// <b>The side this combatant joined on, which a script can override without changing.</b> See
+    /// <see cref="FriendlyOverride"/> and <see cref="IsCurrentlyFriendly"/> — the reference keeps
+    /// the two apart so a charm can be undone by clearing the override rather than by remembering
+    /// what the original side was.
+    /// </remarks>
     public bool IsFriendly { get; }
+
+    /// <summary>
+    /// A script's override of which side this combatant is on
+    /// (<c>m_adjFriendly</c>, <c>UAFWin/Combatant.h:590</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Four states, and "toggle" is one of them.</b> 0 leaves <see cref="IsFriendly"/> alone,
+    /// 1 forces friendly, 2 forces hostile, 3 inverts. Because 3 is stored rather than applied, a
+    /// charmed monster that changes sides again still reads as inverted — the override is a lens
+    /// over the original, not a new value.
+    /// </remarks>
+    public int FriendlyOverride { get; set; }
+
+    /// <summary>
+    /// Which side this combatant is on right now (<c>GetIsFriendly</c>,
+    /// <c>UAFWin/Combatant.cpp:11549</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>This, not <see cref="IsFriendly"/>, is what targeting should ask.</b> Anything reading
+    /// the raw field sees the side the combatant started on and ignores every charm in the fight.
+    /// </remarks>
+    public bool IsCurrentlyFriendly => FriendlyOverride switch
+    {
+        0 => IsFriendly,
+        1 => true,
+        2 => false,
+        _ => !IsFriendly,
+    };
 
     /// <summary>The footprint, up to 4×4.</summary>
     public CombatantIcon Icon { get; }

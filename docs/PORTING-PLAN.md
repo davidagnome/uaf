@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,842 tests, green on macOS; both CI workflows green.**
+**4,869 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,8 +9015,8 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **351 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **21 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **357 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **15 of the missing are
    named callable functions**; the other 14 have no name in the table.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
@@ -9121,6 +9121,48 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The six combat-roster calls are done** (2026-08-14): `$GetFriendly`, `$SetFriendly`,
+   > `$ListAdjacentCombatants`, `$NextCreatureIndex`, `$IndexToActor`, `$Name`.
+   >
+   > **A combatant has two friendliness values, and the port was missing the second.** `friendly`
+   > is the side it joined on; `m_adjFriendly` is a script's *override* — 0 leave alone, 1 friendly,
+   > 2 hostile, **3 invert** — and `GetIsFriendly()` combines them. Keeping them apart is what makes
+   > a charm undoable: clearing the override restores the original side with nothing remembered. A
+   > port that wrote through to the raw field would lose that. `Combatant.FriendlyOverride` and
+   > `IsCurrentlyFriendly` are new; **anything targeting should read the second.**
+   >
+   > **The two families disagree about which one to read, and the reference does it deliberately.**
+   > `ListAdjacentCombatants` tests `GetIsFriendly()`; `$NextCreatureIndex`'s side filters test the
+   > raw `friendly`. So a charmed monster is adjacent-to-enemies as a friend and still walks as
+   > hostile. Both transcribed.
+   >
+   > **`$NextCreatureIndex`'s filters are SKIP rules, and two of them contradict.** Setting both
+   > hostile (2) and friendly (4) skips everybody, and nothing warns — a design writing `6` meaning
+   > "either side" gets an empty walk. Its resume argument is subtler still: **an empty string
+   > starts the walk and `"0"` continues after combatant 0**, because the reference tests the stack
+   > slot itself rather than the popped value. A port reading both through `atoi` would skip
+   > combatant 0 on every walk.
+   >
+   > **`$GetFriendly` answers the literal `"Huh?"`** for a combatant that does not exist *and* for
+   > a code that is not one of `B`/`A`/`F` — so a script cannot tell a bad combatant from a bad
+   > question, and arithmetic on the result reads it as zero. The codes are case-sensitive.
+   > `$SetFriendly` has no such marker: it answers 0 for a missing combatant, which is also a
+   > legitimate previous value.
+   >
+   > **Adjacency is a footprint overlap, not a distance.** A combatant occupies a rectangle, so a
+   > 2×2 ogre touches squares a 1×1 kobold standing in the same place would not. Symmetry is the
+   > property worth testing — getting the margin wrong on one side makes A adjacent to B without B
+   > being adjacent to A.
+   >
+   > **`$IndexToActor` ignores its argument outside combat.** It calls `Dude()`, which pops the
+   > index and then resolves the *current character context* instead — so `$IndexToActor(3)` outside
+   > a fight answers whoever the engine is working on. Matched, because a design written against it
+   > would break if the number suddenly meant something.
+   >
+   > **`$Name` and `$IndexToActor` both return `ACTOR`s** — the fourth and fifth calls with that
+   > shape, after `$Myself`, `$CharacterContext` and `$IndexOf`'s parameter. Read them through a
+   > call that takes one.
+
    > **`$DelimitedStringFilter`, `$IntegerTable` and `$RollHitPointDice` are done** (2026-08-14).
    >
    > **A delimited string carries its own delimiter as its first character.** `"|a|b|c"` is three

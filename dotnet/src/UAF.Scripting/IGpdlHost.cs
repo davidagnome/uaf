@@ -372,6 +372,47 @@ public enum GpdlAslScope
     Party,
 }
 
+/// <summary>Literals the combat calls answer that are not values.</summary>
+public static class GpdlCombat
+{
+    /// <summary>
+    /// What <c>$GetFriendly</c> answers when it cannot (<c>GPDLexec.cpp</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>A word, not a code.</b> It comes back for a combatant that does not exist and for a code
+    /// that is not one of the three, so a script cannot tell the two apart — and it is not a number,
+    /// so arithmetic on the result reads it as zero.
+    /// </remarks>
+    public const string NoSuchAnswer = "Huh?";
+}
+
+/// <summary>
+/// Which combatants <c>$NextCreatureIndex</c> should skip.
+/// </summary>
+/// <remarks>
+/// <b>Bit flags, and two of them contradict each other.</b> Setting both
+/// <see cref="Hostile"/> and <see cref="Friendly"/> skips everybody, since the first drops every
+/// friendly combatant and the second drops every hostile one. Nothing warns about it.
+/// </remarks>
+[Flags]
+public enum GpdlCreatureFilter
+{
+    /// <summary>Everything, in list order.</summary>
+    None = 0,
+
+    /// <summary>Skip the dead.</summary>
+    Alive = 1,
+
+    /// <summary>Skip the friendly — so only enemies remain.</summary>
+    Hostile = 2,
+
+    /// <summary>Skip the hostile.</summary>
+    Friendly = 4,
+
+    /// <summary>Skip anything not standing on the combat map.</summary>
+    OnMap = 8,
+}
+
 /// <summary>
 /// What <c>$IntegerTable</c> should do with the number it is given.
 /// </summary>
@@ -1358,6 +1399,84 @@ public interface IGpdlHost
     int RollHitPointDice(string baseclass, int low, int high);
 
     /// <summary>
+    /// Reads one of a combatant's three friendliness values (<c>$GetFriendly</c>).
+    /// </summary>
+    /// <param name="which">
+    /// <b>A one-letter code, and only three letters exist.</b> <c>"B"</c> is the side it joined on,
+    /// <c>"A"</c> is the script override, <c>"F"</c> is the two combined — which is what targeting
+    /// should ask. Anything else is not a code.
+    /// </param>
+    /// <returns>
+    /// The value, or null for a combatant that does not exist <b>and for an unrecognised code</b> —
+    /// the reference answers the literal <c>"Huh?"</c> to both, so a script cannot tell a bad
+    /// combatant from a bad question.
+    /// </returns>
+    int? Friendly(int combatant, string which);
+
+    /// <summary>
+    /// Sets a combatant's friendliness override (<c>$SetFriendly</c>).
+    /// </summary>
+    /// <param name="adjustment">
+    /// 0 leaves the original side alone, 1 forces friendly, 2 forces hostile, <b>3 inverts</b>.
+    /// Anything outside 0–3 is ignored, which makes the call a read.
+    /// </param>
+    /// <returns>
+    /// The override as it was <i>before</i> the change, or 0 for a combatant that does not exist.
+    /// <b>So a script cannot tell "was 0" from "no such combatant"</b> — unlike
+    /// <see cref="Friendly"/>, which has a distinct answer for that.
+    /// </returns>
+    int SetFriendly(int combatant, int adjustment);
+
+    /// <summary>
+    /// The combatants touching one, as a delimited list (<c>$ListAdjacentCombatants</c>,
+    /// <c>UAFWin/Combatants.cpp:583</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Footprints, not points.</b> A combatant occupies a rectangle, so "adjacent" is a
+    /// rectangle overlap test against a one-square margin — a 2×2 ogre touches squares a 1×1 kobold
+    /// in the same place would not. Both sides are listed; the reference has an enemies-only flag
+    /// and this call passes false.
+    /// </remarks>
+    /// <returns>
+    /// <c>"|3|7"</c> style — each index prefixed by a pipe, so the empty list is the empty string
+    /// rather than a bare delimiter.
+    /// </returns>
+    string AdjacentCombatants(int combatant);
+
+    /// <summary>
+    /// Walks the combatant list, filtered (<c>$NextCreatureIndex</c>).
+    /// </summary>
+    /// <param name="after">
+    /// Where to resume. <b>Null starts the walk</b> and a number continues <i>after</i> it — the
+    /// reference distinguishes the two by whether the stack slot was empty, so a script passes
+    /// nothing on the first call and the previous answer on each one after.
+    /// </param>
+    /// <param name="filter">Bit flags — see <see cref="GpdlCreatureFilter"/>.</param>
+    /// <returns>The next matching index, or null when the walk is over.</returns>
+    int? NextCreature(int? after, int filter);
+
+    /// <summary>
+    /// The actor at a combat index (<c>$IndexToActor</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Out of combat it ignores its argument entirely.</b> The reference calls <c>Dude()</c>,
+    /// which pops the index and resolves the <i>current character context</i> instead — so outside
+    /// a fight <c>$IndexToActor(3)</c> answers whoever the engine is working on, not the third
+    /// party member.
+    /// </remarks>
+    string IndexToActor(int index);
+
+    /// <summary>
+    /// Finds an actor by name (<c>$Name</c>, <c>GPDLexec.cpp:7576</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Searches the combatants during a fight and the party outside one</b>, case-insensitively,
+    /// and answers the first match. Two characters with one name are indistinguishable.
+    /// </remarks>
+    /// <returns>The actor string, or empty when nobody has that name.</returns>
+    string ActorNamed(string name);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -1667,6 +1786,24 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int RollHitPointDice(string baseclass, int low, int high) => 0;
+
+    /// <inheritdoc/>
+    public virtual int? Friendly(int combatant, string which) => null;
+
+    /// <inheritdoc/>
+    public virtual int SetFriendly(int combatant, int adjustment) => 0;
+
+    /// <inheritdoc/>
+    public virtual string AdjacentCombatants(int combatant) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual int? NextCreature(int? after, int filter) => null;
+
+    /// <inheritdoc/>
+    public virtual string IndexToActor(int index) => NullActor;
+
+    /// <inheritdoc/>
+    public virtual string ActorNamed(string name) => string.Empty;
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

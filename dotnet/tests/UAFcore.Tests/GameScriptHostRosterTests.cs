@@ -1,0 +1,360 @@
+using UAF.Media.Sdl;
+using UAF.Scripting;
+using UAF.Serialization;
+using UAFcore;
+
+namespace UAFcore.Tests;
+
+/// <summary>
+/// The combat-roster calls against a real fight.
+/// </summary>
+/// <remarks>
+/// Adjacency is a rectangle-overlap test over real footprints and the walk filters read real
+/// combatant state, so unlike most of these families a fake host cannot say much. This starts an
+/// actual encounter from the design.
+/// </remarks>
+public class GameScriptHostRosterTests
+{
+    /// <summary>A game with a real fight running, and the host over it.</summary>
+    private static (Game Game, GameScriptHost Host)? Fighting()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "Shared")))
+        {
+            dir = dir.Parent;
+        }
+
+        string? root = dir is null
+            ? null
+            : Path.Combine(dir.FullName, "reference", "SomethingWild.dsn");
+
+        if (root is null || !Directory.Exists(root))
+        {
+            return null;
+        }
+
+        var design = LoadedDesign.Open(root, new SdlImageDecoder(), new SdlFontRasterizer());
+
+        if (design.Level(1)?.Events.OfType<CombatEvent>().FirstOrDefault() is not { } encounter)
+        {
+            design.Dispose();
+            return null;
+        }
+
+        var game = new Game(design, levelIndex: 1) { Dice = _ => 20 };
+        game.StartEvent(encounter);
+
+        return game.Combat is { Combatants.Count: > 1 }
+            ? (game, new GameScriptHost(game))
+            : null;
+    }
+
+    /// <summary>
+    /// The premise: a real fight with combatants on both sides, placed on the map.
+    /// </summary>
+    /// <remarks>
+    /// Every test below early-returns without one, so this is what stops the file passing while
+    /// proving nothing.
+    /// </remarks>
+    [Fact]
+    public void The_corpus_starts_a_fight_with_both_sides_placed()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var roster = fight.Game.Combat!.Combatants;
+
+        Assert.True(roster.Count > 1);
+        Assert.Contains(roster, c => c.IsFriendly);
+        Assert.Contains(roster, c => !c.IsFriendly);
+        Assert.All(roster, c => Assert.True(c.X >= 0 && c.Y >= 0));
+    }
+
+    /// <summary>The three codes read three different things off a real combatant.</summary>
+    [Fact]
+    public void The_three_codes_read_three_different_things()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var who = fight.Game.Combat!.Combatants[0];
+
+        Assert.Equal(who.IsFriendly ? 1 : 0, fight.Host.Friendly(0, "B"));
+        Assert.Equal(0, fight.Host.Friendly(0, "A"));
+        Assert.Equal(who.IsFriendly ? 1 : 0, fight.Host.Friendly(0, "F"));
+
+        // A combatant that does not exist, and a code that is not one, are both nothing.
+        Assert.Null(fight.Host.Friendly(999, "F"));
+        Assert.Null(fight.Host.Friendly(0, "Z"));
+    }
+
+    /// <summary>
+    /// The override changes which side a combatant is on without changing which side it joined on.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is what makes a charm undoable.</b> Clearing the override restores the original
+    /// side, so nothing has to remember what it was — and a port that wrote through to
+    /// <c>IsFriendly</c> would lose that.
+    /// </remarks>
+    [Fact]
+    public void The_override_changes_the_side_without_changing_the_original()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var who = fight.Game.Combat!.Combatants[0];
+        bool joinedAs = who.IsFriendly;
+
+        // Force the opposite side.
+        fight.Host.SetFriendly(0, joinedAs ? 2 : 1);
+
+        Assert.Equal(joinedAs ? 0 : 1, fight.Host.Friendly(0, "F"));
+        Assert.Equal(joinedAs ? 1 : 0, fight.Host.Friendly(0, "B"));
+        Assert.Equal(joinedAs, who.IsFriendly);
+
+        // Clearing restores it, with nothing remembered.
+        fight.Host.SetFriendly(0, 0);
+        Assert.Equal(joinedAs ? 1 : 0, fight.Host.Friendly(0, "F"));
+    }
+
+    /// <summary>Three is a toggle, and it is stored rather than applied.</summary>
+    /// <remarks>
+    /// So a combatant whose original side later changed still reads as inverted — the override is
+    /// a lens over the original, not a new value.
+    /// </remarks>
+    [Fact]
+    public void Three_inverts_rather_than_setting()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var who = fight.Game.Combat!.Combatants[0];
+
+        fight.Host.SetFriendly(0, 3);
+
+        Assert.Equal(3, fight.Host.Friendly(0, "A"));
+        Assert.Equal(who.IsFriendly ? 0 : 1, fight.Host.Friendly(0, "F"));
+    }
+
+    /// <summary>
+    /// An adjustment outside 0–3 is ignored, which turns the call into a read.
+    /// </summary>
+    [Fact]
+    public void An_adjustment_out_of_range_is_ignored()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        fight.Host.SetFriendly(0, 2);
+
+        Assert.Equal(2, fight.Host.SetFriendly(0, 99));
+        Assert.Equal(2, fight.Host.Friendly(0, "A"));
+
+        Assert.Equal(2, fight.Host.SetFriendly(0, -1));
+        Assert.Equal(2, fight.Host.Friendly(0, "A"));
+    }
+
+    /// <summary>
+    /// Adjacency is a footprint overlap, and it is symmetric.
+    /// </summary>
+    /// <remarks>
+    /// <b>Symmetry is the property worth checking</b> — the test is written from one combatant's
+    /// rectangle against another's, and getting the margin wrong on one side would make A adjacent
+    /// to B without B being adjacent to A.
+    /// </remarks>
+    [Fact]
+    public void Adjacency_is_a_footprint_overlap_and_is_symmetric()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var roster = fight.Game.Combat!.Combatants;
+
+        for (int i = 0; i < roster.Count; i++)
+        {
+            foreach (int j in Indices(fight.Host.AdjacentCombatants(i)))
+            {
+                // Nobody is adjacent to themselves.
+                Assert.NotEqual(i, j);
+
+                // And adjacency runs both ways.
+                Assert.Contains(i, Indices(fight.Host.AdjacentCombatants(j)));
+            }
+        }
+    }
+
+    /// <summary>Two combatants placed on top of each other are adjacent; far apart, they are not.</summary>
+    [Fact]
+    public void Moving_a_combatant_changes_who_it_touches()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var roster = fight.Game.Combat!.Combatants;
+        var a = roster[0];
+        var b = roster[1];
+
+        a.X = 5;
+        a.Y = 5;
+        b.X = 5;
+        b.Y = 5;
+        Assert.Contains(1, Indices(fight.Host.AdjacentCombatants(0)));
+
+        b.X = 40;
+        b.Y = 40;
+        Assert.DoesNotContain(1, Indices(fight.Host.AdjacentCombatants(0)));
+    }
+
+    /// <summary>The list is pipe-prefixed, so an empty one is the empty string.</summary>
+    [Fact]
+    public void An_empty_adjacency_list_is_empty_not_a_bare_delimiter()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        // Put everybody far apart.
+        var roster = fight.Game.Combat!.Combatants;
+        for (int i = 0; i < roster.Count; i++)
+        {
+            roster[i].X = i * 10;
+            roster[i].Y = i * 10;
+        }
+
+        Assert.Equal(string.Empty, fight.Host.AdjacentCombatants(0));
+    }
+
+    /// <summary>
+    /// The walk visits every combatant once, in order, and stops.
+    /// </summary>
+    [Fact]
+    public void An_unfiltered_walk_visits_everybody_in_order()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var seen = new List<int>();
+        int? at = null;
+
+        while (fight.Host.NextCreature(at, 0) is { } next)
+        {
+            seen.Add(next);
+            at = next;
+        }
+
+        Assert.Equal(Enumerable.Range(0, fight.Game.Combat!.Combatants.Count), seen);
+    }
+
+    /// <summary>
+    /// The side filters select opposite halves of the roster.
+    /// </summary>
+    /// <remarks>
+    /// <b>They read the raw side, not the override</b> — the reference tests <c>friendly</c> here
+    /// where <c>ListAdjacentCombatants</c> tests <c>GetIsFriendly()</c>. A charmed monster is still
+    /// hostile to this walk.
+    /// </remarks>
+    [Fact]
+    public void The_side_filters_select_opposite_halves()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var hostile = Walk(fight.Host, (int)GpdlCreatureFilter.Hostile);
+        var friendly = Walk(fight.Host, (int)GpdlCreatureFilter.Friendly);
+        var roster = fight.Game.Combat!.Combatants;
+
+        Assert.NotEmpty(hostile);
+        Assert.NotEmpty(friendly);
+        Assert.All(hostile, i => Assert.False(roster[i].IsFriendly));
+        Assert.All(friendly, i => Assert.True(roster[i].IsFriendly));
+
+        // Between them they are the whole roster, with nothing in both.
+        Assert.Equal(roster.Count, hostile.Count + friendly.Count);
+        Assert.Empty(hostile.Intersect(friendly));
+
+        // And a charm does not move anybody between them.
+        fight.Host.SetFriendly(hostile[0], 1);
+        Assert.Equal(hostile, Walk(fight.Host, (int)GpdlCreatureFilter.Hostile));
+    }
+
+    /// <summary>
+    /// Asking for both sides at once matches nobody.
+    /// </summary>
+    /// <remarks>
+    /// The flags are <i>skip</i> rules, so setting both drops every combatant. Nothing warns about
+    /// it, and a design writing <c>6</c> meaning "either side" gets an empty walk.
+    /// </remarks>
+    [Fact]
+    public void Asking_for_both_sides_matches_nobody()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        Assert.Empty(Walk(fight.Host,
+                          (int)(GpdlCreatureFilter.Hostile | GpdlCreatureFilter.Friendly)));
+    }
+
+    /// <summary>
+    /// The living filter keeps the unconscious and the dying.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only fled, gone, petrified and dead are not alive</b> (<c>Char.h:680</c>) — so a filter
+    /// asking for the living gets everybody who might still be healed, which is the point.
+    /// </remarks>
+    [Fact]
+    public void The_living_filter_keeps_the_unconscious_and_dying()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        var roster = fight.Game.Combat!.Combatants;
+
+        roster[0].Status = CharacterStatus.Unconscious;
+        roster[1].Status = CharacterStatus.Dead;
+
+        var alive = Walk(fight.Host, (int)GpdlCreatureFilter.Alive);
+
+        Assert.Contains(0, alive);
+        Assert.DoesNotContain(1, alive);
+    }
+
+    private static List<int> Walk(GameScriptHost host, int filter)
+    {
+        var seen = new List<int>();
+        int? at = null;
+
+        while (host.NextCreature(at, filter) is { } next)
+        {
+            seen.Add(next);
+            at = next;
+        }
+
+        return seen;
+    }
+
+    private static List<int> Indices(string list) =>
+        [.. list.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse)];
+}

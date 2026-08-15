@@ -1115,6 +1115,57 @@ public sealed class GpdlVirtualMachine
                     break;
                 }
 
+            case SubOp.SUBOP_GetFriendly:
+                {
+                    string which = PopSp();
+
+                    // "Huh?" for a combatant that does not exist AND for a code that is not one of
+                    // the three -- so a script cannot tell a bad combatant from a bad question.
+                    PushSp(_host.Friendly(PopInteger(), which) is { } value
+                               ? value.ToString(CultureInfo.InvariantCulture)
+                               : GpdlCombat.NoSuchAnswer);
+                    break;
+                }
+            case SubOp.SUBOP_SetFriendly:
+                {
+                    int adjustment = PopInteger();
+
+                    // The override as it was BEFORE the change -- and 0 for a combatant that does
+                    // not exist, which is also a legitimate previous value.
+                    PushSp(_host.SetFriendly(PopInteger(), adjustment)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_ListAdjacentCombatants:
+                PushSp(_host.AdjacentCombatants(PopInteger()));
+                break;
+
+            case SubOp.SUBOP_NextCreatureIndex:
+                {
+                    int filter = PopInteger();
+
+                    // An EMPTY second argument starts the walk; a number continues after it. The
+                    // reference tests the stack slot itself rather than the popped value, so ""
+                    // and "0" mean different things -- the first is "from the beginning", the
+                    // second is "after combatant 0".
+                    string from = PopSp();
+                    int? after = from.Length == 0
+                        ? null
+                        : Parse(from, out _);
+
+                    PushSp(_host.NextCreature(after, filter) is { } next
+                               ? next.ToString(CultureInfo.InvariantCulture)
+                               : False);
+                    break;
+                }
+
+            case SubOp.SUBOP_IndexToActor:
+                PushSp(_host.IndexToActor(PopInteger()));
+                break;
+            case SubOp.SUBOP_Name:
+                PushSp(_host.ActorNamed(PopSp()));
+                break;
+
             case SubOp.SUBOP_Alignment:
                 PushSp(GpdlAlignment.NameOf(AlignmentOf(PopSp())));
                 break;

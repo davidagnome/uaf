@@ -675,6 +675,198 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     /// <summary><c>HIGHEST_CHARACTER_LEVEL</c> (<c>Externs.h:199</c>).</summary>
     private const int HighestCharacterLevel = 40;
 
+    /// <summary>The combatant at an index, or null.</summary>
+    private Combatant? At(int index) =>
+        game.Combat is { } session && index >= 0 && index < session.Combatants.Count
+            ? session.Combatants[index]
+            : null;
+
+    /// <inheritdoc/>
+    public override int? Friendly(int combatant, string which) =>
+        At(combatant) is not { } who
+            ? null
+            : which switch
+            {
+                // The side it joined on.
+                "B" => who.IsFriendly ? 1 : 0,
+
+                // The script override, raw -- 0..3, not a boolean.
+                "A" => who.FriendlyOverride,
+
+                // The two combined, which is what targeting should ask.
+                "F" => who.IsCurrentlyFriendly ? 1 : 0,
+
+                _ => null,
+            };
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>An adjustment outside 0-3 is ignored, which quietly turns the call into a read.</b> The
+    /// answer is the override as it stood before, so a script can save and restore it — and 0 for a
+    /// combatant that does not exist, which is also a legitimate previous value.
+    /// </remarks>
+    public override int SetFriendly(int combatant, int adjustment)
+    {
+        if (At(combatant) is not { } who)
+        {
+            return 0;
+        }
+
+        int before = who.FriendlyOverride;
+
+        if (adjustment is >= 0 and <= 3)
+        {
+            who.FriendlyOverride = adjustment;
+        }
+
+        return before;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Footprints, not points.</b> A combatant occupies a rectangle, so this is a rectangle
+    /// overlap against a one-square margin — a 2x2 ogre touches squares a 1x1 kobold standing in
+    /// the same place would not.
+    /// </remarks>
+    public override string AdjacentCombatants(int combatant)
+    {
+        if (game.Combat is not { } session || At(combatant) is not { } who)
+        {
+            return string.Empty;
+        }
+
+        int minX = who.X - 1;
+        int minY = who.Y - 1;
+        int maxX = who.X + who.Icon.Width;
+        int maxY = who.Y + who.Icon.Height;
+
+        var list = new System.Text.StringBuilder();
+
+        for (int i = 0; i < session.Combatants.Count; i++)
+        {
+            if (i == combatant)
+            {
+                continue;
+            }
+
+            var other = session.Combatants[i];
+
+            if (other.X > maxX || other.Y > maxY
+                || other.X + other.Icon.Width <= minX
+                || other.Y + other.Icon.Height <= minY)
+            {
+                continue;
+            }
+
+            list.Append('|').Append(i.ToString(Culture));
+        }
+
+        return list.ToString();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The filters are skip-rules, and two of them contradict.</b> Setting both Hostile and
+    /// Friendly skips everybody, since the first drops every friendly combatant and the second
+    /// every hostile one. Nothing warns about it.
+    /// </remarks>
+    public override int? NextCreature(int? after, int filter)
+    {
+        if (game.Combat is not { } session)
+        {
+            return null;
+        }
+
+        for (int i = (after ?? -1) + 1; i < session.Combatants.Count; i++)
+        {
+            var who = session.Combatants[i];
+
+            if ((filter & (int)GpdlCreatureFilter.Alive) != 0 && !IsAlive(who))
+            {
+                continue;
+            }
+
+            // Note these read the RAW side, not the override -- the reference tests `friendly`
+            // here where ListAdjacentCombatants tests GetIsFriendly(). A charmed monster is still
+            // hostile to this walk.
+            if ((filter & (int)GpdlCreatureFilter.Hostile) != 0 && who.IsFriendly)
+            {
+                continue;
+            }
+
+            if ((filter & (int)GpdlCreatureFilter.Friendly) != 0 && !who.IsFriendly)
+            {
+                continue;
+            }
+
+            if ((filter & (int)GpdlCreatureFilter.OnMap) != 0 && !OnMap(who))
+            {
+                continue;
+            }
+
+            return i;
+        }
+
+        return null;
+    }
+
+    /// <summary><c>CHARACTER::IsAlive</c> (<c>Char.h:680</c>).</summary>
+    /// <remarks>
+    /// <b>Unconscious and dying both count as alive</b> — only fled, gone, petrified and dead do
+    /// not. A filter asking for the living gets everybody who might still be healed.
+    /// </remarks>
+    private static bool IsAlive(Combatant who) =>
+        who.Status is CharacterStatus.Okay or CharacterStatus.Unconscious
+                   or CharacterStatus.Running or CharacterStatus.Dying;
+
+    /// <summary><c>charOnCombatMap(false, true)</c> — petrified counts, unconscious does not.</summary>
+    private static bool OnMap(Combatant who) =>
+        who.Status is not (CharacterStatus.Unconscious or CharacterStatus.Fled
+                        or CharacterStatus.Gone or CharacterStatus.TempGone
+                        or CharacterStatus.Dead);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Out of combat the reference ignores the index entirely</b> — it calls <c>Dude()</c>,
+    /// which pops the number and then resolves the <i>current character context</i> instead. So
+    /// <c>$IndexToActor(3)</c> outside a fight answers whoever the engine is working on. Matched
+    /// here, because a design written against it would break if the number suddenly meant
+    /// something.
+    /// </remarks>
+    public override string IndexToActor(int index) =>
+        At(index) is { } who ? Text(who.Index) : Context.CurrentActor;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Combatants during a fight, the party outside one</b>, case-insensitively, first match
+    /// wins. Two characters with one name are indistinguishable.
+    /// </remarks>
+    public override string ActorNamed(string name)
+    {
+        if (game.Combat is { } session)
+        {
+            foreach (var who in session.Combatants)
+            {
+                if (string.Equals(who.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Text(who.Index);
+                }
+            }
+
+            return string.Empty;
+        }
+
+        foreach (var member in game.Party.Members)
+        {
+            if (string.Equals(member.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return member.CharacterId;
+            }
+        }
+
+        return string.Empty;
+    }
+
     /// <inheritdoc/>
     public override int SpellField(string spell, GpdlSpellField field) =>
         game.Design.Spell(spell) is { } record
