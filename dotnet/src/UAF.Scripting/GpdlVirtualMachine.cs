@@ -1080,6 +1080,41 @@ public sealed class GpdlVirtualMachine
                     break;
                 }
 
+            case SubOp.SUBOP_DelimitedStringFilter:
+                {
+                    // Pure string work -- no host involved. The function pops first, then the
+                    // filter, then the source.
+                    string function = PopSp();
+                    string filter = PopSp();
+
+                    PushSp(GpdlDelimitedString.Filter(PopSp(), filter, function));
+                    break;
+                }
+
+            case SubOp.SUBOP_IntegerTable:
+                {
+                    // Function, value, table, ability -- popped in that order, so the ability
+                    // (leftmost in the source) comes off last.
+                    string function = PopSp();
+                    int value = PopInteger();
+                    string table = PopSp();
+
+                    PushSp(_host
+                        .IntegerTable(PopSp(), table, value, GpdlIntegerTable.QueryOf(function))
+                        .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
+            case SubOp.SUBOP_RollHitPointDice:
+                {
+                    int high = PopInteger();
+                    int low = PopInteger();
+
+                    PushSp(_host.RollHitPointDice(PopSp(), low, high)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
             case SubOp.SUBOP_Alignment:
                 PushSp(GpdlAlignment.NameOf(AlignmentOf(PopSp())));
                 break;

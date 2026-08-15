@@ -373,6 +373,126 @@ public enum GpdlAslScope
 }
 
 /// <summary>
+/// What <c>$IntegerTable</c> should do with the number it is given.
+/// </summary>
+/// <remarks>
+/// <b>Selected by the FIRST CHARACTER of the function argument</b>, not by the whole word
+/// (<c>Specab.cpp:2028</c>) — so <c>"Index"</c>, <c>"I"</c> and <c>"Ignore"</c> all mean the same
+/// thing, and a design's readable name for the operation is never actually checked.
+/// </remarks>
+public enum GpdlTableQuery
+{
+    /// <summary>
+    /// <c>I</c> — the entry at that index.
+    /// </summary>
+    /// <remarks>
+    /// <b>Clamped at the top and refused at the bottom.</b> An index past the end answers the last
+    /// entry; a negative one answers <see cref="GpdlIntegerTable.NotFound"/>. So a script cannot
+    /// tell "off the end" from "the last value".
+    /// </remarks>
+    Index,
+
+    /// <summary><c>E</c> — the index of the first entry equal to the value.</summary>
+    Equal,
+
+    /// <summary>
+    /// <c>G</c> — the index of the first entry greater than the value.
+    /// </summary>
+    /// <remarks>
+    /// <b>Answers the table's length when nothing is greater</b>, not a negative code — the
+    /// reference's loop variable survives the loop. That is a valid index one past the end, so a
+    /// script must compare against the length rather than testing for -1.
+    /// </remarks>
+    Greater,
+
+    /// <summary><c>L</c> — the index of the first entry less than the value, or the length.</summary>
+    /// <remarks>
+    /// <b>First, not last.</b> In a table written in ascending order this is index 0 or nothing at
+    /// all, which makes it much less useful than it sounds.
+    /// </remarks>
+    Less,
+
+    /// <summary>Any other first character.</summary>
+    Unknown,
+}
+
+/// <summary>The values <c>$IntegerTable</c> answers that are not results.</summary>
+/// <remarks>
+/// <b>Five distinct negative codes, and a script can tell them apart.</b> They say why the lookup
+/// failed, which is unusual for this engine — most calls collapse every failure into one answer.
+/// </remarks>
+public static class GpdlIntegerTable
+{
+    /// <summary>The query ran and matched nothing (<c>Index</c> below zero, or <c>Equal</c>).</summary>
+    public const int NotFound = -1;
+
+    /// <summary>The entry exists but is not a table.</summary>
+    public const int NotATable = -2;
+
+    /// <summary>The ability has no string by that name.</summary>
+    public const int NoSuchTable = -3;
+
+    /// <summary>There is no such ability.</summary>
+    public const int NoSuchAbility = -4;
+
+    /// <summary>The function's first character is none of <c>I</c>, <c>E</c>, <c>G</c>, <c>L</c>.</summary>
+    public const int NoSuchQuery = -5;
+
+    /// <summary>Which query a function name selects — its first character, and nothing else.</summary>
+    public static GpdlTableQuery QueryOf(string function) =>
+        string.IsNullOrEmpty(function)
+            ? GpdlTableQuery.Unknown
+            : function[0] switch
+            {
+                'I' => GpdlTableQuery.Index,
+                'E' => GpdlTableQuery.Equal,
+                'G' => GpdlTableQuery.Greater,
+                'L' => GpdlTableQuery.Less,
+                _ => GpdlTableQuery.Unknown,
+            };
+
+    /// <summary>Runs a query over a decoded table.</summary>
+    /// <remarks>The arithmetic, separate from where the table came from, so it can be tested alone.</remarks>
+    public static int Lookup(IReadOnlyList<int> entries, int value, GpdlTableQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+
+        switch (query)
+        {
+            case GpdlTableQuery.Index:
+                {
+                    int index = Math.Min(value, entries.Count - 1);
+                    return index >= 0 ? entries[index] : NotFound;
+                }
+
+            case GpdlTableQuery.Equal:
+                for (int i = 0; i < entries.Count; i++)
+                {
+                    if (entries[i] == value) { return i; }
+                }
+                return NotFound;
+
+            case GpdlTableQuery.Greater:
+                {
+                    int i = 0;
+                    while (i < entries.Count && entries[i] <= value) { i++; }
+                    return i;
+                }
+
+            case GpdlTableQuery.Less:
+                {
+                    int i = 0;
+                    while (i < entries.Count && entries[i] >= value) { i++; }
+                    return i;
+                }
+
+            default:
+                return NoSuchQuery;
+        }
+    }
+}
+
+/// <summary>
 /// A field a script can read off the spell database.
 /// </summary>
 /// <remarks>
@@ -1205,6 +1325,39 @@ public interface IGpdlHost
     int SetMemorizeCount(string actor, string spell, string adjustment);
 
     /// <summary>
+    /// Looks a number up in a table an ability carries (<c>$IntegerTable</c>,
+    /// <c>Specab.cpp:1964</c>).
+    /// </summary>
+    /// <param name="ability">The special ability holding the table.</param>
+    /// <param name="table">Which of its strings — the key, not the value.</param>
+    /// <param name="value">The number to look up; what that means depends on the query.</param>
+    /// <remarks>
+    /// <b>The table is text until the first lookup, then binary for good.</b> The entry holds
+    /// newline-separated integers flagged <c>SPECAB_INTEGERTABLE</c>; the first lookup parses them,
+    /// overwrites the entry with the packed array and re-flags it <c>SPECAB_BINARYTABLE</c>. The
+    /// same cache-in-place the script family uses.
+    /// </remarks>
+    /// <returns>
+    /// The answer, or one of <see cref="GpdlIntegerTable"/>'s negative codes.
+    /// <b>Not-found is not always negative:</b> the two ordering queries answer the table's length
+    /// when nothing matches, which is a valid index one past the end.
+    /// </returns>
+    int IntegerTable(string ability, string table, int value, GpdlTableQuery query);
+
+    /// <summary>
+    /// Rolls hit points for a range of levels of one baseclass (<c>$RollHitPointDice</c>,
+    /// <c>class.cpp:5570</c>).
+    /// </summary>
+    /// <param name="low">First level to roll for, inclusive.</param>
+    /// <param name="high">Last level, inclusive.</param>
+    /// <returns>The total rolled, or zero for a baseclass the design does not have.</returns>
+    /// <remarks>
+    /// <b>Each level rolls its own dice</b> — a baseclass's hit dice change with level, so this is
+    /// a sum over the range rather than one roll multiplied.
+    /// </remarks>
+    int RollHitPointDice(string baseclass, int low, int high);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -1506,6 +1659,14 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int SetMemorizeCount(string actor, string spell, string adjustment) => -1;
+
+    /// <inheritdoc/>
+    public virtual int IntegerTable(
+        string ability, string table, int value, GpdlTableQuery query) =>
+        GpdlIntegerTable.NoSuchAbility;
+
+    /// <inheritdoc/>
+    public virtual int RollHitPointDice(string baseclass, int low, int high) => 0;
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

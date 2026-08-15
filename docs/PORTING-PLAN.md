@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,798 tests, green on macOS; both CI workflows green.**
+**4,842 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,8 +9015,8 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **348 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **24 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **351 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **21 of the missing are
    named callable functions**; the other 14 have no name in the table.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
@@ -9121,6 +9121,48 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **`$DelimitedStringFilter`, `$IntegerTable` and `$RollHitPointDice` are done** (2026-08-14).
+   >
+   > **A delimited string carries its own delimiter as its first character.** `"|a|b|c"` is three
+   > fields; `",a,b"` is two. There is no argument saying how to split — so two strings can only be
+   > compared field-by-field if they happen to agree on a leading character, and nothing checks
+   > that they do. A trailing delimiter leaves an *empty* final field. (`$GET_SPELLBOOK` passes its
+   > separators in instead: two different answers to the same problem in one engine.)
+   >
+   > **`AndNot` is the only operation, and anything else is echoed back as the result.** The
+   > reference's last line is `return function;` — so `$DelimitedStringFilter("|a", "|b", "Or")`
+   > answers `"Or"`, and a design that mistypes `AndNot` gets its own typo back looking like a
+   > one-field answer. An empty source short-circuits before the function is looked at, so that one
+   > case answers empty instead.
+   >
+   > **`$IntegerTable`'s query is chosen by the FIRST CHARACTER of the function name.** `"Index"`,
+   > `"I"` and `"Ignore"` all mean the same thing, and `"Lowest"` silently means *less-than* — a
+   > design's readable name for the operation is never actually checked. The four are stranger than
+   > they read: `Index` clamps upward but refuses downward (so "off the end" is indistinguishable
+   > from "the last value"); **`Greater` and `Less` answer the table's LENGTH when nothing matches,
+   > not a negative code**, because the reference's loop variable survives the loop — a script
+   > testing for -1 treats "nothing was bigger" as a successful lookup; and `Less` finds the
+   > *first* entry below the value, which in an ascending table is index 0 or nothing at all.
+   > **Five distinct negative codes** say why a lookup failed, which is unusual here — most calls
+   > collapse every failure into one answer.
+   >
+   > **A line the table parser cannot read ends the table**, rather than being skipped: the
+   > reference's loop advances its cursor only inside the `sscanf` success branch, so a blank line
+   > in the middle of a design's table hides everything below it. Transcribed as written. The
+   > cache-in-place rewrite is *not* copied — the reference overwrites the design's own entry with
+   > a packed array on first lookup, and parsing is cheap enough not to need that.
+   >
+   > **`$RollHitPointDice`'s clamping assigns the wrong variable twice** (`class.cpp:5579`):
+   > `if (low > HIGHEST) high = HIGHEST;` and `if (high < 1) low = 1;`. So `low` is never clamped
+   > from above and `high` never from below — and both mistakes happen to leave an empty range and
+   > therefore zero, which is why nothing ever caught them. Clamped properly here, so levels 1–999
+   > rolls forty levels rather than nothing. **Each level rolls its own dice**, since a baseclass's
+   > hit dice change as it advances.
+   >
+   > **Both corpus designs carry nineteen integer tables** — `AbilityAdjustments[DexInit]` is
+   > `3, 2, 1, 0 …` down to `-3`, so the tests check known values (and the negatives prove the
+   > parser reads signs rather than digits) instead of asserting that a number came back.
+
    > **The seven never-implemented calls are done, and "done" means halting** (2026-08-14). Each
    > has a table row, so a design can write one and it **compiles** — but there is no handler
    > anywhere in `GPDLexec.cpp`, so it falls through the interpreter's own default and stops the

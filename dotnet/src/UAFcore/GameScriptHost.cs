@@ -1,3 +1,4 @@
+using UAF.Data;
 using UAF.Rules;
 using UAF.Scripting;
 using UAF.Serialization;
@@ -558,6 +559,121 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
             }
         }
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The table is text in the file and integers here.</b> An entry marked as an integer table
+    /// holds newline-separated numbers; the reference parses them on the first lookup and
+    /// overwrites the entry with a packed array so later lookups skip the parse. Nothing is
+    /// overwritten here — the parse is cheap and rewriting a design's own data to cache it is a
+    /// trade the port does not need to make.
+    /// </para>
+    /// <para>
+    /// <b>A line that does not start with a number ends the table.</b> The reference's loop only
+    /// advances when <c>sscanf</c> matches, so a blank or comment line stops it dead rather than
+    /// being skipped — and the entries after it are silently lost. Transcribed as written, since a
+    /// design's table is whatever the engine read.
+    /// </para>
+    /// </remarks>
+    public override int IntegerTable(
+        string ability, string table, int value, GpdlTableQuery query)
+    {
+        var found = game.Design.SpecialAbilities.FirstOrDefault(
+            a => string.Equals(a.Name, ability, StringComparison.Ordinal));
+
+        if (found is null)
+        {
+            return GpdlIntegerTable.NoSuchAbility;
+        }
+
+        if (found.Find(table) is not { } entry)
+        {
+            return GpdlIntegerTable.NoSuchTable;
+        }
+
+        if (entry.Kind != SpecialAbilityEntryKind.IntegerTable)
+        {
+            return GpdlIntegerTable.NotATable;
+        }
+
+        return GpdlIntegerTable.Lookup(ParseTable(entry.Value), value, query);
+    }
+
+    /// <summary>
+    /// The numbers in an integer table, one per line, stopping at the first line that is not one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Stopping rather than skipping is the reference's behaviour</b> — its loop advances the
+    /// cursor only inside the <c>sscanf</c> success branch, so a line it cannot read is where the
+    /// table ends. A blank line in the middle of a design's table hides everything below it.
+    /// </remarks>
+    private static List<int> ParseTable(string text)
+    {
+        var entries = new List<int>();
+
+        foreach (string line in (text ?? string.Empty).Split('\n'))
+        {
+            string trimmed = line.TrimStart();
+
+            if (trimmed.Length == 0
+                || !(char.IsAsciiDigit(trimmed[0]) || trimmed[0] is '-' or '+'))
+            {
+                break;
+            }
+
+            entries.Add(MfcString.Atoi(trimmed));
+        }
+
+        return entries;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Each level rolls its own dice.</b> A baseclass's hit dice change as it advances, so this
+    /// sums a roll per level across the range rather than multiplying one roll.
+    /// </para>
+    /// <para>
+    /// <b>The reference's clamping assigns the wrong variable twice</b> (<c>class.cpp:5579</c>):
+    /// <c>if (low &gt; HIGHEST) high = HIGHEST;</c> and <c>if (high &lt; 1) low = 1;</c> — so
+    /// <c>low</c> is never clamped from above and <c>high</c> never from below. Both mistakes
+    /// happen to produce an empty range and therefore zero, which is why nothing caught them.
+    /// Clamped properly here; a script asking for levels 1 to 999 gets levels 1 to 40 rather than
+    /// nothing.
+    /// </para>
+    /// </remarks>
+    public override int RollHitPointDice(string baseclass, int low, int high)
+    {
+        if (game.Design.Baseclasses?.TryGetValue(baseclass, out var record) != true
+            || record is null || record.HitDice.Count == 0)
+        {
+            return 0;
+        }
+
+        low = Math.Clamp(low, 1, HighestCharacterLevel);
+        high = Math.Clamp(high, 1, HighestCharacterLevel);
+
+        int total = 0;
+        for (int level = low; level <= high; level++)
+        {
+            // GetHitDice clamps the level into the table, so a baseclass with a short table
+            // repeats its last row rather than reading off the end.
+            var dice = record.HitDice[Math.Min(level, record.HitDice.Count) - 1];
+
+            for (int i = 0; i < dice.Nbr; i++)
+            {
+                total += game.Dice(dice.Sides);
+            }
+
+            total += dice.Bonus;
+        }
+
+        return total;
+    }
+
+    /// <summary><c>HIGHEST_CHARACTER_LEVEL</c> (<c>Externs.h:199</c>).</summary>
+    private const int HighestCharacterLevel = 40;
 
     /// <inheritdoc/>
     public override int SpellField(string spell, GpdlSpellField field) =>
