@@ -560,6 +560,173 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     }
 
     /// <inheritdoc/>
+    public override int SpellField(string spell, GpdlSpellField field) =>
+        game.Design.Spell(spell) is { } record
+            ? field == GpdlSpellField.Level ? record.Level : record.CanBeDispelled
+            : 0;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>Four separators, nested outermost first</b> — school, level, spell, field. Each school is
+    /// introduced once, each level within it once, and every spell carries its selected and
+    /// memorised counts after it. A script parses this rather than walking the book, because there
+    /// is no call that walks it.
+    /// </para>
+    /// <para>
+    /// <b>Each mark is a two-character pair, and the pairs overlap.</b> A school is
+    /// <c>[0][1]</c>, a level is <c>[1][2]</c>, a spell is <c>[2][3]</c>, and fields are separated
+    /// by <c>[3]</c> alone — so every mark shares a character with its neighbour. A parser that
+    /// split on one separator would find schools and levels indistinguishable.
+    /// </para>
+    /// <para>
+    /// <b>A design passing fewer than four separators reads past the end of its own string in the
+    /// reference</b>, which indexes <c>delimiters[0]</c> to <c>[3]</c> unchecked. Missing ones are
+    /// empty here instead — the resulting text is ambiguous, but it is the design's text and not
+    /// whatever followed it in memory.
+    /// </para>
+    /// <para>
+    /// <b>The reference reads an uninitialised local on most iterations.</b> <c>int prevLevel;</c>
+    /// is declared <i>inside</i> the loop (<c>Spell.cpp:10383</c>) and assigned only when the
+    /// school changes, so every spell after the first in a school compares its level against
+    /// whatever is in that stack slot. The commented-out <c>// prevLevel = -99999;</c> on the line
+    /// above the loop is where the initialisation used to be. In practice the slot usually still
+    /// holds the previous iteration's value and it behaves as intended — but it is undefined, and
+    /// there is nothing to reproduce faithfully. The tracking variable is hoisted here, which is
+    /// what the code plainly meant.
+    /// </para>
+    /// </remarks>
+    public override string Spellbook(string actor, string delimiters)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return string.Empty;
+        }
+
+        char At(int i) => delimiters is not null && i < delimiters.Length ? delimiters[i] : '\0';
+
+        string Sep(params int[] which) =>
+            new([.. which.Select(At).Where(c => c != '\0')]);
+
+        // Sorted by school, then level, then name -- the order the reference's shell sort leaves.
+        var sorted = character.Book.Entries
+            .Select(e => (Entry: e, Record: game.Design.Spell(e.SpellId)))
+            .Where(e => e.Record is not null)
+            .OrderBy(e => e.Record!.SchoolId, StringComparer.Ordinal)
+            .ThenBy(e => e.Entry.Level)
+            .ThenBy(e => e.Entry.SpellId, StringComparer.Ordinal);
+
+        var text = new System.Text.StringBuilder();
+        string school = string.Empty;
+        int level = int.MinValue;
+
+        foreach (var (entry, record) in sorted)
+        {
+            if (record!.SchoolId != school)
+            {
+                school = record.SchoolId;
+                text.Append(Sep(0, 1)).Append(school);
+
+                // A new school restarts the level grouping, so the first level under it is
+                // always announced even if it repeats the last one under the previous school.
+                level = int.MinValue;
+            }
+
+            if (entry.Level != level)
+            {
+                level = entry.Level;
+                text.Append(Sep(1, 2)).Append(level.ToString(Culture));
+            }
+
+            text.Append(Sep(2, 3)).Append(entry.SpellId)
+                .Append(At(3)).Append(entry.Selected.ToString(Culture))
+                .Append(At(3)).Append(entry.Memorized.ToString(Culture));
+        }
+
+        return text.ToString();
+    }
+
+    private static readonly System.Globalization.CultureInfo Culture =
+        System.Globalization.CultureInfo.InvariantCulture;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>It increments and checks nothing.</b> The reference does a bare <c>selected++</c> — no
+    /// test against what the caster may hold at that level, and no upper bound. A script calling it
+    /// in a loop really does queue that many copies.
+    /// </remarks>
+    public override bool SelectSpell(string actor, string spell)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return false;
+        }
+
+        foreach (var entry in character.Book.Entries)
+        {
+            if (string.Equals(entry.SpellId, spell, StringComparison.OrdinalIgnoreCase))
+            {
+                entry.Selected++;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Zero minutes, and the <c>all</c> flag does the work.</b> The reference calls
+    /// <c>IncAllMemorizedTime(0, TRUE)</c>, which finishes everything outstanding at once and skips
+    /// the clock — so this is "memorise it all now" rather than "spend a moment memorising".
+    /// </remarks>
+    public override void Memorize(string actor) =>
+        Resolve(actor)?.Book.AddMemorizeTime(0, all: true);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>An empty adjustment reads without writing</b>, which is the only way a script can ask how
+    /// many copies are ready. Otherwise a leading sign makes it relative and anything else
+    /// absolute, and the result is floored at zero — so -1 can only ever mean "no such spell".
+    /// </remarks>
+    public override int SetMemorizeCount(string actor, string spell, string adjustment)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return -1;
+        }
+
+        foreach (var entry in character.Book.Entries)
+        {
+            if (!string.Equals(entry.SpellId, spell, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(adjustment))
+            {
+                return entry.Memorized;
+            }
+
+            int value = MfcString.Atoi(adjustment);
+
+            entry.Memorized = adjustment[0] is '+' or '-'
+                ? entry.Memorized + value
+                : value;
+
+            if (entry.Memorized < 0)
+            {
+                entry.Memorized = 0;
+            }
+
+            return entry.Memorized;
+        }
+
+        // The one answer the count itself can never give, since it is floored at zero.
+        return -1;
+    }
+
+    /// <inheritdoc/>
     /// <remarks>
     /// <b>The key is the item's slot on the character, not its id</b> — which is why two copies of
     /// one item can be identified separately.

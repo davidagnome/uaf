@@ -133,8 +133,8 @@ public sealed class GpdlGraphics
 
         var point = points.TryGetValue(name, out var existing) ? existing : default;
 
-        point.X = points.TryGetValue(x, out var fromX) ? fromX.X : Atoi(x);
-        point.Y = points.TryGetValue(y, out var fromY) ? fromY.Y : Atoi(y);
+        point.X = points.TryGetValue(x, out var fromX) ? fromX.X : MfcString.Atoi(x);
+        point.Y = points.TryGetValue(y, out var fromY) ? fromY.Y : MfcString.Atoi(y);
 
         points[name] = point;
     }
@@ -292,44 +292,6 @@ public sealed class GpdlGraphics
         CursorY = AnchorY;
     }
 
-    /// <summary>
-    /// Reads a leading integer the way <c>atoi</c> does: no digits means zero, and trailing
-    /// rubbish is ignored rather than refused.
-    /// </summary>
-    private static int Atoi(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return 0;
-        }
-
-        int i = 0;
-        while (i < text.Length && char.IsWhiteSpace(text[i]))
-        {
-            i++;
-        }
-
-        int sign = 1;
-        if (i < text.Length && (text[i] == '+' || text[i] == '-'))
-        {
-            sign = text[i] == '-' ? -1 : 1;
-            i++;
-        }
-
-        long value = 0;
-        while (i < text.Length && char.IsAsciiDigit(text[i]))
-        {
-            value = (value * 10) + (text[i] - '0');
-            i++;
-
-            if (value > int.MaxValue)
-            {
-                return sign < 0 ? int.MinValue : int.MaxValue;
-            }
-        }
-
-        return (int)(sign * value);
-    }
 }
 
 /// <summary>

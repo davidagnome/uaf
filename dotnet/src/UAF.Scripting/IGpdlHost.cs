@@ -373,6 +373,29 @@ public enum GpdlAslScope
 }
 
 /// <summary>
+/// A field a script can read off the spell database.
+/// </summary>
+/// <remarks>
+/// Both read the design's spell record rather than anybody's book, so they answer the same for a
+/// spell nobody knows.
+/// </remarks>
+public enum GpdlSpellField
+{
+    /// <summary>The spell's level (<c>$GET_SPELL_Level</c>).</summary>
+    Level,
+
+    /// <summary>
+    /// Whether a dispel can remove it (<c>$GET_SPELL_CanBeDispelled</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Answered as a GPDL boolean, not a number.</b> The reference pushes <c>"1"</c> or the
+    /// empty string — so unlike <see cref="Level"/> this one is false-y when it is false, and a
+    /// spell the design does not have is indistinguishable from one that cannot be dispelled.
+    /// </remarks>
+    CanBeDispelled,
+}
+
+/// <summary>
 /// Which layer of a map square an override applies to (<c>OVERRIDE_TYPE</c>,
 /// <c>GlobalData.h:471</c>).
 /// </summary>
@@ -1110,6 +1133,78 @@ public interface IGpdlHost
     void Ready(string actor, string item, string location);
 
     /// <summary>
+    /// A field off the spell database (<c>$GET_SPELL_Level</c>,
+    /// <c>$GET_SPELL_CanBeDispelled</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>No character involved.</b> These read the design's spell record, not anybody's book, so
+    /// they answer the same for a spell nobody knows.
+    /// </remarks>
+    /// <returns>Zero for a spell the design does not have.</returns>
+    int SpellField(string spell, GpdlSpellField field);
+
+    /// <summary>
+    /// A character's whole spell book as one delimited string (<c>$GET_SPELLBOOK</c>,
+    /// <c>Spell.cpp:10320</c>).
+    /// </summary>
+    /// <param name="delimiters">
+    /// <b>Four separator characters, taken one at a time from this string</b> — school, level,
+    /// spell and field, outermost first. The reference indexes <c>delimiters[0]</c> through
+    /// <c>[3]</c> with no length check, so a design passing fewer than four reads past the end of
+    /// its own argument.
+    /// </param>
+    /// <remarks>
+    /// The spells come out sorted and grouped: each school is introduced once, each level within it
+    /// once, and every spell carries its selected and memorised counts. A script parses this rather
+    /// than walking the book, because there is no call that walks it.
+    /// </remarks>
+    string Spellbook(string actor, string delimiters);
+
+    /// <summary>
+    /// Asks for one more copy of a spell to be memorised (<c>$SelectSpell</c>,
+    /// <c>Spell.cpp:10417</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It increments, and it does not check anything.</b> The reference walks the book for the
+    /// spell and does <c>selected++</c> — no test against what the caster may hold at that level,
+    /// and no upper bound. A script calling it in a loop really does queue that many copies.
+    /// </remarks>
+    /// <returns>Whether the character knows the spell at all.</returns>
+    bool SelectSpell(string actor, string spell);
+
+    /// <summary>
+    /// Advances the character's memorisation (<c>$Memorize</c>, <c>Spell.cpp:10446</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>It passes zero minutes.</b> The call is <c>IncAllMemorizedTime(0, TRUE)</c> — the
+    /// <c>TRUE</c> is what does the work, finishing everything outstanding at once and skipping the
+    /// clock entirely. So this is "memorise it all now", not "spend a moment memorising".
+    /// </remarks>
+    void Memorize(string actor);
+
+    /// <summary>
+    /// Reads or changes how many copies of a spell a character has ready
+    /// (<c>$SetMemorizeCount</c>, <c>GPDLexec.cpp:2168</c>).
+    /// </summary>
+    /// <param name="adjustment">
+    /// <b>The number and how to apply it, in one string.</b> A leading <c>+</c> or <c>-</c> makes
+    /// it relative and anything else absolute, so <c>"3"</c> sets three and <c>"+3"</c> adds three.
+    /// <b>An empty string reads without writing</b> — which is the only way a script can ask how
+    /// many copies are ready.
+    /// </param>
+    /// <returns>
+    /// The count afterwards, or <b>-1 for a spell the character does not know</b> — the one value
+    /// the count itself can never take, since it is floored at zero.
+    /// </returns>
+    /// <remarks>
+    /// <b>It writes <c>memorized</c>, not <c>selected</c>, despite the name.</b> "Memorize count"
+    /// reads as the number queued for memorising, which is <c>selected</c>; the reference assigns
+    /// the number already <i>ready to cast</i>. So this call hands a caster loaded spells outright
+    /// rather than asking for them to be studied.
+    /// </remarks>
+    int SetMemorizeCount(string actor, string spell, string adjustment);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -1394,6 +1489,23 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual bool IsIdentified(string actor, int key, int ordinal) => false;
+
+    /// <inheritdoc/>
+    public virtual int SpellField(string spell, GpdlSpellField field) => 0;
+
+    /// <inheritdoc/>
+    public virtual string Spellbook(string actor, string delimiters) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual bool SelectSpell(string actor, string spell) => false;
+
+    /// <inheritdoc/>
+    public virtual void Memorize(string actor)
+    {
+    }
+
+    /// <inheritdoc/>
+    public virtual int SetMemorizeCount(string actor, string spell, string adjustment) => -1;
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

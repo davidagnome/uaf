@@ -133,4 +133,48 @@ public static class MfcString
         }
         return new string(c);
     }
+
+    /// <summary>
+    /// Reads a leading integer the way C's <c>atoi</c> does.
+    /// </summary>
+    /// <remarks>
+    /// <b>No digits means zero, and trailing rubbish is ignored rather than refused.</b> That is
+    /// the difference from <c>int.TryParse</c>, and it matters wherever the reference reaches for
+    /// <c>atoi</c> on something a design wrote: a typo'd name becomes 0 silently rather than
+    /// failing, which is behaviour a script can depend on.
+    /// </remarks>
+    public static int Atoi(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return 0;
+        }
+
+        int i = 0;
+        while (i < text.Length && char.IsWhiteSpace(text[i]))
+        {
+            i++;
+        }
+
+        int sign = 1;
+        if (i < text.Length && (text[i] == '+' || text[i] == '-'))
+        {
+            sign = text[i] == '-' ? -1 : 1;
+            i++;
+        }
+
+        long value = 0;
+        while (i < text.Length && char.IsAsciiDigit(text[i]))
+        {
+            value = (value * 10) + (text[i] - '0');
+            i++;
+
+            if (value > int.MaxValue)
+            {
+                return sign < 0 ? int.MinValue : int.MaxValue;
+            }
+        }
+
+        return (int)(sign * value);
+    }
 }

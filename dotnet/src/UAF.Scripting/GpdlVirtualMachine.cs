@@ -1033,6 +1033,53 @@ public sealed class GpdlVirtualMachine
                     break;
                 }
 
+            // The two spell-database reads. No character involved -- they answer the same for a
+            // spell nobody knows.
+            case SubOp.SUBOP_GET_SPELL_Level:
+                PushSp(_host.SpellField(PopSp(), GpdlSpellField.Level)
+                            .ToString(CultureInfo.InvariantCulture));
+                break;
+            case SubOp.SUBOP_GET_SPELL_CanBeDispelled:
+
+                // A GPDL boolean rather than a number, unlike its neighbour: the reference pushes
+                // "1" or the empty string. So a spell the design does not have reads the same as
+                // one that cannot be dispelled.
+                PushSp(_host.SpellField(PopSp(), GpdlSpellField.CanBeDispelled) != 0
+                           ? True
+                           : False);
+                break;
+
+            case SubOp.SUBOP_GetSpellbook:
+                {
+                    // The delimiters pop first, then the actor.
+                    string delimiters = PopSp();
+                    PushSp(_host.Spellbook(PopSp(), delimiters));
+                    break;
+                }
+            case SubOp.SUBOP_SelectSpell:
+                {
+                    string spell = PopSp();
+                    PushSp(_host.SelectSpell(PopSp(), spell) ? True : False);
+                    break;
+                }
+            case SubOp.SUBOP_Memorize:
+                _host.Memorize(PopSp());
+
+                // Always "OK" -- pushed outside the engine guard, so it answers the same whether
+                // anything was memorised or not, and whether the actor resolved or not.
+                PushSp("OK");
+                break;
+            case SubOp.SUBOP_SetMemorizeCount:
+                {
+                    // Adjustment first, then the spell, then the actor.
+                    string adjustment = PopSp();
+                    string spell = PopSp();
+
+                    PushSp(_host.SetMemorizeCount(PopSp(), spell, adjustment)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
             case SubOp.SUBOP_Alignment:
                 PushSp(GpdlAlignment.NameOf(AlignmentOf(PopSp())));
                 break;
@@ -1870,6 +1917,25 @@ public sealed class GpdlVirtualMachine
                     PushSp(i1 >= 0 && i1 < Aura.UserDataSlots ? toRead.UserData[i1] : string.Empty);
                 }
                 break;
+
+            // The seven calls the reference DECLARES and never implements. Each has a row in the
+            // system-function table, so a design can write one and it compiles -- but there is no
+            // handler anywhere in GPDLexec.cpp, so it falls through the interpreter's own default
+            // and stops the script with "Illegal subop code" (GPDLexec.cpp:6600).
+            //
+            // Halting is what the reference DOES, so it is ported rather than refused: throwing
+            // NotSupportedException here would say "this port has not got to it yet", which is a
+            // different and untrue claim. Keeping the two apart is what keeps the remaining-work
+            // count honest.
+            case SubOp.SUBOP_AbilityContext:
+            case SubOp.SUBOP_SpellgroupContext:
+            case SubOp.SUBOP_TraitContext:
+            case SubOp.SUBOP_SET_CHAR_CLASS:
+            case SubOp.SUBOP_TESTKEY:
+            case SubOp.SUBOP_NOT_USED_FOR_ANYTHING1:
+            case SubOp.SUBOP_NOT_USED_FOR_ANYTHING2:
+                _interpStatus = GpdlState.GPDL_ILLPARAM;
+                return _interpStatus;
 
             default:
                 throw new NotSupportedException(BuildUnportedMessage(op));

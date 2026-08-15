@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,773 tests, green on macOS; both CI workflows green.**
+**4,798 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,8 +9015,8 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **335 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **37 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **348 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **24 of the missing are
    named callable functions**; the other 14 have no name in the table.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
@@ -9050,12 +9050,15 @@ What is left, in order:
    >
    > **The "116 callable ones are left" figure was wrong** — it counted every mention of a `SubOp`
    > in `GpdlSystemFunctions`, so aliases counted twice. Parsing the table's rows instead gives
-   > **37 named functions**, and five of those are dead in the reference as well: `$LAST_HITTER_OF`
-   > and `$LAST_TARGETER_OF` are wired to `SUBOP_NOT_USED_FOR_ANYTHING1`/`2` and have no handler in
-   > `GPDLexec.cpp` at all, and `$GET_SPELLBOOK`, `$SET_CHAR_CLASS` and `$TESTKEY` are likewise
-   > declared and never implemented. So the real remaining work is **32 functions**, and the
-   > measurement that separates "we have not done it" from "the reference never did it" is worth
-   > redoing rather than trusting the summary.
+   > **37 named functions**, and some of those are dead in the reference as well.
+   >
+   > **That dead list was itself wrong in both directions, and is now a test.** It named five and
+   > included `$GET_SPELLBOOK`; the real figure is **seven**, `$GET_SPELLBOOK` is not among them
+   > (it maps to `SUBOP_GetSpellbook`, which does have a handler), and `$AbilityContext`,
+   > `$SpellgroupContext` and `$TraitContext` were missing from it. The seven are
+   > `$AbilityContext`, `$SpellgroupContext`, `$TraitContext`, `$SET_CHAR_CLASS`, `$TESTKEY`,
+   > `$LAST_HITTER_OF` and `$LAST_TARGETER_OF`. `GpdlDeclaredButNeverImplementedTests` greps the
+   > reference for each rather than trusting this paragraph.
 
    > **"No callable group remains — what is left is scattered singles" was wrong**, and stood from
    > 2026-08-06 to 2026-08-13. A group of **seventeen** remained: the sixteen creature traits
@@ -9118,6 +9121,47 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The seven never-implemented calls are done, and "done" means halting** (2026-08-14). Each
+   > has a table row, so a design can write one and it **compiles** — but there is no handler
+   > anywhere in `GPDLexec.cpp`, so it falls through the interpreter's own default and stops the
+   > script with "Illegal subop code" (`GPDLexec.cpp:6600`). **Halting is what the reference does,
+   > so it is ported rather than refused.** Throwing the port's `NotSupportedException` there would
+   > claim something different and untrue — that this port has not got to it yet. Keeping those two
+   > apart is what makes the remaining count mean anything.
+   >
+   > **The six spell-book calls are done** (2026-08-14): `$GET_SPELL_Level`,
+   > `$GET_SPELL_CanBeDispelled`, `$GET_SPELLBOOK`, `$SelectSpell`, `$Memorize`,
+   > `$SetMemorizeCount`.
+   >
+   > **`$SetMemorizeCount` writes `memorized`, not `selected`, despite its name.** "Memorize count"
+   > reads as the number *queued* for memorising; the reference assigns the number already **ready
+   > to cast** (`GPDLexec.cpp:2168`). So it hands a caster loaded spells outright rather than asking
+   > for them to be studied. Its adjustment is a *string* carrying its own sign convention — a
+   > leading `+`/`-` is relative, anything else absolute, and **an empty string reads without
+   > writing**, which is the only way a script can ask how many copies are ready. The result floors
+   > at zero, which is what lets `-1` mean "no such spell".
+   >
+   > **`$Memorize` passes zero minutes.** The call is `IncAllMemorizedTime(0, TRUE)` — the flag does
+   > the work, finishing everything outstanding at once and skipping the clock. It is "memorise it
+   > all now", not "spend a moment memorising". And `$SelectSpell` is a bare `selected++` with no
+   > bound and no check against what the caster may hold.
+   >
+   > **`$GET_SPELLBOOK`'s separators are overlapping PAIRS.** A school is `[0][1]`, a level is
+   > `[1][2]`, a spell is `[2][3]`, fields are `[3]` alone — every mark shares a character with its
+   > neighbour, so counting one separator counts schools and levels together. Two defects here: the
+   > reference indexes `delimiters[0..3]` with no length check (a design passing two reads past the
+   > end of its own string), and **`int prevLevel;` is declared inside the grouping loop and
+   > assigned only when the school changes** (`Spell.cpp:10383`), so every spell after the first in
+   > a school compares its level against an uninitialised stack slot. The commented-out
+   > `// prevLevel = -99999;` above the loop is where the initialisation used to be. Both diverge.
+   >
+   > **Neither corpus design ships a party that knows a single spell** — six characters each, every
+   > book empty. The first version of these tests looked for a shipped caster, found none, and
+   > passed while proving nothing; the premise test caught it. The book is now built from the
+   > design's real 377-spell database, so what is exercised is the database, the schools and levels,
+   > and the live `SpellList` — only "who happens to know these" is arranged. **Add the premise
+   > test first when a corpus test can early-return.**
+
    > **The baseclass, equipment and armour calls are done** (2026-08-14) — eleven:
    > `$GET_CHAR_Exp`/`$SET_CHAR_Exp`, `$GET_CHAR_Lvl`/`$SET_CHAR_Lvl`, `$GetBaseclassLevel`,
    > `$GetHighestLevelBaseclass`, `$GET_CHAR_Ready`/`$SET_CHAR_Ready`, `$IsIdentified`,
