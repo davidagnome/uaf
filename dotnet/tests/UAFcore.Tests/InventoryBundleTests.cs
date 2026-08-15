@@ -342,6 +342,116 @@ public class InventoryBundleTests
         Assert.Single(items);
     }
 
+    /// <summary>An item moves from one character to another, whole.</summary>
+    [Fact]
+    public void Trading_hands_the_row_over()
+    {
+        var giver = new List<ItemInstance> { Item("arrow", 1, 20), Item("sword", 2, 1) };
+        var taker = new List<ItemInstance>();
+
+        Assert.Equal(InventoryBundles.TradeRefusal.None,
+                     InventoryBundles.Trade(giver, 0, taker, toSelf: false, Database()));
+
+        Assert.Single(taker);
+        Assert.Equal(20, taker[0].Quantity);
+        Assert.Equal("sword", Assert.Single(giver).ItemId);
+    }
+
+    /// <summary>
+    /// Trading to yourself moves the row to the end, which is the point of it.
+    /// </summary>
+    /// <remarks>
+    /// <b>A feature, not an accident.</b> The reference's own comment calls it "a form of inventory
+    /// re-arrangement by the player" — and that path skips the weight check, since a character can
+    /// always carry what it is already carrying.
+    /// </remarks>
+    [Fact]
+    public void Trading_to_yourself_moves_the_row_to_the_end()
+    {
+        var own = new List<ItemInstance> { Item("arrow", 1, 5), Item("sword", 2, 1) };
+
+        Assert.Equal(InventoryBundles.TradeRefusal.None,
+                     InventoryBundles.Trade(own, 0, own, toSelf: true, Database(),
+                                            takerCarrying: 9999, maxCarried: 0,
+                                            weigh: _ => 9999));
+
+        Assert.Equal(["sword", "arrow"], own.Select(i => i.ItemId));
+    }
+
+    /// <summary>
+    /// A taker who cannot carry it means the giver keeps it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The taker is given it before the giver loses it</b>, so a failed add cannot destroy the
+    /// item — the reference deletes only when the add succeeded.
+    /// </remarks>
+    [Fact]
+    public void A_taker_who_cannot_carry_it_leaves_it_where_it_was()
+    {
+        var giver = new List<ItemInstance> { Item("arrow", 1, 20) };
+        var taker = new List<ItemInstance>();
+
+        Assert.Equal(InventoryBundles.TradeRefusal.TooHeavy,
+                     InventoryBundles.Trade(giver, 0, taker, toSelf: false, Database(),
+                                            takerCarrying: 10, maxCarried: 10,
+                                            weigh: _ => 5));
+
+        Assert.Single(giver);
+        Assert.Empty(taker);
+    }
+
+    /// <summary>A worn item stays put, and so does one the record will not let go.</summary>
+    [Fact]
+    public void A_worn_or_bound_item_cannot_be_traded()
+    {
+        var worn = new List<ItemInstance>
+        {
+            Item("arrow", 1, 4, ReadiedLocation.Base38("WEAPON")),
+        };
+
+        Assert.Equal(InventoryBundles.TradeRefusal.IsReadied,
+                     InventoryBundles.Trade(worn, 0, [], toSelf: false, Database()));
+
+        var bound = new List<ItemInstance> { Item("arrow", 1, 4) };
+
+        Assert.Equal(InventoryBundles.TradeRefusal.CannotBeTraded,
+                     InventoryBundles.Trade(bound, 0, [], toSelf: false, Locked()));
+    }
+
+    /// <summary>
+    /// Money goes through a quantity prompt, not the item path.
+    /// </summary>
+    [Fact]
+    public void Money_is_not_traded_as_an_item()
+    {
+        var giver = new List<ItemInstance> { Item("_$GEM$_", 1, 5) };
+
+        Assert.Equal(InventoryBundles.TradeRefusal.IsMoney,
+                     InventoryBundles.Trade(giver, 0, [], toSelf: false, Database()));
+    }
+
+    /// <summary>Everything the row carried travels with it.</summary>
+    /// <remarks>
+    /// The purchase price in particular, which is what stops a trade laundering an item into being
+    /// worth its list price at a shop.
+    /// </remarks>
+    [Fact]
+    public void The_rows_own_values_travel_with_it()
+    {
+        var bought = new ItemInstance(1, "wand", 0, ReadiedLocation.NotReady,
+                                      1, Identified: 1, Charges: 7, 0, Paid: 42);
+        var giver = new List<ItemInstance> { bought };
+        var taker = new List<ItemInstance>();
+
+        Assert.Equal(InventoryBundles.TradeRefusal.None,
+                     InventoryBundles.Trade(giver, 0, taker, toSelf: false, Database()));
+
+        var moved = Assert.Single(taker);
+        Assert.Equal(42, moved.Paid);
+        Assert.Equal(7, moved.Charges);
+        Assert.Equal(1, moved.Identified);
+    }
+
     /// <summary>An index off the end is refused rather than throwing.</summary>
     [Fact]
     public void An_index_off_the_end_is_refused()

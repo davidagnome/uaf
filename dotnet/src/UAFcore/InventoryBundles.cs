@@ -172,6 +172,110 @@ public static class InventoryBundles
         return DepositRefusal.None;
     }
 
+    /// <summary>Why a TRADE was refused.</summary>
+    public enum TradeRefusal
+    {
+        None,
+
+        /// <summary>The row does not exist.</summary>
+        NoSuchItem,
+
+        /// <summary>
+        /// Money, which goes through a quantity prompt instead.
+        /// </summary>
+        /// <remarks>
+        /// And unlike an ordinary item, money <b>cannot</b> be traded to yourself — the reference
+        /// guards that branch with <c>tradeGiver != activeCharacter</c> where the item branch
+        /// deliberately does not.
+        /// </remarks>
+        IsMoney,
+
+        /// <summary>The item's record forbids it leaving the party.</summary>
+        CannotBeTraded,
+
+        /// <summary>It is being worn.</summary>
+        IsReadied,
+
+        /// <summary>The taker cannot carry it, and the giver keeps it.</summary>
+        TooHeavy,
+    }
+
+    /// <summary>
+    /// Hands an item from one character to another (<c>tradeItem</c>, <c>Char.cpp:273</c>).
+    /// </summary>
+    /// <param name="taker">Who is to receive it. <b>May be the giver</b> — see the remarks.</param>
+    /// <param name="maxCarried">
+    /// What the taker may carry in total, and what it already does. Checked before the item moves,
+    /// because a taker who cannot carry it must not be given it.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>Trading to yourself is a feature, not an accident.</b> The reference's own comment calls
+    /// it "a form of inventory re-arrangement by the player" — the row is deleted and re-added, so
+    /// it moves to the end of the list. That path skips the weight check entirely, since a
+    /// character can always carry what it is already carrying.
+    /// </para>
+    /// <para>
+    /// <b>The taker is given it BEFORE the giver loses it</b>, and the giver keeps it if the add
+    /// fails. Doing it the other way round would destroy an item whenever the taker was full.
+    /// </para>
+    /// <para>
+    /// <b>The purchase price travels with the item</b>, which is what stops a trade laundering
+    /// something into being worth its list price at a shop (§selling to a shop).
+    /// </para>
+    /// </remarks>
+    public static TradeRefusal Trade(List<ItemInstance> giver, int index,
+                                     List<ItemInstance> taker, bool toSelf,
+                                     Func<string, ItemRecord?> database,
+                                     int takerCarrying = 0, int maxCarried = int.MaxValue,
+                                     Func<ItemInstance, int>? weigh = null)
+    {
+        ArgumentNullException.ThrowIfNull(giver);
+        ArgumentNullException.ThrowIfNull(taker);
+        ArgumentNullException.ThrowIfNull(database);
+
+        if (index < 0 || index >= giver.Count)
+        {
+            return TradeRefusal.NoSuchItem;
+        }
+
+        var item = giver[index];
+
+        if (Inventory.IsMoney(item.ItemId))
+        {
+            return TradeRefusal.IsMoney;
+        }
+
+        if (!CanLeaveTheParty(item, database))
+        {
+            return TradeRefusal.CannotBeTraded;
+        }
+
+        if (Inventory.IsReady(item))
+        {
+            return TradeRefusal.IsReadied;
+        }
+
+        if (toSelf)
+        {
+            // Re-arrangement: out and back in, which moves the row to the end. No weight check,
+            // because nothing about what is carried has changed.
+            giver.RemoveAt(index);
+            giver.Add(item);
+            return TradeRefusal.None;
+        }
+
+        if (weigh is not null && takerCarrying + weigh(item) > maxCarried)
+        {
+            return TradeRefusal.TooHeavy;
+        }
+
+        taker.Add(item);
+        giver.RemoveAt(index);
+
+        return TradeRefusal.None;
+    }
+
     /// <summary>
     /// Splits a bundle in two (<c>ITEM_LIST::halveItem</c>).
     /// </summary>

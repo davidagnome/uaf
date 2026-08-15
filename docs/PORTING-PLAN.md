@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**5,026 tests, green on macOS; both CI workflows green.**
+**5,035 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -5756,9 +5756,9 @@ Two things written here a round ago were wrong, and are corrected:
 and the camp all push, and so does combat**. Taken first among the inner screens for that reason:
 it is the one with the most callers per screen built.
 
-**Eight of its thirteen commands run** — READY, HALVE, JOIN, DEPOSIT, SELL, NEXT, PREV, EXIT. The
-other five each want machinery this port does not have (a trade partner picker, the level's cell
-contents, the scribe rules) and are named below.
+**Nine of its thirteen commands run** — READY, HALVE, JOIN, DEPOSIT, SELL, TRADE, NEXT, PREV,
+EXIT. The other four each want machinery this port does not have (the item's use-event chain, the
+level's cell contents, the scribe rules) and are named below.
 
 > **The screen shows a *word*, not a tick.** `readyLocation` names a slot — WEAPON, SHIELD, ARMOR,
 > HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER, and seven more the engine can reach — so
@@ -5881,6 +5881,33 @@ two steps: an offer, then a yes/no, then the sale.
 > **The row is remembered rather than re-derived on answering.** The reference reads the list index
 > again when the answer comes back, which is safe there only because nothing can change the list
 > while the question is up.
+
+##### Trading between characters
+
+`InventoryBundles.Trade` and the inventory's TRADE (`RunEvent.cpp:7983`, `Char.cpp:273`).
+
+> **The "picker" is the ordinary party selection with a two-entry menu over it.** The reference's
+> taker screen has no list of its own: it leaves TAB switching the party exactly as every other
+> screen does and reads `party.activeCharacter` when RETURN arrives
+> (`TRADE_TAKER_SELECT_MENU_DATA::OnKeypress`). So porting it needed no picker at all — only a
+> remembered giver and the TAB handling that was already there.
+
+> **Trading to yourself is a feature.** The reference's own comment calls it *"a form of inventory
+> re-arrangement by the player"* — the row is deleted and re-added, so it moves to the end of the
+> list. **That path skips the weight check entirely**, since a character can always carry what it
+> is already carrying.
+
+> **The taker is given it BEFORE the giver loses it**, and the giver keeps it when the add fails.
+> The other order would destroy an item whenever the taker was full — and the failure is silent, so
+> nothing would say where it went.
+
+> **The purchase price travels with the item**, along with its charges and whether it was
+> identified. That is what stops a trade laundering something into being worth its list price at a
+> shop (§selling to a shop).
+
+> **Money cannot be traded to yourself, where an item can.** The reference guards the money branch
+> with `tradeGiver != activeCharacter` and deliberately does not guard the item one — money goes
+> through a quantity prompt the port has not built.
 
 ##### The town-service shells, complete
 
@@ -8846,16 +8873,16 @@ What is left, in order:
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
      shells, complete). The **inventory** is done and on screen in the shop and the vault, with a
      row cursor, paging and the full ready rules (§the shared inventory, §the inventory on screen,
-     §the ready rules). **HALVE, JOIN, DEPOSIT and SELL now run too** (§splitting and merging
-     bundles, §depositing into a vault, §selling to a shop), so eight of its thirteen commands
-     work — READY, HALVE, JOIN, DEPOSIT, SELL and the three navigation ones. **The shop is now
-     complete.**
+     §the ready rules). **HALVE, JOIN, DEPOSIT, SELL and TRADE now run too** (§splitting and
+     merging bundles, §depositing into a vault, §selling to a shop, §trading between characters),
+     so nine of its thirteen commands work — READY, HALVE, JOIN, DEPOSIT, SELL, TRADE and the three
+     navigation ones. **The shop is complete.**
 
-     What is left there is **USE, TRADE, DROP, IDENTIFY and the two EXAMINEs**.
+     What is left there is **USE, DROP, IDENTIFY and the two EXAMINEs**.
      **DROP is the largest**: it drops the item into the level's `CELL_LEVEL_CONTENTS`, so it needs
      the level's mutable cell-contents table first — which `SaveGameProjection` still writes as an
-     empty `CellLevelContents([])`. **TRADE is the next cheapest** — it needs a party-member picker
-     and nothing else.
+     empty `CellLevelContents([])`. **The two EXAMINEs are the cheapest** — one shows an item's
+     details, the other reads the special-item list, and neither moves anything.
 
      The **party menu** behind the training hall runs, and with it **training** (§the party menu,
      and training). There is no separate character picker — an earlier note here said there was,

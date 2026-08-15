@@ -1796,6 +1796,39 @@ public sealed class EventRunner
                 return EventStep.Running;
             }
 
+            case InventoryCommand.Trade:
+            {
+                if (ActiveCharacterItems?.Invoke() is not { } toGive || GiveItemTo is null)
+                {
+                    return EventStep.Running;
+                }
+
+                var tradePage = InventoryPageRows;
+                int tradeRow = InventoryRowIndex;
+                if (tradeRow < 0 || tradeRow >= tradePage.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                int give = tradePage[tradeRow].Index;
+                if (give < 0 || give >= toGive.Items.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                // The picker opens on whoever is already active, so at this moment the giver and
+                // the taker are the same character -- and staying put is a legitimate answer, which
+                // is how the reference lets a player re-arrange one inventory.
+                pendingTrade = (GiverIndex?.Invoke() ?? 0, give);
+
+                Menu.Reset();
+                SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal,
+                               ("SELECT CHAR", 0), ("EXIT", 0));
+                escapeSelects = 1;
+
+                return EventStep.Running;
+            }
+
             case InventoryCommand.Sell:
             {
                 // Only meaningful over a shop, and only one that buys at all -- a buyback of zero
@@ -2004,6 +2037,67 @@ public sealed class EventRunner
             var after = carried with { Items = remaining };
             ApplyItemChange?.Invoke(after);
             InventoryRows = Inventory.Rows(after, ItemNames);
+        }
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, Inventory.Menu);
+        escapeSelects = (int)InventoryCommand.Exit;
+
+        PopulateInventoryForm();
+        return EventStep.Running;
+    }
+
+    /// <summary>
+    /// The trade waiting on a taker, as the giver's party index and the row being handed over.
+    /// </summary>
+    /// <remarks>
+    /// <b>The giver is remembered and the taker is whoever is active when the answer comes.</b>
+    /// That is exactly how the reference works — the picker has no list of its own, it just leaves
+    /// TAB switching the party as usual (<c>TRADE_TAKER_SELECT_MENU_DATA::OnKeypress</c>) and reads
+    /// <c>party.activeCharacter</c> when RETURN arrives. So the "picker" is the ordinary party
+    /// selection with a two-entry menu over it.
+    /// </remarks>
+    private (int Giver, int Row)? pendingTrade;
+
+    /// <summary>Whether a trade is waiting for its taker to be chosen.</summary>
+    public bool TradeOpen => pendingTrade is not null;
+
+    /// <summary>Which party member is active; set by the host, which owns the party.</summary>
+    public Func<int>? GiverIndex { get; set; }
+
+    /// <summary>
+    /// Hands a row from one party member to whoever is active now; set by the host.
+    /// </summary>
+    /// <remarks>
+    /// The whole move is the host's, because the runner has one character's items and a trade
+    /// needs two. It answers why it refused, which the screen keeps for
+    /// <see cref="LastTradeRefusal"/>.
+    /// </remarks>
+    public Func<int, int, InventoryBundles.TradeRefusal>? GiveItemTo { get; set; }
+
+    /// <summary>Why the last TRADE was refused.</summary>
+    public InventoryBundles.TradeRefusal LastTradeRefusal { get; private set; }
+
+    /// <summary>
+    /// Answers the taker picker.
+    /// </summary>
+    /// <remarks>
+    /// <b>EXIT abandons the trade rather than trading to whoever happens to be showing.</b> The
+    /// reference falls through its <c>case 2</c> doing nothing and pops the screen.
+    /// </remarks>
+    private EventStep AnswerTrade()
+    {
+        var trade = pendingTrade!.Value;
+        pendingTrade = null;
+
+        if (Menu.ActiveItem == 0)
+        {
+            LastTradeRefusal = GiveItemTo!(trade.Giver, trade.Row);
+
+            if (ActiveCharacterItems?.Invoke() is { } after)
+            {
+                InventoryRows = Inventory.Rows(after, ItemNames);
+            }
         }
 
         Menu.Reset();
@@ -5184,6 +5278,12 @@ public sealed class EventRunner
         if (pendingSale is not null)
         {
             return AnswerSale();
+        }
+
+        // And so does the taker picker, for the same reason.
+        if (pendingTrade is not null)
+        {
+            return AnswerTrade();
         }
 
         // The inventory replaces the current event's menu, so it answers before the event does.

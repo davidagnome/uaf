@@ -380,6 +380,46 @@ public sealed class Game
             && (Party.MoneyPooled != 0 && Party.Pooled.HaveEnough(Money.BaseType, cost)
                 || who.Purse.HaveEnough(Money.BaseType, cost));
 
+        // TRADE hands a row from a remembered giver to whoever TAB left active, so the whole move
+        // belongs here -- the runner has one character's items and this needs two.
+        Runner.GiverIndex = () => Party.ActiveCharacter;
+
+        Runner.GiveItemTo = (giverIndex, row) =>
+        {
+            if (giverIndex < 0 || giverIndex >= Party.Members.Count
+                || Party.Active is not { } taker)
+            {
+                return InventoryBundles.TradeRefusal.NoSuchItem;
+            }
+
+            var giver = Party.Members[giverIndex];
+            int coinWeight = design.Globals.Money?.Weight ?? 0;
+
+            var from = new List<ItemInstance>(giver.Items);
+            var to = ReferenceEquals(giver, taker) ? from : [.. taker.Items];
+
+            var refusal = InventoryBundles.Trade(
+                from, row, to, toSelf: ReferenceEquals(giver, taker), design.Item,
+                takerCarrying: Shopping.Carried(taker, coinWeight, design.Item),
+                maxCarried: Shopping.MaxCarried(taker),
+                weigh: item => Shopping.ItemWeight(item.ItemId, design.Item(item.ItemId),
+                                                   item.Quantity, coinWeight));
+
+            if (refusal is InventoryBundles.TradeRefusal.None)
+            {
+                giver.Items.Clear();
+                giver.Items.AddRange(from);
+
+                if (!ReferenceEquals(giver, taker))
+                {
+                    taker.Items.Clear();
+                    taker.Items.AddRange(to);
+                }
+            }
+
+            return refusal;
+        };
+
         Runner.BuyItem = (itemId, factor) =>
             Party.Active is { } who
                 ? Shopping.Buy(who, Party, itemId, design.Item(itemId), factor,

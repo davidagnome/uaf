@@ -332,6 +332,108 @@ public class EventInventoryScreenTests
         Assert.Single(runner.InventoryRows!);
     }
 
+    /// <summary>Two characters' packs, and a runner that trades between them.</summary>
+    private static (EventRunner Runner, List<ItemInstance> Giver, List<ItemInstance> Taker)
+        Trading(params ItemInstance[] carried)
+    {
+        var giver = new List<ItemInstance>(carried);
+        var taker = new List<ItemInstance>();
+
+        // Whoever TAB last left active. The picker reads this when the answer comes, exactly as
+        // the reference reads party.activeCharacter.
+        int active = 0;
+
+        ItemList Pack() => new(active == 0 ? giver : taker, new ReadyItems([]));
+
+        var runner = new EventRunner
+        {
+            PageSize = Page,
+            IsValidEvent = _ => true,
+            ItemDatabase = Bundles,
+            ActiveCharacterItems = Pack,
+            ApplyItemChange = _ => { },
+            TabParty = () => active = 1 - active,
+            GiverIndex = () => active,
+            GiveItemTo = (from, row) =>
+            {
+                var source = from == 0 ? giver : taker;
+                var into = active == 0 ? giver : taker;
+
+                return InventoryBundles.Trade(source, row, into,
+                                              toSelf: ReferenceEquals(source, into), Bundles);
+            },
+        };
+        runner.Begin(Vault(), Font(), Box, Anchors);
+        return (runner, giver, taker);
+    }
+
+    /// <summary>
+    /// TRADE opens the picker, and TAB then RETURN hands the item to whoever is showing.
+    /// </summary>
+    /// <remarks>
+    /// <b>The "picker" is the ordinary party selection with a two-entry menu over it.</b> The
+    /// reference's taker screen has no list of its own — it leaves TAB switching the party as usual
+    /// and reads whoever is active when RETURN arrives.
+    /// </remarks>
+    [Fact]
+    public void Trade_hands_the_item_to_whoever_tab_left_active()
+    {
+        var (runner, giver, taker) = Trading(Bundle(1, 6), Bundle(2, 2));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Trade);
+
+        Assert.True(runner.TradeOpen);
+        Assert.Equal(["SELECT CHAR", "EXIT"], Labels(runner));
+
+        // TAB moves to the other character, then SELECT CHAR completes it.
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Tab));
+        Choose(runner, 0);
+
+        Assert.False(runner.TradeOpen);
+        Assert.Equal(InventoryBundles.TradeRefusal.None, runner.LastTradeRefusal);
+
+        Assert.Single(giver);
+        Assert.Single(taker);
+        Assert.Equal(6, taker[0].Quantity);
+
+        // And the inventory menu is back.
+        Assert.Equal("READY", Labels(runner)[0]);
+    }
+
+    /// <summary>
+    /// Staying put trades to yourself, which re-arranges rather than refusing.
+    /// </summary>
+    [Fact]
+    public void Trade_without_tabbing_re_arranges_one_pack()
+    {
+        var (runner, giver, taker) = Trading(Bundle(1, 6), Bundle(2, 2));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Trade);
+        Choose(runner, 0);
+
+        Assert.Empty(taker);
+        Assert.Equal([2, 1], giver.Select(i => i.Key));
+    }
+
+    /// <summary>EXIT abandons the trade rather than handing it to whoever is showing.</summary>
+    [Fact]
+    public void Trade_can_be_abandoned()
+    {
+        var (runner, giver, taker) = Trading(Bundle(1, 6));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Trade);
+        runner.Handle(InputEvent.KeyDown(VirtualKey.Tab));
+        Choose(runner, 1);
+
+        Assert.False(runner.TradeOpen);
+        Assert.Single(giver);
+        Assert.Empty(taker);
+        Assert.Equal("READY", Labels(runner)[0]);
+    }
+
     /// <summary>HALVE splits the selected row, and the screen shows both halves.</summary>
     [Fact]
     public void Halve_splits_the_selected_row()
@@ -605,13 +707,15 @@ public class EventInventoryScreenTests
     [Fact]
     public void The_commands_this_port_has_not_built_are_named()
     {
+        // This test moves as the screen fills in -- it named TRADE until that one landed. USE
+        // needs the item's use-event chain, so it should outlast the rest.
         var runner = Started(Carrying(Item("Long Sword")));
         Choose(runner, VaultItems);
 
-        Choose(runner, (int)InventoryCommand.Trade);
+        Choose(runner, (int)InventoryCommand.Use);
 
         Assert.True(runner.InventoryOpen);
-        Assert.Contains("TRADE", runner.Unimplemented);
+        Assert.Contains("USE", runner.Unimplemented);
     }
 
     [Fact]
