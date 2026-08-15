@@ -1688,6 +1688,22 @@ public interface IGpdlHost
     void AddCombatant(string monster, bool isFriendly);
 
     /// <summary>
+    /// Casts a spell at an actor (<c>$CastSpellOnTarget</c>, <c>$CastSpellOnTargetAs</c>).
+    /// </summary>
+    /// <param name="caster">
+    /// Who is casting, or <b>null for "nobody in particular"</b> — which is not the same as no
+    /// caster at all. <c>$CastSpellOnTarget</c> takes no caster and the reference invents one: a
+    /// throwaway Chaotic Neutral human male Fighter called <c>TempGPDLClericMU</c> with 18 in every
+    /// ability (<c>GPDLexec.cpp</c>). So the spell lands as though cast by someone maximally
+    /// capable, and the two calls differ in <i>how good the caster is</i>, not just in who it is.
+    /// </param>
+    /// <returns>
+    /// Whether the spell was cast at all. <b>Not whether it did anything</b> — a target that saved
+    /// or was already affected still counts.
+    /// </returns>
+    bool CastSpellOnTarget(string target, string spell, string? caster);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -2063,6 +2079,9 @@ public class GpdlUnhostedEnvironment : IGpdlHost
     public virtual void AddCombatant(string monster, bool isFriendly)
     {
     }
+
+    /// <inheritdoc/>
+    public virtual bool CastSpellOnTarget(string target, string spell, string? caster) => false;
 
     /// <inheritdoc/>
     public virtual string? SkillAdjustment(string actor, string skill, string adjustment,

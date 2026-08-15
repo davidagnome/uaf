@@ -356,15 +356,18 @@ public class GpdlVirtualMachineTests
     {
         // The whole point of the boundary: a script reaching an unimplemented engine call must fail
         // loudly, not quietly answer "0". The example has to be something still unported, so this
-        // test moves as the port advances -- it has named $PARTYSIZE, $GET_CHAR_EFFAC,
-        // $VisualDistance and $AddCombatant in turn, and each time that call landed the test
-        // failed and had to be repointed. That failure is the mechanism working, not a nuisance:
-        // pick another unported call from the measurement in the plan's sub-opcode item.
+        // test kept moving as the port advanced -- it named $PARTYSIZE, $GET_CHAR_EFFAC,
+        // $VisualDistance, $AddCombatant and $CastSpellOnTarget in turn, and each time that call
+        // landed the test failed and had to be repointed.
         //
-        // $CastSpellOnTarget needs spell casting, which is a long way off.
+        // It has now stopped moving. The only callable sub-opcodes left are $RUN_CHAR_PS_SCRIPTS
+        // and $RUN_AREA_SE_SCRIPTS, and both are BLOCKED rather than merely unwritten -- the first
+        // calls a method defined nowhere in the reference tree, the second needs positioned spell
+        // effects. So this is a stable anchor, and if it ever breaks the boundary itself has moved
+        // rather than the port having caught up.
         var compiler = new GpdlCompiler();
         Assert.Equal(0, compiler.Compile(
-            """$PUBLIC $FUNC f() { $RETURN $CastSpellOnTarget($AttackerContext(), "Bless"); } f;"""));
+            """$PUBLIC $FUNC f() { $RETURN $RUN_CHAR_PS_SCRIPTS($AttackerContext(), "x"); } f;"""));
 
         var host = new GpdlUnhostedEnvironment();
         host.Context.Push();
@@ -372,7 +375,7 @@ public class GpdlVirtualMachineTests
 
         var vm = new GpdlVirtualMachine(GpdlProgram.FromCompiler(compiler), host);
         var ex = Assert.Throws<NotSupportedException>(() => vm.Execute("f"));
-        Assert.Contains("$CastSpellOnTarget", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("$RUN_CHAR_PS_SCRIPTS", ex.Message, StringComparison.Ordinal);
         Assert.Contains("GPDLexec.cpp", ex.Message, StringComparison.Ordinal);
     }
 

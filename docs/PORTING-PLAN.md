@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,973 tests, green on macOS; both CI workflows green.**
+**4,979 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,15 +9015,24 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **368 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **4 of the missing are
-   named callable functions**; the other 14 have no name in the table.
+3. **The GPDL sub-opcodes — every callable one that is not blocked is done.** **370 of 386 are
+   implemented** (2026-08-14, counted from `GpdlVirtualMachine`'s switch); the rest throw with a
+   source citation.
    >
-   > **The four that remain, and why:** `$CastSpellOnTarget` and `$CastSpellOnTargetAs` need spell
-   > casting; `$RUN_CHAR_PS_SCRIPTS` and `$RUN_AREA_SE_SCRIPTS` are blocked (§the
-   > `$RUN_*_SCRIPTS` family). **Plus one partial**: `$SkillAdj`'s four *computed* reads
-   > (`F`, `f`, `b`, `B`) need `GetAdjSkillValue` and the skill computation behind it, and refuse
-   > with a citation rather than guessing — the writes and the stored read work.
+   > **Only two named callable functions remain, and both are BLOCKED rather than merely
+   > unwritten:** `$RUN_CHAR_PS_SCRIPTS` calls `COMBATANT::RunPSScripts`, which is **defined
+   > nowhere in the reference tree**, and `$RUN_AREA_SE_SCRIPTS` needs positioned spell effects
+   > (§the `$RUN_*_SCRIPTS` family). The other 14 unimplemented sub-opcodes have no name in the
+   > table and no design can reach them.
+   >
+   > **Plus one partial**: `$SkillAdj`'s four *computed* reads (`F`, `f`, `b`, `B`) need
+   > `GetAdjSkillValue` and the skill computation behind it, and refuse with a citation rather than
+   > guessing — the writes and the stored read work.
+   >
+   > **`An_unported_subop_throws_with_a_citation` has stopped moving.** It named `$PARTYSIZE`,
+   > `$GET_CHAR_EFFAC`, `$VisualDistance`, `$AddCombatant` and `$CastSpellOnTarget` in turn as each
+   > landed; it is now anchored on `$RUN_CHAR_PS_SCRIPTS`, which cannot land. If it ever breaks
+   > again, the boundary itself has moved rather than the port having caught up.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
    > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
@@ -9127,6 +9136,25 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The two spell-casting calls are done** (2026-08-14), and with them **every callable
+   > sub-opcode that is not blocked**.
+   >
+   > **`$CastSpellOnTarget` invents its caster, and that is not a stand-in for anything.** It takes
+   > no caster, so the reference builds a throwaway Chaotic Neutral human male Fighter called
+   > `TempGPDLClericMU` with 18 in every ability and casts through it (`GPDLexec.cpp`). The comment
+   > beside it says why: a script's spell has to work whichever school it belongs to and no
+   > character class can cast them all. So the two calls differ in **how good the caster is**, not
+   > merely in who it is — `$CastSpellOnTargetAs` uses a real one with real numbers.
+   >
+   > **Both push nothing on success in the engine build.** Every failure path pushes `false`, but
+   > the successful path's only push is in the `#else` editor branch — so a script that
+   > successfully casts a spell has the compiler's trailing `POP` eat a value belonging to the
+   > caller. **The same defect as `$SET_CHAR_Exp`**, and the second instance found. A successful
+   > cast answers true here.
+   >
+   > **The answer is "was it cast", not "did it do anything"** — a target that saved, or was
+   > already carrying the spell, still counts. The reference has no way to report either.
+
    > **`$AddCombatant` is done** (2026-08-14), and it turned out far smaller than expected because
    > **the reference does not place the monster it adds.** `AddMonsterToCombatants` ends by calling
    > `determineInitCombatPos`, whose monster branch sits entirely inside

@@ -1178,6 +1178,23 @@ public sealed class GpdlVirtualMachine
                 PushSp(_host.ActorNamed(PopSp()));
                 break;
 
+            case SubOp.SUBOP_CASTSPELLONTARGET:
+            case SubOp.SUBOP_CASTSPELLONTARGETAS:
+                {
+                    // The "As" form names its caster last, so that pops first; the plain form has
+                    // no caster at all and the engine invents a maximal one.
+                    string? caster = op == SubOp.SUBOP_CASTSPELLONTARGETAS ? PopSp() : null;
+                    string spell = PopSp();
+
+                    // Both push FALSE on every failure path. The engine's SUCCESS path pushes
+                    // NOTHING -- only the editor build pushes true (GPDLexec.cpp) -- so a script
+                    // that casts a spell successfully has the compiler's trailing POP eat a value
+                    // belonging to the caller. The same defect as $SET_CHAR_Exp. Fixed here: a
+                    // successful cast answers true.
+                    PushSp(_host.CastSpellOnTarget(PopSp(), spell, caster) ? True : False);
+                    break;
+                }
+
             case SubOp.SUBOP_AddCombatant:
                 {
                     // The friendly flag pops first, then the name.

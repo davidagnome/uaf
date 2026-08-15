@@ -960,6 +960,63 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
     public override void AddCombatant(string monster, bool isFriendly) =>
         game.Combat?.AddMonster(monster, isFriendly);
 
+    /// <summary>
+    /// The maximally capable caster <c>$CastSpellOnTarget</c> invents when it is given none.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not a stand-in for a missing feature — the reference really does this.</b> It builds a
+    /// throwaway Chaotic Neutral human male Fighter named <c>TempGPDLClericMU</c>, sets all six
+    /// abilities to 18, and casts through it (<c>GPDLexec.cpp</c>). The comment beside it explains
+    /// why: a script's spell has to work whichever school it belongs to, and there is no character
+    /// class that can cast them all. So the spell lands as though cast by someone as good as the
+    /// rules allow.
+    /// </remarks>
+    private sealed class FakeCaster : ISpellSubject
+    {
+        public UAF.Rules.SpellEffectList Effects { get; } = new();
+
+        /// <summary>None — a caster nobody targets does not need to resist anything.</summary>
+        public int MagicResistance => 0;
+
+        /// <inheritdoc cref="Thac0"/>
+        public int ArmorClass => Character.WorstArmorClass;
+
+        /// <summary>
+        /// The best a character can be, because the invented caster has 18s across the board.
+        /// </summary>
+        /// <remarks>
+        /// Only the <c>UseTHAC0</c> save branch reads this, and there it decides whether the spell
+        /// gets through — so a middling value here would make script-cast spells quietly weaker
+        /// than the reference's.
+        /// </remarks>
+        public int Thac0 => 1;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Answers whether the spell was cast, not whether it did anything.</b> A target that saved,
+    /// or was already carrying the spell, still counts — the reference has no way to report either.
+    /// </remarks>
+    public override bool CastSpellOnTarget(string target, string spell, string? caster)
+    {
+        if (Resolve(target) is not { } victim
+            || game.Design.Spell(spell) is not { } record)
+        {
+            return false;
+        }
+
+        // A named caster has to resolve; an unnamed one is the invented maximal caster.
+        ISpellSubject? source = caster is null ? new FakeCaster() : Resolve(caster);
+
+        if (source is null)
+        {
+            return false;
+        }
+
+        SpellResolution.InvokeOn(source, victim, targetIndex: 0, record, game.Dice);
+        return true;
+    }
+
     /// <summary>The combatant at an index, or null.</summary>
     private Combatant? At(int index) =>
         game.Combat is { } session && index >= 0 && index < session.Combatants.Count

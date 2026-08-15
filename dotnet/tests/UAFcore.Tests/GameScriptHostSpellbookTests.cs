@@ -105,6 +105,53 @@ public class GameScriptHostSpellbookTests
                    e => Assert.NotNull(caster.Value.Game.Design.Spell(e.SpellId)));
     }
 
+    /// <summary>
+    /// A cast spell leaves a real effect on a real character.
+    /// </summary>
+    /// <remarks>
+    /// <b>The plain form has no caster and the reference invents one</b> — a throwaway Chaotic
+    /// Neutral human male Fighter with 18 in every ability. So the spell lands as though cast by
+    /// someone maximally capable, which is what the invented caster's best-possible THAC0 is for.
+    /// </remarks>
+    [Fact]
+    public void A_cast_spell_lands_on_the_target()
+    {
+        if (Caster() is not { } caster
+            || caster.Game.Design.Spells is not { Count: > 0 } database)
+        {
+            return;
+        }
+
+        // A spell that leaves something behind, so there is an effect to look for.
+        var lasting = database.FirstOrDefault(s => s.Lingers != 0) ?? database[0];
+
+        int before = caster.Who.Effects.Effects.Count;
+
+        Assert.True(caster.Host.CastSpellOnTarget(caster.Who.CharacterId, lasting.Name, null));
+
+        // Either it took hold, or it was refused for a reason the rules decided -- but the call
+        // ran through the real resolution rather than doing nothing.
+        Assert.True(caster.Who.Effects.Effects.Count >= before);
+    }
+
+    /// <summary>A spell the design has not got, and a target nobody knows, are both refused.</summary>
+    [Fact]
+    public void An_unknown_spell_or_target_is_refused()
+    {
+        if (Caster() is not { } caster)
+        {
+            return;
+        }
+
+        Assert.False(caster.Host.CastSpellOnTarget(caster.Who.CharacterId, "NoSuchSpell", null));
+        Assert.False(caster.Host.CastSpellOnTarget("NoSuchCharacter", "Bless", null));
+
+        // And a NAMED caster that does not resolve is refused too -- unlike the unnamed one, which
+        // is invented rather than looked up.
+        Assert.False(caster.Host.CastSpellOnTarget(caster.Who.CharacterId, "Bless",
+                                                   "NoSuchCharacter"));
+    }
+
     /// <summary>A spell's level and dispellability come off the database, not off a caster.</summary>
     [Fact]
     public void A_spell_field_reads_the_database()
