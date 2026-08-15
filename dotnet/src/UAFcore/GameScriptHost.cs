@@ -767,6 +767,139 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         return GpdlLineOfSight.Distance(new CombatSightMap(session.Map), from.X, from.Y, to.X, to.Y);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>
+    /// <b>The list is kept sorted by adjustment id and nothing else.</b> The reference's comparison
+    /// looks at that one field, so two adjustments differing only in school sort as equal and the
+    /// later one lands wherever the walk stops.
+    /// </para>
+    /// <para>
+    /// <b>A divergence: the reference OVERWRITES rather than inserting.</b> Having walked back to
+    /// the insertion point it calls <c>SetAtGrow(i, spellAdj)</c> (<c>class.cpp:5534</c>), which
+    /// assigns index <c>i</c> instead of shifting — so adding an adjustment that sorts before an
+    /// existing one destroys it. Appending in order works, which is presumably why it went
+    /// unnoticed. This inserts. <b>An id that is already present is still replaced</b>, since that
+    /// reads as the intended update.
+    /// </para>
+    /// </remarks>
+    public override void SpellAdjustment(string actor, string school, string adjustment,
+                                         int firstLevel, int lastLevel, int percent, int bonus)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return;
+        }
+
+        var list = character.SpellAdjustments;
+
+        if (percent == GpdlSkillAdjustment.RemoveSpellAdjustment)
+        {
+            // In remove mode the bonus is a "skip this many matches" counter, not a bonus.
+            int skip = bonus;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].SchoolId != school || list[i].AdjustmentId != adjustment)
+                {
+                    continue;
+                }
+
+                if (skip != 0)
+                {
+                    skip--;
+                    continue;
+                }
+
+                list.RemoveAt(i);
+                return;
+            }
+
+            return;
+        }
+
+        var added = new SpellAdjustment(school, adjustment, firstLevel, lastLevel, percent, bonus);
+
+        // Walk back to the first entry this one does not sort after.
+        int at = list.Count;
+        while (at > 0 && string.CompareOrdinal(adjustment, list[at - 1].AdjustmentId) <= 0)
+        {
+            at--;
+        }
+
+        if (at < list.Count && list[at].AdjustmentId == adjustment)
+        {
+            list[at] = added;
+        }
+        else
+        {
+            list.Insert(at, added);
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The writes and the stored read are here; the four computed reads are not.</b>
+    /// <c>F</c>, <c>f</c>, <c>b</c> and <c>B</c> all want the character's adjusted skill value,
+    /// which needs <c>GetAdjSkillValue</c> and the whole skill computation behind it. Answering
+    /// null makes the VM refuse loudly rather than inventing a number.
+    /// </remarks>
+    public override string? SkillAdjustment(string actor, string skill, string adjustment,
+                                            string adjustmentType, int value)
+    {
+        var kind = GpdlSkillAdjustment.KindOf(adjustmentType);
+
+        if (kind is GpdlSkillAdjustment.Kind.Computed or GpdlSkillAdjustment.Kind.Unknown)
+        {
+            return null;
+        }
+
+        if (Resolve(actor) is not { } character)
+        {
+            return kind == GpdlSkillAdjustment.Kind.Stored
+                ? GpdlSkillAdjustment.NoSkill
+                : string.Empty;
+        }
+
+        var list = character.SkillAdjustments;
+        int at = list.FindIndex(
+            a => a.SkillId == skill && a.AdjustmentId == adjustment);
+
+        switch (kind)
+        {
+            case GpdlSkillAdjustment.Kind.Set:
+                {
+                    // The type character is the arithmetic, so it is stored alongside the value.
+                    var written = new SkillAdjustment(
+                        skill, adjustment, value, (sbyte)adjustmentType[0]);
+
+                    if (at >= 0)
+                    {
+                        list[at] = written;
+                    }
+                    else
+                    {
+                        list.Add(written);
+                    }
+
+                    return string.Empty;
+                }
+
+            case GpdlSkillAdjustment.Kind.Delete:
+                if (at >= 0)
+                {
+                    list.RemoveAt(at);
+                }
+
+                return string.Empty;
+
+            default:
+                return at >= 0
+                    ? list[at].Value.ToString(Culture)
+                    : GpdlSkillAdjustment.NoSkill;
+        }
+    }
+
     /// <summary>The combatant at an index, or null.</summary>
     private Combatant? At(int index) =>
         game.Combat is { } session && index >= 0 && index < session.Combatants.Count

@@ -81,6 +81,8 @@ public sealed class Character : ISpellSubject
         }
         Purse = Purse.FromRecord(record.Money, money);
         Items = [.. record.Items.Items];
+        SpellAdjustments = [.. record.SpellAdjustments];
+        SkillAdjustments = [.. record.SkillAdjustments];
         Status = (CharacterStatus)record.Status;
         Morale = record.Morale;
         Attributes.Load(record.Attributes);
@@ -292,6 +294,28 @@ public sealed class Character : ISpellSubject
 
     /// <summary>What the character carries.</summary>
     public List<ItemInstance> Items { get; }
+
+    /// <summary>
+    /// Spellcasting adjustments, which scripts add to and take away from
+    /// (<c>spellAdjustments</c>, <c>Char.h:1586</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Mutable, and copied off the record for the same reason <see cref="Items"/> is.</b>
+    /// <c>$SpellAdj</c> exists to change this list at run time, so it cannot live on the immutable
+    /// record. <b>Kept sorted by <see cref="SpellAdjustment.AdjustmentId"/></b> — the reference
+    /// inserts by that key alone and nothing else about an entry affects its position.
+    /// </remarks>
+    public List<SpellAdjustment> SpellAdjustments { get; }
+
+    /// <summary>
+    /// Skill adjustments, which scripts add to and take away from
+    /// (<c>skillAdjustments</c>).
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="SpellAdjustments"/> this one is <b>not</b> sorted — the reference appends
+    /// and looks up by the (skill, adjustment) pair.
+    /// </remarks>
+    public List<SkillAdjustment> SkillAdjustments { get; }
 
     public IReadOnlyList<BaseclassProgress> Baseclasses => baseclasses;
 

@@ -1178,6 +1178,44 @@ public sealed class GpdlVirtualMachine
                 PushSp(_host.ActorNamed(PopSp()));
                 break;
 
+            case SubOp.SUBOP_SpellAdj:
+                {
+                    int bonus = PopInteger();
+                    int percent = PopInteger();
+                    int lastLevel = PopInteger();
+                    int firstLevel = PopInteger();
+                    string adjustment = PopSp();
+                    string school = PopSp();
+
+                    _host.SpellAdjustment(PopSp(), school, adjustment,
+                                          firstLevel, lastLevel, percent, bonus);
+
+                    // Always empty: the reference leaves m_string1 holding the actor it popped and
+                    // pushes that only when the character resolved, so the answer carries nothing
+                    // a script can use either way.
+                    PushSp(False);
+                    break;
+                }
+
+            case SubOp.SUBOP_SkillAdj:
+                {
+                    int value = PopInteger();
+                    string type = PopSp();
+                    string adjustment = PopSp();
+                    string skill = PopSp();
+
+                    // Null means the port cannot answer -- the four computed reads need a
+                    // skill-value computation that does not exist yet. Refused the same way an
+                    // unported sub-opcode is, rather than answered with a plausible number.
+                    PushSp(_host.SkillAdjustment(PopSp(), skill, adjustment, type, value)
+                           ?? throw new NotSupportedException(
+                               $"$SkillAdj type '{type}' asks for a computed skill value "
+                               + "(GPDL_SkillAdjustment, class.cpp:5240). The skill-value "
+                               + "computation (GetAdjSkillValue) is not ported; the writes and "
+                               + "the stored read are."));
+                    break;
+                }
+
             case SubOp.SUBOP_IsLineOfSight:
                 {
                     // FIVE declared parameters and only four are used: the reference pops

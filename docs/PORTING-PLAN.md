@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,920 tests, green on macOS; both CI workflows green.**
+**4,959 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,16 +9015,16 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **363 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **9 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **365 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **7 of the missing are
    named callable functions**; the other 14 have no name in the table.
    >
-   > **The nine that remain, and why:** `$SkillAdj` and `$SpellAdj` need mutable adjustment lists
-   > on a character (the port's are on the immutable record); `$AddCombatant`,
-   > `$ComputeAttackDamage`, `$ToHitComputation_Roll`, `$CastSpellOnTarget` and
-   > `$CastSpellOnTargetAs` need combat and spell-casting machinery; and `$RUN_CHAR_PS_SCRIPTS`
-   > and `$RUN_AREA_SE_SCRIPTS` are blocked (§the `$RUN_*_SCRIPTS` family). **No cheap ones are
-   > left** — everything from here needs a subsystem first.
+   > **The seven that remain, and why:** `$AddCombatant`, `$ComputeAttackDamage`,
+   > `$ToHitComputation_Roll`, `$CastSpellOnTarget` and `$CastSpellOnTargetAs` need combat and
+   > spell-casting machinery; `$RUN_CHAR_PS_SCRIPTS` and `$RUN_AREA_SE_SCRIPTS` are blocked
+   > (§the `$RUN_*_SCRIPTS` family). **Plus one partial**: `$SkillAdj`'s four *computed* reads
+   > (`F`, `f`, `b`, `B`) need `GetAdjSkillValue` and the skill computation behind it, and refuse
+   > with a citation rather than guessing — the writes and the stored read work.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
    > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
@@ -9128,6 +9128,37 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **`$SpellAdj` is done and `$SkillAdj` is done in part** (2026-08-14). Both exist to change a
+   > list at run time, so `Character.SpellAdjustments` and `SkillAdjustments` had to become mutable
+   > copies off the record — the same arrangement `Items` already used.
+   >
+   > **`$SpellAdj`'s `percent` of 999999 is a command, not a percentage** — the only way to remove
+   > an adjustment. And **the same `bonus` argument means two unrelated things**: the adjustment's
+   > bonus when adding, a "skip this many matches" counter when removing.
+   >
+   > **A divergence: the reference overwrites where it means to insert.** Having walked back to the
+   > insertion point it calls `SetAtGrow(i, spellAdj)` (`class.cpp:5534`), which *assigns* index i
+   > rather than shifting — so adding an adjustment that sorts before an existing one **destroys
+   > it**. Appending in order works, which is presumably why it went unnoticed. The port inserts.
+   > (An id already present is still replaced, which reads as the intended update.) The list is
+   > sorted by adjustment id and **nothing else** — the comparison looks at that one field, so two
+   > adjustments differing only in school sort as equal.
+   >
+   > **`$SkillAdj`'s type character is both the selector and the arithmetic.** Its first character
+   > — and only its first — picks one of eight behaviours, and the five that write (`+ % = - *`)
+   > are themselves the operation stored alongside the value. There is no separate "what
+   > arithmetic" argument.
+   >
+   > **Four of the eight are refused rather than guessed.** `F`, `f`, `b` and `B` all want the
+   > character's *adjusted skill value*, which needs `GetAdjSkillValue` and the whole skill
+   > computation behind it. The host answers null and the VM raises the same loud refusal an
+   > unported sub-opcode gets, with a citation. **A plausible number would be worse than
+   > refusing** — a design would branch on it and nothing would say the branch was wrong. This is
+   > the first call ported *in part*, and the split is per-mode rather than per-call.
+   >
+   > **Both take an `ACTOR` first**, so a quoted name does not compile — the fifth time a type slot
+   > has decided how a call may be written, and it cost three failing tests again.
+
    > **`$IsLineOfSight` and `$VisualDistance` are done** (2026-08-14), and they needed a whole
    > subsystem: `GpdlLineOfSight` over an `IGpdlSightMap`. The port already had the data — the
    > combat map's terrain and `CombatTile.SeeThrough` — only the two algorithms were missing.

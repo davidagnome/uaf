@@ -372,6 +372,74 @@ public enum GpdlAslScope
     Party,
 }
 
+/// <summary>
+/// What <c>$SkillAdj</c>'s type argument selects.
+/// </summary>
+/// <remarks>
+/// <b>The first character, and nothing else</b> — so <c>"+bonus"</c> and <c>"+"</c> mean the same
+/// thing, and a design's readable word for the operation is never checked. Five of the eight both
+/// <i>select</i> the write and <i>are</i> the arithmetic it stores.
+/// </remarks>
+public static class GpdlSkillAdjustment
+{
+    /// <summary>The kinds of thing the type character asks for.</summary>
+    public enum Kind
+    {
+        /// <summary>
+        /// <c>+ % = - *</c> — store an adjustment of that type, creating it if absent.
+        /// </summary>
+        /// <remarks>
+        /// <b>The character IS the operation.</b> There is no separate "what arithmetic" argument:
+        /// the same letter that says "write" says whether the value adds, multiplies or replaces.
+        /// </remarks>
+        Set,
+
+        /// <summary><c>D</c> — delete the named adjustment, if it is there.</summary>
+        Delete,
+
+        /// <summary><c>A</c> — read back the adjustment's own stored value.</summary>
+        Stored,
+
+        /// <summary>
+        /// <c>F f b B</c> — the character's adjusted skill value, four different ways.
+        /// </summary>
+        /// <remarks>
+        /// <b>These need a skill-value computation, which this port does not have.</b> Capital
+        /// <c>F</c>/<c>B</c> are the un-minimised forms and lower case the minimised ones; <c>F</c>
+        /// and <c>f</c> run the full computation where <c>B</c> and <c>b</c> take a shorter path.
+        /// </remarks>
+        Computed,
+
+        /// <summary>Anything else, which the reference reports as an interpret error.</summary>
+        Unknown,
+    }
+
+    /// <summary>What a type argument asks for.</summary>
+    public static Kind KindOf(string adjustmentType) =>
+        string.IsNullOrEmpty(adjustmentType)
+            ? Kind.Unknown
+            : adjustmentType[0] switch
+            {
+                '+' or '%' or '=' or '-' or '*' => Kind.Set,
+                'D' => Kind.Delete,
+                'A' => Kind.Stored,
+                'F' or 'f' or 'b' or 'B' => Kind.Computed,
+                _ => Kind.Unknown,
+            };
+
+    /// <summary>
+    /// What a read answers when the character has no such skill.
+    /// </summary>
+    /// <remarks>
+    /// <b>A word, not a number</b>, so arithmetic on the result reads it as zero — and a script
+    /// cannot tell "no such skill" from a skill worth nothing without comparing the text.
+    /// </remarks>
+    public const string NoSkill = "NoSkill";
+
+    /// <summary>The value <c>$SpellAdj</c>'s percent takes to mean "remove this instead".</summary>
+    public const int RemoveSpellAdjustment = 999999;
+}
+
 /// <summary>Literals the combat calls answer that are not values.</summary>
 public static class GpdlCombat
 {
@@ -1537,6 +1605,42 @@ public interface IGpdlHost
     int VisualDistance(int combatant, int other);
 
     /// <summary>
+    /// Adds or removes a spellcasting adjustment (<c>$SpellAdj</c>, <c>class.cpp:5489</c>).
+    /// </summary>
+    /// <param name="percent">
+    /// <b>999999 means "remove", not a percentage.</b> Any other value adds an adjustment with
+    /// that percent; the magic number is the only way to take one away.
+    /// </param>
+    /// <param name="bonus">
+    /// Added as the adjustment's bonus — but <b>in remove mode it is a "skip this many matches"
+    /// counter</b> instead, so the same argument means two unrelated things depending on
+    /// <paramref name="percent"/>.
+    /// </param>
+    /// <remarks>
+    /// The list is kept sorted by <paramref name="adjustment"/> and by nothing else — the
+    /// reference's comparison looks at that field alone.
+    /// </remarks>
+    void SpellAdjustment(string actor, string school, string adjustment,
+                         int firstLevel, int lastLevel, int percent, int bonus);
+
+    /// <summary>
+    /// Reads or writes a skill adjustment (<c>$SkillAdj</c>, <c>class.cpp:5240</c>).
+    /// </summary>
+    /// <param name="adjustmentType">
+    /// <b>Only its first character is looked at</b>, like <c>$IntegerTable</c>'s function — see
+    /// <see cref="GpdlSkillAdjustment"/> for the eight it recognises. Five of them <i>set</i> the
+    /// adjustment and are also the arithmetic it applies.
+    /// </param>
+    /// <returns>
+    /// Empty for the writes, a number or <see cref="GpdlSkillAdjustment.NoSkill"/> for the reads,
+    /// and <b>null when the port cannot answer</b> — which the VM turns into the same loud refusal
+    /// an unported sub-opcode gets. Four of the eight need a skill-value computation this port does
+    /// not have yet, and answering them with a plausible number would be worse than refusing.
+    /// </returns>
+    string? SkillAdjustment(string actor, string skill, string adjustment,
+                            string adjustmentType, int value);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -1895,6 +1999,23 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int VisualDistance(int combatant, int other) => GpdlLineOfSight.NotVisible;
+
+    /// <inheritdoc/>
+    public virtual void SpellAdjustment(string actor, string school, string adjustment,
+                                        int firstLevel, int lastLevel, int percent, int bonus)
+    {
+    }
+
+    /// <inheritdoc/>
+    public virtual string? SkillAdjustment(string actor, string skill, string adjustment,
+                                           string adjustmentType, int value) =>
+        GpdlSkillAdjustment.KindOf(adjustmentType) switch
+        {
+            // Nothing to write to, so a write succeeds silently and a stored read finds nothing.
+            GpdlSkillAdjustment.Kind.Set or GpdlSkillAdjustment.Kind.Delete => string.Empty,
+            GpdlSkillAdjustment.Kind.Stored => GpdlSkillAdjustment.NoSkill,
+            _ => null,
+        };
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();
