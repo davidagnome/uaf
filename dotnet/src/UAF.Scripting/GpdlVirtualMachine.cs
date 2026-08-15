@@ -841,6 +841,7 @@ public sealed class GpdlVirtualMachine
             case SubOp.SUBOP_GET_CHAR_NAME:
             case SubOp.SUBOP_GET_CHAR_AC:
             case SubOp.SUBOP_GET_CHAR_ADJAC:
+            case SubOp.SUBOP_GET_CHAR_EFFAC:
             case SubOp.SUBOP_GET_CHAR_THAC0:
             case SubOp.SUBOP_GET_CHAR_ADJTHAC0:
             case SubOp.SUBOP_GET_CHAR_HITPOINTS:
@@ -949,6 +950,88 @@ public sealed class GpdlVirtualMachine
                 PopSp();
                 PushSp(False);
                 break;
+
+            // The two per-baseclass accessors and their setters. A multi-classed character carries
+            // a separate total and level for each, so these take a baseclass id where the rest of
+            // the $GET_CHAR_* family does not.
+            case SubOp.SUBOP_GET_CHAR_Exp:
+            case SubOp.SUBOP_GET_CHAR_Lvl:
+                {
+                    // The class pops FIRST here, before the actor -- the reference reads its own
+                    // arguments in that order (GPDLexec.cpp:3673).
+                    string baseclass = PopSp();
+                    string actor = PopSp();
+
+                    PushSp(_host
+                        .BaseclassProgress(actor, baseclass, op == SubOp.SUBOP_GET_CHAR_Lvl)
+                        .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_SET_CHAR_Exp:
+            case SubOp.SUBOP_SET_CHAR_Lvl:
+                {
+                    int value = PopInteger();
+                    string baseclass = PopSp();
+                    string actor = PopSp();
+
+                    _host.SetBaseclassProgress(
+                        actor, baseclass, op == SubOp.SUBOP_SET_CHAR_Lvl, value);
+
+                    // Both push the value back. $SET_CHAR_Lvl does so in the reference; $SET_CHAR_Exp
+                    // does NOT -- a stray `break;` inside its block skips the push, which the
+                    // reference's own comment calls out as unreachable ("Have to provide an
+                    // answer!", GPDLexec.cpp:5361). Its siblings all push, and the compiler emits a
+                    // POP after a statement-level call, so the reference's version eats a value
+                    // belonging to the caller. Fixed here.
+                    PushSp(value.ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+
+            case SubOp.SUBOP_GetBaseclassLevel:
+                {
+                    string baseclass = PopSp();
+                    PushSp(_host.BaseclassProgress(PopSp(), baseclass, level: true)
+                                .ToString(CultureInfo.InvariantCulture));
+                    break;
+                }
+            case SubOp.SUBOP_GetHighestLevelBaseclass:
+                PushSp(_host.HighestLevelBaseclass(PopSp()));
+                break;
+
+            case SubOp.SUBOP_IsUndead:
+
+                // Not a flag of its own: a character is undead when its undead TYPE is a non-empty
+                // string (GPDLexec.cpp:7735). So "" is the only way to not be undead, and the
+                // stat the $GET_CHAR_UNDEAD family already reads is enough.
+                PushSp(_host.GetCharStat(PopSp(), GpdlCharStat.UndeadType).Length > 0
+                           ? True
+                           : False);
+                break;
+
+            case SubOp.SUBOP_GET_CHAR_Ready:
+                {
+                    int ordinal = PopInteger();
+                    string location = PopSp();
+                    PushSp(_host.ReadiedItem(PopSp(), location, ordinal));
+                    break;
+                }
+            case SubOp.SUBOP_SET_CHAR_Ready:
+                {
+                    // The item name pops first, then the location, then the actor -- the reference
+                    // reads them in that order rather than right-to-left.
+                    string item = PopSp();
+                    string location = PopSp();
+                    _host.Ready(PopSp(), item, location);
+                    PushSp(False);
+                    break;
+                }
+            case SubOp.SUBOP_IsIdentified:
+                {
+                    int ordinal = PopInteger();
+                    int key = PopInteger();
+                    PushSp(_host.IsIdentified(PopSp(), key, ordinal) ? True : False);
+                    break;
+                }
 
             case SubOp.SUBOP_Alignment:
                 PushSp(GpdlAlignment.NameOf(AlignmentOf(PopSp())));
@@ -1898,6 +1981,7 @@ public sealed class GpdlVirtualMachine
 
         SubOp.SUBOP_GET_CHAR_AC => GpdlCharStat.ArmorClass,
         SubOp.SUBOP_GET_CHAR_ADJAC => GpdlCharStat.AdjustedArmorClass,
+        SubOp.SUBOP_GET_CHAR_EFFAC => GpdlCharStat.EffectiveArmorClass,
         SubOp.SUBOP_GET_CHAR_THAC0 => GpdlCharStat.Thac0,
         SubOp.SUBOP_GET_CHAR_ADJTHAC0 => GpdlCharStat.AdjustedThac0,
         SubOp.SUBOP_GET_CHAR_HITPOINTS => GpdlCharStat.HitPoints,

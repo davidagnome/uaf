@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,740 tests, green on macOS; both CI workflows green.**
+**4,773 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,8 +9015,8 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **324 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **48 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **335 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **37 of the missing are
    named callable functions**; the other 14 have no name in the table.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
@@ -9118,6 +9118,45 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **The baseclass, equipment and armour calls are done** (2026-08-14) — eleven:
+   > `$GET_CHAR_Exp`/`$SET_CHAR_Exp`, `$GET_CHAR_Lvl`/`$SET_CHAR_Lvl`, `$GetBaseclassLevel`,
+   > `$GetHighestLevelBaseclass`, `$GET_CHAR_Ready`/`$SET_CHAR_Ready`, `$IsIdentified`,
+   > `$IsUndead` and `$GET_CHAR_EFFAC`.
+   >
+   > **`$SET_CHAR_Exp` corrupts the stack in the reference.** A stray `break;` *inside* its block
+   > skips the final push, and the reference's own comment marks it: "Unreachable
+   > `m_pushInteger1();  // Have to provide an answer!`" (`GPDLexec.cpp:5361`). Its twin
+   > `$SET_CHAR_Lvl` pushes normally, and the compiler emits a `POP` after every statement-level
+   > call — so the reference's version eats a value belonging to the caller every time a script
+   > awards experience. **The port pushes.**
+   >
+   > **The actor parameter is STRING for some of these and ACTOR for others, with no pattern.**
+   > `$GET_CHAR_Lvl("hero", …)` compiles; `$GET_CHAR_Ready("hero", …)` does not — the second
+   > declares its actor `ACTOR`, which has to be a system-function call. Nothing about what the
+   > calls *do* predicts which they use. `A_quoted_name_compiles_only_where_the_actor_is_a_string`
+   > pins the split so the next person does not rediscover it through failing compiles, as this
+   > turn did. **That is now the fourth type-slot surprise in this item** — read the table row
+   > before writing the test.
+   >
+   > **`$IsUndead` is not a flag.** The reference tests `!GetUndeadType().IsEmpty()`, so a creature
+   > is undead exactly when it *names* a kind of undead and the empty string is the only way not to
+   > be one. It needed no new host member at all — the stat `$GET_CHAR_UNDEAD` already reads is
+   > enough.
+   >
+   > **Three armour classes, not one.** `$GET_CHAR_AC` is the base, `$GET_CHAR_ADJAC` folds in
+   > spell effects, `$GET_CHAR_EFFAC` folds in readied equipment. A character in enchanted plate
+   > has three different answers, and the plan's own note here previously described `EFFAC` wrongly
+   > (as folding in the target's size and the attacker) — corrected.
+   >
+   > **`$GET_CHAR_Ready` with an empty location means "not readied", not "anywhere".** The
+   > reference substitutes `Cannot` for a blank, which is the code an unequipped item carries — so
+   > asking with no location searches the backpack.
+   >
+   > **A test that must keep moving:** `An_unported_subop_throws_with_a_citation` names a specific
+   > unported call, and porting that call breaks it. It has now named `$PARTYSIZE`, then
+   > `$GET_CHAR_EFFAC`, now `$VisualDistance`. **The breakage is the mechanism working** — repoint
+   > it from the measurement above rather than treating it as a nuisance.
+
    > **The eleven `$Gr*` graphics calls are done** (2026-08-14), and they are a bigger deal than
    > their count suggests: **this is how the character sheet is drawn.** The engine looks for a
    > `Global_Display` special ability and runs its script; failing that it runs a built-in one

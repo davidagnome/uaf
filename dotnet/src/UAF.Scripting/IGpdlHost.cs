@@ -61,10 +61,21 @@ public enum GpdlCharStat
     /// Armour class with spell effects applied (<c>$GET_CHAR_ADJAC</c> → <c>GetAdjAC</c>).
     /// </summary>
     /// <remarks>
-    /// <c>$GET_CHAR_EFFAC</c> is a third form again — the <i>effective</i> class, which also folds
-    /// in the target's size and the attacker — and is not answered here.
+    /// <see cref="EffectiveArmorClass"/> is a third form again.
     /// </remarks>
     AdjustedArmorClass,
+
+    /// <summary>
+    /// Armour class with readied equipment folded in
+    /// (<c>$GET_CHAR_EFFAC</c> → <c>GetEffectiveAC</c>, <c>Char.cpp</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Base class plus every readied item's protection, clamped to the legal range.</b> Not the
+    /// same as <see cref="AdjustedArmorClass"/>, which folds in spell effects instead — a character
+    /// in enchanted plate has three different armour classes and a script has to name which one it
+    /// wants.
+    /// </remarks>
+    EffectiveArmorClass,
 
     /// <summary>
     /// Total experience across every baseclass.
@@ -1057,6 +1068,55 @@ public interface IGpdlHost
     int DrawText(string text, int x, int y, int color);
 
     /// <summary>
+    /// One baseclass's experience or level on a character
+    /// (<c>$GET_CHAR_Exp</c> and <c>$GET_CHAR_Lvl</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Per baseclass, not per character.</b> A multi-classed character carries a separate total
+    /// and level for each, which is why these take a baseclass id where the rest of the
+    /// <c>$GET_CHAR_*</c> family does not.
+    /// </remarks>
+    /// <returns>Zero for a character or baseclass that does not resolve.</returns>
+    int BaseclassProgress(string actor, string baseclass, bool level);
+
+    /// <summary>Writes it back (<c>$SET_CHAR_Exp</c>, <c>$SET_CHAR_Lvl</c>).</summary>
+    /// <remarks>A baseclass the character does not have is not created; the write is dropped.</remarks>
+    void SetBaseclassProgress(string actor, string baseclass, bool level, int value);
+
+    /// <summary>
+    /// The id of the baseclass the character has advanced furthest in
+    /// (<c>$GetHighestLevelBaseclass</c>).
+    /// </summary>
+    /// <returns>Empty when the character has no baseclasses, or does not resolve.</returns>
+    string HighestLevelBaseclass(string actor);
+
+    /// <summary>
+    /// The unique name of the item readied at a body location
+    /// (<c>$GET_CHAR_Ready</c>, <c>GPDLexec.cpp:3760</c>).
+    /// </summary>
+    /// <param name="location">
+    /// A body location as a base-38 code — <c>"WEAPON"</c>, <c>"SHIELD"</c>, <c>"ARMOR "</c> and
+    /// so on. <b>An empty string means "not readied"</b>: the reference substitutes <c>Cannot</c>
+    /// for it, so asking with no location finds only unequipped things.
+    /// </param>
+    /// <param name="ordinal">
+    /// Which one, when a location holds more than one — rings, most obviously.
+    /// </param>
+    /// <returns>Empty when nothing is there.</returns>
+    string ReadiedItem(string actor, string location, int ordinal);
+
+    /// <summary>Readies an item at a body location (<c>$SET_CHAR_Ready</c>).</summary>
+    /// <inheritdoc cref="ReadiedItem" path="/param[@name='location']"/>
+    void Ready(string actor, string item, string location);
+
+    /// <summary>
+    /// Whether a carried item has been identified (<c>$IsIdentified</c>).
+    /// </summary>
+    /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
+    /// <param name="ordinal">Which of a stack.</param>
+    bool IsIdentified(string actor, int key, int ordinal);
+
+    /// <summary>
     /// What <c>$GET_CHAR_RACE</c> answers for an actor nobody recognises.
     /// </summary>
     /// <remarks>
@@ -1310,6 +1370,30 @@ public class GpdlUnhostedEnvironment : IGpdlHost
         Drawn.Add((text, x, y, color));
         return 0;
     }
+
+    /// <inheritdoc/>
+    public virtual int BaseclassProgress(string actor, string baseclass, bool level) => 0;
+
+    /// <inheritdoc/>
+    public virtual void SetBaseclassProgress(
+        string actor, string baseclass, bool level, int value)
+    {
+    }
+
+    /// <inheritdoc/>
+    public virtual string HighestLevelBaseclass(string actor) => string.Empty;
+
+    /// <inheritdoc/>
+    public virtual string ReadiedItem(string actor, string location, int ordinal) =>
+        string.Empty;
+
+    /// <inheritdoc/>
+    public virtual void Ready(string actor, string item, string location)
+    {
+    }
+
+    /// <inheritdoc/>
+    public virtual bool IsIdentified(string actor, int key, int ordinal) => false;
 
     /// <inheritdoc/>
     public GpdlScriptContext Context { get; } = new();

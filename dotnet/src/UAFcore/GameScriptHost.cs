@@ -110,6 +110,11 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
             GpdlCharStat.MaxHitPoints => Text(character.MaxHitPoints),
             GpdlCharStat.ArmorClass => Text(character.ArmorClass),
             GpdlCharStat.AdjustedArmorClass => Text(character.AdjustedArmorClass),
+
+            // Base class plus every readied item's protection, clamped -- GetEffectiveAC. A third
+            // form again: it folds in equipment where AdjustedArmorClass folds in spell effects,
+            // so a character in enchanted plate has three different armour classes.
+            GpdlCharStat.EffectiveArmorClass => Text(EffectiveArmorClassOf(character)),
             GpdlCharStat.Thac0 => Text(character.Thac0),
 
             // No readied-item model on a character outside combat, so the two bonuses the
@@ -408,6 +413,175 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         Fighter(actor) is { } who
             ? Text(who.Index)
             : GpdlActorIndex.InvalidContext;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>A baseclass the character does not have answers zero, not an error.</b> Asking a fighter
+    /// about its wizard levels is a reasonable question with the answer "none", and a design
+    /// branching on it should see a number.
+    /// </remarks>
+    public override int BaseclassProgress(string actor, string baseclass, bool level) =>
+        Progress(actor, baseclass) is { } found
+            ? level ? found.CurrentLevel : found.Experience
+            : 0;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The write is dropped for a baseclass the character does not have</b> rather than adding
+    /// one. Gaining a class is <c>AddBaseclass</c>, a different operation with its own rules; a
+    /// setter that quietly multi-classed somebody would be a surprising way to do it.
+    /// </remarks>
+    public override void SetBaseclassProgress(
+        string actor, string baseclass, bool level, int value)
+    {
+        if (Progress(actor, baseclass) is not { } found)
+        {
+            return;
+        }
+
+        if (level)
+        {
+            found.CurrentLevel = value;
+        }
+        else
+        {
+            found.Experience = value;
+        }
+    }
+
+    /// <summary>
+    /// Armour class with readied equipment folded in (<c>GetEffectiveAC</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Only readied items count</b>, and "readied" is a base-38 location that is not
+    /// <c>NOTRDY</c> rather than a flag. An item the design's database does not carry contributes
+    /// nothing, which is the same degradation the character sheet takes.
+    /// </remarks>
+    private int EffectiveArmorClassOf(Character character)
+    {
+        var readied = new List<(int Base, int Bonus)>();
+
+        foreach (var carried in character.Items)
+        {
+            if (carried.ReadyLocation != ReadiedLocation.NotReady
+                && game.Design.Item(carried.ItemId) is { } record)
+            {
+                readied.Add((record.Combat.ProtectionBase, record.Combat.ProtectionBonus));
+            }
+        }
+
+        return UAF.Rules.ArmorClass.Effective(character.Record.Abilities.Dexterity, readied);
+    }
+
+    private BaseclassProgress? Progress(string actor, string baseclass) =>
+        Resolve(actor)?.Baseclasses.FirstOrDefault(
+            b => string.Equals(b.BaseclassId, baseclass, StringComparison.OrdinalIgnoreCase));
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Ties go to the first, which is the order the character was built in.</b> A strict
+    /// maximum, so a character equally advanced in two classes answers with whichever it gained
+    /// first.
+    /// </remarks>
+    public override string HighestLevelBaseclass(string actor)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return string.Empty;
+        }
+
+        BaseclassProgress? best = null;
+        foreach (var progress in character.Baseclasses)
+        {
+            if (best is null || progress.CurrentLevel > best.CurrentLevel)
+            {
+                best = progress;
+            }
+        }
+
+        return best?.BaseclassId ?? string.Empty;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>An empty location does not mean "anywhere" — it means "not readied".</b> The reference
+    /// substitutes <c>Cannot</c> for a blank, which is the code an unequipped item carries, so
+    /// asking with no location finds what is in the backpack rather than everything.
+    /// </remarks>
+    public override string ReadiedItem(string actor, string location, int ordinal)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return string.Empty;
+        }
+
+        uint wanted = string.IsNullOrEmpty(location)
+            ? ReadiedLocation.NotReady
+            : ReadiedLocation.Base38(location);
+
+        int seen = 0;
+        foreach (var carried in character.Items)
+        {
+            if (carried.ReadyLocation == wanted && seen++ == ordinal)
+            {
+                return carried.ItemId;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Only an item the character already carries can be readied.</b> The reference readies out
+    /// of the character's own list, so this changes where a possession is worn rather than being a
+    /// way to acquire one. The first match wins when several are carried.
+    /// </remarks>
+    public override void Ready(string actor, string item, string location)
+    {
+        if (Resolve(actor) is not { } character || string.IsNullOrEmpty(item))
+        {
+            return;
+        }
+
+        uint where = string.IsNullOrEmpty(location)
+            ? ReadiedLocation.NotReady
+            : ReadiedLocation.Base38(location);
+
+        for (int i = 0; i < character.Items.Count; i++)
+        {
+            if (string.Equals(character.Items[i].ItemId, item,
+                              StringComparison.OrdinalIgnoreCase))
+            {
+                character.Items[i] = character.Items[i] with { ReadyLocation = where };
+                return;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The key is the item's slot on the character, not its id</b> — which is why two copies of
+    /// one item can be identified separately.
+    /// </remarks>
+    public override bool IsIdentified(string actor, int key, int ordinal)
+    {
+        if (Resolve(actor) is not { } character)
+        {
+            return false;
+        }
+
+        int seen = 0;
+        foreach (var carried in character.Items)
+        {
+            if (carried.Key == key && seen++ == ordinal)
+            {
+                return carried.Identified != 0;
+            }
+        }
+
+        return false;
+    }
 
     /// <inheritdoc/>
     /// <remarks>
