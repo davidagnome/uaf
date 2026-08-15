@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,979 tests, green on macOS; both CI workflows green.**
+**5,003 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -5756,9 +5756,9 @@ Two things written here a round ago were wrong, and are corrected:
 and the camp all push, and so does combat**. Taken first among the inner screens for that reason:
 it is the one with the most callers per screen built.
 
-Four of its fourteen commands run — READY, NEXT, PREV, EXIT. The other ten each want machinery
-this port does not have (a trade partner picker, the shop's price list, the scribe rules) and are
-named.
+**Six of its thirteen commands run** — READY, HALVE, JOIN, NEXT, PREV, EXIT. The other seven each
+want machinery this port does not have (a trade partner picker, the level's cell contents, the
+scribe rules) and are named below.
 
 > **The screen shows a *word*, not a tick.** `readyLocation` names a slot — WEAPON, SHIELD, ARMOR,
 > HANDS, HEAD, WAIST, ROBE, CLOAK, FEET, FINGER, QUIVER, and seven more the engine can reach — so
@@ -5778,6 +5778,40 @@ named.
 > **Two menu entries are both called `EXAMINE`** — one for ordinary items, one for special items
 > and keys, which are different lists behind the same screen. Only the reference's comment beside
 > the table says which is which.
+
+##### Splitting and merging bundles
+
+`InventoryBundles` — HALVE and JOIN (`ITEM_LIST::halveItem` and `joinItems`, `Shared/Items.cpp`),
+the inventory's two commands that need nothing outside the item list itself. That is why they came
+before DROP, which the plan had named next: DROP needs the level's mutable cell-contents table and
+these need only arithmetic.
+
+> **They are not inverses.** Halving splits one entry into two; joining gathers **every** other
+> entry of the same item into the one selected, not just the one that was split off. So halving
+> twice and joining once leaves one entry, not two.
+
+> **The half that stays keeps the larger share.** The new entry takes `qty / 2` rounded down and
+> the original keeps the rest — five becomes three and two, and one cannot be split at all.
+
+> **The split half is never readied**, whatever the original was, so a character wearing one of a
+> pair does not end up wearing both halves. And the reference passes `FALSE` to `AddItem`
+> explicitly so the two are not merged straight back — its own comment reads *"don't auto join
+> them back together!"*. A list that merged on add would make HALVE a no-op.
+
+> **Joining matches on item id and key alone.** Charges, whether an entry is identified, and where
+> each was worn are all ignored — so joining an identified stack into an unidentified one keeps the
+> *selected* entry's flags and silently discards the rest. Worth knowing before anyone "improves"
+> the match.
+
+> **Two separate gates decide eligibility, and both are the reference's.** The item's own record
+> must have `Bundle_Qty > 1` and `CanBeHalvedJoined` set — which is what makes a sword
+> unsplittable, since there is nothing to divide — *and* the screen refuses three item **classes**
+> outright (special items, special keys, quest items) however their records read. Money is refused
+> before either. `itemCanBeHalved` and `itemCanBeJoined` are identical in the reference
+> (`Items.cpp:462`, `:481`), so they are one function here.
+
+> **A refused command changes nothing and says nothing.** The reference simply redraws; there is no
+> message for a HALVE that could not happen, so a player sees the command do nothing at all.
 
 ##### The town-service shells, complete
 
@@ -8743,10 +8777,15 @@ What is left, in order:
    - **The inner screens behind the town shells.** All seven shells run (§the town-service
      shells, complete). The **inventory** is done and on screen in the shop and the vault, with a
      row cursor, paging and the full ready rules (§the shared inventory, §the inventory on screen,
-     §the ready rules); what is left there is its ten unbuilt commands — of which **DROP is the
-     one to take next**, and it is not small: it drops the item into the level's
-     `CELL_LEVEL_CONTENTS`, so it needs the level's mutable cell-contents table before it can do
-     anything.
+     §the ready rules). **HALVE and JOIN now run too** (§splitting and merging bundles), so eight
+     of its thirteen commands work — READY, HALVE, JOIN and the four navigation ones.
+
+     What is left there is **USE, TRADE, DROP, DEPOSIT, SELL, IDENTIFY and the two EXAMINEs**.
+     **DROP is the largest**: it drops the item into the level's `CELL_LEVEL_CONTENTS`, so it needs
+     the level's mutable cell-contents table first — which `SaveGameProjection` still writes as an
+     empty `CellLevelContents([])`. **DEPOSIT and SELL are the cheapest**: the vault is already
+     tracked and the shop's price scale is already shared, so each is a call into machinery that
+     exists.
 
      The **party menu** behind the training hall runs, and with it **training** (§the party menu,
      and training). There is no separate character picker — an earlier note here said there was,
@@ -8957,9 +8996,15 @@ What is left, in order:
      a DOS design carries now reads, and three of the 32 per-event-type payload readers are done —
      `TextStatement`, the transfer family and `Combat`, about 72% of the corpus by frequency.
 
-     **The next slice is the remaining ~29 payload readers**, in corpus-frequency order:
-     `PickOneCombat` (58), `SpecialItem` (33), `CombatTreasure` (32), then the long tail. After
-     those, nothing else the reference itself does: `.GLB` art and `.XMI` music are beyond it.
+     ~~**The next slice is the remaining ~29 payload readers.**~~ **All 35 event types convert**
+     (measured 2026-08-14: `FruaEventConverter` handles every member of `FruaEventType` bar the
+     `None` sentinel). The conversion layer is done end to end — events, monsters, NPCs, items, art
+     and whole-design assembly. Nothing else the reference itself does remains: `.GLB` art and
+     `.XMI` music are beyond it.
+
+     > **This paragraph said "~29 payload readers left" for four days after they were finished.**
+     > Measure the converter against the enum rather than trusting a note — the one-liner is in the
+     > sub-opcode item's style and takes a second.
 
      > **The exit criterion is the piece most at risk of being assumed done.** `-importfrua` is
      > committed and compiles — the Oracle build is green with it — and
@@ -8971,9 +9016,10 @@ What is left, in order:
      > `-config` was pointed at a `config.txt` path rather than a design directory; it may or may
      > not recur now that is fixed.
 
-     Still open elsewhere, and none of it blocking: 134 callable GPDL sub-opcodes with no group
-     among them, `$GET_CHAR_EFFAC`'s missing attacker, and the three inert event types no shipped
-     design uses.
+     ~~Still open elsewhere: 134 callable GPDL sub-opcodes…~~ **The GPDL sub-opcodes are done**
+     (item 3 below) — two callable ones remain and both are blocked. `$GET_CHAR_EFFAC` is ported
+     and the "missing attacker" note was wrong about what it does (§the three armour classes).
+     What is still open here: the three inert event types no shipped design uses.
 
      > **A caution learned the hard way this round.** `reference/` is **gitignored**, so no corpus
      > file reaches CI. Tests that assert a design exists turn the .NET workflow red on a perfectly

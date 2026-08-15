@@ -118,6 +118,83 @@ public class EventInventoryScreenTests
     private static string[] Labels(EventRunner runner) =>
         [.. runner.Menu.Items.Select(i => BitmapFont.Decode(i.Text))];
 
+    /// <summary>A stack of arrows, and a database that lets them be split and merged.</summary>
+    private static ItemInstance Bundle(int key, int quantity) =>
+        new(key, "Arrows", 0, Inventory.NotReady, quantity, 1, 0, 0, 0);
+
+    private static ItemRecord? Bundles(string id) =>
+        new(new ItemNames(0, "", "", "", "", "", ""), null, null,
+            new ItemScalars("", 0, 0, 0, 0, 0, BundleQty: 20, 0),
+            new ItemCombat(ReadiedLocation.Fingers, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 0),
+            new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null,
+                         CanBeHalvedJoined: 1, 0, new SpecabBlock([], [], []), []));
+
+    private static EventRunner Splitting(ItemList carried)
+    {
+        ItemList? held = carried;
+        var runner = new EventRunner
+        {
+            PageSize = Page,
+            IsValidEvent = _ => true,
+            ItemDatabase = Bundles,
+            ActiveCharacterItems = () => held,
+            ApplyItemChange = changed => held = changed,
+        };
+        runner.Begin(Vault(), Font(), Box, Anchors);
+        return runner;
+    }
+
+    /// <summary>HALVE splits the selected row, and the screen shows both halves.</summary>
+    [Fact]
+    public void Halve_splits_the_selected_row()
+    {
+        var runner = Splitting(Carrying(Bundle(1, 10)));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Halve);
+
+        Assert.Equal(2, runner.InventoryRows!.Count);
+        Assert.Equal(5, runner.InventoryRows[0].Quantity);
+        Assert.Equal(5, runner.InventoryRows[1].Quantity);
+
+        // And nothing was reported as unimplemented.
+        Assert.Null(runner.Unimplemented);
+    }
+
+    /// <summary>JOIN gathers the stacks back into the selected one.</summary>
+    [Fact]
+    public void Join_gathers_the_stacks_into_one()
+    {
+        var runner = Splitting(Carrying(Bundle(1, 4), Bundle(2, 3), Bundle(3, 2)));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Join);
+
+        var only = Assert.Single(runner.InventoryRows!);
+        Assert.Equal(9, only.Quantity);
+        Assert.Null(runner.Unimplemented);
+    }
+
+    /// <summary>
+    /// An item that cannot be split leaves the screen alone rather than reporting anything.
+    /// </summary>
+    /// <remarks>
+    /// The reference simply redraws — there is no message for a refused HALVE, so a design's player
+    /// sees nothing happen.
+    /// </remarks>
+    [Fact]
+    public void A_refused_halve_changes_nothing()
+    {
+        // The default database has a bundle size of zero, so nothing can be split.
+        var runner = Started(Carrying(Item("Long Sword")));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Halve);
+
+        Assert.Single(runner.InventoryRows!);
+        Assert.Null(runner.Unimplemented);
+    }
+
     [Fact]
     public void Items_opens_the_inventory_over_the_service()
     {

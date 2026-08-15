@@ -1796,6 +1796,44 @@ public sealed class EventRunner
                 return EventStep.Running;
             }
 
+            case InventoryCommand.Halve:
+            case InventoryCommand.Join:
+            {
+                if (ActiveCharacterItems?.Invoke() is not { } carried)
+                {
+                    return EventStep.Running;
+                }
+
+                var page = InventoryPageRows;
+                int row = InventoryRowIndex;
+                if (row < 0 || row >= page.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                // The list is rebuilt from a mutable copy, because ItemList is a record and both
+                // operations change how many entries there are rather than just their contents.
+                var bundles = new List<ItemInstance>(carried.Items);
+                var database = ItemDatabase ?? (_ => null);
+
+                bool changed = command == InventoryCommand.Halve
+                    ? InventoryBundles.Halve(bundles, page[row].Index, database)
+                    : InventoryBundles.Join(bundles, page[row].Index, database);
+
+                if (!changed)
+                {
+                    // Refused silently, as the reference does -- its screen simply redraws.
+                    return EventStep.Running;
+                }
+
+                var written = carried with { Items = bundles };
+                ApplyItemChange?.Invoke(written);
+
+                InventoryRows = Inventory.Rows(written, ItemNames);
+                PopulateInventoryForm();
+                return EventStep.Running;
+            }
+
             default:
                 Unimplemented =
                     $"[{Inventory.Menu[Math.Clamp(Menu.ActiveItem, 0, Inventory.Menu.Length - 1)].Label}" +
