@@ -66,6 +66,56 @@ public static class Shopping
     }
 
     /// <summary>
+    /// What a shop will pay for a stack (<c>RunEvent.cpp:8120</c>).
+    /// </summary>
+    /// <param name="carried">The row being sold, whose quantity and purchase price both count.</param>
+    /// <param name="record">Its database record, for the list price and the bundle size.</param>
+    /// <param name="buybackPercentage">
+    /// The shop's cut. <b>Zero means the shop does not buy at all</b> — the reference never even
+    /// offers, so the command does nothing rather than offering nothing.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>What the party PAID is what the shop values, not the list price.</b> The stored purchase
+    /// price wins whenever it is non-negative, so an item bought cheap sells cheap however the
+    /// database prices it. A negative stored price means "never bought" — found, looted or
+    /// given — and only then does the list price stand in.
+    /// </para>
+    /// <para>
+    /// <b>Priced per unit, then multiplied back up.</b> The price is divided by the item's
+    /// <i>bundle</i> size and multiplied by how many are actually carried, so half a quiver is
+    /// worth half a quiver. Both steps truncate, which is what makes a single arrow out of a
+    /// twenty-for-ten quiver worth nothing at all.
+    /// </para>
+    /// <para>
+    /// <b>The result is clamped to what the goods are worth</b> — a shop with a buyback over 100%
+    /// still pays only full value. And clamped at zero below, which matters because a negative
+    /// percentage is not otherwise refused.
+    /// </para>
+    /// <para>
+    /// <b>A bundle size of zero would divide by zero in the reference</b>, which does not guard it.
+    /// Treated as one here: an item that comes one at a time is the only sensible reading, and a
+    /// crash is not worth reproducing.
+    /// </para>
+    /// </remarks>
+    public static int SellPrice(ItemInstance carried, ItemRecord record, int buybackPercentage)
+    {
+        ArgumentNullException.ThrowIfNull(carried);
+        ArgumentNullException.ThrowIfNull(record);
+
+        // Negative means the party never bought it, so the database price stands in.
+        int paid = carried.Paid < 0 ? record.Scalars.Cost : carried.Paid;
+
+        int bundle = Math.Max(1, record.Scalars.BundleQty);
+        double unit = (double)paid / bundle;
+
+        int worth = (int)(unit * carried.Quantity);
+        int offered = (int)(worth * (buybackPercentage / 100.0));
+
+        return Math.Clamp(offered, 0, Math.Max(0, worth));
+    }
+
+    /// <summary>
     /// What a quantity of one item weighs (<c>getItemEncumbrance</c>, <c>Items.cpp:602</c>).
     /// </summary>
     /// <param name="record">

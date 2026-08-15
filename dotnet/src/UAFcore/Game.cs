@@ -64,6 +64,17 @@ public sealed class Game
         // loading a save replaces it outright.
         Runner.Vaults = () => Vaults;
 
+        // SELL asks in the design's own name for the coin it pays in, and pays the CHARACTER who
+        // was carrying the thing rather than the party's pooled purse -- see EventRunner.AnswerSale.
+        Runner.SellCurrencyName = () => Money is { } coins ? coins[coins.BaseType].Name : "GOLD";
+        Runner.ApplySale = price =>
+        {
+            if (Money is { } paidIn && Party?.Active is { } seller)
+            {
+                seller.Purse.Add(paidIn.BaseType, price);
+            }
+        };
+
         // VIEW shows whoever is active. Built here rather than in the runner, which has no party.
         Runner.ActiveCharacterSheet = () => Party?.Active is { } active
             ? CharacterSheetBuilder.Build(active, design.Baseclasses, design.Item)

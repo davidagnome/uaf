@@ -19,6 +19,96 @@ public class ShoppingTests
             new ItemTail(0, 0, 0, [], 0, 0, 0, "", "", 0, 0, null, 0, 0,
                          new SpecabBlock([], [], []), []));
 
+    /// <summary>
+    /// The shop pays a share of what the party paid, not of the list price.
+    /// </summary>
+    /// <remarks>
+    /// <b>The stored purchase price wins whenever it is non-negative</b>, so an item bought cheap
+    /// sells cheap however the database prices it.
+    /// </remarks>
+    [Theory]
+    [InlineData(100, 1, 100, 50, 50)]
+    [InlineData(100, 1, 100, 100, 100)]
+    [InlineData(100, 1, 100, 10, 10)]
+    [InlineData(40, 1, 100, 50, 20)]
+    public void The_shop_pays_a_share_of_what_was_paid(
+        int paid, int quantity, int listPrice, int buyback, int expected)
+    {
+        var carried = new ItemInstance(0, "thing", 0, ReadiedLocation.NotReady,
+                                       quantity, 1, 0, 0, Paid: paid);
+
+        Assert.Equal(expected,
+                     Shopping.SellPrice(carried, Record(cost: listPrice, bundle: 1), buyback));
+    }
+
+    /// <summary>
+    /// A negative purchase price means "never bought", and the list price stands in.
+    /// </summary>
+    /// <remarks>
+    /// Found, looted or given — only then does the database decide what it is worth.
+    /// </remarks>
+    [Fact]
+    public void An_item_never_bought_is_valued_at_the_list_price()
+    {
+        var found = new ItemInstance(0, "thing", 0, ReadiedLocation.NotReady,
+                                     1, 1, 0, 0, Paid: -1);
+
+        Assert.Equal(30, Shopping.SellPrice(found, Record(cost: 60, bundle: 1), 50));
+    }
+
+    /// <summary>
+    /// A stack is priced per unit and multiplied back up, and both steps truncate.
+    /// </summary>
+    /// <remarks>
+    /// <b>Which is what makes one arrow out of a twenty-for-ten quiver worth nothing.</b> Ten
+    /// divided by twenty is 0.5 a unit; one of them truncates to zero before the buyback is even
+    /// applied.
+    /// </remarks>
+    [Theory]
+    [InlineData(20, 10, 20, 100, 10)]
+    [InlineData(20, 10, 10, 100, 5)]
+    [InlineData(20, 10, 1, 100, 0)]
+    [InlineData(20, 10, 4, 100, 2)]
+    public void A_stack_is_priced_per_unit(
+        int bundle, int paid, int quantity, int buyback, int expected)
+    {
+        var stack = new ItemInstance(0, "arrow", 0, ReadiedLocation.NotReady,
+                                     quantity, 1, 0, 0, Paid: paid);
+
+        Assert.Equal(expected, Shopping.SellPrice(stack, Record(bundle: bundle), buyback));
+    }
+
+    /// <summary>
+    /// A buyback over 100% still pays only what the goods are worth.
+    /// </summary>
+    [Fact]
+    public void A_generous_shop_still_pays_only_full_value()
+    {
+        var carried = new ItemInstance(0, "thing", 0, ReadiedLocation.NotReady,
+                                       1, 1, 0, 0, Paid: 100);
+
+        Assert.Equal(100, Shopping.SellPrice(carried, Record(bundle: 1), 500));
+
+        // And a negative percentage pays nothing rather than taking money.
+        Assert.Equal(0, Shopping.SellPrice(carried, Record(bundle: 1), -50));
+    }
+
+    /// <summary>
+    /// A bundle size of zero is treated as one rather than dividing by zero.
+    /// </summary>
+    /// <remarks>
+    /// <b>A divergence.</b> The reference divides by the bundle size with no guard — an item that
+    /// comes one at a time is the only sensible reading, and a crash is not worth reproducing.
+    /// </remarks>
+    [Fact]
+    public void A_bundle_of_zero_does_not_divide_by_zero()
+    {
+        var carried = new ItemInstance(0, "thing", 0, ReadiedLocation.NotReady,
+                                       3, 1, 0, 0, Paid: 30);
+
+        Assert.Equal(90, Shopping.SellPrice(carried, Record(bundle: 0), 100));
+    }
+
     private static Character Member(int gold = 1000, int maxEncumbrance = 1000,
                                     CharacterStatus status = CharacterStatus.Okay)
     {

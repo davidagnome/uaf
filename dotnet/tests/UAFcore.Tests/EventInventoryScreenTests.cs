@@ -219,6 +219,119 @@ public class EventInventoryScreenTests
         Assert.Null(runner.Unimplemented);
     }
 
+    /// <summary>A shop that buys back at a stated percentage, with the inventory over it.</summary>
+    private static (EventRunner Runner, List<int> Paid) Selling(
+        ItemList carried, int buyback = 50)
+    {
+        ItemList? held = carried;
+        var paid = new List<int>();
+
+        var shop = new ShopEvent(Base with { EventType = (int)UAF.Serialization.EventType.ShopEvent },
+                                 0, 0, 0, buyback, 0, 0, 0, 0,
+                                 new ItemList([], new ReadyItems([])));
+
+        var runner = new EventRunner
+        {
+            PageSize = Page,
+            IsValidEvent = _ => true,
+            ItemDatabase = Bundles,
+            ActiveCharacterItems = () => held,
+            ApplyItemChange = changed => held = changed,
+            SellCurrencyName = () => "GOLD",
+            ApplySale = price => paid.Add(price),
+        };
+        runner.Begin(shop, Font(), Box, Anchors);
+        return (runner, paid);
+    }
+
+    /// <summary>The shop's menu, whose ITEMS entry the inventory opens from.</summary>
+    private const int ShopItems = 1;
+
+    /// <summary>
+    /// SELL puts up an offer rather than selling, and YES completes it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The money goes to the character, not the party's pooled purse</b> — whoever was carrying
+    /// the thing keeps what it fetched.
+    /// </remarks>
+    [Fact]
+    public void Sell_offers_first_and_yes_completes_it()
+    {
+        // Bought for 100, bundle of 20, carrying 20 of them: worth 100, half of that is 50.
+        var bought = new ItemInstance(1, "Arrows", 0, Inventory.NotReady, 20, 1, 0, 0, Paid: 100);
+        var (runner, paid) = Selling(Carrying(bought));
+        Choose(runner, ShopItems);
+
+        Choose(runner, (int)InventoryCommand.Sell);
+
+        // The offer is up, and nothing has been sold yet.
+        Assert.Equal(50, runner.SellOffer);
+        Assert.Single(runner.InventoryRows!);
+        Assert.Empty(paid);
+        Assert.Equal(["YES", "NO"], Labels(runner));
+
+        // YES is the first entry, and the default is NO -- so this has to walk back.
+        Choose(runner, 0);
+
+        Assert.Null(runner.SellOffer);
+        Assert.Equal([50], paid);
+        Assert.Empty(runner.InventoryRows!);
+
+        // And the inventory menu is back.
+        Assert.Equal("READY", Labels(runner)[0]);
+    }
+
+    /// <summary>NO keeps the item and pays nothing.</summary>
+    [Fact]
+    public void Sell_can_be_declined()
+    {
+        var bought = new ItemInstance(1, "Arrows", 0, Inventory.NotReady, 20, 1, 0, 0, Paid: 100);
+        var (runner, paid) = Selling(Carrying(bought));
+        Choose(runner, ShopItems);
+
+        Choose(runner, (int)InventoryCommand.Sell);
+        Choose(runner, 1);
+
+        Assert.Null(runner.SellOffer);
+        Assert.Empty(paid);
+        Assert.Single(runner.InventoryRows!);
+        Assert.Equal("READY", Labels(runner)[0]);
+    }
+
+    /// <summary>
+    /// A shop that does not buy never offers.
+    /// </summary>
+    /// <remarks>
+    /// A buyback of zero means the reference does not even ask — so the command does nothing rather
+    /// than offering nothing.
+    /// </remarks>
+    [Fact]
+    public void A_shop_with_no_buyback_does_not_offer()
+    {
+        var bought = new ItemInstance(1, "Arrows", 0, Inventory.NotReady, 20, 1, 0, 0, Paid: 100);
+        var (runner, paid) = Selling(Carrying(bought), buyback: 0);
+        Choose(runner, ShopItems);
+
+        Choose(runner, (int)InventoryCommand.Sell);
+
+        Assert.Null(runner.SellOffer);
+        Assert.Empty(paid);
+        Assert.Equal("READY", Labels(runner)[0]);
+    }
+
+    /// <summary>SELL over a vault does nothing — it is a shop's command.</summary>
+    [Fact]
+    public void Sell_outside_a_shop_does_nothing()
+    {
+        var runner = Splitting(Carrying(Bundle(1, 5)));
+        Choose(runner, VaultItems);
+
+        Choose(runner, (int)InventoryCommand.Sell);
+
+        Assert.Null(runner.SellOffer);
+        Assert.Single(runner.InventoryRows!);
+    }
+
     /// <summary>HALVE splits the selected row, and the screen shows both halves.</summary>
     [Fact]
     public void Halve_splits_the_selected_row()

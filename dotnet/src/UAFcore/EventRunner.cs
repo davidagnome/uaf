@@ -1796,6 +1796,45 @@ public sealed class EventRunner
                 return EventStep.Running;
             }
 
+            case InventoryCommand.Sell:
+            {
+                // Only meaningful over a shop, and only one that buys at all -- a buyback of zero
+                // means the reference never even offers, so nothing happens rather than an offer
+                // of nothing.
+                if (Current is not ShopEvent shop
+                    || shop.BuybackPercentage <= 0
+                    || ActiveCharacterItems?.Invoke() is not { } forSale)
+                {
+                    return EventStep.Running;
+                }
+
+                var sellPage = InventoryPageRows;
+                int sellRow = InventoryRowIndex;
+                if (sellRow < 0 || sellRow >= sellPage.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                int at = sellPage[sellRow].Index;
+                if (at < 0 || at >= forSale.Items.Count)
+                {
+                    return EventStep.Running;
+                }
+
+                var offered = forSale.Items[at];
+
+                // The same flag DEPOSIT reads: one field governs all four ways out of the party.
+                if ((ItemDatabase ?? (_ => null))(offered.ItemId) is not { } priced
+                    || !InventoryBundles.CanLeaveTheParty(offered, ItemDatabase!))
+                {
+                    return EventStep.Running;
+                }
+
+                pendingSale = (at, Shopping.SellPrice(offered, priced, shop.BuybackPercentage));
+
+                return AskToSell(pendingSale.Value.Price);
+            }
+
             case InventoryCommand.Deposit:
             {
                 // Only meaningful over a vault -- the reference asserts the parent event's type
@@ -1900,6 +1939,80 @@ public sealed class EventRunner
     /// is: nothing should fail silently just because the original had nowhere to say so.
     /// </remarks>
     public InventoryBundles.DepositRefusal LastDepositRefusal { get; private set; }
+
+    /// <summary>
+    /// The sale waiting on a yes/no, as a row index and what the shop offered.
+    /// </summary>
+    /// <remarks>
+    /// <b>The row is remembered rather than re-derived on answering.</b> The reference reads the
+    /// list index again when the answer comes back (<c>RunEvent.cpp:8886</c>), which is safe there
+    /// only because nothing can change the list while the question is up. Holding it is the same
+    /// answer without depending on that.
+    /// </remarks>
+    private (int Row, int Price)? pendingSale;
+
+    /// <summary>What the shop last offered, or null when nothing is being sold.</summary>
+    public int? SellOffer => pendingSale?.Price;
+
+    /// <summary>
+    /// Puts the shop's offer up as a yes/no over the inventory.
+    /// </summary>
+    /// <remarks>
+    /// The reference's wording, with the design's own name for the default coin
+    /// (<c>RunEvent.cpp:8143</c>). The default is NO, as it is for every other confirmation.
+    /// </remarks>
+    private EventStep AskToSell(int price)
+    {
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, ("YES", 0), ("NO", 0));
+
+        escapeSelects = 1;
+        Menu.SetCurrentItem(1);
+        ShowText($"I WILL GIVE YOU {price} {SellCurrencyName?.Invoke() ?? "GOLD"} "
+                 + "FOR THIS ITEM, SELL IT?");
+
+        return EventStep.Running;
+    }
+
+    /// <summary>The design's name for the coin a shop pays in; set by the host.</summary>
+    public Func<string>? SellCurrencyName { get; set; }
+
+    /// <summary>Hands the sale's proceeds to the seller; set by the host, which owns the purse.</summary>
+    public Action<int>? ApplySale { get; set; }
+
+    /// <summary>
+    /// Answers the shop's offer.
+    /// </summary>
+    /// <remarks>
+    /// <b>On YES the money goes to the character, not to the party's pooled purse</b> — the
+    /// reference credits <c>dude.money</c> (<c>RunEvent.cpp:8887</c>), so whoever was carrying the
+    /// thing keeps what it fetched.
+    /// </remarks>
+    private EventStep AnswerSale()
+    {
+        var sale = pendingSale!.Value;
+        pendingSale = null;
+
+        if (Menu.ActiveItem == 0 && ActiveCharacterItems?.Invoke() is { } carried
+            && sale.Row >= 0 && sale.Row < carried.Items.Count)
+        {
+            var remaining = new List<ItemInstance>(carried.Items);
+            remaining.RemoveAt(sale.Row);
+
+            ApplySale?.Invoke(sale.Price);
+
+            var after = carried with { Items = remaining };
+            ApplyItemChange?.Invoke(after);
+            InventoryRows = Inventory.Rows(after, ItemNames);
+        }
+
+        Menu.Reset();
+        SetupFixedMenu(lastAnchors, null, MenuOrientation.Horizontal, Inventory.Menu);
+        escapeSelects = (int)InventoryCommand.Exit;
+
+        PopulateInventoryForm();
+        return EventStep.Running;
+    }
 
     /// <summary>Why the last READY was refused, or <see cref="ReadyRefusal.None"/>.</summary>
     /// <remarks>
@@ -5062,6 +5175,15 @@ public sealed class EventRunner
         {
             Stats = null;
             return EventStep.Running;
+        }
+
+        // The shop's offer sits OVER the inventory, so it answers before the inventory does -- the
+        // same way ALTER's DROP answers before the party menu. This has to come first: the
+        // inventory is still open behind the question, so its own dispatch would otherwise take
+        // the keypress and the offer would never be answered.
+        if (pendingSale is not null)
+        {
+            return AnswerSale();
         }
 
         // The inventory replaces the current event's menu, so it answers before the event does.
