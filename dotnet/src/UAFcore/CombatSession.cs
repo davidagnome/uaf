@@ -256,6 +256,9 @@ public sealed class CombatSession
         {
             NoMagic = combat.NoMagic != 0,
             spellInfo = spellInfo,
+
+            // Kept so a monster joining mid-fight is measured the same way the first ones were.
+            iconOf = SizeOf,
         };
 
         // Centre on the party before the first frame. The reference does this as combat opens
@@ -1422,6 +1425,52 @@ public sealed class CombatSession
 
         Message = steps > 0 ? $"{actor.Name} moves." : $"{actor.Name} cannot move.";
     }
+
+    /// <summary>
+    /// Brings a monster into the fight already running (<c>AddMonsterToCombatants</c>,
+    /// <c>UAFWin/Combatants.cpp:990</c>).
+    /// </summary>
+    /// <param name="monsterId">A name the design's monster database carries; nothing happens without one.</param>
+    /// <param name="isFriendly">Which side it joins on, which the caller states rather than the database.</param>
+    /// <returns>The new combatant's index, or null when the design has no such monster.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The new arrival is left UNPLACED, and that is what the reference does.</b> Its own
+    /// placement call is <c>determineInitCombatPos</c>, whose monster branch sits entirely inside
+    /// <c>#ifdef newMonsterArrangement</c> — and the body there is <b>commented out</b>
+    /// (<c>Combatants.cpp:2197</c>). <c>newMonsterArrangement</c> <i>is</i> defined
+    /// (<c>Combatants.h:67</c>), so the shipped engine positions a late-joining monster nowhere at
+    /// all and it stays at the (−1, −1) its constructor gave it. This does the same rather than
+    /// inventing a square, and <see cref="Combatant.X"/> already means "not on the map" there.
+    /// </para>
+    /// <para>
+    /// <b>Its friendliness override is cleared, not inherited.</b> The reference sets
+    /// <c>m_adjFriendly = 0</c> explicitly on the new combatant — so a monster added mid-fight
+    /// starts on the side it was given, whatever charms are in the air.
+    /// </para>
+    /// </remarks>
+    public int? AddMonster(string monsterId, bool isFriendly)
+    {
+        if (MonsterInfo?.Invoke(monsterId) is not { } record)
+        {
+            return null;
+        }
+
+        var joined = EncounterBuilder.FromMonster(
+            combatants.Count, isFriendly, record, iconOf?.Invoke(record) ?? new CombatantIcon(1, 1));
+
+        joined.FriendlyOverride = 0;
+        joined.MaxHitPoints = EncounterBuilder.RollHitPoints(record, RollDice(dice));
+        joined.HitPoints = joined.MaxHitPoints;
+
+        combatants.Add(joined);
+        Map.CombatantCount = combatants.Count;
+
+        return joined.Index;
+    }
+
+    /// <summary>How a monster record's footprint is measured, kept from <see cref="Begin"/>.</summary>
+    private Func<MonsterRecord, CombatantIcon>? iconOf;
 
     /// <summary>
     /// What the attack now being worked out rolled, or null between attacks.

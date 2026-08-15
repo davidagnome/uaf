@@ -356,18 +356,23 @@ public class GpdlVirtualMachineTests
     {
         // The whole point of the boundary: a script reaching an unimplemented engine call must fail
         // loudly, not quietly answer "0". The example has to be something still unported, so this
-        // test moves as the port advances -- it has named $PARTYSIZE, $GET_CHAR_EFFAC and
-        // $VisualDistance in turn, and each time that call landed the test failed and had to be
-        // repointed. That failure is the mechanism working, not a nuisance: pick another unported
-        // call from the measurement in the plan's sub-opcode item.
+        // test moves as the port advances -- it has named $PARTYSIZE, $GET_CHAR_EFFAC,
+        // $VisualDistance and $AddCombatant in turn, and each time that call landed the test
+        // failed and had to be repointed. That failure is the mechanism working, not a nuisance:
+        // pick another unported call from the measurement in the plan's sub-opcode item.
         //
-        // $AddCombatant needs a whole combat-spawning path, so it should outlast most of them.
+        // $CastSpellOnTarget needs spell casting, which is a long way off.
         var compiler = new GpdlCompiler();
         Assert.Equal(0, compiler.Compile(
-            """$PUBLIC $FUNC f() { $RETURN $AddCombatant("orc", "1"); } f;"""));
-        var vm = new GpdlVirtualMachine(GpdlProgram.FromCompiler(compiler));
+            """$PUBLIC $FUNC f() { $RETURN $CastSpellOnTarget($AttackerContext(), "Bless"); } f;"""));
+
+        var host = new GpdlUnhostedEnvironment();
+        host.Context.Push();
+        host.Context.Set(GpdlContext.Attacker, "hero");
+
+        var vm = new GpdlVirtualMachine(GpdlProgram.FromCompiler(compiler), host);
         var ex = Assert.Throws<NotSupportedException>(() => vm.Execute("f"));
-        Assert.Contains("$AddCombatant", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("$CastSpellOnTarget", ex.Message, StringComparison.Ordinal);
         Assert.Contains("GPDLexec.cpp", ex.Message, StringComparison.Ordinal);
     }
 

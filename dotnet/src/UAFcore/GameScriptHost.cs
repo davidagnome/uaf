@@ -952,6 +952,14 @@ public sealed class GameScriptHost(Game game) : GpdlUnhostedEnvironment
         return ToHit.Damage(rolled, damage.Bonus);
     }
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Nothing happens outside a fight, and nothing happens for a name the monster database does
+    /// not carry — the reference locates the monster before adding anything.
+    /// </remarks>
+    public override void AddCombatant(string monster, bool isFriendly) =>
+        game.Combat?.AddMonster(monster, isFriendly);
+
     /// <summary>The combatant at an index, or null.</summary>
     private Combatant? At(int index) =>
         game.Combat is { } session && index >= 0 && index < session.Combatants.Count

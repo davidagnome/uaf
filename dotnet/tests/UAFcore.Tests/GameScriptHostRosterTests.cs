@@ -494,6 +494,84 @@ public class GameScriptHostRosterTests
         Assert.Null(fight.Host.ToHitRoll);
     }
 
+    /// <summary>
+    /// A monster joins the roster, on the side it was told.
+    /// </summary>
+    [Fact]
+    public void A_monster_joins_the_fight_on_the_side_it_is_given()
+    {
+        if (Fighting() is not { } fight
+            || fight.Game.Combat!.Combatants.FirstOrDefault(c => !c.IsFriendly)
+               is not { } existing)
+        {
+            return;
+        }
+
+        int before = fight.Game.Combat.Combatants.Count;
+
+        // Named after a monster already in the fight, so the database certainly has it.
+        fight.Host.AddCombatant(existing.Name, isFriendly: true);
+
+        Assert.Equal(before + 1, fight.Game.Combat.Combatants.Count);
+
+        var joined = fight.Game.Combat.Combatants[^1];
+        Assert.Equal(existing.Name, joined.Name);
+        Assert.True(joined.IsFriendly);
+        Assert.Equal(before, joined.Index);
+
+        // Its override starts clear, so it is on the side it was given whatever charms are about.
+        Assert.Equal(0, joined.FriendlyOverride);
+        Assert.True(joined.IsCurrentlyFriendly);
+    }
+
+    /// <summary>
+    /// The new arrival is left unplaced, because the reference leaves it unplaced too.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not an omission.</b> <c>determineInitCombatPos</c>'s monster branch sits entirely inside
+    /// <c>#ifdef newMonsterArrangement</c> and the body there is <b>commented out</b>
+    /// (<c>Combatants.cpp:2197</c>) — and <c>newMonsterArrangement</c> <i>is</i> defined
+    /// (<c>Combatants.h:67</c>). So the shipped engine positions a late-joining monster nowhere and
+    /// it keeps the (−1, −1) its constructor gave it. Inventing a square here would be a divergence
+    /// dressed as a fix.
+    /// </remarks>
+    [Fact]
+    public void A_monster_added_mid_fight_is_left_unplaced()
+    {
+        if (Fighting() is not { } fight
+            || fight.Game.Combat!.Combatants.FirstOrDefault(c => !c.IsFriendly)
+               is not { } existing)
+        {
+            return;
+        }
+
+        fight.Host.AddCombatant(existing.Name, isFriendly: false);
+
+        var joined = fight.Game.Combat.Combatants[^1];
+
+        Assert.Equal(-1, joined.X);
+        Assert.Equal(-1, joined.Y);
+
+        // Everybody who was there at the start is on the map, so being off it is this one's doing.
+        Assert.True(existing.X >= 0);
+    }
+
+    /// <summary>A name the database does not carry adds nobody.</summary>
+    [Fact]
+    public void An_unknown_monster_adds_nobody()
+    {
+        if (Fighting() is not { } fight)
+        {
+            return;
+        }
+
+        int before = fight.Game.Combat!.Combatants.Count;
+
+        fight.Host.AddCombatant("NoSuchMonster", isFriendly: false);
+
+        Assert.Equal(before, fight.Game.Combat.Combatants.Count);
+    }
+
     private static List<int> Walk(GameScriptHost host, int filter)
     {
         var seen = new List<int>();

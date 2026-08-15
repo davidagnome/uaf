@@ -1178,6 +1178,18 @@ public sealed class GpdlVirtualMachine
                 PushSp(_host.ActorNamed(PopSp()));
                 break;
 
+            case SubOp.SUBOP_AddCombatant:
+                {
+                    // The friendly flag pops first, then the name.
+                    bool friendly = PopInteger() != 0;
+                    _host.AddCombatant(PopSp(), friendly);
+
+                    // Always empty, whether or not the design has such a monster -- so a script
+                    // cannot tell a typo from a successful spawn.
+                    PushSp(False);
+                    break;
+                }
+
             case SubOp.SUBOP_ToHitComputation_Roll:
 
                 // Ten outside an attack, which is a plausible middling d20 and not a marker -- a

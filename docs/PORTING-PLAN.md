@@ -52,7 +52,7 @@ comparison and has been **verified against a synthetic oracle** — pointed at t
 four of its five checks compare correctly through the real file readers and the fifth fires as
 designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
 `uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**4,968 tests, green on macOS; both CI workflows green.**
+**4,973 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9015,16 +9015,15 @@ What is left, in order:
    **writing the inverse finds reader defects nothing else does**: nine discarded fields, two
    mis-named ones, two lists whose shape hid which entry was missing, and one place where the
    reference's own two branches disagree.
-3. **The rest of the GPDL sub-opcodes.** **367 of 386 are implemented** (2026-08-14, counted from
-   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **5 of the missing are
+3. **The rest of the GPDL sub-opcodes.** **368 of 386 are implemented** (2026-08-14, counted from
+   `GpdlVirtualMachine`'s switch); the rest throw with a source citation. **4 of the missing are
    named callable functions**; the other 14 have no name in the table.
    >
-   > **The five that remain, and why:** `$AddCombatant` spawns a monster into a running fight;
-   > `$CastSpellOnTarget` and `$CastSpellOnTargetAs` need spell casting; `$RUN_CHAR_PS_SCRIPTS` and
-   > `$RUN_AREA_SE_SCRIPTS` are blocked (§the `$RUN_*_SCRIPTS` family). **Plus one partial**:
-   > `$SkillAdj`'s four *computed* reads (`F`, `f`, `b`, `B`) need `GetAdjSkillValue` and the skill
-   > computation behind it, and refuse with a citation rather than guessing — the writes and the
-   > stored read work.
+   > **The four that remain, and why:** `$CastSpellOnTarget` and `$CastSpellOnTargetAs` need spell
+   > casting; `$RUN_CHAR_PS_SCRIPTS` and `$RUN_AREA_SE_SCRIPTS` are blocked (§the
+   > `$RUN_*_SCRIPTS` family). **Plus one partial**: `$SkillAdj`'s four *computed* reads
+   > (`F`, `f`, `b`, `B`) need `GetAdjSkillValue` and the skill computation behind it, and refuse
+   > with a citation rather than guessing — the writes and the stored read work.
 
    > **Every count in this item has been wrong at least once, including the correction.** The
    > "37 named functions, 14 ours" figures reported from 2026-08-13 came from a regex matching
@@ -9128,6 +9127,26 @@ What is left, in order:
    >   > siblings, and taking `SpecialAbilityDefinition` would have made the scripting layer depend
    >   > on the serialization one.
    >   >
+   > **`$AddCombatant` is done** (2026-08-14), and it turned out far smaller than expected because
+   > **the reference does not place the monster it adds.** `AddMonsterToCombatants` ends by calling
+   > `determineInitCombatPos`, whose monster branch sits entirely inside
+   > `#ifdef newMonsterArrangement` — and the body there is **commented out**
+   > (`Combatants.cpp:2197`). `newMonsterArrangement` *is* defined (`Combatants.h:67`), so the
+   > shipped engine positions a late-joining monster nowhere at all and it keeps the (−1, −1) its
+   > constructor gave it. The port does the same; `Combatant.X` already means "not on the map"
+   > there. **Inventing a square would have been a divergence dressed as a fix** — and it is what
+   > "needs the placement subsystem" would have led to, which is why the previous turn's estimate
+   > of this call was wrong.
+   >
+   > **Its friendliness override is cleared, not inherited** — the reference sets
+   > `m_adjFriendly = 0` explicitly, so a monster added mid-fight starts on the side it was given
+   > whatever charms are in the air. And **it answers the empty string whatever happens**, so a
+   > script cannot tell a typo'd monster name from a successful spawn.
+   >
+   > **`An_unported_subop_throws_with_a_citation` moved a fourth time**, to `$CastSpellOnTarget`.
+   > Its full history: `$PARTYSIZE` → `$GET_CHAR_EFFAC` → `$VisualDistance` → `$AddCombatant` →
+   > `$CastSpellOnTarget`.
+
    > **`$ToHitComputation_Roll` and `$ComputeAttackDamage` are done** (2026-08-14).
    >
    > **`$ToHitComputation_Roll` answers TEN outside an attack** — not zero, not an error, and not

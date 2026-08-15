@@ -87,6 +87,33 @@ public class GpdlAttackTests
         Assert.Equal((2, 5), host.Asked);
     }
 
+    /// <summary>The monster name and its side arrive in that order.</summary>
+    /// <remarks>
+    /// <b>It answers nothing whatever happens</b> — the same empty string for a monster that
+    /// joined and for a name the design does not have, so a script cannot tell a typo from a
+    /// successful spawn.
+    /// </remarks>
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("0", false)]
+    public void A_combatant_is_added_with_its_side(string flag, bool expected)
+    {
+        var host = new SpawningHost();
+
+        Assert.Equal(string.Empty,
+                     Run($$"""$RETURN $AddCombatant("Orc", "{{flag}}");""", host));
+
+        Assert.Equal(("Orc", expected), host.Added);
+    }
+
+    private sealed class SpawningHost : GpdlUnhostedEnvironment
+    {
+        public (string Monster, bool Friendly)? Added { get; private set; }
+
+        public override void AddCombatant(string monster, bool isFriendly) =>
+            Added = (monster, isFriendly);
+    }
+
     /// <summary>A miss and a combatant that is not there are both zero.</summary>
     /// <remarks>
     /// So a script cannot tell a miss from a hit that did nothing, nor either from a bad index.

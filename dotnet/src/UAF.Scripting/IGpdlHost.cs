@@ -1675,6 +1675,19 @@ public interface IGpdlHost
     int ComputeAttackDamage(int attacker, int target);
 
     /// <summary>
+    /// Brings a monster into the fight already running (<c>$AddCombatant</c>).
+    /// </summary>
+    /// <param name="monster">A name the design's monster database carries.</param>
+    /// <param name="isFriendly">Which side it joins on, stated by the caller.</param>
+    /// <remarks>
+    /// <b>The new arrival is left unplaced, because the reference leaves it unplaced too</b> — the
+    /// monster branch of its own placement call is commented out in the shipping build. Nothing is
+    /// reported either way: the call always answers the empty string, so a script cannot tell
+    /// whether the monster existed.
+    /// </remarks>
+    void AddCombatant(string monster, bool isFriendly);
+
+    /// <summary>
     /// Whether a carried item has been identified (<c>$IsIdentified</c>).
     /// </summary>
     /// <param name="key">The item's key on the character — its slot in the backpack, not its id.</param>
@@ -2045,6 +2058,11 @@ public class GpdlUnhostedEnvironment : IGpdlHost
 
     /// <inheritdoc/>
     public virtual int ComputeAttackDamage(int attacker, int target) => 0;
+
+    /// <inheritdoc/>
+    public virtual void AddCombatant(string monster, bool isFriendly)
+    {
+    }
 
     /// <inheritdoc/>
     public virtual string? SkillAdjustment(string actor, string skill, string adjustment,

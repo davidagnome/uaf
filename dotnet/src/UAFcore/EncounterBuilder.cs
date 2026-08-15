@@ -160,7 +160,20 @@ public static class EncounterBuilder
     /// </remarks>
     private static Combatant FromMonster(int index, MonsterEvent entry, MonsterRecord record,
                                          CombatantIcon icon) =>
-        new(index, entry.Friendly != 0, icon, record.Name)
+        FromMonster(index, entry.Friendly != 0, record, icon);
+
+    /// <summary>
+    /// One monster combatant, on whichever side it is told.
+    /// </summary>
+    /// <remarks>
+    /// Split out from the encounter path so a monster can also join a fight already running —
+    /// <c>$AddCombatant</c>, which names its side directly rather than reading it off an encounter
+    /// entry. <b>It is left unplaced</b> at (−1, −1); see
+    /// <see cref="CombatSession.AddMonster"/> for why the reference does not place one either.
+    /// </remarks>
+    public static Combatant FromMonster(int index, bool isFriendly, MonsterRecord record,
+                                        CombatantIcon icon) =>
+        new(index, isFriendly, icon, record.Name)
         {
             Kind = CombatantKind.Monster,
             IsAuto = true,
