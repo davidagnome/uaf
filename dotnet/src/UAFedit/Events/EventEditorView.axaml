@@ -1,0 +1,258 @@
+<!--
+  The Event Editor — the Level menu's "Event Editor…" (ID_VIEW_EVENTS, CEventViewer).
+
+  Three panes rather than the original's one. The original puts a tree on the left and the shared
+  EVENT_CONTROL editor on the right, and opens a modal dialog per event type on top of both
+  (EventViewer.cpp:1062). Here the list, the fields and the chain graph are all visible at once,
+  because the question the tool exists to answer ("what leads here, and where does this go?")
+  needs the chains beside the event rather than behind an expander.
+
+  Every template carries x:DataType, so the bindings compile.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ev="using:UAFedit.Events"
+             x:Class="UAFedit.Events.EventEditorView"
+             x:DataType="ev:EventEditorViewModel">
+
+  <UserControl.Resources>
+    <!-- One label column across every pane, so the field rows line up wherever they appear. -->
+    <x:Double x:Key="FieldLabelWidth">180</x:Double>
+  </UserControl.Resources>
+
+  <UserControl.DataTemplates>
+
+    <!-- A string, or a number: the spec clamps on write, so both are a box. -->
+    <DataTemplate DataType="ev:EventTextFieldViewModel" x:DataType="ev:EventTextFieldViewModel">
+      <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+        <TextBlock Grid.Column="0" Text="{Binding Label}"
+                   Width="{StaticResource FieldLabelWidth}"
+                   Opacity="{Binding IsRelevant, Converter={x:Static ev:EventConverters.Dim}}"
+                   TextWrapping="Wrap" Margin="0,3,8,0" />
+        <TextBox Grid.Column="1" Text="{Binding Value, Mode=TwoWay}"
+                 IsEnabled="{Binding IsEditable}"
+                 AcceptsReturn="{Binding IsMultiline}"
+                 TextWrapping="Wrap"
+                 MinHeight="{Binding IsMultiline, Converter={x:Static ev:EventConverters.BoxHeight}}"
+                 VerticalContentAlignment="Top" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="ev:EventFlagFieldViewModel" x:DataType="ev:EventFlagFieldViewModel">
+      <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+        <TextBlock Grid.Column="0" Text="{Binding Label}"
+                   Width="{StaticResource FieldLabelWidth}"
+                   Opacity="{Binding IsRelevant, Converter={x:Static ev:EventConverters.Dim}}"
+                   TextWrapping="Wrap" Margin="0,3,8,0" />
+        <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                  IsEnabled="{Binding IsEditable}" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="ev:EventChoiceFieldViewModel" x:DataType="ev:EventChoiceFieldViewModel">
+      <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+        <TextBlock Grid.Column="0" Text="{Binding Label}"
+                   Width="{StaticResource FieldLabelWidth}"
+                   Opacity="{Binding IsRelevant, Converter={x:Static ev:EventConverters.Dim}}"
+                   TextWrapping="Wrap" Margin="0,3,8,0" />
+        <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding Choices}"
+                  SelectedItem="{Binding Selected, Mode=TwoWay}"
+                  IsEnabled="{Binding IsEditable}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate DataType="ev:EventChoice" x:DataType="ev:EventChoice">
+              <TextBlock Text="{Binding Label}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+      </Grid>
+    </DataTemplate>
+
+    <!-- An id plus a jump. A broken target is coloured rather than hidden: the engine tolerates
+         one (RunEvent.cpp:13224) and it is nearly always a mistake in the design. -->
+    <DataTemplate DataType="ev:EventChainFieldViewModel" x:DataType="ev:EventChainFieldViewModel">
+      <Grid ColumnDefinitions="Auto,80,Auto,*" Margin="0,2">
+        <TextBlock Grid.Column="0" Text="{Binding Label}"
+                   Width="{StaticResource FieldLabelWidth}"
+                   TextWrapping="Wrap" Margin="0,3,8,0" />
+        <TextBox Grid.Column="1" Text="{Binding Value, Mode=TwoWay}"
+                 IsEnabled="{Binding IsEditable}" />
+        <Button Grid.Column="2" Content="Go" Margin="6,0,0,0"
+                Command="{Binding FollowCommand}"
+                IsEnabled="{Binding CanFollow}" />
+        <TextBlock Grid.Column="3" Text="no such event" Foreground="#C05050"
+                   Margin="8,3,0,0" IsVisible="{Binding IsBroken}" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="ev:EventInfoFieldViewModel" x:DataType="ev:EventInfoFieldViewModel">
+      <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+        <TextBlock Grid.Column="0" Text="{Binding Label}"
+                   Width="{StaticResource FieldLabelWidth}"
+                   TextWrapping="Wrap" Margin="0,0,8,0" />
+        <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" Opacity="0.75" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="ev:EventFieldGroupViewModel" x:DataType="ev:EventFieldGroupViewModel">
+      <Border BorderThickness="0,0,0,1" BorderBrush="#20808080" Padding="0,4,0,8" Margin="0,4">
+        <StackPanel>
+          <TextBlock Text="{Binding Label}" FontWeight="SemiBold" Margin="0,0,0,4" />
+          <ItemsControl ItemsSource="{Binding Fields}" Margin="12,0,0,0" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+
+    <!-- One edge of the chain graph, used for both directions. -->
+    <DataTemplate DataType="ev:EventChainReferenceViewModel"
+                  x:DataType="ev:EventChainReferenceViewModel">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+        <StackPanel Grid.Column="0">
+          <TextBlock Text="{Binding Label}" FontWeight="SemiBold"
+                     TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Description}" Opacity="0.8" TextWrapping="Wrap" />
+          <TextBlock Text="not followed under this chain trigger" Foreground="#B08030"
+                     IsVisible="{Binding !IsTaken}" />
+          <TextBlock Text="dangling — no event with this id" Foreground="#C05050"
+                     IsVisible="{Binding IsBroken}" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="Go" VerticalAlignment="Top" Margin="6,0,0,0"
+                Command="{Binding FollowCommand}" IsEnabled="{Binding !IsBroken}" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="ev:EventAttributeViewModel" x:DataType="ev:EventAttributeViewModel">
+      <Grid ColumnDefinitions="70,140,*,160" Margin="0,2">
+        <TextBlock Grid.Column="0" Text="{Binding Owner}" Opacity="0.7" />
+        <TextBlock Grid.Column="1" Text="{Binding Key}" FontWeight="SemiBold" />
+        <TextBlock Grid.Column="2" Text="{Binding Value}" TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="3" Text="{Binding Meaning}" Opacity="0.7" />
+      </Grid>
+    </DataTemplate>
+
+  </UserControl.DataTemplates>
+
+  <DockPanel>
+
+    <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#20808080" Padding="8,6">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <TextBlock Text="Level" VerticalAlignment="Center" />
+        <ComboBox MinWidth="160" ItemsSource="{Binding Levels}"
+                  SelectedItem="{Binding SelectedLevel, Mode=TwoWay}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate DataType="ev:EventLevelChoice" x:DataType="ev:EventLevelChoice">
+              <TextBlock Text="{Binding Label}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Opacity="0.8" />
+        <Border Background="#40C08030" CornerRadius="3" Padding="6,2"
+                IsVisible="{Binding IsDirty}">
+          <TextBlock Text="edited" />
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="400,4,*,4,320">
+
+      <!-- The event list. A header row plus a virtualising ListBox, matching the inspector's
+           existing table rather than pulling in a DataGrid package. -->
+      <DockPanel Grid.Column="0">
+        <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="#40808080"
+                Padding="4,4">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="Id" Width="55" FontWeight="SemiBold" />
+            <TextBlock Text="Type" Width="120" FontWeight="SemiBold" />
+            <TextBlock Text="At" Width="55" FontWeight="SemiBold" />
+            <TextBlock Text="Chains" FontWeight="SemiBold" />
+          </StackPanel>
+        </Border>
+
+        <ListBox ItemsSource="{Binding Events}" SelectedItem="{Binding SelectedEvent, Mode=TwoWay}">
+          <ListBox.ItemTemplate>
+            <DataTemplate DataType="ev:EventListItemViewModel"
+                          x:DataType="ev:EventListItemViewModel">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding Id}" Width="55" />
+                  <TextBlock Text="{Binding TypeName}" Width="120"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Position}" Width="55" />
+                  <TextBlock Text="{Binding Chains}" Opacity="0.8"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="*" Foreground="#C08030" Margin="4,0,0,0"
+                             IsVisible="{Binding IsModified}" />
+                </StackPanel>
+                <TextBlock Text="{Binding Summary}" Opacity="0.7"
+                           TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <!-- The fields: the shared header first, because it is the same for every type and carries
+           the text that is nearly all of a design's content. -->
+      <ScrollViewer Grid.Column="2" Margin="8,4">
+        <StackPanel>
+
+          <TextBlock Text="Event" FontWeight="Bold" Margin="0,4" />
+          <ItemsControl ItemsSource="{Binding IdentityFields}" />
+
+          <TextBlock Text="Trigger and chaining" FontWeight="Bold" Margin="0,12,0,4" />
+          <ItemsControl ItemsSource="{Binding ControlFields}" />
+
+          <TextBlock Text="Trigger operands" FontWeight="Bold" Margin="0,12,0,0" />
+          <TextBlock Text="Greyed when the selected trigger does not read them."
+                     Opacity="0.6" Margin="0,0,0,4" />
+          <ItemsControl ItemsSource="{Binding TriggerFields}" />
+
+          <TextBlock Text="Text" FontWeight="Bold" Margin="0,12,0,4" />
+          <ItemsControl ItemsSource="{Binding TextFields}" />
+
+          <TextBlock Text="Type detail" FontWeight="Bold" Margin="0,12,0,4" />
+          <ItemsControl ItemsSource="{Binding DetailFields}" />
+          <ItemsControl ItemsSource="{Binding DetailGroups}" />
+
+          <TextBlock Text="Attributes" FontWeight="Bold" Margin="0,12,0,4"
+                     IsVisible="{Binding HasAttributes}" />
+          <ItemsControl ItemsSource="{Binding Attributes}" />
+
+        </StackPanel>
+      </ScrollViewer>
+
+      <GridSplitter Grid.Column="3" ResizeDirection="Columns" />
+
+      <!-- Both directions of the chain graph. The incoming half has no counterpart in the
+           original's event editor at all. -->
+      <DockPanel Grid.Column="4" Margin="4">
+        <Grid RowDefinitions="Auto,*,Auto,*">
+
+          <TextBlock Grid.Row="0" Text="Chains to" FontWeight="Bold" Margin="0,4" />
+          <ScrollViewer Grid.Row="1">
+            <StackPanel>
+              <ItemsControl ItemsSource="{Binding Outgoing}" />
+              <TextBlock Text="Nothing — this event ends its run." Opacity="0.6"
+                         IsVisible="{Binding !HasOutgoing}" />
+            </StackPanel>
+          </ScrollViewer>
+
+          <TextBlock Grid.Row="2" Text="Chained from" FontWeight="Bold" Margin="0,12,0,4" />
+          <ScrollViewer Grid.Row="3">
+            <StackPanel>
+              <ItemsControl ItemsSource="{Binding Incoming}" />
+              <TextBlock Text="Nothing — reached from the map, or unreachable." Opacity="0.6"
+                         IsVisible="{Binding !HasIncoming}" />
+            </StackPanel>
+          </ScrollViewer>
+
+        </Grid>
+      </DockPanel>
+
+    </Grid>
+
+  </DockPanel>
+
+</UserControl>

@@ -27,7 +27,7 @@ public sealed class ItemDatabaseViewModel
     private readonly IReadOnlyList<string> loadedAmmoTypes;
 
     public ItemDatabaseViewModel(LoadedDesign design)
-        : this(Database(design), BaseclassNames(design))
+        : this(Loaded(design), BaseclassNames(design))
     {
     }
 
@@ -111,9 +111,10 @@ public sealed class ItemDatabaseViewModel
     protected override ItemRecord NewRecord(string name) => ItemEditorViewModel.NewRecord(name);
 
     /// <remarks>
-    /// <b>Only <c>m_uniqueName</c> changes.</b> The original's Paste renamed the unique name and
-    /// left the display name as the source's (<c>ItemEditor.cpp:482</c>), so a duplicated item
-    /// looked identical in the inventory and could only be told apart by the id nothing shows.
+    /// <b>The display name is renamed too, and the original did not do that.</b> Its Paste restored
+    /// only the destination's unique name (<c>ItemEditor.cpp:482</c>), leaving the copy showing the
+    /// source's display name — so the two were indistinguishable on the inventory screen and could
+    /// be told apart only by the id nothing prints.
     /// </remarks>
     protected override ItemRecord Rename(ItemRecord record, string name)
     {
@@ -130,7 +131,7 @@ public sealed class ItemDatabaseViewModel
             || editor.IdName.Contains(search, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static ItemDatabase? Database(LoadedDesign design)
+    private static ItemDatabase? Loaded(LoadedDesign design)
     {
         ArgumentNullException.ThrowIfNull(design);
         return design.Items;

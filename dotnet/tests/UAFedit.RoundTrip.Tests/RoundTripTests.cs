@@ -178,7 +178,8 @@ public class RoundTripTests(ITestOutputHelper output)
                 before = DesignFiles.ReadFile(codec, path);
                 written = codec.Write(before);
             }
-            catch (Exception e) when (e is NotSupportedException or EndOfStreamException)
+            catch (Exception e) when (e is NotSupportedException or EndOfStreamException
+                                    or InvalidDataException)
             {
                 continue;                        // refused or unreadable; the sweep reports it
             }
@@ -244,7 +245,8 @@ public class RoundTripTests(ITestOutputHelper output)
             {
                 first = codec.Write(DesignFiles.ReadFile(codec, path));
             }
-            catch (Exception e) when (e is NotSupportedException or EndOfStreamException)
+            catch (Exception e) when (e is NotSupportedException or EndOfStreamException
+                                    or InvalidDataException)
             {
                 continue;
             }
@@ -293,7 +295,8 @@ public class RoundTripTests(ITestOutputHelper output)
             {
                 first = codec.Write(DesignFiles.ReadFile(codec, path));
             }
-            catch (Exception e) when (e is NotSupportedException or EndOfStreamException)
+            catch (Exception e) when (e is NotSupportedException or EndOfStreamException
+                                    or InvalidDataException)
             {
                 continue;
             }
@@ -340,6 +343,17 @@ public class RoundTripTests(ITestOutputHelper output)
             try
             {
                 model = DesignFiles.ReadFile(codec, path);
+            }
+            catch (InvalidDataException e)
+            {
+                // The readers refuse a record shape nobody ported, in the same way and for the
+                // same reason the writers refuse one they cannot reproduce -- with the shape
+                // named. DefaultDesign's Bcd1 baseclasses, CL1 classes and RaceV1 races are all
+                // this. Recorded, not failed: what would be a defect is a reader that opened one
+                // of them and produced something wrong.
+                report.AppendLine($"  {name,-24} REFUSED    {e.Message}");
+                outcomes.Add(new Outcome(name, null));
+                continue;
             }
             catch (Exception e)
             {

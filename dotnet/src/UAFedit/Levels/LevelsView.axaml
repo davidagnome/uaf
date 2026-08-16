@@ -208,8 +208,10 @@
               </StackPanel>
             </Border>
 
+            <!-- SelectedItem, not SelectedIndex: with the filter on, a row's position in the list
+                 is not its slot number. -->
             <ListBox ItemsSource="{Binding Visible}"
-                     SelectedIndex="{Binding SelectedIndex}">
+                     SelectedItem="{Binding Selected}">
               <ListBox.ItemTemplate>
                 <DataTemplate DataType="levels:WallSlotViewModel">
                   <StackPanel Orientation="Horizontal"

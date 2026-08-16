@@ -106,17 +106,20 @@ public static class GameDataReader
             // Those same 8 bytes are the version; rewind so the payload reader sees them.
             stream.Seek(0, SeekOrigin.Begin);
 
-            // The unframed path is the only one that meets a SHORT file in practice, and it meets
-            // one in the corpus: the editor's own DefaultDesign.dsn/Data/game.dat is 4,343 bytes
-            // and its GLOBAL_STATS runs exactly to the last byte, then wants four more. MFC opens
-            // it anyway -- CArchive's >> discards the read count -- so refusing it means File > New
-            // cannot work, and the template design is precisely the one an editor must be able to
-            // read. The parse lands ON the end rather than running off into it, which is what
-            // distinguishes this from corruption; MfcArchiveReader.TruncatedAt records where.
+            // ZeroFillPastEnd was switched on here and has been switched back off. The reasoning
+            // for it was sound -- CArchive's >> discards the read count, so the reference opens the
+            // editor's own DefaultDesign.dsn/Data/game.dat despite its GLOBAL_STATS running four
+            // bytes past the file's 4,343 -- but the premise was not: the parse does NOT land on
+            // the end. Given an endless supply of zeroes it reads a record count out of the tail
+            // and asks for millions more records, which is a mis-parse of that file rather than a
+            // short tail, and is fatal here in a way it is not in C++: a count-driven loop with
+            // nothing to stop it allocates until the process dies, and it took the whole test
+            // suite down with it.
             //
-            // Not enabled on the framed path: a CAR stream that ends early is a decompression
-            // failure, and zero-filling one would turn a broken file into plausible data.
-            var plain = new MfcArchiveReader(stream) { ZeroFillPastEnd = true };
+            // So the tolerance stays off until the plain path decodes that file correctly. See
+            // docs/PORTING-PLAN.md section 12 -- the divergence is somewhere in GLOBAL_STATS on the
+            // unframed path, and every shipped design is framed, so nothing else is affected.
+            var plain = new MfcArchiveReader(stream);
             return new Cursor(GameDataFraming.Plain, new DesignVersion(plain.ReadDouble()),
                               null, plain);
         }

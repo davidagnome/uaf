@@ -52,8 +52,8 @@ public abstract class RecordEditorViewModel<TRecord> : ObservableObject
         original = record;
         derived =
         [
-            nameof(Record), nameof(IsDirty), nameof(Title), nameof(Subtitle), nameof(Original),
-            .. alsoDerived,
+            nameof(Record), nameof(IsDirty), nameof(Title), nameof(Subtitle), nameof(HasSubtitle),
+            nameof(Original), .. alsoDerived,
         ];
     }
 
@@ -75,6 +75,8 @@ public abstract class RecordEditorViewModel<TRecord> : ObservableObject
 
     /// <summary>A second line for the master list — enough to tell near-duplicates apart.</summary>
     public abstract string Subtitle { get; }
+
+    public bool HasSubtitle => Subtitle.Length > 0;
 
     /// <summary>Packs the editable fields back into a record.</summary>
     protected abstract TRecord Build();

@@ -5,13 +5,32 @@ using CommunityToolkit.Mvvm.Input;
 
 namespace UAFedit.Databases;
 
+/// <summary>
+/// The label half of a sort option, split out so XAML can name the type.
+/// </summary>
+/// <remarks>
+/// <b>The base exists only for <c>x:DataType</c>.</b> A compiled binding's data type must be
+/// spelled as a plain XAML type name, and there is no syntax for a closed generic — so the combo's
+/// item template binds to this, and the comparison stays typed on the derived class where the
+/// database can build it without casts.
+/// </remarks>
+public abstract class RecordSort(string label)
+{
+    public string Label { get; } = label;
+}
+
 /// <summary>One way of ordering the master list.</summary>
-/// <param name="Compare">
-/// Always ascending; <see cref="DatabaseEditorViewModel{TEditor,TRecord}.SortDescending"/> inverts
-/// it. Keeping the comparison one-directional is what stops a descending sort from also reversing
-/// the tie-break, which is how "sort by AC" ends up shuffling equal-AC monsters on every click.
-/// </param>
-public sealed record RecordSort<TEditor>(string Label, Comparison<TEditor> Compare);
+/// <remarks>
+/// <see cref="Compare"/> is always ascending;
+/// <see cref="DatabaseEditorViewModel{TEditor,TRecord}.SortDescending"/> reverses the result.
+/// Keeping the comparison one-directional is what stops a descending sort from also reversing the
+/// tie-break, which is how "sort by AC" ends up shuffling equal-AC monsters on every click.
+/// </remarks>
+public sealed class RecordSort<TEditor>(string label, Comparison<TEditor> compare)
+    : RecordSort(label)
+{
+    public Comparison<TEditor> Compare { get; } = compare;
+}
 
 /// <summary>
 /// The master half of a database editor: a searchable, sortable list of records, one of which is
@@ -97,6 +116,11 @@ public abstract partial class DatabaseEditorViewModel<TEditor, TRecord> : Observ
               .Order(StringComparer.OrdinalIgnoreCase),
     ];
 
+    public bool HasDuplicateNames => DuplicateNames.Count > 0;
+
+    /// <summary>The duplicate ids as one line, for the warning strip.</summary>
+    public string DuplicateNameSummary => $"Duplicate ids: {string.Join(", ", DuplicateNames)}";
+
     [ObservableProperty]
     private TEditor? selected;
 
@@ -137,9 +161,10 @@ public abstract partial class DatabaseEditorViewModel<TEditor, TRecord> : Observ
     {
         var kept = Selected;
 
-        IEnumerable<TEditor> query = search.Length == 0
+        string text = Search;
+        IEnumerable<TEditor> query = text.Length == 0
             ? all
-            : all.Where(e => Matches(e, search));
+            : all.Where(e => Matches(e, text));
 
         var ordered = query.ToList();
         if (Sort is { } sorting)
@@ -284,6 +309,8 @@ public abstract partial class DatabaseEditorViewModel<TEditor, TRecord> : Observ
         OnPropertyChanged(nameof(Count));
         OnPropertyChanged(nameof(Records));
         OnPropertyChanged(nameof(DuplicateNames));
+        OnPropertyChanged(nameof(HasDuplicateNames));
+        OnPropertyChanged(nameof(DuplicateNameSummary));
     }
 
     partial void OnSearchChanged(string value) => Refresh();

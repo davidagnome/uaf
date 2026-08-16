@@ -147,9 +147,8 @@ public static partial class EventDetailFields
             Field.Flag<UtilitiesEvent>("End the game", e => e.EndPlay != 0,
                 (e, v) => e with { EndPlay = v ? 1 : 0 }),
         ],
-        SpecialObjectGroups(utilities.Items,
-            (e, i, edit) => ((UtilitiesEvent)e) with { Items = Replace(((UtilitiesEvent)e).Items, i, edit) },
-            e => ((UtilitiesEvent)e).Items));
+        SpecialObjectGroups<UtilitiesEvent>(
+            utilities.Items, e => e.Items, (e, items) => e with { Items = items }));
 
     /// <summary><c>QUEST_EVENT_DATA</c> — <c>IDD_QUESTDLG</c>.</summary>
     /// <remarks>
@@ -277,9 +276,8 @@ public static partial class EventDetailFields
             Field.Flag<SpecialItemEvent>("Wait for RETURN", e => e.WaitForReturn != 0,
                 (e, v) => e with { WaitForReturn = v ? 1 : 0 }),
         ],
-        SpecialObjectGroups(item.Items,
-            (e, i, edit) => ((SpecialItemEvent)e) with { Items = Replace(((SpecialItemEvent)e).Items, i, edit) },
-            e => ((SpecialItemEvent)e).Items));
+        SpecialObjectGroups<SpecialItemEvent>(
+            item.Items, e => e.Items, (e, items) => e with { Items = items }));
 
     /// <summary><c>PASS_TIME_EVENT_DATA</c> — <c>IDD_PASSTIMEDLG</c>.</summary>
     private static EventDetail PassTime { get; } = EventDetail.Of(
@@ -450,38 +448,35 @@ public static partial class EventDetailFields
     /// <c>operation</c> is a bitmask, so it is three checkboxes rather than a picker; see
     /// <see cref="EventCatalog.SpecialObjectOperation"/>.
     /// </remarks>
-    private static IReadOnlyList<EventFieldGroup> SpecialObjectGroups(
+    private static IReadOnlyList<EventFieldGroup> SpecialObjectGroups<T>(
         IReadOnlyList<SpecialObjectEvent> items,
-        Func<IGameEvent, int, Func<SpecialObjectEvent, SpecialObjectEvent>, IGameEvent> replace,
-        Func<IGameEvent, IReadOnlyList<SpecialObjectEvent>> read) =>
-    [
-        ..items.Select((_, i) => new EventFieldGroup($"Object {i + 1}",
-        [
-            new EventFieldSpec("Kind", EventFieldKind.Choice,
-                e => read(e)[i].ItemType.ToString(),
-                (e, text) => byte.TryParse(text, out byte kind)
-                    ? replace(e, i, o => o with { ItemType = kind })
-                    : e,
-                EventCatalog.QuestObjectType),
-            new EventFieldSpec("Index", EventFieldKind.Number,
-                e => read(e)[i].Index.ToString(),
-                (e, text) => int.TryParse(text, out int index)
-                    ? replace(e, i, o => o with { Index = index })
-                    : e),
-            new EventFieldSpec("Id", EventFieldKind.Number,
-                e => read(e)[i].Id.ToString(),
-                (e, text) => int.TryParse(text, out int id)
-                    ? replace(e, i, o => o with { Id = id })
-                    : e),
-            Bit("Take", 0x01), Bit("Give", 0x02), Bit("Check", 0x04),
-        ])),
-    ];
+        Func<T, IReadOnlyList<SpecialObjectEvent>> read,
+        Func<T, IReadOnlyList<SpecialObjectEvent>, T> set)
+        where T : class, IGameEvent
+    {
+        T Edit(T body, int index, Func<SpecialObjectEvent, SpecialObjectEvent> edit) =>
+            set(body, Replace(read(body), index, edit));
 
-    /// <summary>One bit of a special object's operation mask.</summary>
-    private static EventFieldSpec Bit(string label, byte mask) =>
-        new(label, EventFieldKind.Flag,
-            _ => "0",
-            (e, _) => e);
+        EventFieldSpec Bit(int index, string label, byte mask) =>
+            Field.Flag<T>(label, e => (read(e)[index].Operation & mask) != 0,
+                (e, on) => Edit(e, index, o => o with
+                {
+                    Operation = (byte)(on ? o.Operation | mask : o.Operation & ~mask),
+                }));
+
+        return [..items.Select((_, i) => new EventFieldGroup($"Object {i + 1}",
+        [
+            Field.Choice<T>("Kind", EventCatalog.QuestObjectType, e => read(e)[i].ItemType,
+                (e, v) => Edit(e, i, o => o with { ItemType = (byte)v })),
+            Field.Number<T>("Index", e => read(e)[i].Index,
+                (e, v) => Edit(e, i, o => o with { Index = (int)v })),
+            Field.Number<T>("Id", e => read(e)[i].Id,
+                (e, v) => Edit(e, i, o => o with { Id = (int)v })),
+            Bit(i, "Take", 0x01),
+            Bit(i, "Give", 0x02),
+            Bit(i, "Check", 0x04),
+        ]))];
+    }
 
     /// <summary>
     /// One element of a list replaced, the rest copied.

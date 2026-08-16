@@ -4,19 +4,28 @@ using UAF.Serialization;
 namespace UAF.Serialization.Tests;
 
 /// <summary>
-/// A design whose <c>game.dat</c> ends before its records do.
+/// Reading past the end of a file the way <c>CArchive</c> does, and why <c>game.dat</c> does not.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The editor's own template design is one</b>, which is why this matters rather than being a
-/// curiosity: <c>src/UAFWinEd/DefaultDesign.dsn/Data/game.dat</c> is 4,343 bytes and its
-/// <c>GLOBAL_STATS</c> consumes every one of them and then asks for four more. The reference opens
-/// it — <c>CArchive</c>'s <c>&gt;&gt;</c> discards the read count, so the missing tail reads as
-/// zero — and File &gt; New cannot work if this port refuses it.
+/// <b>MFC's extraction operators do not check how much they read</b>, so the reference opens a
+/// design whose <c>game.dat</c> ends mid-record and treats the missing tail as zeroes.
+/// <see cref="MfcArchiveReader.ZeroFillPastEnd"/> is that behaviour, available on request.
 /// </para>
 /// <para>
-/// <b>This design is tracked in git</b>, unlike the rest of the corpus, so these tests really run
-/// on a bare checkout.
+/// <b>It was switched on for <c>game.dat</c> and switched back off, and that is the finding.</b>
+/// The editor's own <c>src/UAFWinEd/DefaultDesign.dsn/Data/game.dat</c> is 4,343 bytes and its
+/// <c>GLOBAL_STATS</c> asks for four more, so tolerating the short read looked like all that stood
+/// between the port and File &gt; New. It is not: handed an endless supply of zeroes, the parse
+/// reads a record count out of the tail and asks for <i>millions</i> of <c>PIC_DATA</c> records
+/// (<c>GlobalStatsReader.cs:227</c>). A file that runs off like that is being mis-parsed, not
+/// merely truncated — and the loop allocates until the process dies, which is why this cannot be
+/// left switched on and hoped about.
+/// </para>
+/// <para>
+/// So what is tested here is the mechanism, which is correct, and the refusal, which is current.
+/// <b>The template design is tracked in git</b>, unlike the rest of the corpus, so these really
+/// run on a bare checkout.
 /// </para>
 /// </remarks>
 public class TruncatedGameDataTests
@@ -51,13 +60,25 @@ public class TruncatedGameDataTests
         Assert.Equal(4343, new FileInfo(path).Length);
     }
 
-    /// <summary>It opens, and says how far it got before the file ran out.</summary>
+    /// <summary>
+    /// The template's framing and version are read, and then the parse runs out of file.
+    /// </summary>
     /// <remarks>
-    /// <b>The truncation is reported, not swallowed.</b> A short read is a fact about the file, and
-    /// a caller that tolerated it still needs to be able to say so.
+    /// <para>
+    /// <b>This is the current state of the File &gt; New blocker, asserted rather than described.</b>
+    /// The header is fine — plain framing, version 0.9150250 — so whatever is wrong is inside
+    /// <c>GLOBAL_STATS</c> on the unframed path, not in locating it.
+    /// </para>
+    /// <para>
+    /// It fails as an <see cref="EndOfStreamException"/> at the file's own length, which is the
+    /// bounded failure worth keeping. Tolerating it instead does not produce a design: it produces
+    /// a request for millions of records. When the unframed <c>GLOBAL_STATS</c> is decoded
+    /// correctly this test should start failing, and the fix is to assert the design that comes
+    /// back rather than to loosen the reader.
+    /// </para>
     /// </remarks>
     [Fact]
-    public void The_template_design_opens_and_reports_where_it_ran_out()
+    public void The_template_design_is_refused_at_its_own_length()
     {
         if (TemplateDesign() is not { } path)
         {
@@ -68,14 +89,16 @@ public class TruncatedGameDataTests
         var cursor = GameDataReader.Open(stream);
 
         Assert.Equal(GameDataFraming.Plain, cursor.Framing);
+        Assert.Equal(0.9150250, cursor.Version.Value, 7);
 
-        var globals = GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version);
+        // Nothing was tolerated on the way in, so there is nothing to report.
+        Assert.Null(cursor.TruncatedAt);
 
-        Assert.Equal("DefaultDesign", globals.DesignName);
+        var ran = Assert.Throws<EndOfStreamException>(
+            () => GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version));
 
-        // It ran out exactly AT the end, not somewhere in the middle -- which is what separates a
-        // short file from a mis-parse that ran off into the distance.
-        Assert.Equal(4343, cursor.TruncatedAt);
+        // At the end of the file, not off in the distance -- the offset is the file's own length.
+        Assert.Contains("4343", ran.Message, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -1,0 +1,347 @@
+<!--
+  Database > Edit Monsters… — the Avalonia replacement for IDD_MONSTEREDITOR (the record list),
+  IDD_MONSTERDB (the detail form), IDD_MONSTERATTACKDLG (the attack list) and
+  IDD_MONSTERATTACKDETAILS (one attack). Four nested modals become one screen.
+
+  The attack list is the reason that matters. In the original an attack's damage was three modals
+  deep, and each level edited a copy that only propagated on OK — so cancelling the outer dialog
+  silently discarded work done in the inner one, with nothing to say so.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:db="using:UAFedit.Databases"
+             x:Class="UAFedit.Databases.MonsterDatabaseView"
+             x:DataType="db:MonsterDatabaseViewModel">
+
+  <UserControl.Styles>
+    <StyleInclude Source="avares://UAFedit/Databases/DatabaseStyles.axaml" />
+  </UserControl.Styles>
+
+  <DockPanel>
+
+    <Border DockPanel.Dock="Top" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="#20808080">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Classes="readonlyValue"
+                   Text="{Binding DirtyCount, StringFormat='{}{0} edited'}" />
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Content="Add" Command="{Binding AddCommand}" />
+          <Button Content="Duplicate" Command="{Binding DuplicateCommand}" />
+          <Button Content="Delete" Command="{Binding DeleteCommand}" />
+          <Button Content="Revert" Command="{Binding RevertSelectedCommand}" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="300,4,*">
+
+      <DockPanel Grid.Column="0" Margin="8">
+
+        <TextBox DockPanel.Dock="Top" PlaceholderText="Search name or class"
+                 Text="{Binding Search}" Margin="0,0,0,6" />
+
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+          <ToggleButton DockPanel.Dock="Right" Content="↓" Margin="6,0,0,0"
+                        ToolTip.Tip="Reverse the order"
+                        IsChecked="{Binding SortDescending}" />
+          <ComboBox HorizontalAlignment="Stretch"
+                    ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="db:RecordSort">
+                <TextBlock Text="{Binding Label}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </DockPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" Classes="warning" Margin="0,6,0,0"
+                   IsVisible="{Binding HasDuplicateNames}"
+                   Text="{Binding DuplicateNameSummary}" />
+
+        <ListBox ItemsSource="{Binding Visible}" SelectedItem="{Binding Selected}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="db:MonsterEditorViewModel">
+              <DockPanel>
+                <Ellipse Classes="dirty" IsVisible="{Binding IsDirty}" />
+                <StackPanel>
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Subtitle}" Classes="readonlyValue" FontSize="11" />
+                </StackPanel>
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <ScrollViewer Grid.Column="2" Padding="10,8">
+        <ContentControl Content="{Binding Selected}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="db:MonsterEditorViewModel">
+              <Grid ColumnDefinitions="*,*">
+
+                <StackPanel Grid.Column="0">
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Identity" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Name (id)" />
+                        <TextBox Text="{Binding Name}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Class" />
+                        <ComboBox HorizontalAlignment="Stretch"
+                                  ItemsSource="{Binding ClassChoices}"
+                                  SelectedItem="{Binding ClassChoice}">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="db:TextChoice">
+                              <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Race" />
+                        <TextBox Text="{Binding Race}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="The race is not a serialized field of MONSTER_DATA. It lives in the monster's attribute list under $SYS$Race and defaults to Human when absent — which is why editing it here changes an attribute rather than a member." />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Undead type" />
+                        <TextBox Text="{Binding UndeadType}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="Empty means not undead. There is no 'Not Undead' value: every test in the engine asks whether this string is non-empty." />
+                      <TextBlock Classes="hint" Text="{Binding UndeadTypeSuggestions}" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Size" />
+                        <ComboBox HorizontalAlignment="Stretch"
+                                  ItemsSource="{Binding SizeChoices}"
+                                  SelectedItem="{Binding SizeChoice}">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="db:IntChoice">
+                              <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </DockPanel>
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Statistics" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Intelligence" />
+                        <TextBox Text="{Binding Intelligence}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Armour class" />
+                        <TextBox Text="{Binding ArmorClass}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Movement" />
+                        <TextBox Text="{Binding Movement}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="THAC0" />
+                        <TextBox Text="{Binding Thac0}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Magic resistance" />
+                        <TextBox Text="{Binding MagicResistance}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Morale" />
+                        <TextBox Text="{Binding Morale}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Experience" />
+                        <TextBox Text="{Binding ExperienceValue}" />
+                      </DockPanel>
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Hit dice" />
+                      <CheckBox Content="Value below is hit dice (clear it for hit points)"
+                                IsChecked="{Binding UsesHitDice}" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="{Binding HitDiceCaption}" />
+                        <TextBox Text="{Binding HitDice}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Hit dice bonus" />
+                        <TextBox Text="{Binding HitDiceBonus}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="One float with two meanings. Cleared, the engine reads it as a hit-point total and converts it to dice; set, it is the dice count itself. It is a float because half-dice monsters exist." />
+                      <TextBlock Classes="warning" IsVisible="{Binding !IsHitDiceBonusEffective}"
+                                 Text="The hit-point path never reads the bonus. The MFC dialog resolved this by zeroing the bonus on both open and save; this form leaves it alone." />
+                    </StackPanel>
+                  </Border>
+
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Add attack"
+                                Command="{Binding AddAttackCommand}" />
+                        <TextBlock Classes="groupHeader" Text="Attacks" />
+                      </DockPanel>
+                      <TextBlock Classes="warning" IsVisible="{Binding !HasAttacks}"
+                                 Text="No attacks. The reader gives a monster with none a single 1d6 'attacks' at load, so this will not stay empty." />
+                      <ItemsControl ItemsSource="{Binding Attacks}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="db:MonsterAttackViewModel">
+                            <Border BorderBrush="#20808080" BorderThickness="0,0,0,1"
+                                    Padding="0,4">
+                              <StackPanel>
+                                <Grid ColumnDefinitions="Auto,44,Auto,44,Auto,44,Auto">
+                                  <TextBlock Grid.Column="0" Text="Nbr" VerticalAlignment="Center"
+                                             Margin="0,0,4,0" />
+                                  <TextBox Grid.Column="1" Text="{Binding Nbr}" />
+                                  <TextBlock Grid.Column="2" Text="d" VerticalAlignment="Center"
+                                             Margin="4,0" />
+                                  <TextBox Grid.Column="3" Text="{Binding Sides}" />
+                                  <TextBlock Grid.Column="4" Text="bonus"
+                                             VerticalAlignment="Center" Margin="8,0,4,0" />
+                                  <TextBox Grid.Column="5" Text="{Binding Bonus}" />
+                                  <Button Grid.Column="6" Content="Remove" Margin="8,0,0,0"
+                                          Command="{Binding $parent[ItemsControl].((db:MonsterEditorViewModel)DataContext).RemoveAttackCommand}"
+                                          CommandParameter="{Binding}" />
+                                </Grid>
+                                <DockPanel Classes="row">
+                                  <TextBlock Classes="label" Text="Message" />
+                                  <TextBox Text="{Binding AttackMessage}" />
+                                </DockPanel>
+                                <DockPanel Classes="row">
+                                  <TextBlock Classes="label" Text="Spell" />
+                                  <TextBox Text="{Binding SpellId}" />
+                                </DockPanel>
+                                <TextBlock Classes="warning" IsVisible="{Binding IsDamageless}"
+                                           Text="No dice and no spell — this attack does nothing." />
+                              </StackPanel>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <TextBlock Classes="hint"
+                                 Text="An attack's spell class and level are carried but not shown: the original zeroed both whenever a spell was picked and never repopulated them, yet they are still on the wire." />
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Form" />
+                      <ItemsControl ItemsSource="{Binding FormFlags}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="db:FlagBit">
+                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSet}"
+                                      ToolTip.Tip="{Binding Description}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <TextBlock Classes="groupHeader" Text="Penalties" Margin="0,8,0,6" />
+                      <ItemsControl ItemsSource="{Binding PenaltyFlags}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="db:FlagBit">
+                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSet}"
+                                      ToolTip.Tip="{Binding Description}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <TextBlock Classes="groupHeader" Text="Immunities" Margin="0,8,0,6" />
+                      <ItemsControl ItemsSource="{Binding ImmunityFlags}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="db:FlagBit">
+                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSet}"
+                                      ToolTip.Tip="{Binding Description}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <TextBlock Classes="groupHeader" Text="Misc" Margin="0,8,0,6" />
+                      <ItemsControl ItemsSource="{Binding MiscFlags}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="db:FlagBit">
+                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSet}"
+                                      ToolTip.Tip="{Binding Description}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+
+                      <TextBlock Classes="hint"
+                                 Text="Hover a box for what the flag does. The labels are close to meaningless on their own — 'Large' means use the LARGE damage column, and 'Dwarf AC' is a bonus granted to the dwarf, not to this monster. Bits with no box here are preserved." />
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Sound and art" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Icon" />
+                        <TextBox Text="{Binding IconFileName}" IsEnabled="{Binding HasIcon}" />
+                      </DockPanel>
+                      <DockPanel Classes="row" IsVisible="{Binding HasLegacyIconFile}">
+                        <TextBlock Classes="label" Text="Legacy icon file" />
+                        <TextBlock Classes="readonlyValue" Text="{Binding LegacyIconFile}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Hit sound" />
+                        <TextBox Text="{Binding HitSound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Miss sound" />
+                        <TextBox Text="{Binding MissSound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Move sound" />
+                        <TextBox Text="{Binding MoveSound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Death sound" />
+                        <TextBox Text="{Binding DeathSound}" />
+                      </DockPanel>
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Carried through unchanged" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Default items" />
+                        <TextBlock Classes="readonlyValue" Text="{Binding ItemsSummary}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Default money" />
+                        <TextBlock Classes="readonlyValue" Text="{Binding MoneySummary}" />
+                      </DockPanel>
+                      <SelectableTextBlock Classes="readonlyValue"
+                                           Text="{Binding CarriedThroughText}" />
+                      <TextBlock Classes="hint"
+                                 Text="The inventory and money sacks sit AFTER the attribute list on the wire, unlike ITEM_DATA, which ends at its ASL. They are passed through byte for byte." />
+                    </StackPanel>
+                  </Border>
+
+                </StackPanel>
+
+              </Grid>
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
+      </ScrollViewer>
+
+    </Grid>
+
+  </DockPanel>
+
+</UserControl>

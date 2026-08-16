@@ -8356,7 +8356,27 @@ then the event editor (`EventViewer.cpp` 4,072, `LogicBlock`, `Script`), then cr
 utilities.
 
 **Phase 5 has begun (2026-08-15).** The shell, the transpiler, the inspector, the map view and the
-round-trip gate exist; the databases, the event editor and the cross-reference tooling do not.
+round-trip gate exist.
+
+**Status at 2026-08-16.** The six editors exist and are wired into the shell as tabs beside the
+inspector: the Level menu, the event editor, and the item, monster, spell and special-ability
+database editors. The five missing database writers exist, so every file a design carries can now
+be written. What does **not** exist: **File > Save** — no editor pane writes anything to disk, and
+`LoadedDesign` has no save path — and the cross-reference tooling. Saving is the exit criterion, so
+that is the next item and the only one between here and the gate.
+
+> **The panes are built lazily and that is load-bearing, not tidiness.** `LevelsViewModel` reads
+> every `.lvl` in the design for its extent and counts, and `EventEditorViewModel` reads them all
+> again for their events. Building all six when a design opens would charge every user the cost of
+> the slowest pane on a design they may only want the map from. `MainWindowViewModel.Show` builds
+> one on first selection and keeps it; a test asserts that opening a design builds none, because a
+> regression there would fail nothing else — it would just make File > Open slow.
+
+> **Editing is separated from saving throughout, deliberately.** Every pane exposes its edited
+> product and its dirty state (`DatabaseEditorViewModel.Records`/`IsDirty`/`AcceptChanges`,
+> `SpellDatabaseViewModel.EditedSpells`, `EventEditorViewModel.EditedEvents`) and none of them
+> writes a file. A save is therefore one caller that collects those and runs the writers, rather
+> than six independent save paths — and the panes stay testable without a disk.
 
 > **The scope figures in this section were estimates and two of them were low.** Measured:
 > **131 dialogs** (not 118), **93 menu items across 7 top-level menus**, 87,533 lines. The largest
@@ -10166,13 +10186,23 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
   stopped at the first difference would have reported the version stamp for every file and never
   seen them.
 
-### Three gaps that block the exit criterion
+### Three gaps that blocked the exit criterion — one closed, two open
 
-1. **Five databases have a reader and no writer at all**: `ability.dat`, `baseclass.dat`,
-   `classes.dat`, `races.dat`, `specialAbilities.dat`. Every corpus design carries them.
-   `SpecabWriter` and `BaseclassListWriter` are name traps — they write blocks embedded inside
-   item/monster/spell records, not these files. An editor that cannot save `baseclass.dat` or
-   `classes.dat` cannot edit a design's character generation.
+1. ~~**Five databases have a reader and no writer at all**~~ — **closed (2026-08-16).**
+   `ability.dat`, `baseclass.dat`, `classes.dat`, `races.dat` and `specialAbilities.dat` now have
+   writers, and the round trip covers all five: over `SomethingWild` and `Case` every one comes
+   back with **zero field differences**. `SpecabWriter` and `BaseclassListWriter` remain name traps
+   — they write blocks embedded inside item/monster/spell records, not these files.
+
+   > **A tagged database carries a tag and a count and no version, so the decoder has to be told
+   > one — and it is not the same version in each direction.** On disk the payload is at whatever
+   > `game.dat` declares; what the port writes is always at the writer's `WrittenVersion`. Decoding
+   > a freshly written `ability.dat` at the design's 0.915 does not fail cleanly, it **mis-parses**:
+   > the record shape changed at `AbilityV2`, so the reader walks into the `CAR` string table and
+   > asks for entry 8 of 2 — or, on a bigger database, reads a length out of the middle of a record
+   > and tries to allocate it. `DesignFileCodec.ReadWritten` is that asymmetry made explicit.
+   > `specialAbilities.dat` has it too, for the same reason: no stamp of its own.
+
 2. **`SomethingWild` ships a JSON character file the port cannot see.** `Data/Uril Kabo.CHAR`
    opens `{"charVersion":…}` — it is `CHARACTER::Export(JWriter&)` / `Import(JReader&)`
    (`Shared/Char.cpp:3128`, `:3303`), a second character format with no reader or writer in the
@@ -10183,7 +10213,31 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
    (`PicDataReader.cs:53`, reading `frameWidth`). This is the editor's *template design*, so
    nothing built on this layer can create a new design from it. No existing test caught it:
    `WholeDesignTests` reads only the version and design name from `game.dat`, never the whole
-   record.
+   record. It is now the round trip's **one deliberate failure**, named as a defect rather than
+   described in prose.
+
+   > **Tolerating the short read is not the fix, and trying it did real damage.** `CArchive`'s `>>`
+   > discards the read count, so the reference opens the file and treats the missing tail as zeroes
+   > — which made `MfcArchiveReader.ZeroFillPastEnd` look like all that stood between the port and
+   > File > New. It was switched on for the unframed path and has been **switched back off**. Given
+   > an endless supply of zeroes the parse does not finish: it reads a record count out of the tail
+   > and asks for **millions** of `PIC_DATA` records (`GlobalStatsReader.cs:227`). A file that runs
+   > off like that is being **mis-parsed, not merely truncated** — the premise that "the parse
+   > lands ON the end" was wrong. And it is fatal here in a way it is not in C++: a count-driven
+   > loop with nothing to stop it allocates until the process dies, which took the **whole test
+   > suite** down with it — the suite could not complete at all while it was enabled. The mechanism
+   > and its unit tests stay; nothing enables it.
+
+   > **A plausible cause, tested and refuted — worth recording so it is not tried twice.**
+   > `PIC_DATA` has two C++ serialisers that differ by four bytes (`style`, read on the `CAR` path
+   > at 0.900+ and commented out on the `CArchive` twin), and the port hardcodes
+   > `PicArchiveVariant.Car` at *every* call site including the plain one. Selecting the variant
+   > from `IArchiveCursor.IsCompressed` moves `DefaultDesign`'s parse a long way forward — past the
+   > pic lists, the title screens, the ASL and the art block — but it **breaks 99 other tests**:
+   > there are legitimate plain-cursor readers that genuinely use the `CAR` record shape
+   > (`MonsterRecordReader.ReadDatabase(MfcArchiveReader, …)` among them). The enum's own remarks
+   > say so — the variant is chosen by *the calling structure*, not by the encoding. Whatever is
+   > wrong on the unframed `GLOBAL_STATS` path, `IsCompressed` is not the discriminator.
 
 Below 0.998101 the writers refuse rather than guess, each with a reason — `DefaultDesign`'s
 `items.dat`, `monsters.dat`, `spells.dat` and `Level000.lvl` are all declined. That is correct

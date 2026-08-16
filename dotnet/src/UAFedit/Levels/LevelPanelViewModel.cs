@@ -50,6 +50,11 @@ public sealed partial class LevelPanelViewModel : ObservableObject
 
         if (level is not null)
         {
+            // Taken from the file just read rather than from the entry, which carries it only when
+            // the catalog was built with readFiles on. The panel always opens the file, so it
+            // always knows -- and a level list built cheaply should still be able to warn here.
+            StoredNumber = level.Level + 1;
+
             // The design's start square belongs on the map only when it is on THIS level, and
             // startLevel is a stats index -- the same zero-based number the entry carries.
             var start = design.Globals.StartLevel == entry.StatsIndex
@@ -114,12 +119,18 @@ public sealed partial class LevelPanelViewModel : ObservableObject
     public string Title =>
         $"Level {Entry.Number} — {(Entry.Name.Length > 0 ? Entry.Name : "(unnamed)")}";
 
+    /// <inheritdoc cref="LevelCatalogEntry.StoredNumber"/>
+    public int? StoredNumber { get; }
+
+    /// <inheritdoc cref="LevelCatalogEntry.AgreesWithFileName"/>
+    public bool AgreesWithFileName => StoredNumber is null || StoredNumber == Entry.Number;
+
     /// <inheritdoc cref="Title"/>
     public string Subtitle =>
         $"{Entry.FileName} · file {Entry.Position + 1} of the design · stats[{Entry.StatsIndex}]"
-        + (Entry.AgreesWithFileName
+        + (AgreesWithFileName
             ? string.Empty
-            : $" · file records itself as level {Entry.StoredNumber}");
+            : $" · file records itself as level {StoredNumber}");
 
     /// <summary>What the map's cell centres show.</summary>
     [ObservableProperty]
@@ -258,23 +269,40 @@ public sealed partial class LevelPanelViewModel : ObservableObject
         design.Globals.Attributes.Any(
             a => string.Equals(a.Key, key, StringComparison.Ordinal));
 
+    private LevelMapModel? overridden;
+
     partial void OnShowOverridesChanged(bool value) => OnPropertyChanged(nameof(EffectiveModel));
 
     /// <summary>
     /// The model the map draws, honouring <see cref="ShowOverrides"/>.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <see cref="LevelMapModel.ShowOverrides"/> is <c>init</c>-only, so the flag is applied by
     /// rebuilding. That is cheap — the model holds a reference to the already-read level and
     /// computes per cell — and it keeps the map layer immutable, which is what makes it testable.
+    /// </para>
+    /// <para>
+    /// The rebuilt model is kept rather than made fresh on each read. The map rebinds whenever this
+    /// changes identity, so an <c>init</c>-only property behind a computed getter is exactly the
+    /// shape that redraws the whole level on every unrelated notification.
+    /// </para>
     /// </remarks>
-    public LevelMapModel? EffectiveModel =>
-        Model is null || ShowOverrides == Model.ShowOverrides
-            ? Model
-            : new LevelMapModel(Model.Level, Entry.Stats, Model.StartLocation)
+    public LevelMapModel? EffectiveModel
+    {
+        get
+        {
+            if (Model is null || !ShowOverrides)
             {
-                ShowOverrides = ShowOverrides,
+                return Model;
+            }
+
+            return overridden ??= new LevelMapModel(Model.Level, Entry.Stats, Model.StartLocation)
+            {
+                ShowOverrides = true,
                 UseWallIndex = Model.UseWallIndex,
                 UseDoorAndOverlayIndex = Model.UseDoorAndOverlayIndex,
             };
+        }
+    }
 }

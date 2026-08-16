@@ -260,13 +260,35 @@ public sealed partial class WallSlotsViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(Visible))]
     private bool showUsedOnly;
 
-    /// <summary>The slot the tool would paint with.</summary>
-    public WallSlotViewModel? Selected =>
-        SelectedIndex >= 0 && SelectedIndex < Slots.Count ? Slots[SelectedIndex] : null;
+    private IReadOnlyList<WallSlotViewModel>? visible;
 
-    /// <summary>The rows the list shows, honouring <see cref="ShowUsedOnly"/>.</summary>
+    /// <summary>
+    /// The slot the tool would paint with.
+    /// </summary>
+    /// <remarks>
+    /// <b>This, not <see cref="SelectedIndex"/>, is what a list binds its selection to.</b> With
+    /// <see cref="ShowUsedOnly"/> on, a row's position in <see cref="Visible"/> is not its slot
+    /// number — a list bound by index would set the wall tool to slot 3 for the fourth row shown,
+    /// whatever slot that row actually is.
+    /// </remarks>
+    public WallSlotViewModel? Selected
+    {
+        get => SelectedIndex >= 0 && SelectedIndex < Slots.Count ? Slots[SelectedIndex] : null;
+        set => SelectedIndex = value?.Index ?? -1;
+    }
+
+    /// <summary>
+    /// The rows the list shows, honouring <see cref="ShowUsedOnly"/>.
+    /// </summary>
+    /// <remarks>
+    /// Cached, because an <c>ItemsSource</c> that answered a fresh list on every read would rebuild
+    /// the list and drop its selection on any unrelated notification. The cache is dropped whenever
+    /// the filter or the selection changes, which are the only two things it depends on.
+    /// </remarks>
     public IReadOnlyList<WallSlotViewModel> Visible =>
-        ShowUsedOnly ? [.. Slots.Where(s => s.IsUsedByLevel || s.Index == SelectedIndex)] : Slots;
+        visible ??= ShowUsedOnly
+            ? [.. Slots.Where(s => s.IsUsedByLevel || s.Index == SelectedIndex)]
+            : Slots;
 
     /// <summary>How many slots the level actually places walls from.</summary>
     public int UsedSlotCount => Slots.Count(s => s.IsUsedByLevel);
@@ -286,8 +308,16 @@ public sealed partial class WallSlotsViewModel : ObservableObject
             Blockage = BlockageType.Open;
         }
 
-        OnPropertyChanged(nameof(Visible));
+        // Only when the filter is on: with it off the list is every slot and cannot change, and
+        // rebuilding it on every selection would drop the list's own selection each time.
+        if (ShowUsedOnly)
+        {
+            visible = null;
+            OnPropertyChanged(nameof(Visible));
+        }
     }
+
+    partial void OnShowUsedOnlyChanged(bool value) => visible = null;
 
     /// <summary>
     /// How many cell sides reference each slot, over the level's whole grid.

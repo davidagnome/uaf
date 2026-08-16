@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The headless platform, so LevelsView can be built with a real LevelMapView inside it. Every
+      other file here is view models and pure logic and needs no platform at all; this is the one
+      thing that cannot be asserted without one, because the map control is the piece this namespace
+      consumes rather than owns.
+    -->
+    <PackageReference Include="Avalonia.Headless" Version="12.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- UAFedit is a WinExe; referencing it from a test project is what UAFedit.Tests and
+       UAFedit.Map.Tests already do. Nothing here constructs a control or an Application, so no
+       display is needed and the whole file runs headless. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\UAFedit\UAFedit.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -183,6 +183,24 @@ public static class EventCatalog
     public static readonly IReadOnlyList<EventChoice> TakeAffects = From(
         "All Characters", "Random Character", "Active Character");
 
+    /// <summary><c>takeItemQtyType</c> (<c>TakeItemsQtyText</c>, <c>Globtext.cpp:168</c>).</summary>
+    public static readonly IReadOnlyList<EventChoice> TakeQuantity = From(
+        "Specified", "Random", "Percent", "All");
+
+    /// <summary>
+    /// The bit names of <c>TAKE_PARTY_ITEMS_DATA::takeItems</c> (<c>TakeWhatText</c>,
+    /// <c>Globtext.cpp:175</c>).
+    /// </summary>
+    /// <remarks>
+    /// <c>takeItemsActionType</c> is explicitly valued 1, 2, 4, 8 (<c>GameEvent.h:332</c>) — a mask
+    /// rather than the ordinal the name suggests.
+    /// </remarks>
+    public static readonly IReadOnlyList<string> TakeWhat =
+        ["Inventory", "Money", "Gems", "Jewelry"];
+
+    /// <summary>The bit name of <c>FLOW_CONTROL</c>'s flags (<c>Globtext.cpp:182</c>).</summary>
+    public static readonly IReadOnlyList<string> FlowControlFlags = ["Local Chain Only"];
+
     /// <summary>
     /// <c>HEAL_PARTY_DATA::literalOrPercent</c> (<c>LiteralOrPercentText</c>,
     /// <c>Globtext.cpp:233</c>).

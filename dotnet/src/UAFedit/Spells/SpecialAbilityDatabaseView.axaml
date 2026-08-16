@@ -1,0 +1,163 @@
+<!--
+  The special-abilities editor — the reference's CChooseSpeclAbDlg (UAFWinEd/ChooseSpeclAbDlg.cpp),
+  which the Database menu opens as "Edit Special Abilities".
+
+  The entries of an ability are one flat list with a Type column, not four lists, because that is
+  what the file is: a bag of key = value lines whose kind is the brackets round the key. The radio
+  group the reference used to change a row's kind is a combo here, and it does the same thing —
+  rewriting the entry's identity, not relabelling it.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:UAFedit.Spells"
+             xmlns:data="using:UAF.Data"
+             x:Class="UAFedit.Spells.SpecialAbilityDatabaseView"
+             x:DataType="s:SpecialAbilityDatabaseViewModel">
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Width" Value="90" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.warning">
+      <Setter Property="Foreground" Value="#C08000" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Margin" Value="0,2" />
+    </Style>
+  </UserControl.Styles>
+
+  <DockPanel>
+
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#20808080"
+            Padding="10,5">
+      <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+    </Border>
+
+    <Grid ColumnDefinitions="320,4,*">
+
+      <DockPanel Grid.Column="0" Margin="4">
+
+        <TextBox DockPanel.Dock="Top" Margin="0,0,0,4"
+                 PlaceholderText="Search ability or entry name"
+                 Text="{Binding Search}" />
+
+        <Button DockPanel.Dock="Bottom" Margin="0,4,0,0" HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="Test All Special Abilities"
+                Command="{Binding CompileAllCommand}" />
+
+        <ListBox ItemsSource="{Binding Abilities}" SelectedItem="{Binding SelectedAbility}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="s:SpecialAbilityEditorViewModel">
+              <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text=" •" FontWeight="Bold" IsVisible="{Binding IsDirty}"
+                             ToolTip.Tip="Edited" />
+                </StackPanel>
+                <TextBlock Text="{Binding Summary}" Opacity="0.65" FontSize="11"
+                           TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <DockPanel Grid.Column="2" Margin="8,4"
+                 DataContext="{Binding SelectedAbility}"
+                 x:DataType="s:SpecialAbilityEditorViewModel">
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+          <TextBlock Classes="caption" Text="Ability" />
+          <TextBox Width="300" Text="{Binding Name}" />
+          <Button Margin="8,0,0,0" Content="Compile scripts"
+                  Command="{Binding CompileAllScriptsCommand}" />
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+          <Button Content="Add Line" Command="{Binding AddEntryCommand}" />
+          <Button Margin="4,0,0,0" Content="Delete Line"
+                  Command="{Binding RemoveEntryCommand}" />
+        </StackPanel>
+
+        <Grid RowDefinitions="200,4,*">
+
+          <ListBox Grid.Row="0" ItemsSource="{Binding Entries}"
+                   SelectedItem="{Binding SelectedEntry}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="s:SpecialAbilityEntryViewModel">
+                <Grid ColumnDefinitions="200,90,*">
+                  <TextBlock Grid.Column="0" Text="{Binding Name}"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="1" Text="{Binding Kind}" Opacity="0.75" />
+                  <TextBlock Grid.Column="2" Text="{Binding Value}" Opacity="0.65"
+                             TextTrimming="CharacterEllipsis" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <GridSplitter Grid.Row="1" ResizeDirection="Rows" />
+
+          <DockPanel Grid.Row="2" Margin="0,4,0,0"
+                     DataContext="{Binding SelectedEntry}"
+                     x:DataType="s:SpecialAbilityEntryViewModel">
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+              <TextBlock Classes="caption" Text="Name" />
+              <TextBox Width="240" Text="{Binding Name}" />
+              <TextBlock Classes="caption" Text="Type" Margin="12,0,0,0" Width="40" />
+              <ComboBox MinWidth="130" ItemsSource="{x:Static s:SpecialAbilityEntryViewModel.Kinds}"
+                        SelectedItem="{Binding Kind}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="data:SpecialAbilityEntryKind">
+                    <TextBlock Text="{Binding}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Opacity="0.7"
+                         Text="{Binding Key}" ToolTip.Tip="How the key sits in the file" />
+            </StackPanel>
+
+            <!--
+              The kind is the brackets round the name, so a key that reads back as something else is
+              a real hazard rather than a style note. Usually invisible: this stays hidden.
+            -->
+            <TextBlock DockPanel.Dock="Top" Classes="warning" Text="{Binding FidelityWarning}"
+                       IsVisible="{Binding !IsFaithful}" />
+
+            <TextBlock DockPanel.Dock="Top" Classes="warning" Text="{Binding TableTruncation}"
+                       IsVisible="{Binding IsIntegerTable}" />
+
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4"
+                        IsVisible="{Binding IsScript}">
+              <Button Content="Test Syntax" Command="{Binding CompileCommand}" />
+              <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold"
+                         Text="Compiles"
+                         IsVisible="{Binding Diagnostics.Succeeded}" />
+            </StackPanel>
+
+            <TextBox DockPanel.Dock="Bottom" MaxHeight="90" IsReadOnly="True"
+                     AcceptsReturn="True" TextWrapping="Wrap"
+                     IsVisible="{Binding HasCompiled}"
+                     Text="{Binding Diagnostics.Summary}" />
+
+            <TextBox AcceptsReturn="{Binding WantsMultilineEditor}"
+                     AcceptsTab="{Binding IsScript}"
+                     TextWrapping="NoWrap" FontFamily="monospace"
+                     Text="{Binding Value}" />
+
+          </DockPanel>
+
+        </Grid>
+
+      </DockPanel>
+
+    </Grid>
+
+  </DockPanel>
+
+</UserControl>

@@ -29,7 +29,29 @@ public sealed record GameDataModel(GlobalStatsPrefix Global, IReadOnlyList<Globa
 /// (byte identity), reading what was written and writing it again (the fixpoint), and comparing
 /// the two decoded models (what actually survived).
 /// </remarks>
-public sealed record DesignFileCodec(string Name, Func<Stream, object> Read, Func<object, byte[]> Write);
+public sealed record DesignFileCodec(string Name, Func<Stream, object> Read, Func<object, byte[]> Write)
+{
+    /// <summary>
+    /// Decodes bytes <i>this port wrote</i>, when that is not the same as decoding the file on
+    /// disk. Null means <see cref="Read"/> does for both.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The four tagged databases carry no version, so the decoder has to be told one — and it
+    /// is not the same version in both directions.</b> On disk the payload is at whatever
+    /// <c>game.dat</c> declares; what the port writes is always at the writer's
+    /// <c>WrittenVersion</c>. Decoding a freshly written <c>ability.dat</c> at the design's 0.915
+    /// does not fail cleanly, it mis-parses: the record shape changed at <c>AbilityV2</c>, so the
+    /// reader walks off into the <c>CAR</c> string table and asks for entry 8 of 2 — or, on a
+    /// larger database, reads a length out of the middle of a record and tries to allocate it.
+    /// </para>
+    /// <para>
+    /// Every other file kind carries its own stamp and needs none of this, which is why the
+    /// member is optional rather than a second required decoder.
+    /// </para>
+    /// </remarks>
+    public Func<Stream, object>? ReadWritten { get; init; }
+}
 
 /// <summary>
 /// Reads and writes whole design files, prologue and all.
@@ -118,6 +140,31 @@ public static class DesignFiles
             return new DesignFileCodec(name, ReadLevel, WriteLevel);
         }
 
+        if (TaggedCodec(name, globalVersion) is { } tagged)
+        {
+            return tagged;
+        }
+
+        if (name.Equals("specialAbilities.dat", StringComparison.OrdinalIgnoreCase))
+        {
+            // No magic and no version stamp of its own either, so the same asymmetry applies: the
+            // ASL inside goes out at the writer's version whatever the design declares.
+            return new DesignFileCodec(
+                name,
+                s => SpecialAbilityDatabaseReader.Read(s, globalVersion),
+                m =>
+                {
+                    var output = new MemoryStream();
+                    SpecialAbilityDatabaseWriter.WriteFile(
+                        output, (IReadOnlyList<SpecialAbilityDefinition>)m);
+                    return output.ToArray();
+                })
+            {
+                ReadWritten = s => SpecialAbilityDatabaseReader.Read(
+                    s, SpecialAbilityDatabaseWriter.WrittenVersion),
+            };
+        }
+
         if (IsCharacterFile(name))
         {
             return UnsupportedReason(path) is null
@@ -182,13 +229,19 @@ public static class DesignFiles
         return codec.Read(stream);
     }
 
-    /// <summary>Reads a file already in memory through its codec.</summary>
+    /// <summary>
+    /// Reads bytes this port wrote, through its codec.
+    /// </summary>
+    /// <remarks>
+    /// Every call site passes something <c>codec.Write</c> produced, never a file off disk — which
+    /// is what makes <see cref="DesignFileCodec.ReadWritten"/> safe to apply here and nowhere else.
+    /// </remarks>
     public static object ReadBytes(DesignFileCodec codec, byte[] file)
     {
         ArgumentNullException.ThrowIfNull(codec);
 
         using var stream = new MemoryStream(file, writable: false);
-        return codec.Read(stream);
+        return (codec.ReadWritten ?? codec.Read)(stream);
     }
 
     // -- game.dat ----------------------------------------------------------------------------
@@ -242,6 +295,87 @@ public static class DesignFiles
             : ArchiveCursor.For(new MfcArchiveReader(source));
 
         return read(cursor, header.Version, ArchiveRole.Editor);
+    }
+
+    // -- tagged databases --------------------------------------------------------------------
+
+    /// <summary>
+    /// The codec for one of the four tagged databases, or null when the name is not one of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A tagged database carries a container tag and a record count and no version</b>, so the
+    /// version has to come from <c>game.dat</c> next door on the way in — and from the writer's own
+    /// <c>WrittenVersion</c> on the way back, because the payload always goes out in the modern
+    /// shape. That asymmetry is why these four cannot come back byte-identical either, and it is
+    /// the same one <see cref="WholeFile"/> documents for the rest.
+    /// </para>
+    /// <para>
+    /// The framing is <c>TaggedDatabaseWriter</c>'s rather than <see cref="WholeFile"/>'s: a tag
+    /// and a count instead of a magic and a version stamp.
+    /// </para>
+    /// </remarks>
+    private static DesignFileCodec? TaggedCodec(string name, DesignVersion globalVersion)
+    {
+        return name.ToLowerInvariant() switch
+        {
+            "ability.dat" => Codec<AbilityRecord>(
+                TaggedDatabase.Ability,
+                (body, header, version) =>
+                    AbilityRecordReader.ReadAll(body, header.Count, version),
+                AbilityRecordWriter.WriteFile,
+                AbilityRecordWriter.WrittenVersion),
+
+            // Alone among the four, the baseclass record's shape does not vary with the version,
+            // so its reader does not ask for one and the two directions coincide.
+            "baseclass.dat" => Codec<BaseclassRecord>(
+                TaggedDatabase.Baseclass,
+                (body, header, _) => BaseclassRecordReader.ReadAll(body, header.Count),
+                BaseclassRecordWriter.WriteFile,
+                BaseclassRecordWriter.WrittenVersion),
+
+            "classes.dat" => Codec<ClassRecord>(
+                TaggedDatabase.Class,
+                (body, header, version) =>
+                    ClassRecordReader.ReadAll(body, header.Count, version),
+                ClassRecordWriter.WriteFile,
+                ClassRecordWriter.WrittenVersion),
+
+            "races.dat" => Codec<RaceRecord>(
+                TaggedDatabase.Race,
+                (body, header, version) =>
+                    RaceRecordReader.ReadAll(body, header.Count, header.Tag, version),
+                RaceRecordWriter.WriteFile,
+                RaceRecordWriter.WrittenVersion),
+
+            _ => null,
+        };
+
+        DesignFileCodec Codec<TRecord>(
+            TaggedDatabase database,
+            Func<IArchiveCursor, TaggedDatabaseHeader, DesignVersion, List<TRecord>> read,
+            Action<Stream, IReadOnlyList<TRecord>> write,
+            DesignVersion writtenVersion)
+        {
+            return new DesignFileCodec(
+                name,
+                source => Decode(source, globalVersion),
+                model =>
+                {
+                    var output = new MemoryStream();
+                    write(output, (IReadOnlyList<TRecord>)model);
+                    return output.ToArray();
+                })
+            {
+                ReadWritten = source => Decode(source, writtenVersion),
+            };
+
+            object Decode(Stream source, DesignVersion at)
+            {
+                var header = TaggedDatabaseReader.Read(source, database, out var body);
+                return read(body, header, at);
+            }
+        }
     }
 
     // -- levels ------------------------------------------------------------------------------

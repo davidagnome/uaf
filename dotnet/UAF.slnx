@@ -20,8 +20,12 @@
     <Project Path="tests/UAF.Serialization.Tests/UAF.Serialization.Tests.csproj" />
     <Project Path="tests/UAFcore.Tests/UAFcore.Tests.csproj" />
     <Project Path="tests/UAFedit.Tests/UAFedit.Tests.csproj" />
+    <Project Path="tests/UAFedit.Databases.Tests/UAFedit.Databases.Tests.csproj" />
+    <Project Path="tests/UAFedit.Events.Tests/UAFedit.Events.Tests.csproj" />
+    <Project Path="tests/UAFedit.Levels.Tests/UAFedit.Levels.Tests.csproj" />
     <Project Path="tests/UAFedit.Map.Tests/UAFedit.Map.Tests.csproj" />
     <Project Path="tests/UAFedit.RoundTrip.Tests/UAFedit.RoundTrip.Tests.csproj" />
+    <Project Path="tests/UAFedit.Spells.Tests/UAFedit.Spells.Tests.csproj" />
     <Project Path="tests/rc2axaml.Tests/rc2axaml.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">

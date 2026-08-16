@@ -91,20 +91,29 @@ public static class DesignCorpus
     /// Every file in a design this harness has a reader and a writer for, in a stable order.
     /// </summary>
     /// <remarks>
-    /// <b>Five databases are missing from this list and their absence is the finding, not an
-    /// oversight:</b> <c>ability.dat</c>, <c>baseclass.dat</c>, <c>classes.dat</c>,
-    /// <c>races.dat</c> and <c>specialAbilities.dat</c> have readers
-    /// (<c>AbilityRecordReader</c>, <c>BaseclassRecordReader</c>, <c>ClassRecordReader</c>,
-    /// <c>RaceRecordReader</c>, <c>SpecialAbilityDatabaseReader</c>) and <b>no writer at all</b>.
-    /// <see cref="UnwritableDatabases"/> holds them, and a test asserts they are still unwritable
-    /// so this comment cannot rot into a lie.
+    /// <para>
+    /// <b>The list is every database a design carries.</b> Five of them —
+    /// <c>ability.dat</c>, <c>baseclass.dat</c>, <c>classes.dat</c>, <c>races.dat</c> and
+    /// <c>specialAbilities.dat</c> — had readers and no writers, which is what stopped an editor
+    /// saving a design it had opened; the writers exist now and the round trip covers them here.
+    /// </para>
+    /// <para>
+    /// The four tagged databases are read at the version <c>game.dat</c> declares, because a
+    /// tagged file carries a tag and a count and no version of its own — see
+    /// <see cref="DesignFiles.GlobalVersion"/>.
+    /// </para>
     /// </remarks>
     public static IReadOnlyList<string> Files(CorpusDesign design)
     {
         var files = new List<string>();
         string data = design.DataDirectory;
 
-        foreach (string name in new[] { "game.dat", "items.dat", "monsters.dat", "spells.dat" })
+        foreach (string name in new[]
+                 {
+                     "game.dat", "items.dat", "monsters.dat", "spells.dat",
+                     "ability.dat", "baseclass.dat", "classes.dat", "races.dat",
+                     "specialAbilities.dat",
+                 })
         {
             if (File.Exists(Path.Combine(data, name)))
             {
@@ -128,13 +137,14 @@ public static class DesignCorpus
     }
 
     /// <summary>
-    /// The databases the port can read and cannot write.
+    /// The five databases that used to have a reader and no writer.
     /// </summary>
     /// <remarks>
-    /// An editor that cannot save these cannot ship: <c>baseclass.dat</c> and <c>classes.dat</c>
-    /// carry the rules a design's character generation runs on. They are listed here so the gap is
-    /// measured rather than assumed.
+    /// <b>They are all writable now</b>, and the list survives only so a test can assert the
+    /// designs really carry them — a round trip that covered a file no design ships would be
+    /// covering nothing. <c>baseclass.dat</c> and <c>classes.dat</c> carry the rules a design's
+    /// character generation runs on, which is why an editor could not ship without them.
     /// </remarks>
-    public static IReadOnlyList<string> UnwritableDatabases =>
+    public static IReadOnlyList<string> LateDatabases =>
         ["ability.dat", "baseclass.dat", "classes.dat", "races.dat", "specialAbilities.dat"];
 }

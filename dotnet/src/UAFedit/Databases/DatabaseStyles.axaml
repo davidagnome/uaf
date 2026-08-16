@@ -1,0 +1,70 @@
+<!--
+  Shared look for both database editors.
+
+  A resource dictionary of styles rather than a base UserControl: the two forms have nothing in
+  common structurally — one is dice and slots, the other is flags and attacks — and everything in
+  common visually. A shared control would have had to be generic in the record type, which is not
+  something a compiled binding's x:DataType can name.
+
+  The `row` idiom is a DockPanel with a fixed-width label docked left and the field filling the
+  rest. It replaces the Grid-with-numbered-rows that a transpiled dialog produces, where inserting
+  one field means renumbering every field below it.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Style Selector="DockPanel.row">
+    <Setter Property="Margin" Value="0,2" />
+  </Style>
+
+  <Style Selector="DockPanel.row > TextBlock.label">
+    <Setter Property="Width" Value="132" />
+    <Setter Property="Margin" Value="0,0,8,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="Opacity" Value="0.8" />
+  </Style>
+
+  <Style Selector="Border.group">
+    <Setter Property="BorderBrush" Value="#40808080" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="10,8" />
+    <Setter Property="Margin" Value="0,0,8,8" />
+  </Style>
+
+  <Style Selector="TextBlock.groupHeader">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="0,0,0,6" />
+  </Style>
+
+  <Style Selector="TextBlock.hint">
+    <Setter Property="Opacity" Value="0.65" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Margin" Value="0,2,0,4" />
+  </Style>
+
+  <!-- A cross-field contradiction the reference resolved by rewriting the user's data. -->
+  <Style Selector="TextBlock.warning">
+    <Setter Property="Foreground" Value="#C08000" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Margin" Value="0,2,0,4" />
+  </Style>
+
+  <Style Selector="TextBlock.readonlyValue">
+    <Setter Property="Opacity" Value="0.7" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+
+  <Style Selector="Ellipse.dirty">
+    <Setter Property="Width" Value="7" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="Fill" Value="#E08000" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="0,0,6,0" />
+  </Style>
+
+</Styles>

@@ -448,6 +448,7 @@ public sealed partial class SpellEditorViewModel : EditableViewModel
     };
 
     /// <summary>Throws away every edit.</summary>
+    [RelayCommand]
     public void Revert()
     {
         Name = original.Name;

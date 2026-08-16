@@ -2,8 +2,43 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using UAFcore;
+using UAFedit.Databases;
+using UAFedit.Events;
+using UAFedit.Levels;
+using UAFedit.Spells;
 
 namespace UAFedit.ViewModels;
+
+/// <summary>
+/// The shell's panes, in tab order.
+/// </summary>
+/// <remarks>
+/// The order is the reference's menu order — the design itself, then the Level menu, then the
+/// Database menu — rather than the order they were ported in.
+/// </remarks>
+public enum EditorPane
+{
+    /// <summary>The read-only navigation tree and record list.</summary>
+    Design,
+
+    /// <summary>The Level menu.</summary>
+    Levels,
+
+    /// <summary>The event editor.</summary>
+    Events,
+
+    /// <summary>Database &gt; Edit Items.</summary>
+    Items,
+
+    /// <summary>Database &gt; Edit Monsters.</summary>
+    Monsters,
+
+    /// <summary>Database &gt; Edit Spells.</summary>
+    Spells,
+
+    /// <summary>Database &gt; Edit Special Abilities.</summary>
+    Abilities,
+}
 
 /// <summary>
 /// The shell: a design, its navigation tree, and the record list of whatever is selected.
@@ -64,6 +99,114 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     private string DesignName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Which pane is open. Setting it is what builds that pane.
+    /// </summary>
+    /// <remarks>
+    /// Bound to the tab strip, so a tab the user never visits costs nothing — see
+    /// <see cref="Show"/> for why that matters.
+    /// </remarks>
+    [ObservableProperty]
+    private EditorPane selectedPane;
+
+    /// <summary>The Level menu, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private LevelsViewModel? levelsPane;
+
+    /// <summary>The event editor, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private EventEditorViewModel? eventsPane;
+
+    /// <summary>The item database editor, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private ItemDatabaseViewModel? itemsPane;
+
+    /// <summary>The monster database editor, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private MonsterDatabaseViewModel? monstersPane;
+
+    /// <summary>The spell database editor, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private SpellDatabaseViewModel? spellsPane;
+
+    /// <summary>The special-ability database editor, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private SpecialAbilityDatabaseViewModel? abilitiesPane;
+
+    partial void OnSelectedPaneChanged(EditorPane value) => Show(value);
+
+    /// <summary>
+    /// Builds the pane behind a tab, the first time that tab is opened.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Lazy because two of them read the whole design off disk.</b>
+    /// <see cref="LevelsViewModel"/> reads every <c>.lvl</c> for its extent and counts, and
+    /// <see cref="EventEditorViewModel"/> reads every level again for its events. Building all six
+    /// on open would make <c>File &gt; Open</c> take as long as the slowest pane on a design the
+    /// user may only want the map from. This is the same bargain
+    /// <see cref="RecordTable"/> already strikes for the tree's categories.
+    /// </para>
+    /// <para>
+    /// A pane that throws leaves its tab empty and says so on the status line, rather than taking
+    /// the window down: one unreadable database should not cost the user the other five.
+    /// </para>
+    /// </remarks>
+    public void Show(EditorPane pane)
+    {
+        if (design is not { } open)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (pane)
+            {
+                case EditorPane.Levels:
+                    LevelsPane ??= new LevelsViewModel(open);
+                    break;
+                case EditorPane.Events:
+                    EventsPane ??= new EventEditorViewModel(open);
+                    break;
+                case EditorPane.Items:
+                    ItemsPane ??= new ItemDatabaseViewModel(open);
+                    break;
+                case EditorPane.Monsters:
+                    MonstersPane ??= new MonsterDatabaseViewModel(open);
+                    break;
+                case EditorPane.Spells:
+                    SpellsPane ??= new SpellDatabaseViewModel(open);
+                    break;
+                case EditorPane.Abilities:
+                    AbilitiesPane ??= new SpecialAbilityDatabaseViewModel(open);
+                    break;
+                default:
+                    break;
+            }
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or EndOfStreamException
+                                    or NotSupportedException or InvalidOperationException
+                                    or ArgumentException)
+        {
+            Status = $"Could not open the {pane} pane: {e.Message}";
+        }
+    }
+
+    /// <summary>Drops every built pane, disposing the ones that hold anything.</summary>
+    private void ClosePanes()
+    {
+        (SpellsPane as IDisposable)?.Dispose();
+        (AbilitiesPane as IDisposable)?.Dispose();
+
+        LevelsPane = null;
+        EventsPane = null;
+        ItemsPane = null;
+        MonstersPane = null;
+        SpellsPane = null;
+        AbilitiesPane = null;
+    }
+
+    /// <summary>
     /// Opens a design directory and rebuilds the tree, answering whether it opened.
     /// </summary>
     /// <remarks>
@@ -99,8 +242,11 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
             return false;
         }
 
+        // The panes hold records read out of the design being replaced, so they go first.
+        ClosePanes();
         design?.Dispose();
         design = opened;
+        SelectedPane = EditorPane.Design;
 
         DesignName = string.IsNullOrWhiteSpace(opened.Name)
             ? Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar,
@@ -144,6 +290,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        ClosePanes();
         design?.Dispose();
         design = null;
     }

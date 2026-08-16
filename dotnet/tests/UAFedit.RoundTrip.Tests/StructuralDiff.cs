@@ -157,7 +157,17 @@ public static class StructuralDiff
         }
 
         var type = expected.GetType();
-        if (type != actual.GetType())
+
+        // Two sequences are compared by their contents, whatever concrete container each happens
+        // to be. A property typed IReadOnlyList<T> is free to come back as a T[] down one path and
+        // a List<T> down another -- SpecabReader does exactly that, building an array on the
+        // legacy walk and a List on the modern one -- and calling that a type change would report
+        // a loss on a database that lost nothing. A genuine change of ELEMENT type is still
+        // caught: every element is walked, and the check below applies to each of them.
+        bool bothSequences = !IsSimple(type) && !IsSimple(actual.GetType())
+                             && expected is IEnumerable && actual is IEnumerable;
+
+        if (!bothSequences && type != actual.GetType())
         {
             return Note(found, path, DifferenceKind.TypeChanged, type.Name, actual.GetType().Name);
         }

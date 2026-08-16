@@ -6,14 +6,23 @@ namespace UAFedit.Databases;
 
 /// <summary>
 /// The detail form for one <c>ITEM_DATA</c> record — the Avalonia replacement for
-/// <c>CItemDBDlg</c> (<c>UAFWinEd/ItemDB.cpp</c>, dialog <c>IDD_ITEMDB</c>).
+/// <c>CItemDBDlg</c> (<c>UAFWinEd/ItemDBDlg.cpp</c>, dialog <c>IDD_ITEMDB</c>) together with
+/// <c>CMagicalItemProp</c> (<c>UAFWinEd/MagicalItemProp.cpp</c>), which was a modal inside it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>It covers more than the MFC dialog did.</b> <c>IDD_ITEMDB</c> pushed six fields behind a
-/// "Magical Props" modal and left several others unreachable, so a design's attack bonus, spell id
-/// and protection bonus could only be edited two dialogs deep or not at all. Everything
-/// <see cref="ItemRecord"/> carries as a scalar or a string is here, in one form.
+/// <b><c>UAFWinEd/ItemDB.cpp</c> is not this dialog</b>, despite the name and the 9,000 lines. It
+/// is the <c>items.txt</c>/<c>monsters.txt</c> text-format codec for every database, and its
+/// per-field table (<c>ItemDB.cpp:1573</c>) is the authority on what a field <i>means</i> — several
+/// of the citations below come from there rather than from the dialog, because the dialog is the
+/// half that gets it wrong.
+/// </para>
+/// <para>
+/// <b>It covers more than the MFC dialog did.</b> <c>IDD_ITEMDB</c> pushed nine fields behind the
+/// "Magical Props" modal and left the attribute list unreachable altogether, so a design's attack
+/// bonus, spell id and protection bonus could only be edited two dialogs deep and its
+/// <c>item_asl</c> only through a text file. Everything <see cref="ItemRecord"/> carries as a
+/// scalar or a string is here, in one form.
 /// </para>
 /// <para>
 /// <b>What is shown but not edited</b>: <see cref="PreSpellNameKey"/> and
@@ -41,15 +50,17 @@ public sealed partial class ItemEditorViewModel : RecordEditorViewModel<ItemReco
 
     public ItemEditorViewModel(ItemRecord record, IEnumerable<string>? knownBaseclasses = null)
         : base(record, nameof(UsableByAnyBaseclass), nameof(IsHalveJoinEffective),
-               nameof(HasOverlongAttackMessage), nameof(OtherUsageFlags))
+               nameof(HasOverlongAttackMessage), nameof(OtherUsageFlags),
+               nameof(HasOtherUsageFlags), nameof(OtherUsageFlagsSummary),
+               nameof(HasHitArt), nameof(HasMissileArt), nameof(HasTailHitArt),
+               nameof(CarriedThroughText))
     {
         ArgumentNullException.ThrowIfNull(record);
 
         WeaponTypeChoices = Choices.WithCurrent(Choices.WeaponTypes, record.Tail.WeaponType);
         HandChoices = Choices.WithCurrent(Choices.HandCounts, record.Combat.HandsToUse);
         RechargeChoices = Choices.WithCurrent(Choices.RechargeRates, record.Tail.RechargeRate);
-        SlotChoices = Choices.WithCurrent(Choices.Slots,
-                                          Choices.NormaliseSlot(record.Combat.LocationReadied));
+        SlotChoices = Choices.WithCurrent(Choices.Slots, record.Combat.LocationReadied);
 
         Baseclasses = BuildBaseclassList(record.Tail.UsableByBaseclass, knownBaseclasses);
         foreach (var entry in Baseclasses)
@@ -398,11 +409,14 @@ public sealed partial class ItemEditorViewModel : RecordEditorViewModel<ItemReco
     /// Where the item is worn, as the base-38 word the field actually holds.
     /// </summary>
     /// <remarks>
-    /// <b>The stored value is normalised on load.</b> A design below the conversion gate wrote a
-    /// small ordinal (0 = weapon hand, …) which <c>Items.cpp:2820</c> rewrites into a packed name.
-    /// Doing that here means an old design's item lands on a real entry in the list rather than on
-    /// nothing, and it is the <i>database</i> table that is applied — the carried-item table
-    /// disagrees at ordinal 3 and would turn gauntlets into a quiver.
+    /// <b>The stored value is left exactly as the file gave it.</b> A design below the conversion
+    /// gate holds a small ordinal (0 = weapon hand, …) rather than a packed word, and this port's
+    /// reader does not apply the reference's load-time rewrite (<c>Items.cpp:2820</c>). Normalising
+    /// on load would mark every item of such a design edited before the user touched anything, so
+    /// the ordinal is offered as its own entry instead — see
+    /// <see cref="Choices.WithCurrent(IReadOnlyList{SlotChoice}, uint)"/>. Note the database's
+    /// conversion table and a <i>carried</i> item's disagree at ordinal 3, so the two must never be
+    /// crossed: it is <c>HANDS</c> here and <c>QUIVER</c> there.
     /// </remarks>
     public SlotChoice? SlotChoiceValue
     {
@@ -439,6 +453,30 @@ public sealed partial class ItemEditorViewModel : RecordEditorViewModel<ItemReco
     public IReadOnlyList<string> AttributeLines =>
         [.. Original.Tail.Attributes.Select(a => $"{a.Key} = {a.Value}")];
 
+    /// <summary>The two carried-through blocks as one block of text, or a note that both are empty.</summary>
+    public string CarriedThroughText =>
+        SpecialAbilityLines.Count + AttributeLines.Count == 0
+            ? "No special abilities, no attributes."
+            : string.Join(Environment.NewLine, SpecialAbilityLines.Concat(AttributeLines));
+
+    public bool HasHitArt => hitArt is not null;
+
+    public bool HasMissileArt => missileArt is not null;
+
+    public bool HasTailHitArt => tailHitArt is not null;
+
+    public bool HasLegacySpellKey => Original.Names.PreSpellNameKey >= 0;
+
+    public bool HasLegacyUsability => Original.Tail.LegacyUsableByClass != 0;
+
+    public bool HasOtherUsageFlags => OtherUsageFlags != 0;
+
+    public string OtherUsageFlagsSummary =>
+        $"Unnamed usage bits set: {OtherUsageFlags}. They are preserved.";
+
+    public string LegacyUsabilitySummary =>
+        $"Legacy class bitmask {LegacyUsableByClass} — pre-0.998101 residue, preserved unchanged.";
+
     // ---- Base contract ------------------------------------------------------------------------
 
     public override string Title => UniqueName.Length > 0 ? UniqueName : Unnamed;
@@ -468,7 +506,7 @@ public sealed partial class ItemEditorViewModel : RecordEditorViewModel<ItemReco
         BundleQty = record.Scalars.BundleQty;
         NumCharges = record.Scalars.NumCharges;
 
-        locationReadied = Choices.NormaliseSlot(record.Combat.LocationReadied);
+        locationReadied = record.Combat.LocationReadied;
         handsToUse = record.Combat.HandsToUse;
         DmgDiceSm = record.Combat.DmgDiceSm;
         NbrDiceSm = record.Combat.NbrDiceSm;

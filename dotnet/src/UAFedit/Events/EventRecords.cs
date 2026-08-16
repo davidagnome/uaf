@@ -12,15 +12,19 @@ namespace UAFedit.Events;
 /// way at all to write it back: <c>with { Base = … }</c> needs the concrete type at the call site.
 /// </para>
 /// <para>
-/// <b>Hence the switch.</b> It is 36 lines of the same expression and it is deliberate — the
+/// <b>Hence the switch.</b> It is 37 lines of the same expression and it is deliberate — the
 /// alternatives are reflection over the compiler-generated <c>&lt;Clone&gt;$</c>, which fails
 /// silently on a renamed member, or an <c>IGameEvent.WithBase</c> that would mean editing
-/// <c>UAF.Serialization</c>. This way a new event record breaks the build here, at the one place
-/// that must learn about it, rather than at run time.
+/// <c>UAF.Serialization</c>.
 /// </para>
 /// <para>
-/// The unknown case returns the body unchanged rather than throwing. A type this does not know is a
-/// type the field tables do not know either, so nothing can have edited it.
+/// <b>Its failure mode is silence, and it has already bitten once.</b> An unlisted type falls to
+/// the default and comes back unchanged, so an edit disappears rather than throwing —
+/// <see cref="YesNoEvent"/> was missing from the first draft and every header edit to one of
+/// Case.dsn's 102 yes/no events was quietly discarded. Nothing in the compiler catches that: the
+/// switch is exhaustive over a set only a human knows. The corpus test
+/// <c>Every_corpus_record_accepts_a_new_header</c> is what does, and it is the reason the omission
+/// lasted an hour rather than shipping.
 /// </para>
 /// </remarks>
 public static class EventRecords
@@ -69,6 +73,7 @@ public static class EventRecords
             VaultEvent e => e with { Base = header },
             WhoPaysEvent e => e with { Base = header },
             WhoTriesEvent e => e with { Base = header },
+            YesNoEvent e => e with { Base = header },
             _ => body,
         };
     }

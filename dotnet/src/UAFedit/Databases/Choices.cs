@@ -142,15 +142,32 @@ public static class Choices
             : [.. standard, new IntChoice(current, $"({current})")];
     }
 
-    /// <inheritdoc cref="WithCurrent(IReadOnlyList{IntChoice}, int)"/>
+    /// <summary>
+    /// The slot list with the record's own value added when it is not one of the packed names.
+    /// </summary>
+    /// <remarks>
+    /// <b>The usual reason to land here is a legacy ordinal, and the record is left holding it.</b>
+    /// A design below the conversion gate stored 0…10 rather than a packed word; the reference
+    /// rewrites those on load (<c>Items.cpp:2820</c>) but this port's reader hands back what the
+    /// file says. Migrating it here would mark every item of an old design edited the moment the
+    /// editor opened, so instead the ordinal is added to the list under the slot it names —
+    /// visible, selectable, and unchanged until the user picks something else.
+    /// </remarks>
     public static IReadOnlyList<SlotChoice> WithCurrent(IReadOnlyList<SlotChoice> standard,
                                                         uint current)
     {
         ArgumentNullException.ThrowIfNull(standard);
 
-        return standard.Any(c => c.Value == current)
-            ? standard
-            : [.. standard, new SlotChoice(current, $"({current})")];
+        if (standard.Any(c => c.Value == current))
+        {
+            return standard;
+        }
+
+        string label = ReadiedLocation.IsLegacyOrdinal(current)
+            ? $"{ReadiedLocation.WordFor(current)} (legacy ordinal {current})"
+            : $"({current})";
+
+        return [.. standard, new SlotChoice(current, label)];
     }
 
     /// <inheritdoc cref="WithCurrent(IReadOnlyList{IntChoice}, int)"/>
@@ -164,17 +181,6 @@ public static class Choices
             ? standard
             : [.. standard, new TextChoice(current, $"{current} (not in this design)")];
     }
-
-    /// <summary>
-    /// A legacy ordinal converted to the slot it names, so old designs land on a real choice.
-    /// </summary>
-    /// <remarks>
-    /// <b>The database's table, not the carried item's.</b> They disagree on ordinal 3 —
-    /// <c>HANDS</c> here, <c>QUIVER</c> for a carried <c>ITEM</c> — so using
-    /// <c>ReadiedLocation.Synonym</c> would turn every old design's gauntlets into quivers on the
-    /// first save.
-    /// </remarks>
-    public static uint NormaliseSlot(uint stored) => ReadiedLocation.Convert(stored);
 
     private static SlotChoice Slot(uint packed) =>
         new(packed, ReadiedLocation.WordFor(packed) is { Length: > 0 } word ? word : $"({packed})");

@@ -1,13 +1,24 @@
 <!--
-  The inspector's shell: a menu, a navigation tree, and a record list.
+  The editor's shell: a menu, and a tab per pane.
 
-  Everything the panes show comes from MainWindowViewModel; the view holds no design state. The
-  right pane is a header row plus a virtualising ListBox rather than a DataGrid, which would mean
-  another package for a read-only table whose columns are already known per category.
+  Everything the panes show comes from MainWindowViewModel; the view holds no design state.
+
+  The first tab is the read-only inspector — a navigation tree and a record list. Its right pane is
+  a header row plus a virtualising ListBox rather than a DataGrid, which would mean another package
+  for a read-only table whose columns are already known per category.
+
+  The other six are the editors, and each binds its DataContext to a pane the view model builds on
+  first selection rather than on open. The views are constructed with that binding still null and
+  show nothing until it arrives, which is what makes the laziness invisible here — see
+  MainWindowViewModel.Show for why two of them must not be built eagerly.
 -->
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:UAFedit.ViewModels"
+        xmlns:db="using:UAFedit.Databases"
+        xmlns:ev="using:UAFedit.Events"
+        xmlns:levels="using:UAFedit.Levels"
+        xmlns:spells="using:UAFedit.Spells"
         x:Class="UAFedit.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding Title}" Width="1100" Height="750">
@@ -27,7 +38,10 @@
       <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
     </Border>
 
-    <Grid ColumnDefinitions="280,4,*">
+    <TabControl SelectedIndex="{Binding SelectedPane, Mode=TwoWay}">
+
+      <TabItem Header="Design">
+        <Grid ColumnDefinitions="280,4,*">
 
       <TreeView Grid.Column="0"
                 ItemsSource="{Binding Roots}"
@@ -89,7 +103,34 @@
 
       </DockPanel>
 
-    </Grid>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="Levels">
+        <levels:LevelsView DataContext="{Binding LevelsPane}" />
+      </TabItem>
+
+      <TabItem Header="Events">
+        <ev:EventEditorView DataContext="{Binding EventsPane}" />
+      </TabItem>
+
+      <TabItem Header="Items">
+        <db:ItemDatabaseView DataContext="{Binding ItemsPane}" />
+      </TabItem>
+
+      <TabItem Header="Monsters">
+        <db:MonsterDatabaseView DataContext="{Binding MonstersPane}" />
+      </TabItem>
+
+      <TabItem Header="Spells">
+        <spells:SpellDatabaseView DataContext="{Binding SpellsPane}" />
+      </TabItem>
+
+      <TabItem Header="Special Abilities">
+        <spells:SpecialAbilityDatabaseView DataContext="{Binding AbilitiesPane}" />
+      </TabItem>
+
+    </TabControl>
 
   </DockPanel>
 

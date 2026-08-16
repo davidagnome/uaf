@@ -91,7 +91,10 @@ public sealed partial class LevelsViewModel : ObservableObject
                 return null;
             }
 
-            if (panel?.Entry != entry)
+            // Reference equality, not the record's: two entries only ever compare equal when they
+            // are the same row, and value equality on a LevelCatalogEntry walks a LevelStats and
+            // its eight entry points on every binding read.
+            if (!ReferenceEquals(panel?.Entry, entry))
             {
                 panel = new LevelPanelViewModel(design, entry);
             }

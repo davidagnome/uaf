@@ -1,0 +1,360 @@
+<!--
+  The spell database editor: a searchable, sortable master list on the left and the detail form on
+  the right — the reference's CSpellDBDlgEx (UAFWinEd/SpellDBDlgEx.cpp) laid out as a pane rather
+  than a modal dialog.
+
+  Every combo binds SelectedIndex straight to the record's int, with no converter. That is not a
+  shortcut: the reference populates each combo in enumerator order and reads the choice back with a
+  raw cast of GetCurSel() (SpellDBDlgEx.cpp:735), so the index IS the field. See SpellChoices.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:s="using:UAFedit.Spells"
+             xmlns:ser="using:UAF.Serialization"
+             x:Class="UAFedit.Spells.SpellDatabaseView"
+             x:DataType="s:SpellDatabaseViewModel">
+
+  <UserControl.Resources>
+    <x:Double x:Key="LabelWidth">160</x:Double>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Width" Value="{StaticResource LabelWidth}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.section">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,12,0,4" />
+    </Style>
+    <Style Selector="StackPanel.row">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Margin" Value="0,2" />
+    </Style>
+  </UserControl.Styles>
+
+  <DockPanel>
+
+    <Border DockPanel.Dock="Bottom" BorderThickness="0,1,0,0" BorderBrush="#20808080"
+            Padding="10,5">
+      <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+    </Border>
+
+    <Grid ColumnDefinitions="360,4,*">
+
+      <DockPanel Grid.Column="0" Margin="4">
+
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,4">
+          <TextBox Grid.Column="0" PlaceholderText="Search name, school or caster"
+                   Text="{Binding Search}" />
+          <ComboBox Grid.Column="1" Margin="4,0,0,0" MinWidth="110"
+                    ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="s:SpellSort">
+                <TextBlock Text="{Binding}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <ToggleButton Grid.Column="2" Margin="4,0,0,0" Content="▼"
+                        IsChecked="{Binding SortDescending}" ToolTip.Tip="Descending" />
+        </Grid>
+
+        <Button DockPanel.Dock="Bottom" Margin="0,4,0,0" HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="Compile every spell script"
+                Command="{Binding CompileAllCommand}" />
+
+        <ListBox ItemsSource="{Binding Spells}" SelectedItem="{Binding SelectedSpell}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="s:SpellEditorViewModel">
+              <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding Name}"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="•" FontWeight="Bold"
+                           IsVisible="{Binding IsDirty}" ToolTip.Tip="Edited" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Opacity="0.65"
+                           FontSize="11" TextTrimming="CharacterEllipsis">
+                  <TextBlock.Text>
+                    <MultiBinding StringFormat="{}{0} · level {1} · cost {2}">
+                      <Binding Path="SchoolId" />
+                      <Binding Path="Level" />
+                      <Binding Path="CastCost" />
+                    </MultiBinding>
+                  </TextBlock.Text>
+                </TextBlock>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <ScrollViewer Grid.Column="2" Margin="8,4">
+        <StackPanel DataContext="{Binding SelectedSpell}" x:DataType="s:SpellEditorViewModel">
+
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox Grid.Column="0" Text="{Binding Name}" FontSize="16" />
+            <Button Grid.Column="1" Margin="4,0,0,0" Content="Revert"
+                    IsEnabled="{Binding IsDirty}" Command="{Binding RevertCommand}" />
+          </Grid>
+
+          <TextBlock Classes="section" Text="Casting" />
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="School" />
+            <ComboBox MinWidth="200" IsEditable="True" Text="{Binding SchoolId}"
+                      ItemsSource="{Binding $parent[UserControl].((s:SpellDatabaseViewModel)DataContext).Schools}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Level" />
+            <TextBox Width="70" Text="{Binding Level}" />
+            <TextBlock Classes="caption" Text="Cast Price" Width="90" Margin="12,0,0,0" />
+            <TextBox Width="70" Text="{Binding CastCost}" />
+            <TextBlock Classes="caption" Text="Priority" Width="70" Margin="12,0,0,0" />
+            <TextBox Width="70" Text="{Binding CastPriority}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Casting Time" />
+            <TextBox Width="70" Text="{Binding CastingTime}" />
+            <ComboBox Margin="4,0,0,0" MinWidth="130"
+                      ItemsSource="{x:Static s:SpellChoices.CastingTimeType}"
+                      SelectedIndex="{Binding CastingTimeType}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Cast Message" />
+            <TextBox Width="320" Text="{Binding CastMessage}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Cast Sound" />
+            <TextBox Width="320" Text="{Binding CastSound}" />
+          </StackPanel>
+
+          <TextBlock Classes="section" Text="Targeting — range 0 means infinite" />
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Type" />
+            <ComboBox MinWidth="220" ItemsSource="{x:Static s:SpellChoices.Targeting}"
+                      SelectedIndex="{Binding Targeting}" />
+          </StackPanel>
+
+          <!--
+            The five parameters have no fixed meaning: the targeting type relabels them all. An
+            unused one is greyed rather than hidden, as the reference does, so the value that is
+            still stored in it stays visible.
+          -->
+          <ItemsControl ItemsSource="{Binding Parameters}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:SpellDiceViewModel">
+                <StackPanel Orientation="Horizontal" Margin="0,2">
+                  <TextBlock Classes="caption" Text="{Binding Label}" />
+                  <TextBox Width="220" Text="{Binding Text}"
+                           IsEnabled="{Binding IsUsed}" IsReadOnly="{Binding !IsEditable}" />
+                  <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Opacity="0.65"
+                             FontSize="11" Text="{Binding LegacyValue}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Can Target Friend" />
+            <CheckBox IsChecked="{Binding CanTargetFriend}" />
+            <TextBlock Classes="caption" Text="Can Target Enemy" Width="140" />
+            <CheckBox IsChecked="{Binding CanTargetEnemy}" />
+          </StackPanel>
+
+          <TextBlock Classes="section" Text="Saving throw" />
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Save Result" />
+            <ComboBox MinWidth="200" ItemsSource="{x:Static s:SpellChoices.SaveResult}"
+                      SelectedIndex="{Binding SaveResult}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Save Vs." IsEnabled="{Binding IsSaveVersusUsed}" />
+            <ComboBox MinWidth="260" IsEnabled="{Binding IsSaveVersusUsed}"
+                      ItemsSource="{x:Static s:SpellChoices.SaveVersus}"
+                      SelectedIndex="{Binding SaveVersus}" />
+          </StackPanel>
+
+          <TextBlock Classes="section" Text="Duration" />
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Duration Rate" />
+            <ComboBox MinWidth="200" ItemsSource="{x:Static s:SpellChoices.DurationRate}"
+                      SelectedIndex="{Binding DurationRate}" />
+          </StackPanel>
+
+          <StackPanel Classes="row" IsVisible="{Binding EffectDuration, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <TextBlock Classes="caption" Text="On target (rounds)" />
+            <TextBox Width="220" Text="{Binding EffectDuration.Text}"
+                     IsReadOnly="{Binding !EffectDuration.IsEditable}"
+                     PlaceholderText="if blank, uses Duration" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Lingers on map"
+                       IsEnabled="{Binding IsLingerAvailable}" />
+            <CheckBox IsChecked="{Binding Lingers}" IsEnabled="{Binding IsLingerAvailable}" />
+            <TextBlock Classes="caption" Text="Affects target once" Width="150"
+                       IsEnabled="{Binding Lingers}" />
+            <CheckBox IsChecked="{Binding LingerOnceOnly}" IsEnabled="{Binding Lingers}" />
+          </StackPanel>
+
+          <TextBlock Classes="section" Text="Where allowed, and how" />
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="In Camp" />
+            <CheckBox IsChecked="{Binding AllowedInCamp}"
+                      ToolTip.Tip="Cleared automatically when the spell lingers on the map." />
+            <TextBlock Classes="caption" Text="In Combat" Width="110" />
+            <CheckBox IsChecked="{Binding AllowedInCombat}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Can Be Dispelled" />
+            <CheckBox IsChecked="{Binding CanBeDispelled}" />
+            <TextBlock Classes="caption" Text="Cumulative" Width="110" />
+            <CheckBox IsChecked="{Binding IsCumulative}" />
+          </StackPanel>
+
+          <StackPanel Classes="row">
+            <TextBlock Classes="caption" Text="Players can memorize" />
+            <CheckBox IsChecked="{Binding CanMemorize}" />
+            <TextBlock Classes="caption" Text="Allow scribing" Width="110" />
+            <CheckBox IsChecked="{Binding AllowScribe}" />
+            <TextBlock Classes="caption" Text="Auto scribe" Width="90" />
+            <CheckBox IsChecked="{Binding AutoScribe}" />
+          </StackPanel>
+
+          <TextBlock Classes="section" Text="Casters" />
+
+          <ItemsControl ItemsSource="{Binding Baseclasses}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:BaseclassChoiceViewModel">
+                <CheckBox Margin="0,0,12,0" Content="{Binding Name}"
+                          IsChecked="{Binding IsAllowed}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Classes="section" Text="Scripts" />
+
+          <Button Content="Compile every script on this spell"
+                  Command="{Binding CompileAllScriptsCommand}" />
+
+          <Grid ColumnDefinitions="260,*" Height="300" Margin="0,4,0,0">
+            <ListBox Grid.Column="0" ItemsSource="{Binding Scripts}"
+                     SelectedItem="{Binding SelectedScript}">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="s:SpellScriptViewModel">
+                  <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+
+            <DockPanel Grid.Column="1" Margin="4,0,0,0"
+                       DataContext="{Binding SelectedScript}" x:DataType="s:SpellScriptViewModel">
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,4">
+                <Button Content="Test Syntax" Command="{Binding CompileCommand}" />
+                <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold"
+                           Text="Compiles" IsVisible="{Binding Diagnostics.Succeeded}" />
+              </StackPanel>
+              <TextBox DockPanel.Dock="Bottom" MaxHeight="90" IsReadOnly="True"
+                       AcceptsReturn="True" TextWrapping="Wrap"
+                       IsVisible="{Binding HasCompiled}"
+                       Text="{Binding Diagnostics.Summary}" />
+              <TextBox AcceptsReturn="True" AcceptsTab="True" FontFamily="monospace"
+                       TextWrapping="NoWrap" Text="{Binding Source}" />
+            </DockPanel>
+          </Grid>
+
+          <TextBlock Classes="section" Text="Affected attributes" />
+
+          <ItemsControl ItemsSource="{Binding Effects}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:SpellEffectViewModel">
+                <Grid ColumnDefinitions="200,160,70,*" Margin="0,1">
+                  <TextBlock Grid.Column="0" Text="{Binding Affected}"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="1" Text="{Binding ChangeBy}"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="2" Text="{Binding Cumulative}" />
+                  <TextBlock Grid.Column="3" Text="{Binding Activation}" Opacity="0.7"
+                             TextTrimming="CharacterEllipsis" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Classes="section" Text="Art and sound" />
+
+          <ItemsControl ItemsSource="{Binding Art}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:SpellArtViewModel">
+                <StackPanel Orientation="Horizontal" Margin="0,1">
+                  <TextBlock Classes="caption" Text="{Binding Label}" Width="90" />
+                  <TextBlock Width="220" Text="{Binding FileName}"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Opacity="0.65" FontSize="11" Text="{Binding Detail}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <ItemsControl ItemsSource="{Binding Sounds}" Margin="0,4,0,0">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:SpellSoundViewModel">
+                <StackPanel Orientation="Horizontal" Margin="0,1">
+                  <TextBlock Classes="caption" Text="{Binding Label}" Width="90" />
+                  <TextBox Width="260" Text="{Binding FileName}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Classes="section" Text="Special abilities carried" />
+
+          <ItemsControl ItemsSource="{Binding SpecialAbilities}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Text="{Binding}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock Classes="section" Text="Attributes" />
+
+          <ItemsControl ItemsSource="{Binding Attributes}" Margin="0,0,0,16">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="ser:AslEntry">
+                <StackPanel Orientation="Horizontal" Margin="0,1">
+                  <TextBlock Width="200" Text="{Binding Key}"
+                             TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Value}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+        </StackPanel>
+      </ScrollViewer>
+
+    </Grid>
+
+  </DockPanel>
+
+</UserControl>

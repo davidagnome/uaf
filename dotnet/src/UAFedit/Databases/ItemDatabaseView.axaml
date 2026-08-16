@@ -1,0 +1,374 @@
+<!--
+  Database > Edit Items… — the Avalonia replacement for IDD_ITEMEDITOR (the record list) and
+  IDD_ITEMDB (the detail form), which were two modal dialogs, plus IDD_MAGICALITEMPROPERTIES,
+  which was a third one nested inside the second.
+
+  Merging them is the point. The original's "Magical Props" button copied ITEM_DATA into a
+  sub-dialog WITHOUT first flushing the parent's controls, so an edit made in the parent was
+  invisible to the child and was then written back over the child's value at final OK
+  (ItemDBDlg.cpp:515). A single form has no such seam.
+
+  Everything the record carries as a scalar or a string is editable here. The nested blocks —
+  special abilities and the ITEM_DATA_ATTRIBUTES list — are shown read-only and passed through,
+  which is already more than IDD_ITEMDB offered: it had no control for item_asl at all.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:db="using:UAFedit.Databases"
+             x:Class="UAFedit.Databases.ItemDatabaseView"
+             x:DataType="db:ItemDatabaseViewModel">
+
+  <UserControl.Styles>
+    <StyleInclude Source="avares://UAFedit/Databases/DatabaseStyles.axaml" />
+  </UserControl.Styles>
+
+  <DockPanel>
+
+    <Border DockPanel.Dock="Top" Padding="8,6" BorderThickness="0,0,0,1" BorderBrush="#20808080">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Classes="readonlyValue"
+                   Text="{Binding DirtyCount, StringFormat='{}{0} edited'}" />
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Content="Add" Command="{Binding AddCommand}" />
+          <Button Content="Duplicate" Command="{Binding DuplicateCommand}" />
+          <Button Content="Delete" Command="{Binding DeleteCommand}" />
+          <Button Content="Revert" Command="{Binding RevertSelectedCommand}" />
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="300,4,*">
+
+      <DockPanel Grid.Column="0" Margin="8">
+
+        <TextBox DockPanel.Dock="Top" PlaceholderText="Search name or display name"
+                 Text="{Binding Search}" Margin="0,0,0,6" />
+
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+          <ToggleButton DockPanel.Dock="Right" Content="↓" Margin="6,0,0,0"
+                        ToolTip.Tip="Reverse the order"
+                        IsChecked="{Binding SortDescending}" />
+          <ComboBox HorizontalAlignment="Stretch"
+                    ItemsSource="{Binding Sorts}" SelectedItem="{Binding Sort}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="db:RecordSort">
+                <TextBlock Text="{Binding Label}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </DockPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" Classes="warning" Margin="0,6,0,0"
+                   IsVisible="{Binding HasDuplicateNames}"
+                   Text="{Binding DuplicateNameSummary}" />
+
+        <ListBox ItemsSource="{Binding Visible}" SelectedItem="{Binding Selected}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="db:ItemEditorViewModel">
+              <DockPanel>
+                <Ellipse Classes="dirty" IsVisible="{Binding IsDirty}" />
+                <StackPanel>
+                  <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Subtitle}" Classes="readonlyValue" FontSize="11"
+                             IsVisible="{Binding HasSubtitle}" />
+                </StackPanel>
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+      </DockPanel>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <ScrollViewer Grid.Column="2" Padding="10,8">
+        <ContentControl Content="{Binding Selected}">
+          <ContentControl.ContentTemplate>
+            <DataTemplate x:DataType="db:ItemEditorViewModel">
+              <Grid ColumnDefinitions="*,*">
+
+                <StackPanel Grid.Column="0">
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Identity" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Name (id)" />
+                        <TextBox Text="{Binding UniqueName}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Display name" />
+                        <TextBox Text="{Binding IdName}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Spell cast on USE" />
+                        <TextBox Text="{Binding SpellId}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="The name is the id every event and script resolves. Renaming it breaks them; the display name is free to collide." />
+                      <DockPanel Classes="row" IsVisible="{Binding HasLegacySpellKey}">
+                        <TextBlock Classes="label" Text="Legacy spell key" />
+                        <TextBlock Classes="readonlyValue" Text="{Binding PreSpellNameKey}" />
+                      </DockPanel>
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Economy" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Cost" />
+                        <TextBox Text="{Binding Cost}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Encumbrance" />
+                        <TextBox Text="{Binding Encumbrance}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Experience" />
+                        <TextBox Text="{Binding Experience}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Bundle quantity" />
+                        <TextBox Text="{Binding BundleQty}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="Cost and encumbrance are per BUNDLE, not per item: the engine divides encumbrance by the bundle quantity and a purchase hands over the whole bundle for one cost." />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Charges" />
+                        <TextBox Text="{Binding NumCharges}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Recharge" />
+                        <ComboBox HorizontalAlignment="Stretch"
+                                  ItemsSource="{Binding RechargeChoices}"
+                                  SelectedItem="{Binding RechargeChoice}">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="db:IntChoice">
+                              <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </DockPanel>
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Readying" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Location readied" />
+                        <ComboBox HorizontalAlignment="Stretch"
+                                  ItemsSource="{Binding SlotChoices}"
+                                  SelectedItem="{Binding SlotChoiceValue}">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="db:SlotChoice">
+                              <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Hands needed" />
+                        <ComboBox HorizontalAlignment="Stretch"
+                                  ItemsSource="{Binding HandChoices}"
+                                  SelectedItem="{Binding HandsChoice}">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="db:IntChoice">
+                              <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="The MFC dialog recomputed hands from the slot on every save — weapon hand 1 or 2, shield hand 1, everything else 0 — and discarded what you chose. Here the field is yours." />
+                      <CheckBox Content="Cursed — cannot be removed once readied"
+                                IsChecked="{Binding IsCursed}" />
+                      <CheckBox Content="Can be halved or joined"
+                                IsChecked="{Binding CanBeHalvedJoined}" />
+                      <TextBlock Classes="warning" IsVisible="{Binding !IsHalveJoinEffective}"
+                                 Text="Halve and Join also require a bundle quantity above 1, so this flag currently does nothing." />
+                      <CheckBox Content="Can be traded, dropped, sold or deposited"
+                                IsChecked="{Binding CanBeTradeDropSoldDep}" />
+                      <CheckBox Content="Usable" IsChecked="{Binding IsUsable}" />
+                      <CheckBox Content="Scribable into a spell book"
+                                IsChecked="{Binding IsScribable}" />
+                      <CheckBox Content="Not magical (blocks identification)"
+                                IsChecked="{Binding IsNotMagical}" />
+                      <TextBlock Classes="hint" IsVisible="{Binding HasOtherUsageFlags}"
+                                 Text="{Binding OtherUsageFlagsSummary}" />
+                    </StackPanel>
+                  </Border>
+
+                </StackPanel>
+
+                <StackPanel Grid.Column="1">
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Weapon" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Weapon type" />
+                        <ComboBox HorizontalAlignment="Stretch"
+                                  ItemsSource="{Binding WeaponTypeChoices}"
+                                  SelectedItem="{Binding WeaponTypeChoice}">
+                          <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="db:IntChoice">
+                              <TextBlock Text="{Binding Label}" />
+                            </DataTemplate>
+                          </ComboBox.ItemTemplate>
+                        </ComboBox>
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Ammo type" />
+                        <TextBox Text="{Binding AmmoType}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="Matched between launcher and ammunition by exact string comparison, so a typo is silent: the bow simply never finds an arrow." />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Range" />
+                        <TextBox Text="{Binding RangeMax}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Rate of fire / round" />
+                        <TextBox Text="{Binding RofPerRound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Attack bonus" />
+                        <TextBox Text="{Binding AttackBonus}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Attack message" />
+                        <TextBox Text="{Binding AttackMessage}" />
+                      </DockPanel>
+                      <TextBlock Classes="warning" IsVisible="{Binding HasOverlongAttackMessage}"
+                                 Text="Longer than the 20 characters the reference's dialog allowed." />
+                      <CheckBox Content="Non-lethal" IsChecked="{Binding IsNonLethal}" />
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Damage and protection" />
+                      <TextBlock Classes="hint"
+                                 Text="Sides is Dmg_Dice and Nbr is Nbr_Dice — the opposite of what the field names suggest. 1 die of 6 sides is Nbr 1, Sides 6." />
+                      <Grid ColumnDefinitions="Auto,*,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="vs Small" Margin="4,0"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="vs Large" Margin="4,0"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Sides" Margin="0,0,8,0"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Margin="4,2"
+                                 Text="{Binding DmgDiceSm}" />
+                        <TextBox Grid.Row="1" Grid.Column="2" Margin="4,2"
+                                 Text="{Binding DmgDiceLg}" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Nbr" Margin="0,0,8,0"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Margin="4,2"
+                                 Text="{Binding NbrDiceSm}" />
+                        <TextBox Grid.Row="2" Grid.Column="2" Margin="4,2"
+                                 Text="{Binding NbrDiceLg}" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Bonus" Margin="0,0,8,0"
+                                   VerticalAlignment="Center" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Margin="4,2"
+                                 Text="{Binding DmgBonusSm}" />
+                        <TextBox Grid.Row="3" Grid.Column="2" Margin="4,2"
+                                 Text="{Binding DmgBonusLg}" />
+                      </Grid>
+                      <DockPanel Classes="row" Margin="0,8,0,2">
+                        <TextBlock Classes="label" Text="Protection base" />
+                        <TextBox Text="{Binding ProtectionBase}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Protection bonus" />
+                        <TextBox Text="{Binding ProtectionBonus}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint" Text="Armour class is 10 plus the protection base." />
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Can ready (baseclasses)" />
+                      <TextBlock Classes="hint" IsVisible="{Binding UsableByAnyBaseclass}"
+                                 Text="Nothing ticked means EVERY baseclass may ready it. An empty list is the encoding for 'any', not for 'none'." />
+                      <ItemsControl ItemsSource="{Binding Baseclasses}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="db:SelectableId">
+                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}" />
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                      <TextBlock Classes="hint" IsVisible="{Binding HasLegacyUsability}"
+                                 Text="{Binding LegacyUsabilitySummary}" />
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Events, sound and art" />
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Use event" />
+                        <TextBox Text="{Binding UseEvent}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Examine event" />
+                        <TextBox Text="{Binding ExamineEvent}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Examine label" />
+                        <TextBox Text="{Binding ExamineLabel}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Hit sound" />
+                        <TextBox Text="{Binding HitSound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Miss sound" />
+                        <TextBox Text="{Binding MissSound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Launch sound" />
+                        <TextBox Text="{Binding LaunchSound}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Hit sprite" />
+                        <TextBox Text="{Binding HitArtFileName}" IsEnabled="{Binding HasHitArt}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Missile sprite" />
+                        <TextBox Text="{Binding MissileArtFileName}" IsEnabled="{Binding HasMissileArt}" />
+                      </DockPanel>
+                      <DockPanel Classes="row">
+                        <TextBlock Classes="label" Text="Hit sprite (tail)" />
+                        <TextBox Text="{Binding TailHitArtFileName}" IsEnabled="{Binding HasTailHitArt}" />
+                      </DockPanel>
+                      <TextBlock Classes="hint"
+                                 Text="ITEM_DATA stores HitArt twice — once beside the missile art and once again near the end of the record. They are separate storage and shipped designs do not always agree on them. A record with no art keeps none: only the file name is editable." />
+                    </StackPanel>
+                  </Border>
+
+                  <Border Classes="group">
+                    <StackPanel>
+                      <TextBlock Classes="groupHeader" Text="Carried through unchanged" />
+                      <SelectableTextBlock Classes="readonlyValue"
+                                           Text="{Binding CarriedThroughText}" />
+                      <TextBlock Classes="hint"
+                                 Text="Special abilities and the ITEM_DATA_ATTRIBUTES list survive an edit byte for byte. IDD_ITEMDB had no control for the attribute list at all — it was reachable only through items.txt." />
+                    </StackPanel>
+                  </Border>
+
+                </StackPanel>
+
+              </Grid>
+            </DataTemplate>
+          </ContentControl.ContentTemplate>
+        </ContentControl>
+      </ScrollViewer>
+
+    </Grid>
+
+  </DockPanel>
+
+</UserControl>
