@@ -41,6 +41,17 @@ public abstract partial class EditableViewModel : ObservableObject
     /// <summary>Declares the current values to be the unedited ones.</summary>
     protected void ResetDirty() => IsDirty = false;
 
+    /// <summary>
+    /// Declares the current values saved, so <see cref="IsDirty"/> reads false again.
+    /// </summary>
+    /// <remarks>
+    /// The same thing as <see cref="ResetDirty"/> and public, because the caller that knows a save
+    /// succeeded is never the record itself. It must be called <b>after</b> the write, not before:
+    /// the writers refuse shapes they cannot reproduce, and a record marked clean by a save that
+    /// then threw is an edit the user has lost without being told.
+    /// </remarks>
+    public void AcceptChanges() => ResetDirty();
+
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);

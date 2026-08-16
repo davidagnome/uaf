@@ -417,21 +417,6 @@ public static class DesignFiles
     /// <c>CharacterFileWriter</c> makes at length, and the reason no shipped design can come back
     /// byte-identical.
     /// </remarks>
-    private static byte[] WholeFile(DesignVersion stamp, Action<IArchiveWriteCursor> write)
-    {
-        var output = new MemoryStream();
-        var plain = new MfcArchiveWriter(output);
-
-        Span<byte> magic = stackalloc byte[8];
-        BinaryPrimitives.WriteUInt64LittleEndian(magic, DesignFileHeader.Magic);
-        plain.WriteBytes(magic);
-        plain.WriteDouble(stamp.Value);
-
-        using (var car = CarArchiveWriter.Open(output))
-        {
-            write(ArchiveWriteCursor.For(car));
-        }
-
-        return output.ToArray();
-    }
+    private static byte[] WholeFile(DesignVersion stamp, Action<IArchiveWriteCursor> write) =>
+        DesignFileWriter.ToBytes(stamp, write);
 }

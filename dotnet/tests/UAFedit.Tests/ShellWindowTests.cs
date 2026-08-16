@@ -108,7 +108,12 @@ public class ShellWindowTests
             var menu = Assert.Single(window.GetVisualDescendants().OfType<Menu>());
             var file = Assert.Single(menu.Items.OfType<MenuItem>());
             Assert.Equal("_File", file.Header);
-            Assert.Equal(3, file.Items.Count);       // Open, separator, Exit
+            Assert.Equal(4, file.Items.Count);       // Open, Save, separator, Exit
+
+            // Save is disabled until something is edited, so it cannot be pressed on a shell with
+            // no design in it.
+            var save = file.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "_Save"));
+            Assert.False(save.IsEnabled);
 
             // Nothing is open yet, so the tree has no roots to show.
             var tree = Assert.Single(window.GetVisualDescendants().OfType<TreeView>());

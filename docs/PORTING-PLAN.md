@@ -8361,9 +8361,32 @@ round-trip gate exist.
 **Status at 2026-08-16.** The six editors exist and are wired into the shell as tabs beside the
 inspector: the Level menu, the event editor, and the item, monster, spell and special-ability
 database editors. The five missing database writers exist, so every file a design carries can now
-be written. What does **not** exist: **File > Save** — no editor pane writes anything to disk, and
-`LoadedDesign` has no save path — and the cross-reference tooling. Saving is the exit criterion, so
-that is the next item and the only one between here and the gate.
+be written.
+
+**File > Save exists and works for three databases** — `items.dat`, `monsters.dat`, `spells.dat`.
+`DesignSaver` writes them, and a test opens `SomethingWild`, renames an item, saves, and finds the
+new name after a completely fresh read of the folder. That is the exit criterion's loop, minus the
+confirmation from `UAFWinEd.exe`. Still not saved: **levels and `game.dat`** (the Level and event
+panes are read-only so far) and **`specialAbilities.txt`**, which is a text format with no writer
+at all — `SpecialAbilitiesFile` parses and does not emit. Cross-reference tooling does not exist.
+
+> **A design that was only opened must save nothing, and that is asserted.** The writers refuse
+> records below 0.998101 rather than guessing and save the ones they accept at 5.24, so writing
+> untouched databases would either refuse a legacy design the user merely looked at, or silently
+> upgrade files they never opened. Only a pane reading `IsDirty` is written.
+
+> **The whole file is built in memory before the destination is touched.** A writer's refusal is
+> thrown from the middle of the write, so building first means a refusal costs nothing — the file
+> on disk has not been opened, let alone truncated. What lands then goes through a staging file
+> beside the target and one `File.Move`. The reference overwrites in place and has no such
+> protection; a design is somebody's work.
+
+> **Panes accept their changes only after the write succeeds.** A record marked clean by a save
+> that then threw is an edit the user has lost without being told.
+
+> **Tests copy the design before touching it.** `reference/` is the only ground truth this port
+> has, and a save test that wrote into it would destroy that on its first run — silently, because
+> the round trip would go on passing against the mangled copy.
 
 > **The panes are built lazily and that is load-bearing, not tidiness.** `LevelsViewModel` reads
 > every `.lvl` in the design for its extent and counts, and `EventEditorViewModel` reads them all

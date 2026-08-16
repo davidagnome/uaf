@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using UAFcore;
@@ -169,13 +170,13 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
                     EventsPane ??= new EventEditorViewModel(open);
                     break;
                 case EditorPane.Items:
-                    ItemsPane ??= new ItemDatabaseViewModel(open);
+                    ItemsPane ??= Watch(new ItemDatabaseViewModel(open));
                     break;
                 case EditorPane.Monsters:
-                    MonstersPane ??= new MonsterDatabaseViewModel(open);
+                    MonstersPane ??= Watch(new MonsterDatabaseViewModel(open));
                     break;
                 case EditorPane.Spells:
-                    SpellsPane ??= new SpellDatabaseViewModel(open);
+                    SpellsPane ??= Watch(new SpellDatabaseViewModel(open));
                     break;
                 case EditorPane.Abilities:
                     AbilitiesPane ??= new SpecialAbilityDatabaseViewModel(open);
@@ -192,9 +193,38 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Subscribes to a savable pane so <see cref="IsDirty"/> follows it.
+    /// </summary>
+    /// <remarks>
+    /// Without this the File &gt; Save item would only re-evaluate when something else happened to
+    /// raise a property — so the first edit in a pane would not enable it.
+    /// </remarks>
+    private T Watch<T>(T pane) where T : INotifyPropertyChanged
+    {
+        pane.PropertyChanged += OnPaneChanged;
+        return pane;
+    }
+
+    private void OnPaneChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IsDirty))
+        {
+            OnPropertyChanged(nameof(IsDirty));
+        }
+    }
+
     /// <summary>Drops every built pane, disposing the ones that hold anything.</summary>
     private void ClosePanes()
     {
+        foreach (var pane in new INotifyPropertyChanged?[] { ItemsPane, MonstersPane, SpellsPane })
+        {
+            if (pane is not null)
+            {
+                pane.PropertyChanged -= OnPaneChanged;
+            }
+        }
+
         (SpellsPane as IDisposable)?.Dispose();
         (AbilitiesPane as IDisposable)?.Dispose();
 
@@ -204,6 +234,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         MonstersPane = null;
         SpellsPane = null;
         AbilitiesPane = null;
+
+        OnPropertyChanged(nameof(IsDirty));
     }
 
     /// <summary>
@@ -269,6 +301,86 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(Title));
         return true;
     }
+
+    /// <summary>Whether any built pane holds an edit that is not on disk.</summary>
+    public bool IsDirty =>
+        (ItemsPane?.IsDirty ?? false)
+        || (MonstersPane?.IsDirty ?? false)
+        || (SpellsPane?.IsDirty ?? false);
+
+    /// <summary>
+    /// Writes every pane that has been edited back to the design folder.
+    /// </summary>
+    /// <returns>What happened, for the status line.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Only a pane that was edited is written.</b> Not an optimisation: the writers refuse
+    /// records below 0.998101 rather than guessing at them, so writing an untouched database would
+    /// turn opening a legacy design and changing nothing into a refusal — or, worse on a design
+    /// they accept, silently upgrade files the user never opened.
+    /// </para>
+    /// <para>
+    /// <b>Each file is written on its own and a failure stops the rest.</b> The alternative —
+    /// carrying on after one refusal — leaves the design half upgraded, which is the state hardest
+    /// to reason about afterwards. What has already been written stays written; each file is
+    /// individually complete, because <see cref="DesignSaver"/> stages every one of them.
+    /// </para>
+    /// <para>
+    /// Panes accept their changes only once their file is safely in place, so a refusal leaves the
+    /// editor still holding the edit and still reading as dirty.
+    /// </para>
+    /// </remarks>
+    public string Save()
+    {
+        if (design is not { } open)
+        {
+            return "No design is open.";
+        }
+
+        var written = new List<string>();
+
+        try
+        {
+            if (ItemsPane is { IsDirty: true } items)
+            {
+                DesignSaver.SaveItems(open.Root, items.Database);
+                items.AcceptChanges();
+                written.Add("items.dat");
+            }
+
+            if (MonstersPane is { IsDirty: true } monsters)
+            {
+                DesignSaver.SaveMonsters(open.Root, monsters.Records);
+                monsters.AcceptChanges();
+                written.Add("monsters.dat");
+            }
+
+            if (SpellsPane is { IsDirty: true } spells)
+            {
+                DesignSaver.SaveSpells(open.Root, spells.EditedSpells);
+                spells.AcceptChanges();
+                written.Add("spells.dat");
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                                    or NotSupportedException or InvalidDataException
+                                    or InvalidOperationException or ArgumentException)
+        {
+            OnPropertyChanged(nameof(IsDirty));
+            return written.Count == 0
+                ? $"Nothing was saved: {e.Message}"
+                : $"Saved {string.Join(", ", written)}, then stopped: {e.Message}";
+        }
+
+        OnPropertyChanged(nameof(IsDirty));
+
+        return written.Count == 0
+            ? "Nothing has changed."
+            : $"Saved {string.Join(", ", written)}.";
+    }
+
+    [RelayCommand]
+    private void SaveDesign() => Status = Save();
 
     [RelayCommand]
     private async Task OpenDesignAsync()

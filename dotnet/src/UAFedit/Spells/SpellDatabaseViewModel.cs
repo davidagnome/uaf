@@ -142,6 +142,24 @@ public sealed partial class SpellDatabaseViewModel : ObservableObject, IDisposab
     /// <summary>Just the spells that were touched.</summary>
     public IReadOnlyList<SpellEditorViewModel> Edited => [.. all.Where(s => s.IsDirty)];
 
+    /// <summary>
+    /// Declares every spell saved, so the database reads clean again.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that has just written <c>spells.dat</c>. Clearing each spell's own flag is
+    /// what makes <see cref="Edited"/> empty afterwards — setting only the database's flag would
+    /// leave every spell still claiming to be unsaved.
+    /// </remarks>
+    public void AcceptChanges()
+    {
+        foreach (var spell in all)
+        {
+            spell.AcceptChanges();
+        }
+
+        IsDirty = false;
+    }
+
     partial void OnSearchChanged(string value)
     {
         _ = value;
