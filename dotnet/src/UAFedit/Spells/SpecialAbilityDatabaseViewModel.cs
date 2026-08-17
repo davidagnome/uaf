@@ -106,6 +106,24 @@ public sealed partial class SpecialAbilityDatabaseViewModel : ObservableObject, 
     /// <summary>Just the abilities that were touched.</summary>
     public IReadOnlyList<SpecialAbilityEditorViewModel> Edited => [.. all.Where(a => a.IsDirty)];
 
+    /// <summary>
+    /// Declares every ability saved, so the database reads clean again.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that has just written <c>specialAbilities.txt</c>. Each ability's own flag is
+    /// cleared too, so <see cref="Edited"/> is empty afterwards rather than still listing
+    /// everything that was written.
+    /// </remarks>
+    public void AcceptChanges()
+    {
+        foreach (var ability in all)
+        {
+            ability.AcceptChanges();
+        }
+
+        IsDirty = false;
+    }
+
     partial void OnSearchChanged(string value)
     {
         _ = value;

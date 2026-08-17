@@ -1,3 +1,4 @@
+using UAF.Data;
 using UAF.Serialization;
 
 namespace UAFcore;
@@ -69,6 +70,59 @@ public static class DesignSaver
             stream => DesignFileWriter.Write(
                 stream, SpellRecordWriter.WrittenVersion,
                 ar => SpellRecordWriter.WriteDatabase(ar, spells)));
+    }
+
+    /// <summary>
+    /// Writes <c>specialAbilities.txt</c> — the design's GPDL scripts.
+    /// </summary>
+    /// <remarks>
+    /// <b>The <c>.txt</c>, not the <c>.dat</c>.</b> A design has both and they are different
+    /// formats: <c>LoadedDesign.SpecialAbilities</c> reads this one, which is the line-oriented
+    /// object file the scripts actually live in, while <c>specialAbilities.dat</c> is a binary
+    /// database with a writer of its own. Nothing in the editor edits the binary one.
+    /// </remarks>
+    public static void SaveSpecialAbilities(string root, IReadOnlyList<SpecialAbility> abilities)
+    {
+        ArgumentNullException.ThrowIfNull(abilities);
+
+        WriteAtomically(
+            Path.Combine(DataDirectory(root), "specialAbilities.txt"),
+            stream =>
+            {
+                // CRLF, matching what the reference writes and what the continuation join already
+                // puts inside a multi-line value. Left open: the caller owns the stream.
+                var writer = new StreamWriter(stream, leaveOpen: true) { NewLine = "\r\n" };
+
+                foreach (string line in SpecialAbilitiesFile.Format(abilities))
+                {
+                    writer.WriteLine(line);
+                }
+
+                writer.Flush();
+            });
+    }
+
+    /// <summary>
+    /// Writes one <c>.lvl</c> file.
+    /// </summary>
+    /// <param name="fileName">
+    /// The level's file name as the design lists it — a level's number is not its position, so the
+    /// name has to be carried rather than derived. <c>Case.dsn</c>'s tenth file is
+    /// <c>Level255.lvl</c>.
+    /// </param>
+    /// <remarks>
+    /// <b>Level files carry their own framing and are never compressed</b>, even in a design whose
+    /// databases are: the compression decision is per file kind, so this does not go through
+    /// <c>DesignFileWriter</c>.
+    /// </remarks>
+    public static void SaveLevel(string root, string fileName, LevelFile level)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+
+        WriteAtomically(
+            Path.Combine(DataDirectory(root), Path.GetFileName(fileName)),
+            stream => LevelFileWriter.WriteFile(stream, level));
     }
 
     /// <summary>

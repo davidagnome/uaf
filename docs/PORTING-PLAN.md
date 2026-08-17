@@ -8363,12 +8363,12 @@ inspector: the Level menu, the event editor, and the item, monster, spell and sp
 database editors. The five missing database writers exist, so every file a design carries can now
 be written.
 
-**File > Save exists and works for three databases** — `items.dat`, `monsters.dat`, `spells.dat`.
-`DesignSaver` writes them, and a test opens `SomethingWild`, renames an item, saves, and finds the
-new name after a completely fresh read of the folder. That is the exit criterion's loop, minus the
-confirmation from `UAFWinEd.exe`. Still not saved: **levels and `game.dat`** (the Level and event
-panes are read-only so far) and **`specialAbilities.txt`**, which is a text format with no writer
-at all — `SpecialAbilitiesFile` parses and does not emit. Cross-reference tooling does not exist.
+**File > Save exists and covers every pane that edits anything** — `items.dat`, `monsters.dat`,
+`spells.dat`, `specialAbilities.txt`, and a `.lvl` per level whose events were touched.
+`DesignSaver` writes them, and for each there is a test that opens `SomethingWild`, edits, saves,
+and finds the change after a completely fresh read of the folder. That is the exit criterion's
+loop, minus the confirmation from `UAFWinEd.exe`. **`game.dat` is the one file still not written**,
+because no pane edits it. Cross-reference tooling does not exist.
 
 > **A design that was only opened must save nothing, and that is asserted.** The writers refuse
 > records below 0.998101 rather than guessing and save the ones they accept at 5.24, so writing
@@ -8387,6 +8387,28 @@ at all — `SpecialAbilitiesFile` parses and does not emit. Cross-reference tool
 > **Tests copy the design before touching it.** `reference/` is the only ground truth this port
 > has, and a save test that wrote into it would destroy that on its first run — silently, because
 > the round trip would go on passing against the mangled copy.
+
+> **The event editor was losing an edit the moment the user picked another level, and saving would
+> have made that much worse.** It shows one level at a time and re-reads on every switch, so before
+> the stash existed, editing level 1 and then looking at level 2 discarded level 1 — invisibly, and
+> then visibly at the next save, which would have written level 2 and dropped the other while
+> reporting success. `EventEditorViewModel` now keeps an edited level when the user moves off it
+> and serves it back from the stash rather than the file.
+
+> **`specialAbilities.txt` now has a writer, and one thing about it is not obvious.** A
+> continuation line is prefixed with `-` and the reader strips exactly one — so a value line that
+> *itself* begins with a dash is written with two and reads back correctly. `Case.dsn` has one:
+> `<DexInit>`, an integer table with a negative number on a later line. Refusing that shape, which
+> is what the writer did first, made the corpus round trip fail on a file the reference reads
+> happily. What genuinely cannot survive is a key containing `=`, since the reader splits on the
+> first one; that throws. And a value's leading and trailing whitespace is trimmed by the reader,
+> so a script saved with a final newline comes back without it — the reference's behaviour, and
+> idempotent, so it costs a design nothing after the first read.
+
+> **The claim for the text file is a round trip through the model, not a rewrite of the file.**
+> Comments, blank lines and the original spacing are not carried in `SpecialAbility`. What is
+> asserted, over all three real files and the 1,131 abilities in them, is that reading the output
+> gives back exactly the abilities that went in, and that a second write produces identical text.
 
 > **The panes are built lazily and that is load-bearing, not tidiness.** `LevelsViewModel` reads
 > every `.lvl` in the design for its extent and counts, and `EventEditorViewModel` reads them all

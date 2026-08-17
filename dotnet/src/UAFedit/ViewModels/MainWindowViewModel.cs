@@ -167,7 +167,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
                     LevelsPane ??= new LevelsViewModel(open);
                     break;
                 case EditorPane.Events:
-                    EventsPane ??= new EventEditorViewModel(open);
+                    EventsPane ??= Watch(new EventEditorViewModel(open));
                     break;
                 case EditorPane.Items:
                     ItemsPane ??= Watch(new ItemDatabaseViewModel(open));
@@ -179,7 +179,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
                     SpellsPane ??= Watch(new SpellDatabaseViewModel(open));
                     break;
                 case EditorPane.Abilities:
-                    AbilitiesPane ??= new SpecialAbilityDatabaseViewModel(open);
+                    AbilitiesPane ??= Watch(new SpecialAbilityDatabaseViewModel(open));
                     break;
                 default:
                     break;
@@ -208,7 +208,10 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
 
     private void OnPaneChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(IsDirty))
+        // The database panes raise IsDirty; the event pane raises both that and the level-level
+        // flag, because a stashed level is unsaved work even when the open one is clean.
+        if (e.PropertyName is nameof(IsDirty)
+                           or nameof(EventEditorViewModel.HasUnsavedLevels))
         {
             OnPropertyChanged(nameof(IsDirty));
         }
@@ -217,7 +220,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     /// <summary>Drops every built pane, disposing the ones that hold anything.</summary>
     private void ClosePanes()
     {
-        foreach (var pane in new INotifyPropertyChanged?[] { ItemsPane, MonstersPane, SpellsPane })
+        foreach (var pane in new INotifyPropertyChanged?[]
+                 { ItemsPane, MonstersPane, SpellsPane, EventsPane, AbilitiesPane })
         {
             if (pane is not null)
             {
@@ -306,7 +310,9 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     public bool IsDirty =>
         (ItemsPane?.IsDirty ?? false)
         || (MonstersPane?.IsDirty ?? false)
-        || (SpellsPane?.IsDirty ?? false);
+        || (SpellsPane?.IsDirty ?? false)
+        || (EventsPane?.HasUnsavedLevels ?? false)
+        || (AbilitiesPane?.IsDirty ?? false);
 
     /// <summary>
     /// Writes every pane that has been edited back to the design folder.
@@ -360,6 +366,34 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
                 DesignSaver.SaveSpells(open.Root, spells.EditedSpells);
                 spells.AcceptChanges();
                 written.Add("spells.dat");
+            }
+
+            if (AbilitiesPane is { IsDirty: true } abilities)
+            {
+                DesignSaver.SaveSpecialAbilities(open.Root, abilities.EditedAbilities);
+                abilities.AcceptChanges();
+                written.Add("specialAbilities.txt");
+            }
+
+            if (EventsPane is { HasUnsavedLevels: true } events)
+            {
+                // The pane keys its edits by position in LevelFiles, not by level number: a
+                // level's number is its index plus one and designs ship gaps, so the file name has
+                // to come from the list rather than be derived from the key.
+                var files = open.LevelFiles;
+
+                foreach (var (index, level) in events.EditedLevels)
+                {
+                    if (index < 0 || index >= files.Count)
+                    {
+                        continue;
+                    }
+
+                    DesignSaver.SaveLevel(open.Root, files[index], level);
+                    written.Add(Path.GetFileName(files[index]));
+                }
+
+                events.AcceptChanges();
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException

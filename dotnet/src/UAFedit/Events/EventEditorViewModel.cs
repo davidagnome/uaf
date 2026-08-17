@@ -19,16 +19,23 @@ public sealed record EventLevelChoice(int Index, string Label);
 /// <remarks>
 /// <para>
 /// <b>Nothing here writes a byte.</b> Events arrive through <see cref="LoadedDesign.Level"/> and
-/// edits stay in <see cref="EditedEvents"/>; there is no call to a writer anywhere in this
-/// namespace. That is deliberate for now — the round trip is the serialization layer's contract to
-/// keep, and an editor that saved before that was proven would corrupt designs quietly.
+/// edits leave through <see cref="EditedLevels"/>, whole levels at a time; there is no call to a
+/// writer anywhere in this namespace. The caller that has one runs it and then calls
+/// <see cref="AcceptChanges"/> — the same separation the database editors keep, and what lets all
+/// of this be tested without a disk.
 /// </para>
 /// <para>
 /// <b>The unit of work is one level.</b> Chain ids are level-local: a chain target is resolved
 /// against the level's own event list (<c>GameEventList::GetEvent</c>), so an id means nothing
 /// outside the level that stored it. Switching levels therefore discards the current selection and
-/// rebuilds the graph, and edits to a level are kept per level in
-/// <see cref="EditedEvents"/>.
+/// rebuilds the graph.
+/// </para>
+/// <para>
+/// <b>An edited level is kept when the user moves off it, and that is not a convenience.</b> Only
+/// one level is open at a time and each switch re-reads from the design, so without the stash,
+/// editing one level and then looking at another would discard the first — invisibly, and then
+/// visibly at the next save, which would write the second and quietly drop the first. Coming back
+/// to a stashed level shows the edits rather than the file.
 /// </para>
 /// <para>
 /// <b>Dirtiness is computed, not flagged.</b> The event records are C# <c>record</c>s, so an event
@@ -75,7 +82,7 @@ public sealed partial class EventEditorViewModel : ObservableObject, IEventField
 
         Levels.Add(new EventLevelChoice(0, label));
         selectedLevel = Levels[0];
-        Load(level);
+        Load(level, fileIndex: 0);
     }
 
     /// <summary>Every level file in the design, in name order.</summary>
@@ -91,7 +98,14 @@ public sealed partial class EventEditorViewModel : ObservableObject, IEventField
             return;
         }
 
-        var level = design.Level(value.Index);
+        Stash();
+
+        // An edited level is served from the stash rather than re-read, so leaving a level and
+        // coming back shows the edits rather than the file.
+        var level = edited.TryGetValue(value.Index, out var kept)
+            ? kept
+            : design.Level(value.Index);
+
         if (level is null)
         {
             // Level() returns null on an event type the port cannot read, because there is no way
@@ -103,7 +117,112 @@ public sealed partial class EventEditorViewModel : ObservableObject, IEventField
             return;
         }
 
-        Load(level);
+        Load(level, value.Index);
+    }
+
+    /// <summary>
+    /// Levels edited and not yet written, by their index in the design's file list.
+    /// </summary>
+    /// <remarks>
+    /// <b>Without this an edit is lost the moment the user picks another level.</b> The editor
+    /// shows one level at a time and re-reads on every switch, so before the stash existed,
+    /// editing level 1, moving to level 2 and saving wrote level 2 and silently discarded level 1
+    /// — the kind of loss the user only discovers much later.
+    /// </remarks>
+    private readonly Dictionary<int, LevelFile> edited = [];
+
+    /// <summary>The index the loaded level came from, so its edits can be stashed under it.</summary>
+    private int? loadedIndex;
+
+    /// <summary>The level as read, kept so a save can put the edited bodies back into it.</summary>
+    /// <remarks>
+    /// The bodies alone are not enough to write a file: a level is a cell grid, zones, step
+    /// events, wall sets and the rest, and the events are one list inside it.
+    /// </remarks>
+    private LevelFile? loaded;
+
+    /// <summary>Moves the open level's edits into the stash, if it has any.</summary>
+    private void Stash()
+    {
+        if (IsDirty && loadedIndex is { } index && CurrentEdited() is { } level)
+        {
+            edited[index] = level;
+        }
+    }
+
+    /// <summary>
+    /// The open level with the edited bodies put back into it, or null when none is open.
+    /// </summary>
+    /// <remarks>
+    /// <c>Entries</c> is the wire order and includes bodyless tags; <c>Events</c> is the
+    /// projection that drops them. Both have to be rewritten, walked in step, because the writer
+    /// takes <c>Entries</c> and the engine's lookup takes <c>Events</c>.
+    /// </remarks>
+    private LevelFile? CurrentEdited()
+    {
+        if (loaded is not { } level)
+        {
+            return null;
+        }
+
+        var bodies = Events.Select(e => e.Body).ToList();
+
+        int next = 0;
+        var entries = level.Entries
+            .Select(entry => entry.Body is null || next >= bodies.Count
+                ? entry
+                : entry with { Body = bodies[next++] })
+            .ToList();
+
+        return level with { Events = bodies, Entries = entries };
+    }
+
+    /// <summary>
+    /// Every level with unsaved edits, keyed by its index in the design's file list.
+    /// </summary>
+    /// <remarks>
+    /// Includes the level currently open, which is not in the stash until something makes it move.
+    /// </remarks>
+    public IReadOnlyDictionary<int, LevelFile> EditedLevels
+    {
+        get
+        {
+            var all = new Dictionary<int, LevelFile>(edited);
+
+            if (IsDirty && loadedIndex is { } index && CurrentEdited() is { } level)
+            {
+                all[index] = level;
+            }
+
+            return all;
+        }
+    }
+
+    /// <summary>Whether any level holds an edit that is not on disk.</summary>
+    public bool HasUnsavedLevels => edited.Count > 0 || IsDirty;
+
+    /// <summary>
+    /// Declares every level saved.
+    /// </summary>
+    /// <remarks>
+    /// For a caller that has just written them. The open level's rows are marked unmodified too,
+    /// so it does not re-enter the stash the next time the user switches level.
+    /// </remarks>
+    public void AcceptChanges()
+    {
+        edited.Clear();
+
+        foreach (var row in Events)
+        {
+            row.IsModified = false;
+        }
+
+        // The rows are the baseline now, so an edit undone against the OLD baseline no longer
+        // reads as clean.
+        original = [.. Events.Select(e => e.Body)];
+        IsDirty = false;
+
+        OnPropertyChanged(nameof(HasUnsavedLevels));
     }
 
     /// <summary>The events of the selected level, in wire order.</summary>
@@ -192,6 +311,7 @@ public sealed partial class EventEditorViewModel : ObservableObject, IEventField
         // Records compare structurally, so an edit undone leaves the row clean again.
         row.IsModified = row.Index >= original.Count || !Equals(original[row.Index], updated);
         IsDirty = Events.Any(e => e.IsModified);
+        OnPropertyChanged(nameof(HasUnsavedLevels));
 
         RefreshRelevance();
         RebuildChains();
@@ -220,10 +340,12 @@ public sealed partial class EventEditorViewModel : ObservableObject, IEventField
     private void FollowChain(uint id) => GoTo(id);
 
     /// <summary>Reads a level in and replaces everything derived from the old one.</summary>
-    private void Load(LevelFile level)
+    private void Load(LevelFile level, int? fileIndex = null)
     {
         Reset();
 
+        loaded = level;
+        loadedIndex = fileIndex;
         original = level.Events;
 
         // Entries carries the wire order including bodyless tags; Events drops them. Walking
@@ -246,6 +368,8 @@ public sealed partial class EventEditorViewModel : ObservableObject, IEventField
     {
         Events.Clear();
         original = [];
+        loaded = null;
+        loadedIndex = null;
         SelectedEvent = null;
         IsDirty = false;
         Rebuild();

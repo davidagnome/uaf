@@ -1,4 +1,5 @@
 using UAFcore;
+using UAFedit.Events;
 using UAFedit.ViewModels;
 
 namespace UAFedit.Tests;
@@ -97,6 +98,12 @@ public sealed class SaveTests : IDisposable
         using var model = Opened(root);
         Assert.NotNull(model);
         Assert.NotEmpty(model!.Roots);
+
+        // The event tests below need more than one level and something on the first one to edit,
+        // and they return early without it. Asserted here so that never happens quietly.
+        model.SelectedPane = EditorPane.Events;
+        Assert.True(model.EventsPane!.Levels.Count > 1);
+        Assert.NotEmpty(model.EventsPane.Events);
 
         model.SelectedPane = EditorPane.Items;
         model.ItemsPane!.All[0].IdName += " (edited)";
@@ -243,6 +250,149 @@ public sealed class SaveTests : IDisposable
 
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(root, "Data"), "*.saving"));
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(root, "Data"), ".*"));
+    }
+
+    /// <summary>An edited event reaches its level file, and reopening the design finds it.</summary>
+    [Fact]
+    public void An_edited_event_survives_a_save_and_a_reopen()
+    {
+        if (Copy() is not { } root)
+        {
+            return;
+        }
+
+        string renamed;
+
+        using (var model = Opened(root))
+        {
+            Assert.NotNull(model);
+            model!.SelectedPane = EditorPane.Events;
+
+            var events = model.EventsPane;
+            Assert.NotNull(events);
+
+            if (events!.Events.Count == 0)
+            {
+                return;                          // a design whose first level has no events
+            }
+
+            var row = events.Events[0];
+            events.SelectedEvent = row;
+
+            renamed = row.Body.Base.Text + " (edited)";
+            events.Apply(EventRecords.WithBase(row.Body, row.Body.Base with { Text = renamed }));
+
+            Assert.True(events.HasUnsavedLevels);
+            Assert.True(model.IsDirty);
+
+            // Asserted rather than skipped past: the premise test has already established that
+            // this design is a shape the writers accept, so a refusal here is a defect.
+            Assert.Contains(".lvl", model.Save(), StringComparison.OrdinalIgnoreCase);
+
+            Assert.False(events.HasUnsavedLevels);
+            Assert.False(model.IsDirty);
+        }
+
+        using var reopened = new MainWindowViewModel();
+        Assert.True(reopened.Open(root));
+        reopened.SelectedPane = EditorPane.Events;
+
+        Assert.Contains(reopened.EventsPane!.Events, e => e.Body.Base.Text == renamed);
+    }
+
+    /// <summary>
+    /// An edit made on one level is not lost by looking at another.
+    /// </summary>
+    /// <remarks>
+    /// <b>The event editor holds one level at a time and re-reads on every switch.</b> Before the
+    /// stash existed, editing level 1 and then selecting level 2 discarded level 1 silently — and
+    /// a save afterwards wrote level 2 and dropped the other, which is the worst version of the
+    /// bug because it looks like it worked.
+    /// </remarks>
+    [Fact]
+    public void An_edit_survives_switching_levels()
+    {
+        if (Copy() is not { } root)
+        {
+            return;
+        }
+
+        using var model = Opened(root);
+        Assert.NotNull(model);
+        model!.SelectedPane = EditorPane.Events;
+
+        var events = model.EventsPane;
+        Assert.NotNull(events);
+
+        if (events!.Levels.Count < 2 || events.Events.Count == 0)
+        {
+            return;                              // needs two levels and something to edit
+        }
+
+        var first = events.Levels[0];
+        var row = events.Events[0];
+        events.SelectedEvent = row;
+
+        string renamed = row.Body.Base.Text + " (edited)";
+        events.Apply(EventRecords.WithBase(row.Body, row.Body.Base with { Text = renamed }));
+
+        // Away, and back.
+        events.SelectedLevel = events.Levels[1];
+        Assert.True(events.HasUnsavedLevels);
+        Assert.True(model.IsDirty);
+
+        events.SelectedLevel = first;
+
+        Assert.Contains(events.Events, e => e.Body.Base.Text == renamed);
+        Assert.Contains(events.EditedLevels, l => l.Key == first.Index);
+    }
+
+    /// <summary>An edited script reaches specialAbilities.txt, and reopening finds it.</summary>
+    /// <remarks>
+    /// <b>The text file, not the binary one.</b> A design ships both <c>specialAbilities.txt</c>
+    /// and <c>specialAbilities.dat</c> and they are unrelated formats; the scripts the editor edits
+    /// live in the text one.
+    /// </remarks>
+    [Fact]
+    public void An_edited_script_survives_a_save_and_a_reopen()
+    {
+        if (Copy() is not { } root)
+        {
+            return;
+        }
+
+        string edited;
+        string abilityName;
+
+        using (var model = Opened(root))
+        {
+            Assert.NotNull(model);
+            model!.SelectedPane = EditorPane.Abilities;
+
+            var abilities = model.AbilitiesPane;
+            Assert.NotNull(abilities);
+            Assert.NotEmpty(abilities!.Abilities);
+
+            var ability = abilities.Abilities[0];
+            abilities.SelectedAbility = ability;
+            abilityName = ability.Name;
+
+            edited = ability.Name + " (edited)";
+            ability.Name = edited;
+
+            Assert.True(abilities.IsDirty);
+            Assert.True(model.IsDirty);
+
+            Assert.Contains("specialAbilities.txt", model.Save(), StringComparison.Ordinal);
+            Assert.False(model.IsDirty);
+        }
+
+        using var reopened = new MainWindowViewModel();
+        Assert.True(reopened.Open(root));
+        reopened.SelectedPane = EditorPane.Abilities;
+
+        Assert.Contains(reopened.AbilitiesPane!.Abilities, a => a.Name == edited);
+        Assert.DoesNotContain(reopened.AbilitiesPane.Abilities, a => a.Name == abilityName);
     }
 
     /// <summary>Saving with no design open says so rather than throwing.</summary>

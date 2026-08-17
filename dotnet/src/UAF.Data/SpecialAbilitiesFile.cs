@@ -225,6 +225,105 @@ public static class SpecialAbilitiesFile
         return (line[..at].Trim(), line[(at + 1)..].Trim());
     }
 
+    /// <summary>
+    /// Writes the whole file back, as <see cref="Parse"/> would read it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What this is not: a rewrite of the file that was read.</b> Comments, blank lines, the
+    /// order of entries within an object and any original spacing are not carried in
+    /// <see cref="SpecialAbility"/>, so they are gone. What is preserved is everything the
+    /// reference reads — the abilities, their names, their entries and each entry's kind — and
+    /// <see cref="Parse"/> of this output equals the abilities that went in.
+    /// </para>
+    /// <para>
+    /// <b>Newlines inside a value become continuation lines</b>, which is the only way this format
+    /// carries a multi-line value: the reader joins a run of <c>-</c>-prefixed lines with CRLF and
+    /// strips the dash. That matters most for scripts, whose values are GPDL source — joining with
+    /// anything else would merge a <c>//</c> comment into the next statement.
+    /// </para>
+    /// <para>
+    /// <b>Trailing and leading whitespace in a value does not survive</b>, because the reader
+    /// trims what it splits off — a script written with a final newline comes back without one.
+    /// That is the reference's behaviour, not a defect here, and it is idempotent: a value read
+    /// once is already trimmed, so writing and re-reading it changes nothing.
+    /// </para>
+    /// <para>
+    /// <b>One shape cannot survive and is refused rather than silently mangled:</b> a key
+    /// containing <c>=</c>, which would be split in the wrong place on the way back. A value line
+    /// beginning with <c>-</c> is <i>not</i> such a case — see <c>Lines</c>.
+    /// </para>
+    /// </remarks>
+    public static IEnumerable<string> Format(IEnumerable<SpecialAbility> abilities)
+    {
+        ArgumentNullException.ThrowIfNull(abilities);
+
+        yield return Header;
+
+        foreach (var ability in abilities)
+        {
+            yield return "\\(BEGIN)";
+
+            // The reference pulls `name` out of the bag on the way in, so it goes back first --
+            // an object with no name is dropped by the reader.
+            foreach (string line in Lines("name", ability.Name))
+            {
+                yield return line;
+            }
+
+            foreach (var entry in ability.Entries)
+            {
+                foreach (string line in Lines(Key(entry), entry.Value))
+                {
+                    yield return line;
+                }
+            }
+
+            yield return "\\(END)";
+        }
+    }
+
+    /// <summary>Writes the file to disk.</summary>
+    /// <remarks>
+    /// CRLF line endings, matching what the reference writes and what the continuation join
+    /// already puts inside multi-line values.
+    /// </remarks>
+    public static void Save(string path, IEnumerable<SpecialAbility> abilities) =>
+        File.WriteAllText(path, string.Concat(Format(abilities).Select(l => l + "\r\n")));
+
+    /// <summary>One entry as its <c>key = value</c> line, plus a continuation per extra line.</summary>
+    private static IEnumerable<string> Lines(string key, string value)
+    {
+        if (key.Contains('=', StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"'{key}' contains '=', so it would be split in the wrong place when read back.",
+                nameof(key));
+        }
+
+        string[] parts = value.Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
+
+        yield return $"{key} = {parts[0]}";
+
+        // Every continuation gets exactly one '-', including a line that already starts with one.
+        // The reader strips a single dash, so a table entry of -3 goes out as "--3" and comes back
+        // as "-3" -- Case.dsn's <DexInit> is one, and it is the reason this is a plain prefix
+        // rather than a refusal.
+        foreach (string continued in parts.Skip(1))
+        {
+            yield return "-" + continued;
+        }
+    }
+
+    /// <summary>Puts an entry's kind back into its key, as the bracketing <see cref="Entry"/> reads.</summary>
+    private static string Key(SpecialAbilityEntry entry) => entry.Kind switch
+    {
+        SpecialAbilityEntryKind.Script => $"[{entry.Name}]",
+        SpecialAbilityEntryKind.Variable => $"({entry.Name})",
+        SpecialAbilityEntryKind.IntegerTable => $"<{entry.Name}>",
+        _ => entry.Name,
+    };
+
     /// <summary>Reads the name's bracketing to decide the entry's kind.</summary>
     private static SpecialAbilityEntry Entry(string key, string value)
     {
