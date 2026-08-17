@@ -17,6 +17,7 @@
         xmlns:vm="using:UAFedit.ViewModels"
         xmlns:db="using:UAFedit.Databases"
         xmlns:ev="using:UAFedit.Events"
+        xmlns:globals="using:UAFedit.Globals"
         xmlns:levels="using:UAFedit.Levels"
         xmlns:spells="using:UAFedit.Spells"
         x:Class="UAFedit.Views.MainWindow"
@@ -106,6 +107,10 @@
       </DockPanel>
 
         </Grid>
+      </TabItem>
+
+      <TabItem Header="Settings">
+        <globals:DesignGlobalsView DataContext="{Binding SettingsPane}" />
       </TabItem>
 
       <TabItem Header="Levels">

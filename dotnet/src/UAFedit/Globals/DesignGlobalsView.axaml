@@ -1,0 +1,146 @@
+<!--
+  The Design menu, as one pane.
+
+  The reference spread these over several modal dialogs off the Design menu; there are few enough
+  of them that a single scrolling form is clearer than reproducing that. Only the scalar half of
+  GLOBAL_STATS is offered — see DesignGlobalsViewModel for what is carried through untouched, which
+  is most of the record.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:g="using:UAFedit.Globals"
+             x:Class="UAFedit.Globals.DesignGlobalsView"
+             x:DataType="g:DesignGlobalsViewModel">
+
+  <UserControl.Resources>
+    <x:Double x:Key="LabelWidth">180</x:Double>
+  </UserControl.Resources>
+
+  <UserControl.Styles>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Width" Value="{StaticResource LabelWidth}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Margin" Value="0,14,0,4" />
+    </Style>
+    <Style Selector="StackPanel.row">
+      <Setter Property="Orientation" Value="Horizontal" />
+      <Setter Property="Margin" Value="0,2" />
+    </Style>
+    <Style Selector="StackPanel.row > TextBox">
+      <Setter Property="Width" Value="240" />
+    </Style>
+    <Style Selector="StackPanel.row > NumericUpDown">
+      <Setter Property="Width" Value="160" />
+    </Style>
+  </UserControl.Styles>
+
+  <ScrollViewer Padding="12">
+    <StackPanel MaxWidth="640" HorizontalAlignment="Left">
+
+      <TextBlock Classes="heading" Text="Identity" Margin="0,0,0,4" />
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Design name" />
+        <TextBox Text="{Binding DesignName}" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Version" />
+        <TextBlock Text="{Binding Version}" VerticalAlignment="Center" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Global events" />
+        <TextBlock Text="{Binding GlobalEventCount}" VerticalAlignment="Center" />
+      </StackPanel>
+
+      <TextBlock Classes="heading" Text="Where a new party starts" />
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Level" />
+        <NumericUpDown Value="{Binding StartLevel}" Minimum="0" Maximum="254" Increment="1"
+                       FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="X" />
+        <NumericUpDown Value="{Binding StartX}" Minimum="0" Maximum="255" Increment="1"
+                       FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Y" />
+        <NumericUpDown Value="{Binding StartY}" Minimum="0" Maximum="255" Increment="1"
+                       FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Facing" />
+        <NumericUpDown Value="{Binding StartFacing}" Minimum="0" Maximum="3" Increment="1"
+                       FormatString="0" />
+      </StackPanel>
+
+      <TextBlock Classes="heading" Text="What it starts with" />
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Time" />
+        <NumericUpDown Value="{Binding StartTime}" Increment="1" FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Experience" />
+        <NumericUpDown Value="{Binding StartExp}" Minimum="0" Increment="1" FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Platinum" />
+        <NumericUpDown Value="{Binding StartPlatinum}" Minimum="0" Increment="1" FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Gems" />
+        <NumericUpDown Value="{Binding StartGem}" Minimum="0" Increment="1" FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Jewelry" />
+        <NumericUpDown Value="{Binding StartJewelry}" Minimum="0" Increment="1" FormatString="0" />
+      </StackPanel>
+
+      <TextBlock Classes="heading" Text="Party" />
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Minimum characters" />
+        <NumericUpDown Value="{Binding MinPcs}" Minimum="0" Increment="1" FormatString="0" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Maximum characters" />
+        <NumericUpDown Value="{Binding MaxPartyMaxPcs}" Minimum="0" Increment="1"
+                       FormatString="0" />
+      </StackPanel>
+
+      <TextBlock Classes="heading" Text="Art" />
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Map" />
+        <TextBox Text="{Binding MapArt}" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Icon background" />
+        <TextBox Text="{Binding IconBackgroundArt}" />
+      </StackPanel>
+
+      <StackPanel Classes="row">
+        <TextBlock Classes="caption" Text="Background" />
+        <TextBox Text="{Binding BackgroundArt}" />
+      </StackPanel>
+
+    </StackPanel>
+  </ScrollViewer>
+
+</UserControl>

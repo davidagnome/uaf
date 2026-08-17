@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using UAFcore;
 using UAFedit.Databases;
 using UAFedit.Events;
+using UAFedit.Globals;
 using UAFedit.Levels;
 using UAFedit.Spells;
 
@@ -21,6 +22,9 @@ public enum EditorPane
 {
     /// <summary>The read-only navigation tree and record list.</summary>
     Design,
+
+    /// <summary>The design's own settings — game.dat's GLOBAL_STATS.</summary>
+    Settings,
 
     /// <summary>The Level menu.</summary>
     Levels,
@@ -109,6 +113,10 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private EditorPane selectedPane;
 
+    /// <summary>The design's settings, once its tab has been opened.</summary>
+    [ObservableProperty]
+    private DesignGlobalsViewModel? settingsPane;
+
     /// <summary>The Level menu, once its tab has been opened.</summary>
     [ObservableProperty]
     private LevelsViewModel? levelsPane;
@@ -163,6 +171,9 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         {
             switch (pane)
             {
+                case EditorPane.Settings:
+                    SettingsPane ??= Watch(new DesignGlobalsViewModel(open));
+                    break;
                 case EditorPane.Levels:
                     LevelsPane ??= new LevelsViewModel(open);
                     break;
@@ -221,7 +232,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     private void ClosePanes()
     {
         foreach (var pane in new INotifyPropertyChanged?[]
-                 { ItemsPane, MonstersPane, SpellsPane, EventsPane, AbilitiesPane })
+                 { ItemsPane, MonstersPane, SpellsPane, EventsPane, AbilitiesPane,
+                   SettingsPane })
         {
             if (pane is not null)
             {
@@ -232,6 +244,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         (SpellsPane as IDisposable)?.Dispose();
         (AbilitiesPane as IDisposable)?.Dispose();
 
+        SettingsPane = null;
         LevelsPane = null;
         EventsPane = null;
         ItemsPane = null;
@@ -312,7 +325,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         || (MonstersPane?.IsDirty ?? false)
         || (SpellsPane?.IsDirty ?? false)
         || (EventsPane?.HasUnsavedLevels ?? false)
-        || (AbilitiesPane?.IsDirty ?? false);
+        || (AbilitiesPane?.IsDirty ?? false)
+        || (SettingsPane?.IsDirty ?? false);
 
     /// <summary>
     /// Writes every pane that has been edited back to the design folder.
@@ -347,6 +361,14 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
 
         try
         {
+            if (SettingsPane is { IsDirty: true } settings)
+            {
+                // The pane saves itself: it read game.dat whole, events included, and it is the
+                // only thing holding those events.
+                settings.Save();
+                written.Add("game.dat");
+            }
+
             if (ItemsPane is { IsDirty: true } items)
             {
                 DesignSaver.SaveItems(open.Root, items.Database);

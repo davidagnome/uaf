@@ -8363,12 +8363,23 @@ inspector: the Level menu, the event editor, and the item, monster, spell and sp
 database editors. The five missing database writers exist, so every file a design carries can now
 be written.
 
-**File > Save exists and covers every pane that edits anything** — `items.dat`, `monsters.dat`,
+**File > Save covers every file kind a design has** — `game.dat`, `items.dat`, `monsters.dat`,
 `spells.dat`, `specialAbilities.txt`, and a `.lvl` per level whose events were touched.
 `DesignSaver` writes them, and for each there is a test that opens `SomethingWild`, edits, saves,
 and finds the change after a completely fresh read of the folder. That is the exit criterion's
-loop, minus the confirmation from `UAFWinEd.exe`. **`game.dat` is the one file still not written**,
-because no pane edits it. Cross-reference tooling does not exist.
+loop, minus the confirmation from `UAFWinEd.exe`. Cross-reference tooling does not exist.
+
+> **The Settings pane reads `game.dat` itself and does not take `LoadedDesign.Globals`.** The
+> design's own read passes no event reader, which stops the parse before the global event list —
+> enough for its identity, level table, money and difficulty, and cheaper than decoding events the
+> engine's open path does not want. But `GlobalStatsPrefix` therefore does not carry them, so a
+> save built from it alone would write a design whose global events had **all vanished** — quietly,
+> since a count of zero is a perfectly valid file. `DesignGlobals.Read` collects them on the way
+> past and `GameData` keeps the pair together; a test asserts the count survives a save.
+
+> **The pane edits the scalar half of `GLOBAL_STATS` and carries the rest through untouched** —
+> title and credits sequences, art slots, sounds, keys, quests, the level table, the pregenerated
+> characters, the journal and the global events all go back exactly as read.
 
 > **A design that was only opened must save nothing, and that is asserted.** The writers refuse
 > records below 0.998101 rather than guessing and save the ones they accept at 5.24, so writing
@@ -10273,6 +10284,24 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
    > suite** down with it — the suite could not complete at all while it was enabled. The mechanism
    > and its unit tests stay; nothing enables it.
 
+   > **The two C++ serialisers read the same bytes, which narrows the search a great deal.**
+   > `GLOBAL_STATS` has twins — `Serialize(CArchive&)` at `GlobalData.cpp:3855` and
+   > `Serialize(CAR&)` at `:4244` — and the class remarks on `GlobalStatsReader` say they "are not
+   > interchangeable". Diffing their *loading* branches with the archive variable normalised, the
+   > only differences are: the magic-and-compression prologue (`CAR` only, and
+   > `GameDataReader.Open` already does that job); `Read` versus `Serialize` for the `LOGFONT`
+   > blit, which is the same bytes; and one version gate, `version < 0.9599` against
+   > `version < 0.998918`, which guards `StripFilenamePath` on two strings **after** they are read
+   > and so consumes nothing. **Field for field, the two read identically.** Both read the
+   > equipment lists and the per-class block; an earlier reading of a too-short diff window
+   > suggested otherwise and was wrong.
+   >
+   > So the divergence is in a shared helper with twins of its own, not in `GLOBAL_STATS`'s own
+   > field order. `ASLENTRY` is the known such case and the port already forks on
+   > `IArchiveCursor.IsCompressed` for it. `PIC_DATA` is the other, and it is **not** the culprit —
+   > see below. Locating it wants a byte-offset trace of the plain read against a hand-decode of
+   > the file, which is where the next attempt should start rather than with another hypothesis.
+
    > **A plausible cause, tested and refuted — worth recording so it is not tried twice.**
    > `PIC_DATA` has two C++ serialisers that differ by four bytes (`style`, read on the `CAR` path
    > at 0.900+ and commented out on the `CArchive` twin), and the port hardcodes
@@ -10283,6 +10312,12 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
    > (`MonsterRecordReader.ReadDatabase(MfcArchiveReader, …)` among them). The enum's own remarks
    > say so — the variant is chosen by *the calling structure*, not by the encoding. Whatever is
    > wrong on the unframed `GLOBAL_STATS` path, `IsCompressed` is not the discriminator.
+   >
+   > **And the variant is not the cause either.** Switching every reader reachable from
+   > `GLOBAL_STATS` to the `CArchive` shape moves the failure from the icon-pic loop
+   > (`GlobalStatsReader.cs:227`) to `ReadSounds` (`:240`) and then to `ReadDifficulty` (`:276`),
+   > but it never reaches the end of the file. Each step is a later mis-parse, not a fix — which
+   > is what you would expect if the stream were already misaligned before the first `PIC_DATA`.
 
 Below 0.998101 the writers refuse rather than guess, each with a reason — `DefaultDesign`'s
 `items.dat`, `monsters.dat`, `spells.dat` and `Level000.lvl` are all declined. That is correct

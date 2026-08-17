@@ -395,6 +395,87 @@ public sealed class SaveTests : IDisposable
         Assert.DoesNotContain(reopened.AbilitiesPane.Abilities, a => a.Name == abilityName);
     }
 
+    /// <summary>An edited setting reaches game.dat, and reopening the design finds it.</summary>
+    /// <remarks>
+    /// <b>The design name is the field to check</b>, because it is the one the shell puts in the
+    /// window title — so a reopen proves the value came off disk rather than out of the pane.
+    /// </remarks>
+    [Fact]
+    public void An_edited_setting_survives_a_save_and_a_reopen()
+    {
+        if (Copy() is not { } root)
+        {
+            return;
+        }
+
+        string renamed;
+
+        using (var model = Opened(root))
+        {
+            Assert.NotNull(model);
+            model!.SelectedPane = EditorPane.Settings;
+
+            var settings = model.SettingsPane;
+            Assert.NotNull(settings);
+            Assert.False(settings!.IsDirty);
+
+            renamed = settings.DesignName + " (edited)";
+            settings.DesignName = renamed;
+            settings.StartPlatinum += 250;
+
+            Assert.True(settings.IsDirty);
+            Assert.True(model.IsDirty);
+
+            Assert.Contains("game.dat", model.Save(), StringComparison.Ordinal);
+            Assert.False(model.IsDirty);
+        }
+
+        using var reopened = new MainWindowViewModel();
+        Assert.True(reopened.Open(root));
+        reopened.SelectedPane = EditorPane.Settings;
+
+        Assert.Equal(renamed, reopened.SettingsPane!.DesignName);
+        Assert.Contains(renamed, reopened.Title, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Saving game.dat keeps the global events the pane does not edit.
+    /// </summary>
+    /// <remarks>
+    /// <b>The failure this guards against is silent.</b> The prefix does not carry the global
+    /// events — the reader hands each body to a callback as it passes — so a save built from the
+    /// prefix alone writes a design whose global events have all vanished, and a count of zero is
+    /// a perfectly valid file that nothing would complain about.
+    /// </remarks>
+    [Fact]
+    public void Saving_the_settings_keeps_the_global_events()
+    {
+        if (Copy() is not { } root)
+        {
+            return;
+        }
+
+        int before;
+
+        using (var model = Opened(root))
+        {
+            Assert.NotNull(model);
+            model!.SelectedPane = EditorPane.Settings;
+
+            before = model.SettingsPane!.GlobalEventCount;
+            Assert.True(before > 0);            // else this proves nothing
+
+            model.SettingsPane.StartExp += 1;
+            Assert.Contains("game.dat", model.Save(), StringComparison.Ordinal);
+        }
+
+        using var reopened = new MainWindowViewModel();
+        Assert.True(reopened.Open(root));
+        reopened.SelectedPane = EditorPane.Settings;
+
+        Assert.Equal(before, reopened.SettingsPane!.GlobalEventCount);
+    }
+
     /// <summary>Saving with no design open says so rather than throwing.</summary>
     [Fact]
     public void Saving_with_nothing_open_is_reported()

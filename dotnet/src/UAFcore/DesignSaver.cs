@@ -73,6 +73,28 @@ public static class DesignSaver
     }
 
     /// <summary>
+    /// Writes <c>game.dat</c> — the design's globals and its global event list.
+    /// </summary>
+    /// <remarks>
+    /// <b>The events go back with it, which is why this takes a <see cref="GameData"/> rather than
+    /// a <c>GlobalStatsPrefix</c>.</b> The prefix does not carry them — the reader hands each body
+    /// to a callback as it passes — so a save built from the prefix alone would write a design
+    /// whose global events had all vanished, and vanished quietly, since a count of zero is a
+    /// perfectly valid file. See <see cref="DesignGlobals.Read"/>.
+    /// </remarks>
+    public static void SaveGameData(string root, GameData data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+
+        WriteAtomically(
+            Path.Combine(DataDirectory(root), "game.dat"),
+            stream => DesignFileWriter.Write(
+                stream, GlobalStatsWriter.WrittenVersion,
+                ar => GlobalStatsWriter.Write(
+                    ar, data.Global, [.. data.Events.Select(e => (e.Type, e.Body))])));
+    }
+
+    /// <summary>
     /// Writes <c>specialAbilities.txt</c> — the design's GPDL scripts.
     /// </summary>
     /// <remarks>
