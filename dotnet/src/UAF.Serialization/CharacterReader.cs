@@ -81,7 +81,8 @@ public static class CharacterReader
     /// <summary>Retired fields the editor skips below <c>VersionSpellNames</c>.</summary>
     public const int LegacyTrashFields = 13;
 
-    public static CharacterRecord Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
+    public static CharacterRecord Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role,
+                                       PicArchiveVariant pics = PicArchiveVariant.Car)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -210,7 +211,7 @@ public static class CharacterReader
         }
         else
         {
-            icon = PicDataReader.Read(ar, version, PicArchiveVariant.Car);
+            icon = PicDataReader.Read(ar, version, pics);
         }
 
         int iconIndex = version >= DesignVersion.V0640 ? ar.ReadInt32() : 0;
@@ -266,7 +267,7 @@ public static class CharacterReader
         }
 
         // Outside the storing/loading branch.
-        var smallPic = PicDataReader.Read(ar, version, PicArchiveVariant.Car);
+        var smallPic = PicDataReader.Read(ar, version, pics);
         var items = MonsterLeafReaders.ReadItemList(ar, version, role);
         var specialAbilities = SpecabReader.Read(ar, version);
         var attributes = AslReader.Read(ar, version, AslMaps.Character);
@@ -360,7 +361,8 @@ public static class CharacterReader
 
     /// <summary>Reads a <c>CHAR_LIST</c> (<c>Char.cpp:9531</c>): a count then the characters.</summary>
     public static List<CharacterRecord> ReadList(IArchiveCursor ar, DesignVersion version,
-                                                 ArchiveRole role)
+                                                 ArchiveRole role,
+                                                 PicArchiveVariant pics = PicArchiveVariant.Car)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -368,7 +370,7 @@ public static class CharacterReader
         var characters = new List<CharacterRecord>(Math.Max(count, 0));
         for (int i = 0; i < count; i++)
         {
-            characters.Add(Read(ar, version, role));
+            characters.Add(Read(ar, version, role, pics));
         }
         return characters;
     }

@@ -59,7 +59,8 @@ public static class DesignGlobals
                 }
 
                 return body;
-            });
+            },
+            pics: cursor.PicVariant);
 
         return new GameData(global, events);
     }

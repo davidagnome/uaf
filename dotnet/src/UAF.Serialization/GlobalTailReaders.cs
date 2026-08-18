@@ -73,7 +73,8 @@ public static class GlobalTailReaders
     /// IsStoring()</c> — the storing side is unconditional, so a design written by this code and
     /// read back below 5.26 loses alignment.
     /// </remarks>
-    public static GlobalArt ReadArtBlock(IArchiveCursor ar, DesignVersion version)
+    public static GlobalArt ReadArtBlock(IArchiveCursor ar, DesignVersion version,
+                                         PicArchiveVariant pics = PicArchiveVariant.Car)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -94,7 +95,7 @@ public static class GlobalTailReaders
         // A whole PIC_DATA rather than a slot, and kept rather than discarded: the storing branch
         // writes it and a writer has to put something back.
         PicRecord? cursor = version >= DesignVersion.V0575
-            ? PicDataReader.Read(ar, version, PicArchiveVariant.Car)
+            ? PicDataReader.Read(ar, version, pics)
             : null;
 
         return new GlobalArt(art, cursor);

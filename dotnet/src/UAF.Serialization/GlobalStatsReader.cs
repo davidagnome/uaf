@@ -101,8 +101,9 @@ public static class GlobalStatsReader
     /// and for callers that only want the design's identity and databases.
     /// </remarks>
     public static GlobalStatsPrefix ReadThroughCharacters(
-        IArchiveCursor ar, DesignVersion version, ArchiveRole role = ArchiveRole.Editor) =>
-        Read(ar, version, role, null, stopAfterCharacters: true);
+        IArchiveCursor ar, DesignVersion version, ArchiveRole role = ArchiveRole.Editor,
+        PicArchiveVariant pics = PicArchiveVariant.Car) =>
+        Read(ar, version, role, null, stopAfterCharacters: true, pics: pics);
 
     /// <summary>
     /// Reads the record. Pass <paramref name="readEvent"/> to consume the global event list;
@@ -110,7 +111,8 @@ public static class GlobalStatsReader
     /// </summary>
     public static GlobalStatsPrefix Read(IArchiveCursor ar, DesignVersion version, ArchiveRole role,
         Func<IArchiveCursor, EventType, DesignVersion, IGameEvent?>? readEvent,
-        bool stopAfterCharacters = false)
+        bool stopAfterCharacters = false,
+        PicArchiveVariant pics = PicArchiveVariant.Car)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
@@ -209,7 +211,7 @@ public static class GlobalStatsReader
         int count = ar.ReadInt32();
         for (int i = 0; i < count; i++)
         {
-            smallPics.Add(PicDataReader.Read(ar, version, PicArchiveVariant.Car));
+            smallPics.Add(PicDataReader.Read(ar, version, pics));
         }
 
         var iconPics = new List<PicRecord>();
@@ -224,7 +226,7 @@ public static class GlobalStatsReader
             }
             else
             {
-                iconPics.Add(PicDataReader.Read(ar, version, PicArchiveVariant.Car));
+                iconPics.Add(PicDataReader.Read(ar, version, pics));
             }
         }
 
@@ -235,13 +237,13 @@ public static class GlobalStatsReader
 
         // Everything past the ASL: the art slots, then the global sound queues, then three
         // record lists. Stops before charData, which needs CHARACTER.
-        var artBlock = GlobalTailReaders.ReadArtBlock(ar, version);
+        var artBlock = GlobalTailReaders.ReadArtBlock(ar, version, pics);
         var art = artBlock.Slots;
         var sounds = GlobalTailReaders.ReadSounds(ar, version);
         var keys = GlobalTailReaders.ReadSpecialObjects(ar, version);
         var specialItems = GlobalTailReaders.ReadSpecialObjects(ar, version);
         var quests = GlobalTailReaders.ReadQuests(ar, version);
-        var characters = CharacterReader.ReadList(ar, version, role);
+        var characters = CharacterReader.ReadList(ar, version, role, pics);
 
         if (stopAfterCharacters)
         {
@@ -268,6 +270,8 @@ public static class GlobalStatsReader
         }
 
         var levels = GlobalStatsTailReaders.ReadLevelInfo(ar, version);
+
+        ReadRetiredStartingEquipment(ar, version, role);
 
         var money = version >= DesignVersion.V0642
             ? GlobalStatsTailReaders.ReadMoneyData(ar, version)
@@ -358,6 +362,57 @@ public static class GlobalStatsReader
                 ar.ReadUInt32()));               // DisplayBy -- DWORD
         }
         return new TitleScreenData(timeout, titles);
+    }
+
+    /// <summary>
+    /// The eight starting-equipment lists a pre-0.998101 design carries between its level table
+    /// and its money data.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read and discarded, because the reference reads them and discards them too.</b>
+    /// <c>GLOBAL_STATS::Serialize</c>'s loading branch pulls in <c>startEquip</c> and the seven
+    /// per-baseclass lists, then uses them only to build each class's
+    /// <c>m_startingEquipment</c> in memory (<c>GlobalData.cpp:4173</c>) — nothing writes them
+    /// back. The <b>storing</b> branch has those same eight calls commented out, so a design saved
+    /// at or above 0.998101 does not carry them at all, which is why the gate is a version and not
+    /// a role alone.
+    /// </para>
+    /// <para>
+    /// <b>Skipping it silently costs about 1,200 bytes on the editor's own template design.</b>
+    /// Nothing fails where the bytes are missed: the parse simply runs on misaligned, and the
+    /// first sign of it is a nonsense string length in the difficulty table three structures
+    /// later. No shipped design in the corpus reaches this — <c>SomethingWild</c> is 3.55 and
+    /// <c>Case</c> is 2.53, both well above the gate — and <c>DefaultDesign</c> at 0.915025 is the
+    /// only file that does, which is exactly why it was the one that would not open.
+    /// </para>
+    /// <para>
+    /// <b>Editor role only.</b> The block sits inside <c>#ifdef UAFEDITOR</c>, so an engine build
+    /// does not read it — consistent with the engine refusing designs below 0.998101 outright
+    /// (<c>Level.cpp:3365</c>), which <see cref="ArchiveRole"/> already models.
+    /// </para>
+    /// </remarks>
+    private static void ReadRetiredStartingEquipment(IArchiveCursor ar, DesignVersion version,
+                                                     ArchiveRole role)
+    {
+        if (role != ArchiveRole.Editor || version >= DesignVersion.SpellNames)
+        {
+            return;
+        }
+
+        if (version >= DesignVersion.V0575)
+        {
+            MonsterLeafReaders.ReadItemList(ar, version, role);      // startEquip
+        }
+
+        if (version >= DesignVersion.V0830)
+        {
+            // cleric, fighter, magicUser, thief, ranger, paladin, druid -- in that order.
+            for (int i = 0; i < 7; i++)
+            {
+                MonsterLeafReaders.ReadItemList(ar, version, role);
+            }
+        }
     }
 
     private static string ReadDas(IArchiveCursor ar) =>

@@ -8481,6 +8481,10 @@ loop, minus the confirmation from `UAFWinEd.exe`. Cross-reference tooling does n
 > `EDITOR_COLOR_1..16` — the rest stay at the static black. The port makes filling them a caller
 > decision and defaults to faithful.
 
+> **`DefaultDesign` reads and the whole suite is green** (2026-08-17): 5,524 tests, no failures.
+> Two bugs on the unframed `game.dat` path were behind it — the wrong `PIC_DATA` shape and eight
+> unread equipment lists. See §12.
+
 > **The editor cannot be launched from this shell**, and that is the environment rather than the
 > code: Avalonia dies in `AppBuilder.Setup()` with `RenderTimer ... -6661` before any window is
 > constructed, because the process tree has no window-server access. It is verified instead by
@@ -10264,60 +10268,45 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
    (`Shared/Char.cpp:3128`, `:3303`), a second character format with no reader or writer in the
    port. `CharacterFileReader` rejects it as "version 0.563, below the 0.93 floor", which reads
    like a corrupt file and is not one.
-3. **`DefaultDesign`'s own `game.dat` cannot be read.** At 0.915025, with `GameDataFraming.Plain`,
-   `GlobalStatsReader` overruns the end of the 4343-byte file inside `PicDataReader.Read`
-   (`PicDataReader.cs:53`, reading `frameWidth`). This is the editor's *template design*, so
-   nothing built on this layer can create a new design from it. No existing test caught it:
-   `WholeDesignTests` reads only the version and design name from `game.dat`, never the whole
-   record. It is now the round trip's **one deliberate failure**, named as a defect rather than
-   described in prose.
+3. ~~**`DefaultDesign`'s own `game.dat` cannot be read.**~~ — **closed (2026-08-17).** It reads,
+   the round trip is green on it, and File > New is unblocked at this layer. It was **two** bugs
+   on the unframed path, both invisible on every other design in the corpus because
+   `SomethingWild` is 3.55 and `Case` is 2.53 — the only file below the gates is the editor's own
+   template at 0.915025.
 
-   > **Tolerating the short read is not the fix, and trying it did real damage.** `CArchive`'s `>>`
-   > discards the read count, so the reference opens the file and treats the missing tail as zeroes
-   > — which made `MfcArchiveReader.ZeroFillPastEnd` look like all that stood between the port and
-   > File > New. It was switched on for the unframed path and has been **switched back off**. Given
-   > an endless supply of zeroes the parse does not finish: it reads a record count out of the tail
-   > and asks for **millions** of `PIC_DATA` records (`GlobalStatsReader.cs:227`). A file that runs
-   > off like that is being **mis-parsed, not merely truncated** — the premise that "the parse
-   > lands ON the end" was wrong. And it is fatal here in a way it is not in C++: a count-driven
-   > loop with nothing to stop it allocates until the process dies, which took the **whole test
-   > suite** down with it — the suite could not complete at all while it was enabled. The mechanism
-   > and its unit tests stay; nothing enables it.
+   > **Bug one: the wrong `PIC_DATA` shape, four bytes per record.** `GLOBAL_STATS` has twin
+   > serialisers and each hands its own archive straight down to `PIC_DATA::Serialize`, so the
+   > `CAR` twin reads `style` at 0.900 and above and the `CArchive` twin has that line commented
+   > out (`PicData.cpp:203` against `:139`). The port hardcoded `PicArchiveVariant.Car` at every
+   > call site. **It is the framing that decides this, not the cursor** — a database read through a
+   > plain `MfcArchiveReader` is still a `CAR` on the C++ side, just without LZW, so deriving the
+   > variant from `IArchiveCursor.IsCompressed` looks right and breaks 99 database tests. It now
+   > comes from `GameDataReader.Cursor.PicVariant`, which only an unframed `game.dat` sets to
+   > `CArchive`.
 
-   > **The two C++ serialisers read the same bytes, which narrows the search a great deal.**
-   > `GLOBAL_STATS` has twins — `Serialize(CArchive&)` at `GlobalData.cpp:3855` and
-   > `Serialize(CAR&)` at `:4244` — and the class remarks on `GlobalStatsReader` say they "are not
-   > interchangeable". Diffing their *loading* branches with the archive variable normalised, the
-   > only differences are: the magic-and-compression prologue (`CAR` only, and
-   > `GameDataReader.Open` already does that job); `Read` versus `Serialize` for the `LOGFONT`
-   > blit, which is the same bytes; and one version gate, `version < 0.9599` against
-   > `version < 0.998918`, which guards `StripFilenamePath` on two strings **after** they are read
-   > and so consumes nothing. **Field for field, the two read identically.** Both read the
-   > equipment lists and the per-class block; an earlier reading of a too-short diff window
-   > suggested otherwise and was wrong.
-   >
-   > So the divergence is in a shared helper with twins of its own, not in `GLOBAL_STATS`'s own
-   > field order. `ASLENTRY` is the known such case and the port already forks on
-   > `IArchiveCursor.IsCompressed` for it. `PIC_DATA` is the other, and it is **not** the culprit —
-   > see below. Locating it wants a byte-offset trace of the plain read against a hand-decode of
-   > the file, which is where the next attempt should start rather than with another hypothesis.
+   > **Bug two, and the larger one: eight starting-equipment lists nobody read.** Between the level
+   > table and the money data, a design below `VersionSpellNames` carries `startEquip` and seven
+   > per-baseclass `ITEM_LIST`s (`GlobalData.cpp:4157`). The reference reads them and immediately
+   > throws them away — they exist only to build each class's `m_startingEquipment` in memory — and
+   > the **storing** branch has all eight calls commented out, so nothing at or above 0.998101
+   > carries them. On `DefaultDesign` they are about **1,200 bytes**, and skipping them does not
+   > fail where it happens: the parse runs on misaligned and first shows it as a nonsense string
+   > length in the difficulty table, three structures later.
 
-   > **A plausible cause, tested and refuted — worth recording so it is not tried twice.**
-   > `PIC_DATA` has two C++ serialisers that differ by four bytes (`style`, read on the `CAR` path
-   > at 0.900+ and commented out on the `CArchive` twin), and the port hardcodes
-   > `PicArchiveVariant.Car` at *every* call site including the plain one. Selecting the variant
-   > from `IArchiveCursor.IsCompressed` moves `DefaultDesign`'s parse a long way forward — past the
-   > pic lists, the title screens, the ASL and the art block — but it **breaks 99 other tests**:
-   > there are legitimate plain-cursor readers that genuinely use the `CAR` record shape
-   > (`MonsterRecordReader.ReadDatabase(MfcArchiveReader, …)` among them). The enum's own remarks
-   > say so — the variant is chosen by *the calling structure*, not by the encoding. Whatever is
-   > wrong on the unframed `GLOBAL_STATS` path, `IsCompressed` is not the discriminator.
-   >
-   > **And the variant is not the cause either.** Switching every reader reachable from
-   > `GLOBAL_STATS` to the `CArchive` shape moves the failure from the icon-pic loop
-   > (`GlobalStatsReader.cs:227`) to `ReadSounds` (`:240`) and then to `ReadDifficulty` (`:276`),
-   > but it never reaches the end of the file. Each step is a later mis-parse, not a fix — which
-   > is what you would expect if the stream were already misaligned before the first `PIC_DATA`.
+   > **A third, smaller one behind those:** `spellLimitsType` between 0.780 and `VersionSpellNames`
+   > is a `WORD`, the flag, and a prime score per baseclass — thirteen bytes the port refused
+   > outright. Below 0.780 it stays refused, and correctly: the reference does not read it either
+   > on the `CAR` path (`GameRules.cpp:3625` calls `NotImplemented`).
+
+   > **How it was found, since two hypotheses were wrong first.** Reading the C++ and reasoning
+   > about it produced two confident and incorrect answers — that the twins had different field
+   > orders, and that the `PIC_DATA` variant alone explained it. What actually worked was decoding
+   > the file's bytes by hand against the C++ read order: `AreaViewArt.png` at 0x66 and the
+   > `SYSTEM` face name at 0x91 confirmed alignment through the header, and then the second
+   > `PIC_DATA` record settles it outright — with `style` read the next record starts mid-string
+   > and `picType` is garbage, without it `picType` is 1024, matching the first record, and
+   > `prt_SPic2.png` lands exactly. **On a format question, decode the bytes before theorising
+   > about the source.**
 
 Below 0.998101 the writers refuse rather than guess, each with a reason — `DefaultDesign`'s
 `items.dat`, `monsters.dat`, `spells.dat` and `Level000.lvl` are all declined. That is correct

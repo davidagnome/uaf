@@ -70,6 +70,30 @@ public static class GameDataReader
             car is not null ? ArchiveCursor.For(car) : ArchiveCursor.For(plain!);
 
         /// <summary>
+        /// Which <c>PIC_DATA::Serialize</c> overload wrote this file's pic records.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>An unframed <c>game.dat</c> is genuinely a <c>CArchive</c>, and its pic records are
+        /// four bytes shorter.</b> <c>GLOBAL_STATS</c> has twin serialisers and each hands its own
+        /// archive straight down to <c>PIC_DATA::Serialize</c>, so the <c>CAR</c> twin reads
+        /// <c>style</c> at 0.900 and above and the <c>CArchive</c> twin has that line commented
+        /// out (<c>PicData.cpp:203</c> against <c>:139</c>). Reading the wrong shape does not fail
+        /// where it happens — it puts every later field four bytes out per record and surfaces as
+        /// a nonsense count much further on.
+        /// </para>
+        /// <para>
+        /// <b>The framing decides this, not the cursor.</b> A database read through a plain
+        /// <c>MfcArchiveReader</c> is still a <c>CAR</c> on the C++ side, just without LZW —
+        /// deriving the variant from <c>IArchiveCursor.IsCompressed</c> looks right and breaks
+        /// every uncompressed database. Only this file kind, and only unframed, is a real
+        /// <c>CArchive</c>.
+        /// </para>
+        /// </remarks>
+        public PicArchiveVariant PicVariant =>
+            Framing == GameDataFraming.Plain ? PicArchiveVariant.CArchive : PicArchiveVariant.Car;
+
+        /// <summary>
         /// Where the file ran out, when it was short and the framing tolerated it.
         /// </summary>
         /// <remarks>

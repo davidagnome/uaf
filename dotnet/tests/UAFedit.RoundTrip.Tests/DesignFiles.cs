@@ -264,7 +264,8 @@ public static class DesignFiles
                 }
 
                 return body;
-            });
+            },
+            pics: cursor.PicVariant);
 
         return new GameDataModel(global, events);
     }

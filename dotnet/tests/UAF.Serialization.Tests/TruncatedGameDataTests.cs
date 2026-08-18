@@ -4,26 +4,28 @@ using UAF.Serialization;
 namespace UAF.Serialization.Tests;
 
 /// <summary>
-/// Reading past the end of a file the way <c>CArchive</c> does, and why <c>game.dat</c> does not.
+/// The editor's template design, and reading past the end of a file the way <c>CArchive</c> does.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>MFC's extraction operators do not check how much they read</b>, so the reference opens a
-/// design whose <c>game.dat</c> ends mid-record and treats the missing tail as zeroes.
-/// <see cref="MfcArchiveReader.ZeroFillPastEnd"/> is that behaviour, available on request.
+/// <b>The file was never short — it was being read wrongly, and it reads now.</b>
+/// <c>src/UAFWinEd/DefaultDesign.dsn/Data/game.dat</c> is 4,343 bytes and the port used to run off
+/// the end of it, which looked exactly like truncation. It was not: the unframed path is a real
+/// <c>CArchive</c>, whose <c>PIC_DATA</c> records are four bytes shorter than a <c>CAR</c>'s, and
+/// a design below <c>VersionSpellNames</c> carries eight starting-equipment lists the port did not
+/// read at all. Both are fixed; see docs/PORTING-PLAN.md §12.
 /// </para>
 /// <para>
-/// <b>It was switched on for <c>game.dat</c> and switched back off, and that is the finding.</b>
-/// The editor's own <c>src/UAFWinEd/DefaultDesign.dsn/Data/game.dat</c> is 4,343 bytes and its
-/// <c>GLOBAL_STATS</c> asks for four more, so tolerating the short read looked like all that stood
-/// between the port and File &gt; New. It is not: handed an endless supply of zeroes, the parse
-/// reads a record count out of the tail and asks for <i>millions</i> of <c>PIC_DATA</c> records
-/// (<c>GlobalStatsReader.cs:227</c>). A file that runs off like that is being mis-parsed, not
-/// merely truncated — and the loop allocates until the process dies, which is why this cannot be
-/// left switched on and hoped about.
+/// <b>The zero-fill mechanism is kept and stays switched off.</b> MFC's extraction operators do
+/// not check how much they read, so the reference would open a genuinely truncated design and
+/// treat the missing tail as zeroes — <see cref="MfcArchiveReader.ZeroFillPastEnd"/> is that
+/// behaviour, available on request. Switching it on here was tried and did real damage: given an
+/// endless supply of zeroes the mis-parse did not stop, it read a record count out of the tail and
+/// asked for millions of records until the process died, taking the whole test suite with it.
+/// <b>Tolerating a short read is not a substitute for reading correctly</b>, and a parse that runs
+/// away when you feed it zeroes is telling you it is mis-aligned, not that the file is short.
 /// </para>
 /// <para>
-/// So what is tested here is the mechanism, which is correct, and the refusal, which is current.
 /// <b>The template design is tracked in git</b>, unlike the rest of the corpus, so these really
 /// run on a bare checkout.
 /// </para>
@@ -48,9 +50,9 @@ public class TruncatedGameDataTests
         return File.Exists(path) ? path : null;
     }
 
-    /// <summary>The template really is short, which is the premise everything here rests on.</summary>
+    /// <summary>The template is present and is the file these tests mean.</summary>
     [Fact]
-    public void The_template_designs_game_data_is_present_and_short()
+    public void The_template_designs_game_data_is_present()
     {
         if (TemplateDesign() is not { } path)
         {
@@ -61,24 +63,23 @@ public class TruncatedGameDataTests
     }
 
     /// <summary>
-    /// The template's framing and version are read, and then the parse runs out of file.
+    /// The template design reads, whole.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>This is the current state of the File &gt; New blocker, asserted rather than described.</b>
-    /// The header is fine — plain framing, version 0.9150250 — so whatever is wrong is inside
-    /// <c>GLOBAL_STATS</c> on the unframed path, not in locating it.
+    /// <b>This test used to assert the opposite</b>, and its own remarks said that when the
+    /// unframed <c>GLOBAL_STATS</c> was decoded correctly the fix was to assert the design that
+    /// came back rather than to loosen the reader. That is what happened.
     /// </para>
     /// <para>
-    /// It fails as an <see cref="EndOfStreamException"/> at the file's own length, which is the
-    /// bounded failure worth keeping. Tolerating it instead does not produce a design: it produces
-    /// a request for millions of records. When the unframed <c>GLOBAL_STATS</c> is decoded
-    /// correctly this test should start failing, and the fix is to assert the design that comes
-    /// back rather than to loosen the reader.
+    /// <b>The variant has to come from the framing.</b> An unframed <c>game.dat</c> is genuinely a
+    /// <c>CArchive</c>, so its <c>PIC_DATA</c> records are four bytes shorter than a <c>CAR</c>'s —
+    /// see <see cref="GameDataReader.Cursor.PicVariant"/>. Reading it with the default variant
+    /// still fails, which is why this passes it explicitly rather than relying on the default.
     /// </para>
     /// </remarks>
     [Fact]
-    public void The_template_design_is_refused_at_its_own_length()
+    public void The_template_design_reads()
     {
         if (TemplateDesign() is not { } path)
         {
@@ -89,16 +90,41 @@ public class TruncatedGameDataTests
         var cursor = GameDataReader.Open(stream);
 
         Assert.Equal(GameDataFraming.Plain, cursor.Framing);
+        Assert.Equal(PicArchiveVariant.CArchive, cursor.PicVariant);
         Assert.Equal(0.9150250, cursor.Version.Value, 7);
 
-        // Nothing was tolerated on the way in, so there is nothing to report.
+        var globals = GlobalStatsReader.ReadThroughCharacters(
+            cursor.Body, cursor.Version, ArchiveRole.Editor, cursor.PicVariant);
+
+        Assert.Equal("DefaultDesign", globals.DesignName);
+
+        // Nothing was tolerated on the way in: the file is not short, it was being mis-read.
         Assert.Null(cursor.TruncatedAt);
+    }
 
-        var ran = Assert.Throws<EndOfStreamException>(
-            () => GlobalStatsReader.ReadThroughCharacters(cursor.Body, cursor.Version));
+    /// <summary>
+    /// Read with the compressed variant, the same file still comes apart.
+    /// </summary>
+    /// <remarks>
+    /// <b>Four bytes per <c>PIC_DATA</c> record, and the file has eighteen of them.</b> This is
+    /// what makes <see cref="GameDataReader.Cursor.PicVariant"/> load-bearing rather than tidy —
+    /// and it is asserted because the failure it prevents is silent everywhere else: no shipped
+    /// design is unframed, so nothing but this file would ever notice.
+    /// </remarks>
+    [Fact]
+    public void The_compressed_variant_cannot_read_it()
+    {
+        if (TemplateDesign() is not { } path)
+        {
+            return;
+        }
 
-        // At the end of the file, not off in the distance -- the offset is the file's own length.
-        Assert.Contains("4343", ran.Message, StringComparison.Ordinal);
+        using var stream = File.OpenRead(path);
+        var cursor = GameDataReader.Open(stream);
+
+        Assert.ThrowsAny<Exception>(
+            () => GlobalStatsReader.ReadThroughCharacters(
+                cursor.Body, cursor.Version, ArchiveRole.Editor, PicArchiveVariant.Car));
     }
 
     /// <summary>

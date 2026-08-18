@@ -188,33 +188,75 @@ public static class MoreEventReaders
     /// Reads a <c>spellBookType</c> (<c>Spell.cpp:2325</c>) — spell limits then the spell list.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <c>spellLimitsType</c> collapses to a single <c>BOOL</c> at and above
-    /// <c>VersionSpellNames</c> (<c>GameRules.cpp:3664</c>). Below that it is a per-baseclass
-    /// matrix of <c>BYTE</c>s, which is not ported — no fixture reaches it.
+    /// <c>VersionSpellNames</c> (<c>GameRules.cpp:3664</c>). Between 0.780 and that, an editor
+    /// build reads a <c>WORD</c> of spell classes, the flag, and a prime score per baseclass —
+    /// thirteen bytes, and the reference's two twins agree on all of it in that range.
+    /// </para>
+    /// <para>
+    /// Below 0.780 it is a per-baseclass <c>BYTE</c> matrix and <b>the reference does not read it
+    /// either</b> on the <c>CAR</c> path: <c>spellLimitsType::Serialize</c> calls
+    /// <c>NotImplemented</c> outright (<c>GameRules.cpp:3625</c>). The <c>CArchive</c> twin has a
+    /// guessed-at reading of it, added in 2019 for one specific 0.5751 design and commented as a
+    /// guess (<c>:3515</c>). Neither is ported.
+    /// </para>
     /// </remarks>
     public static SpellBook ReadSpellBook(IArchiveCursor ar, DesignVersion version, ArchiveRole role)
     {
         ArgumentNullException.ThrowIfNull(ar);
 
-        if (version < DesignVersion.SpellNames)
+        if (version < DesignVersion.V0780)
         {
             throw new NotSupportedException(
-                $"spellLimitsType below {DesignVersion.SpellNames} (this is {version}) is a " +
-                "per-baseclass BYTE matrix (GameRules.cpp:3614). Not ported: no fixture reaches it.");
+                $"spellLimitsType below {DesignVersion.V0780} (this is {version}) is a " +
+                "per-baseclass BYTE matrix (GameRules.cpp:3614). Not ported, and the reference " +
+                "does not read it on the CAR path either.");
+        }
+
+        if (role == ArchiveRole.Editor && version < DesignVersion.SpellNames)
+        {
+            // WORD, then the flag, then one prime score per baseclass. The engine build reads
+            // none of it -- the block is #ifdef UAFEDITOR, which is consistent with the engine
+            // refusing a design this old outright (Level.cpp:3365).
+            ar.ReadUInt16();                                 // spellClasses
+            int limits = ar.ReadInt32();
+            for (int i = 0; i < BaseClassCount; i++)
+            {
+                ar.ReadByte();                               // PrimeScore
+            }
+
+            return new SpellBook(limits, ReadSpells(ar, version));
         }
 
         int useLimits = ar.ReadInt32();
 
+        return new SpellBook(useLimits, ReadSpells(ar, version));
+    }
+
+    /// <summary>One prime score per baseclass — <c>NumBaseClass</c> (<c>Externs.h:986</c>).</summary>
+    private const int BaseClassCount = 7;
+
+    /// <summary>The spell list inside a spell book: a count, then one record each.</summary>
+    private static List<CharacterSpell> ReadSpells(IArchiveCursor ar, DesignVersion version)
+    {
         int count = ar.ReadInt32();
         var spells = new List<CharacterSpell>(Math.Max(count, 0));
+
         for (int i = 0; i < count; i++)
         {
-            // SPELL_ID is a string above VersionSpellNames, a numeric key below it.
-            string spellId = ar.ReadString();
+            // SPELL_ID is a string above VersionSpellNames and a numeric key below it, so an old
+            // design's book names its spells by an index into a spell database this reader does
+            // not have. The number is kept as its own text rather than resolved: the alternative
+            // is an empty name, which reads as a spell that is there and has no identity.
+            string spellId = version >= DesignVersion.SpellNames
+                ? ar.ReadString()
+                : ar.ReadInt32().ToString(System.Globalization.CultureInfo.InvariantCulture);
+
             spells.Add(new CharacterSpell(spellId, ar.ReadInt32(), ar.ReadInt32(), ar.ReadInt32()));
         }
 
-        return new SpellBook(useLimits, spells);
+        return spells;
     }
 
     /// <summary>
