@@ -259,6 +259,20 @@ public sealed class LoadedDesign : IDisposable
 
             itemsLoaded = true;
             items = LoadItems();
+
+            // A pre-0.998101 design says which classes may use an item as a bitmask, and the
+            // conversion to baseclass names needs classes.dat -- which is why the reference
+            // defers it to a pass over the whole database once everything is loaded
+            // (Items.cpp:6422) rather than doing it in the reader. Same reason here.
+            //
+            // Deliberately AFTER the assignment: reading Classes can come back here for Items,
+            // and a half-built database is better reached than an infinite recursion.
+            if (items is { } read && read.Items.Any(ItemUsabilityUpgrade.NeedsUpgrade))
+            {
+                items = ItemUsabilityUpgrade.Upgrade(
+                    read, [.. Classes?.Values ?? []]);
+            }
+
             return items;
         }
     }

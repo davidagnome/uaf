@@ -10341,3 +10341,35 @@ Below 0.998101 the writers refuse rather than guess, each with a reason — `Def
 `items.dat`, `monsters.dat`, `spells.dat` and `Level000.lvl` are all declined. That is correct
 behaviour and is recorded rather than failed, but it means the round trip is only demonstrated on
 designs at or above that version.
+
+### Upgrading a legacy design, one shape at a time
+
+**The refusals are not permanent — each names a conversion the reference does and the port had
+not.** `ItemRecordWriter` cited two. **One is now done:** an item's `Usable_by_Class` bitmask
+becomes a baseclass list (`ItemUsabilityUpgrade`, 2026-08-18), so `DefaultDesign`'s 285 items lose
+their masks on load.
+
+> **The conversion belongs on load, not in the writer**, and the reference shows why: the answer
+> depends on `classes.dat`, which has not been read when the item is. `ITEM_DATA::Serialize`
+> stashes the mask in `preSpellNamesUsability` and `FixPreSpellNamesUsability` (`Items.cpp:6422`)
+> walks the whole database afterwards. `LoadedDesign.Items` does the same, after assigning the
+> field — reading `Classes` can come back for `Items`, and a half-built database is better reached
+> than an infinite recursion.
+
+> **The bit order and the class-key order are different** — the fighter is bit 8 and key 0, the
+> magic user bit 1 and key 4 — so neither can be derived from the other, and a table that tried
+> would be wrong for five of the seven. A design's own class name wins over the built-in one, which
+> is the entire reason the conversion needs `classes.dat` at all.
+
+> **One deliberate divergence.** `FindPreVersionSpellNamesClassID` (`class.cpp:7172`) ends by
+> assigning `classID = ClassText[classType]` and then immediately overwriting it with
+> `ClassText[0]` — a dead store — so a design missing the class it is asked about gets whatever
+> class zero happens to be, and then that class's first baseclass. Reproducing that would attach
+> items to an unrelated class; the port falls back on the built-in name for the class actually
+> asked about.
+
+**The second is not done and is asserted rather than described:** a special-ability block still in
+the pre-0.921 shape, which is a bare array of ability *ordinals*. Turning those into modern named
+pairs needs the ability-name table — a conversion of its own size.
+`LegacyItemUpgradeTests.The_remaining_refusal_is_the_special_abilities` fails when it lands, which
+is where the next person should start.
