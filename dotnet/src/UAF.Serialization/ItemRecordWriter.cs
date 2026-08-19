@@ -48,7 +48,8 @@ public static class ItemRecordWriter
     /// <item><b>A usability bitmask instead of a baseclass list.</b> Below
     /// <see cref="DesignVersion.SpellNames"/> an editor-role record carries
     /// <c>Usable_by_Class</c> — seven bits — where the modern form is a counted list of
-    /// <c>BASECLASS_ID</c> names. Converting needs the baseclass database, which has no reader.</item>
+    /// <c>BASECLASS_ID</c> names. <see cref="ItemUsabilityUpgrade"/> converts it, and has to run
+    /// as a pass over the loaded database because the answer depends on <c>classes.dat</c>.</item>
     /// <item><b>Special abilities still in the pre-0.921 shape</b> — see
     /// <see cref="SpecabWriter"/>.</item>
     /// </list>
@@ -66,9 +67,9 @@ public static class ItemRecordWriter
         if (item.Tail.LegacyUsableByClass != 0)
         {
             reason = $"Item '{item.Names.IdName}' carries the pre-0.998101 Usable_by_Class " +
-                     "bitmask rather than a baseclass list. Converting it needs baseclass.dat, " +
-                     "which has no reader; writing an empty list would make the item usable by " +
-                     "nobody.";
+                     "bitmask rather than a baseclass list. Run ItemUsabilityUpgrade over the " +
+                     "database first -- it needs classes.dat, which is why it is a pass after " +
+                     "loading rather than something this writer can do alone.";
             return false;
         }
 

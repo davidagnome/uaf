@@ -10292,7 +10292,12 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
 1. ~~**Five databases have a reader and no writer at all**~~ — **closed (2026-08-16).**
    `ability.dat`, `baseclass.dat`, `classes.dat`, `races.dat` and `specialAbilities.dat` now have
    writers, and the round trip covers all five: over `SomethingWild` and `Case` every one comes
-   back with **zero field differences**. `SpecabWriter` and `BaseclassListWriter` remain name traps
+   back **byte for byte identical** — not merely without field differences.
+
+   > **They are identical for a reason worth knowing: a tagged database has no version stamp.**
+   > The container carries a tag and a count and nothing else, so there is nothing for a writer to
+   > restamp — which is exactly what makes every *other* format differ at byte 8. Together with the
+   > JSON character file, these five are the only shipped files that come back unchanged. `SpecabWriter` and `BaseclassListWriter` remain name traps
    — they write blocks embedded inside item/monster/spell records, not these files.
 
    > **A tagged database carries a tag and a count and no version, so the decoder has to be told
@@ -10383,6 +10388,12 @@ designs at or above that version.
 
 ### Upgrading a legacy design, one shape at a time
 
+**Where `DefaultDesign` stands after both conversions** (2026-08-19): `game.dat`, `items.dat`,
+`spells.dat` and `ability.dat` all write. Four things still refuse, each naming a conversion nobody
+has ported: `monsters.dat` (an attack's pre-0.998101 **numeric spell id**, which resolves against
+the spell database — the obvious next one), `baseclass.dat`, `classes.dat` and `races.dat` (legacy
+container shapes), and `Level000.lvl` (8 step-event slots where 5.24 writes 255).
+
 **The refusals are not permanent — each names a conversion the reference does and the port had
 not.** `ItemRecordWriter` cited two. **One is now done:** an item's `Usable_by_Class` bitmask
 becomes a baseclass list (`ItemUsabilityUpgrade`, 2026-08-18), so `DefaultDesign`'s 285 items lose
@@ -10408,7 +10419,13 @@ their masks on load.
 > asked about.
 
 **The second is now done too** (`SpecabUpgrade`, 2026-08-18), and with it `DefaultDesign`'s
-`items.dat` writes.
+`items.dat` and `spells.dat` both round-trip losing nothing.
+
+> **The upgrade is a pass after loading, so anything that only *reads* a file misses it.** That
+> caught the round-trip harness: it reads `items.dat` through the codec rather than through
+> `LoadedDesign`, so it went on reporting the pre-conversion refusal long after the conversion
+> existed — a stale answer that looked like a real finding. The harness now runs the same pass the
+> editor does. Worth remembering for any other consumer that reads a database directly.
 
 > **This conversion has two outputs, which is what makes it more than a reshuffle.** Below 0.921 an
 > object carries its abilities inline — an activation script, a deactivation script and up to

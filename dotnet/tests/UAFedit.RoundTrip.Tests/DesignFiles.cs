@@ -109,7 +109,9 @@ public static class DesignFiles
         {
             return new DesignFileCodec(
                 name,
-                s => ReadDatabase(s, globalVersion, ItemRecordReader.ReadDatabase),
+                s => Upgraded((ItemDatabase)ReadDatabase(s, globalVersion,
+                                                         ItemRecordReader.ReadDatabase),
+                              path),
                 m => WholeFile(ItemRecordWriter.WrittenVersion, ar =>
                 {
                     var db = (ItemDatabase)m;
@@ -130,7 +132,8 @@ public static class DesignFiles
         {
             return new DesignFileCodec(
                 name,
-                s => ReadDatabase(s, globalVersion, SpellRecordReader.ReadDatabase),
+                s => Upgraded((List<SpellRecord>)ReadDatabase(s, globalVersion,
+                                                              SpellRecordReader.ReadDatabase)),
                 m => WholeFile(SpellRecordWriter.WrittenVersion,
                                ar => SpellRecordWriter.WriteDatabase(ar, (List<SpellRecord>)m)));
         }
@@ -259,6 +262,68 @@ public static class DesignFiles
             : ArchiveCursor.For(new MfcArchiveReader(source));
 
         return read(cursor, header.Version, ArchiveRole.Editor);
+    }
+
+    /// <summary>
+    /// The post-load upgrade pass, which the editor runs and so must this.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Reading a file is not the whole of loading it.</b> A pre-0.998101 item carries its
+    /// usability as a bitmask and its abilities in the pre-0.921 shape, and neither can be written
+    /// back as it stands. <c>LoadedDesign</c> converts both after reading — the reference does the
+    /// same, as a pass over the finished database (<c>Items.cpp:6422</c>) — so a harness that read
+    /// the file alone would report a refusal the editor never actually hits.
+    /// </para>
+    /// <para>
+    /// The class table comes from <c>classes.dat</c> beside the file, or from nothing when that is
+    /// a shape nobody ported. <c>DefaultDesign</c> is the latter, and the built-in baseclass names
+    /// are the documented fallback.
+    /// </para>
+    /// </remarks>
+    private static ItemDatabase Upgraded(ItemDatabase database, string itemsPath)
+    {
+        var upgraded = ItemUsabilityUpgrade.Upgrade(database, Classes(itemsPath));
+
+        return upgraded with
+        {
+            Items = [.. upgraded.Items.Select(i => i with
+            {
+                Tail = i.Tail with
+                {
+                    SpecialAbilities = SpecabUpgrade.Convert(
+                        i.Tail.SpecialAbilities, "item", i.Names.IdName).Block,
+                },
+            })],
+        };
+    }
+
+    private static List<SpellRecord> Upgraded(List<SpellRecord> spells) =>
+        [.. spells.Select(s => s with
+        {
+            SpecialAbilities = SpecabUpgrade.Convert(s.SpecialAbilities, "spell", s.Name).Block,
+        })];
+
+    /// <summary>The design's classes, or none when the file is absent or a shape nobody ported.</summary>
+    private static IReadOnlyList<ClassRecord> Classes(string siblingPath)
+    {
+        string path = Path.Combine(Path.GetDirectoryName(siblingPath) ?? ".", "classes.dat");
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var header = TaggedDatabaseReader.Read(stream, TaggedDatabase.Class, out var body);
+            return ClassRecordReader.ReadAll(body, header.Count, ClassRecordWriter.WrittenVersion);
+        }
+        catch (Exception e) when (e is InvalidDataException or EndOfStreamException
+                                    or NotSupportedException)
+        {
+            return [];
+        }
     }
 
     // -- tagged databases --------------------------------------------------------------------
