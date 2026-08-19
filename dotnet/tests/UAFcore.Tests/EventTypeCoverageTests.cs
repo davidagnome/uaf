@@ -109,7 +109,16 @@ public class EventTypeCoverageTests
                 // One game per level rather than per event: StartEvent resets the runner, and
                 // building a Game reloads the level, which over four thousand events is the
                 // difference between a slow test and an unusable one.
-                var game = new Game(design, levelIndex: i);
+                //
+                // The loop counter is a POSITION in the directory listing and Game wants an
+                // INDEX. They agree on a design numbered without gaps and disagree on Case, whose
+                // tenth file is level 255 -- so the conversion is not optional here.
+                if (design.LevelIndexAt(i) is not { } levelIndex)
+                {
+                    continue;
+                }
+
+                var game = new Game(design, levelIndex: levelIndex);
 
                 foreach (var gameEvent in level.Events)
                 {

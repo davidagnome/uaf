@@ -767,6 +767,77 @@ public sealed class LoadedDesign : IDisposable
     /// level containing such an event comes back null rather than partial — the alternative is a
     /// wall table read out of the middle of an event body.
     /// </remarks>
+    /// <summary>
+    /// The file holding the level with this index, or null when the design has no such level.
+    /// </summary>
+    /// <param name="levelIndex">
+    /// The level's own index — <c>Game.LevelIndex</c>, the key into <c>LEVEL_INFO</c>. The file is
+    /// named for <paramref name="levelIndex"/> <b>plus one</b>.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>A level's number is not its position in the directory listing, and conflating the two is
+    /// a real bug on a real design.</b> A level file is named for its index plus one
+    /// (<c>Shared/Level.cpp:3643</c>), and a design may skip numbers: <c>Case.dsn</c> ships ten
+    /// levels numbered 001-004, 011-013, 016, 018 and 255. Its last file sits at <i>position</i>
+    /// nine and is <i>level</i> 255, so anything that walked to level 255 and then read position
+    /// 255 — or read position nine — would get the wrong level or none.
+    /// </para>
+    /// <para>
+    /// The two coincide exactly when a design is numbered from 1 with no gaps, which every design
+    /// used to test this port except <c>Case</c> happens to be. That is why the confusion survived:
+    /// see <see cref="Level"/>, which takes a position and is what the editor's own lists want.
+    /// </para>
+    /// </remarks>
+    public string? LevelFileFor(int levelIndex)
+    {
+        if (levelIndex < 0)
+        {
+            return null;
+        }
+
+        // Case-insensitively, because a design authored on Windows may disagree with itself about
+        // the case of its own filenames -- the same reason asset resolution is case-insensitive.
+        string wanted = $"Level{levelIndex + 1:000}.lvl";
+
+        return LevelFiles.FirstOrDefault(
+            f => string.Equals(Path.GetFileName(f), wanted, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The level index of the file at a position in <see cref="LevelFiles"/>, or null when its
+    /// name does not follow the convention.
+    /// </summary>
+    /// <remarks>
+    /// The inverse of <see cref="LevelFileFor"/>, and the bridge anything enumerating the listing
+    /// needs before it can talk to the engine: <c>Game</c> takes an index, and a loop over the
+    /// listing has a position. On <c>Case.dsn</c> position 9 is index 254.
+    /// </remarks>
+    public int? LevelIndexAt(int position)
+    {
+        var files = LevelFiles;
+        if (position < 0 || position >= files.Count)
+        {
+            return null;
+        }
+
+        string name = Path.GetFileNameWithoutExtension(files[position]);
+
+        return name.StartsWith("Level", StringComparison.OrdinalIgnoreCase)
+               && int.TryParse(name.AsSpan(5), out int number)
+               && number > 0
+            ? number - 1
+            : null;
+    }
+
+    /// <summary>The whole level with this index, or null. See <see cref="LevelFileFor"/>.</summary>
+    public LevelFile? LevelNumbered(int levelIndex) =>
+        LevelFileFor(levelIndex) is { } path ? ReadLevel(path) : null;
+
+    /// <summary>The map of the level with this index, or null. See <see cref="LevelFileFor"/>.</summary>
+    public Map? MapNumbered(int levelIndex) =>
+        LevelFileFor(levelIndex) is { } path ? ReadMap(path) : null;
+
     public LevelFile? Level(int index)
     {
         var files = LevelFiles;
@@ -775,9 +846,15 @@ public sealed class LoadedDesign : IDisposable
             return null;
         }
 
+        return ReadLevel(files[index]);
+    }
+
+    /// <summary>Reads one <c>.lvl</c> whole, or null when it will not decode.</summary>
+    private static LevelFile? ReadLevel(string path)
+    {
         try
         {
-            using var stream = File.OpenRead(files[index]);
+            using var stream = File.OpenRead(path);
             return LevelFileReader.Read(stream, ArchiveRole.Editor,
                 (ar, type, version) => EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor));
         }
@@ -804,9 +881,15 @@ public sealed class LoadedDesign : IDisposable
             return null;
         }
 
+        return ReadMap(files[index]);
+    }
+
+    /// <summary>Reads one <c>.lvl</c>'s grid, or null when it will not decode.</summary>
+    private static Map? ReadMap(string path)
+    {
         try
         {
-            using var stream = File.OpenRead(files[index]);
+            using var stream = File.OpenRead(path);
             var (_, width, height, cells) = LevelFileReader.ReadAreaMapOnly(stream);
             return new Map(width, height, cells);
         }

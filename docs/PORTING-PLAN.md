@@ -8485,15 +8485,19 @@ not there, and which shipped files nothing names.
 > `<AvaloniaXaml Remove="Views\Generated\**" />` went in, and **nothing warned**. It is 114 KB
 > after.
 
-> **A live engine bug, found by the inspector and confirmed independently.** A level file's number
-> is its **index plus one** (`Shared/Level.cpp:3643`), *not* its position in
-> `LoadedDesign.LevelFiles` — which is a sorted directory listing. `Game.LevelIndex` is used as
-> **both**: as the argument to `design.Level(index)` (a list position, `Game.cs:2747`) and as the
-> key into `design.Globals.Levels.Levels` (a raw `stats[]` index, `GameScriptHost.cs:2082`). Those
-> coincide only in a design numbered without holes. **`Case.dsn` has holes** — ten files running
+> ~~**A live engine bug, found by the inspector and confirmed independently.**~~ — **fixed
+> (2026-08-18).** A level file's number is its **index plus one** (`Shared/Level.cpp:3643`), *not*
+> its position in `LoadedDesign.LevelFiles`, which is a sorted directory listing. `Game.LevelIndex`
+> is an index everywhere it is used — it keys `LEVEL_INFO`, and a script's `$CurrentLevel` is it
+> plus one — but `Game.LoadLevel` handed it to `design.Level(position)`. The two coincide only in
+> a design numbered without holes. **`Case.dsn` has holes** — ten files running
 > `001–004, 011–013, 016, 018, 255` — so its last file sits at position 9 and is level 255, and
-> every entry-point lookup and level-attribute read on that design is keyed wrongly. **Not fixed;
-> it is engine work, not editor work.**
+> walking onto it loaded the wrong level or none.
+>
+> `LoadedDesign` now offers both spaces explicitly: `Level`/`Map` by directory position, which is
+> what the editor's lists want, and `LevelNumbered`/`MapNumbered`/`LevelFileFor` by index, which is
+> what the engine wants. `LevelNumberingTests` pins the difference against `Case` — on a design
+> without gaps the two agree for every level, which is exactly why this survived so long.
 
 > **The wall arrays are stored north, SOUTH, east, west — and in the C++ two permutations cancel.**
 > `DrawSquare` indexes `WallOffsetRects` with the raw subscript while the rect table is *also*

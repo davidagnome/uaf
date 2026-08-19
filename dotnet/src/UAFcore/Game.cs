@@ -47,6 +47,19 @@ public sealed class Game
     {
         ArgumentNullException.ThrowIfNull(design);
 
+        // The second parameter is the screen WIDTH, and the thing a caller most often wants to
+        // pass second is the level. `new Game(design, 254)` is a 254-pixel-wide game, not level
+        // 254, and without this it succeeds quietly and goes wrong much later -- which is exactly
+        // what happened in EventTypeCoverageTests. Levels run to 255, so anything that small is
+        // far likelier to be one than a screen.
+        if (width < 256 || height < 256)
+        {
+            throw new ArgumentOutOfRangeException(
+                width < 256 ? nameof(width) : nameof(height),
+                $"A {width} x {height} screen is too small to be one. If you meant a level, the "
+                + "parameter is named: new Game(design, levelIndex: n).");
+        }
+
         this.design = design;
         screen = new Surface(width, height);
         LevelIndex = levelIndex;
@@ -655,10 +668,14 @@ public sealed class Game
     /// </remarks>
     public bool LoadLevel(int levelIndex)
     {
-        var level = design.Level(levelIndex);
+        // By NUMBER, not by position in the directory listing. A level file is named for its
+        // index plus one and a design may skip numbers -- Case.dsn runs 001-004, 011-013, 016,
+        // 018, 255 -- so the two agree only on a design with no gaps. LevelIndex is the number
+        // everywhere else in this class, including the LEVEL_INFO key, so it has to be one here.
+        var level = design.LevelNumbered(levelIndex);
         var map = level is not null
             ? new Map(level.Width, level.Height, level.Cells)
-            : design.Map(levelIndex);
+            : design.MapNumbered(levelIndex);
 
         if (map is null)
         {
