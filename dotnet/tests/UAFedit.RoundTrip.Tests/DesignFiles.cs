@@ -210,7 +210,8 @@ public static class DesignFiles
             || BinaryPrimitives.ReadUInt64LittleEndian(prologue) != CharacterFileReader.Magic)
         {
             return "a JSON character file (CHARACTER::Export, Shared/Char.cpp:3128), not the " +
-                   "binary format -- the port has no reader or writer for it";
+                   "binary format. JsonCharacterReader reads it; there is no writer, so it " +
+                   "cannot round-trip";
         }
 
         return null;

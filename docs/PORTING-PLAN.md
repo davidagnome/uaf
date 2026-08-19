@@ -10304,7 +10304,27 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
    > and tries to allocate it. `DesignFileCodec.ReadWritten` is that asymmetry made explicit.
    > `specialAbilities.dat` has it too, for the same reason: no stamp of its own.
 
-2. **`SomethingWild` ships a JSON character file the port cannot see.** `Data/Uril Kabo.CHAR`
+2. ~~**`SomethingWild` ships a JSON character file the port cannot see.**~~ — **reading closed
+   (2026-08-18);** `JsonCharacterReader` reads it into an ordinary `CharacterRecord`. There is no
+   writer, so it still cannot round-trip, and the sweep says so rather than calling it corrupt.
+
+   > **Both formats use the same extensions, and the binary reader does not reject JSON cleanly.**
+   > The first eight bytes of `{"charVersion"` decode as a plausible `double`, which is why the
+   > port used to report this file as "declares version 0.563, below the 0.93 floor" — a corrupt
+   > file, which it is not. Telling them apart is a look at the first non-space byte.
+
+   > **Every value is a string, including the numbers and the booleans**, because `JWriter` formats
+   > everything before emitting it: `"33"`, `"true"` and `"51.000000"` are all strings on the wire.
+   > A field declared `int` is sometimes written with a decimal part, so parsing has to go through
+   > `double`.
+
+   > **Four fields are enum names and this format spells them differently from the rest of the
+   > port** — "Chaotic Neutral" here against GPDL's "CHAOTIC NEUTRAL". A reader that reused the
+   > scripting tables would match none of them and silently return index 0, which is "Lawful Good":
+   > a perfectly plausible wrong answer. `picType` is the one field that is neither scalar nor
+   > object — a JSON array of `SurfaceType` flag names.
+
+   The original note, for context: `Data/Uril Kabo.CHAR`
    opens `{"charVersion":…}` — it is `CHARACTER::Export(JWriter&)` / `Import(JReader&)`
    (`Shared/Char.cpp:3128`, `:3303`), a second character format with no reader or writer in the
    port. `CharacterFileReader` rejects it as "version 0.563, below the 0.93 floor", which reads
