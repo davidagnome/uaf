@@ -8369,6 +8369,18 @@ be written.
 and finds the change after a completely fresh read of the folder. That is the exit criterion's
 loop, minus the confirmation from `UAFWinEd.exe`.
 
+**File > New works** (2026-08-18): it copies the template into a folder of the user's choosing and
+opens the copy.
+
+> **Copied, not opened in place, and that is a deliberate divergence.** `UAFWinEd`'s File > New
+> points the runtime's folders at `ede.TemplateDir()` and relies on the user doing a Save As
+> (`UAFWinEd.cpp:579`). This editor's Save writes back to the folder it opened, so doing the same
+> would overwrite the template the first time anybody pressed Ctrl+S — and there is only one of it.
+> A test asserts the template is byte-for-byte untouched after a New, an edit and a Save.
+
+> **It only became possible once the template was writable.** Both legacy conversions above were
+> prerequisites: a New design that could not be saved would have been worse than no menu entry.
+
 **Cross-reference tooling exists** (2026-08-18) — the reference's `CrossReferenceDlg`, narrowed to
 the question it is actually used for: which art and sound files a design names, which of those are
 not there, and which shipped files nothing names.

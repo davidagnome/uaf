@@ -458,6 +458,47 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void SaveDesign() => Status = Save();
 
+    /// <summary>
+    /// Copies the template into a folder and opens the copy.
+    /// </summary>
+    /// <returns>What happened, for the status line.</returns>
+    /// <remarks>
+    /// <b>The template is copied, never opened in place.</b> Save writes back to the folder a
+    /// design was opened from, so opening the template directly would overwrite it the first time
+    /// anybody saved — see <see cref="DesignTemplate"/>.
+    /// </remarks>
+    public string New(string destination)
+    {
+        try
+        {
+            DesignTemplate.CreateAt(destination);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                                    or InvalidOperationException or ArgumentException)
+        {
+            return $"Could not create a design in '{destination}': {e.Message}";
+        }
+
+        return Open(destination)
+            ? $"New design created in '{destination}'."
+            : Status;                            // Open already said why
+    }
+
+    [RelayCommand]
+    private async Task NewDesignAsync()
+    {
+        if (ChooseFolder is null)
+        {
+            Status = "No folder picker is available.";
+            return;
+        }
+
+        if (await ChooseFolder().ConfigureAwait(true) is { } destination)
+        {
+            Status = New(destination);
+        }
+    }
+
     [RelayCommand]
     private async Task OpenDesignAsync()
     {

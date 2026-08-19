@@ -108,7 +108,7 @@ public class ShellWindowTests
             var menu = Assert.Single(window.GetVisualDescendants().OfType<Menu>());
             var file = Assert.Single(menu.Items.OfType<MenuItem>());
             Assert.Equal("_File", file.Header);
-            Assert.Equal(4, file.Items.Count);       // Open, Save, separator, Exit
+            Assert.Equal(5, file.Items.Count);       // New, Open, Save, separator, Exit
 
             // Save is disabled until something is edited, so it cannot be pressed on a shell with
             // no design in it.
