@@ -1,0 +1,69 @@
+<!--
+  The cross-reference pane — the reference's CrossReferenceDlg (Tools > Cross Reference).
+
+  A toolbar and a table. The original's six filter checkboxes crossed reference-count against
+  existence; the two combinations that answer a question are radio buttons here, with everything
+  as a third.
+
+  The referrer column is a wrapping multi-line cell rather than one row per reference, because the
+  question the tool answers is "what is broken", and a file named 160 times would otherwise push
+  everything else off the screen.
+-->
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:cr="using:UAFedit.CrossReference"
+             x:Class="UAFedit.CrossReference.CrossReferenceView"
+             x:DataType="cr:CrossReferenceViewModel">
+
+  <DockPanel Margin="8">
+
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="12" Margin="0,0,0,8">
+      <Button Content="Sweep design" Command="{Binding RunCommand}" />
+
+      <RadioButton GroupName="filter" Content="Missing" IsEnabled="{Binding HasReport}"
+                   IsChecked="{Binding Filter, Mode=TwoWay,
+                               Converter={x:Static cr:FilterConverter.Instance},
+                               ConverterParameter=Missing}" />
+      <RadioButton GroupName="filter" Content="Unused" IsEnabled="{Binding HasReport}"
+                   IsChecked="{Binding Filter, Mode=TwoWay,
+                               Converter={x:Static cr:FilterConverter.Instance},
+                               ConverterParameter=Unreferenced}" />
+      <RadioButton GroupName="filter" Content="Everything" IsEnabled="{Binding HasReport}"
+                   IsChecked="{Binding Filter, Mode=TwoWay,
+                               Converter={x:Static cr:FilterConverter.Instance},
+                               ConverterParameter=Everything}" />
+    </StackPanel>
+
+    <TextBlock DockPanel.Dock="Bottom" Text="{Binding Status}" Margin="0,8,0,0"
+               TextWrapping="Wrap" />
+
+    <Border BorderThickness="0,0,0,1" BorderBrush="#40808080" DockPanel.Dock="Top"
+            Padding="0,0,0,4" Margin="0,0,0,4">
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Text="Kind" Width="60" FontWeight="SemiBold" />
+        <TextBlock Text="Name" Width="280" FontWeight="SemiBold" />
+        <TextBlock Text="On disk" Width="70" FontWeight="SemiBold" />
+        <TextBlock Text="Refs" Width="50" FontWeight="SemiBold" />
+        <TextBlock Text="Named by" FontWeight="SemiBold" />
+      </StackPanel>
+    </Border>
+
+    <ListBox ItemsSource="{Binding Rows}">
+      <ListBox.ItemTemplate>
+        <DataTemplate DataType="cr:CrossReferenceRow">
+          <StackPanel Orientation="Horizontal">
+            <TextBlock Text="{Binding Kind}" Width="60" VerticalAlignment="Top" />
+            <TextBlock Text="{Binding Name}" Width="280" VerticalAlignment="Top"
+                       TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Exists}" Width="70" VerticalAlignment="Top" />
+            <TextBlock Text="{Binding Count}" Width="50" VerticalAlignment="Top" />
+            <TextBlock Text="{Binding Referrers}" TextWrapping="Wrap" MaxWidth="520"
+                       Opacity="0.75" />
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+  </DockPanel>
+
+</UserControl>

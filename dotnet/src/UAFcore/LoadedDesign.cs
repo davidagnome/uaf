@@ -28,14 +28,18 @@ public sealed class LoadedDesign : IDisposable
     private readonly IFontRasterizer? rasterizer;
     private readonly Dictionary<int, BitmapFont> fonts = [];
 
+    /// <summary>Which reader the databases use. See <see cref="Open"/>.</summary>
+    private readonly ArchiveRole role;
+
     private LoadedDesign(string root, GlobalStatsPrefix globals, DesignConfig config,
-                         ImageLoader loader, IFontRasterizer? rasterizer)
+                         ImageLoader loader, IFontRasterizer? rasterizer, ArchiveRole role)
     {
         Root = root;
         Globals = globals;
         Config = config;
         this.loader = loader;
         this.rasterizer = rasterizer;
+        this.role = role;
     }
 
     public string Root { get; }
@@ -94,8 +98,26 @@ public sealed class LoadedDesign : IDisposable
     /// Optional. Without one the design still loads and still draws; it simply has no text, which
     /// is the same degradation contract the video and image decoders use.
     /// </param>
+    /// <param name="role">
+    /// Which of the two readers to use for the databases.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <b>The role is not a detail, and the default is the strict one.</b> The two differ only in
+    /// what they accept below 0.998101, and the engine refuses such a design outright
+    /// (<c>Level.cpp:3365</c>) where the editor is expected to open it and upgrade it. Defaulting
+    /// to <see cref="ArchiveRole.Engine"/> keeps that distinction: an editor asks for
+    /// <see cref="ArchiveRole.Editor"/> deliberately.
+    /// </para>
+    /// <para>
+    /// <b>It applies to the databases only.</b> <c>GLOBAL_STATS</c> and the level files are read
+    /// as the editor either way — the design's identity and its maps have to be legible before
+    /// anything can decide whether to refuse it.
+    /// </para>
+    /// </remarks>
     public static LoadedDesign Open(string root, IImageDecoder? extraDecoder = null,
-                                    IFontRasterizer? rasterizer = null)
+                                    IFontRasterizer? rasterizer = null,
+                                    ArchiveRole role = ArchiveRole.Engine)
     {
         ArgumentNullException.ThrowIfNull(root);
 
@@ -132,7 +154,7 @@ public sealed class LoadedDesign : IDisposable
         return new LoadedDesign(root, globals,
                                 File.Exists(config) ? DesignConfig.Load(config)
                                                     : DesignConfig.Parse([]),
-                                new ImageLoader(extraDecoder), rasterizer);
+                                new ImageLoader(extraDecoder), rasterizer, role);
     }
 
     /// <summary>
@@ -261,12 +283,12 @@ public sealed class LoadedDesign : IDisposable
                 // the seek is to the magic's end rather than to PayloadOffset.
                 stream.Seek(16, SeekOrigin.Begin);
                 return ItemRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
-                                                     header.Version, ArchiveRole.Engine);
+                                                     header.Version, role);
             }
 
             stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
             return ItemRecordReader.ReadDatabase(new MfcArchiveReader(stream),
-                                                 header.Version, ArchiveRole.Engine);
+                                                 header.Version, role);
         }
         catch (Exception e) when (e is IOException or InvalidDataException
                                        or EndOfStreamException or InvalidOperationException)
@@ -366,12 +388,12 @@ public sealed class LoadedDesign : IDisposable
             {
                 stream.Seek(16, SeekOrigin.Begin);
                 return SpellRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
-                                                      header.Version, ArchiveRole.Engine);
+                                                      header.Version, role);
             }
 
             stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
             return SpellRecordReader.ReadDatabase(new MfcArchiveReader(stream),
-                                                  header.Version, ArchiveRole.Engine);
+                                                  header.Version, role);
         }
         catch (Exception e) when (e is IOException or InvalidDataException
                                        or EndOfStreamException or InvalidOperationException)
@@ -398,12 +420,12 @@ public sealed class LoadedDesign : IDisposable
             {
                 stream.Seek(16, SeekOrigin.Begin);
                 return MonsterRecordReader.ReadDatabase(CarArchiveReader.Open(stream),
-                                                        header.Version, ArchiveRole.Engine);
+                                                        header.Version, role);
             }
 
             stream.Seek(header.PayloadOffset, SeekOrigin.Begin);
             return MonsterRecordReader.ReadDatabase(new MfcArchiveReader(stream),
-                                                    header.Version, ArchiveRole.Engine);
+                                                    header.Version, role);
         }
         catch (Exception e) when (e is IOException or InvalidDataException
                                        or EndOfStreamException or InvalidOperationException)

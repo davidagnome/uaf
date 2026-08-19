@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using UAF.Serialization;
 using UAFcore;
+using UAFedit.CrossReference;
 using UAFedit.Databases;
 using UAFedit.Events;
 using UAFedit.Globals;
@@ -43,6 +45,9 @@ public enum EditorPane
 
     /// <summary>Database &gt; Edit Special Abilities.</summary>
     Abilities,
+
+    /// <summary>Tools &gt; Cross Reference.</summary>
+    CrossReference,
 }
 
 /// <summary>
@@ -141,6 +146,14 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private SpecialAbilityDatabaseViewModel? abilitiesPane;
 
+    /// <summary>The cross-reference pane, once its tab has been opened.</summary>
+    /// <remarks>
+    /// Building it costs nothing — the sweep is a button, not a constructor, because it reads
+    /// every level in the design.
+    /// </remarks>
+    [ObservableProperty]
+    private CrossReferenceViewModel? crossReferencePane;
+
     partial void OnSelectedPaneChanged(EditorPane value) => Show(value);
 
     /// <summary>
@@ -191,6 +204,9 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
                     break;
                 case EditorPane.Abilities:
                     AbilitiesPane ??= Watch(new SpecialAbilityDatabaseViewModel(open));
+                    break;
+                case EditorPane.CrossReference:
+                    CrossReferencePane ??= new CrossReferenceViewModel(open);
                     break;
                 default:
                     break;
@@ -245,6 +261,7 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         (AbilitiesPane as IDisposable)?.Dispose();
 
         SettingsPane = null;
+        CrossReferencePane = null;
         LevelsPane = null;
         EventsPane = null;
         ItemsPane = null;
@@ -280,7 +297,10 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         LoadedDesign opened;
         try
         {
-            opened = LoadedDesign.Open(root);
+            // Editor, not the default Engine: the two readers differ only in what they accept
+            // below 0.998101, and an editor that refused a legacy design could not upgrade it --
+            // which is the one thing the reference's editor exists to do that the engine does not.
+            opened = LoadedDesign.Open(root, role: ArchiveRole.Editor);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException
                                     or InvalidDataException or EndOfStreamException

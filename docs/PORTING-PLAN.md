@@ -8367,7 +8367,32 @@ be written.
 `spells.dat`, `specialAbilities.txt`, and a `.lvl` per level whose events were touched.
 `DesignSaver` writes them, and for each there is a test that opens `SomethingWild`, edits, saves,
 and finds the change after a completely fresh read of the folder. That is the exit criterion's
-loop, minus the confirmation from `UAFWinEd.exe`. Cross-reference tooling does not exist.
+loop, minus the confirmation from `UAFWinEd.exe`.
+
+**Cross-reference tooling exists** (2026-08-18) — the reference's `CrossReferenceDlg`, narrowed to
+the question it is actually used for: which art and sound files a design names, which of those are
+not there, and which shipped files nothing names.
+
+> **It walks the object graph rather than each record type.** The reference gives all 62 of its
+> record types a `CrossReference` method that walks its own fields (`UAFWinEd/CrossReference.h`).
+> Sixty-two hand-written walkers are sixty-two chances to forget a field — and unlike a missing
+> writer, a missing walker does not fail, it just reports a smaller number and looks fine. The
+> sweep reflects instead, for the same reason `StructuralDiff` does in the round-trip harness, and
+> the tests pin its *reach* rather than its output: a monster's icon, a spell's art list, a level's
+> zone art and the global sound queue are four different shapes of path through the graph.
+
+> **A reference is a string that names a file**, matched on extension. Not a type test: art arrives
+> as `PicRecord.FileName`, as a bare `string` on the global art slots, inside sound queues and
+> inside event bodies, with no type in common.
+
+> **What it finds on the shipped designs is real.** `SomethingWild` names 27 files it does not
+> ship and ships 213 nothing names; `Case` names 181 it does not ship — one of them,
+> `combat_Wilderness.png`, referenced 160 times from level zones.
+
+> **A design with no `Resources` folder reports nothing missing, and that distinction is the
+> difference between a tool people use and one they do not.** The editor's own `DefaultDesign` is
+> exactly that: a template naming 154 files whose art comes from the shared install. Calling all
+> 154 broken would be true of the folder and false about the design.
 
 > **The Settings pane reads `game.dat` itself and does not take `LoadedDesign.Globals`.** The
 > design's own read passes no event reader, which stops the parse before the global event list —

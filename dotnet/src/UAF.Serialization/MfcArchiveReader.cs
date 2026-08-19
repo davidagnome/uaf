@@ -204,7 +204,7 @@ public sealed class MfcArchiveReader
     /// </summary>
     public string ReadString()
     {
-        uint length = ReadStringLength();
+        uint length = CheckedStringLength();
         if (length == 0)
         {
             return string.Empty;
@@ -216,12 +216,51 @@ public sealed class MfcArchiveReader
     }
 
     /// <summary>
+    /// A string length the file could actually hold, or a diagnosable failure.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A length longer than the rest of the file is the loudest thing a mis-parse says</b>, and
+    /// without this it says it in the worst way: <c>new byte[length]</c> throws
+    /// <see cref="OverflowException"/> for a length past <see cref="int.MaxValue"/> and
+    /// <c>OutOfMemoryException</c> for one merely enormous. Neither names a file or an offset, and
+    /// neither is in any caller's catch list — so a reader that had quietly gone off the rails
+    /// took the process down instead of being refused.
+    /// </para>
+    /// <para>
+    /// Checked against the stream's own length rather than a constant, so a genuinely long string
+    /// in a genuinely large file is still read. Streams that cannot report a length are left
+    /// alone: there is nothing to compare against, and inventing a cap would refuse valid data.
+    /// </para>
+    /// </remarks>
+    private uint CheckedStringLength()
+    {
+        long at = _stream.Position;
+        uint length = ReadStringLength();
+
+        if (!_stream.CanSeek)
+        {
+            return length;
+        }
+
+        long remaining = _stream.Length - _stream.Position;
+        if (length > remaining)
+        {
+            throw new InvalidDataException(
+                $"A string at offset {at} declares {length} bytes, but only {remaining} remain in "
+                + "the file. The parse is not aligned with the data.");
+        }
+
+        return length;
+    }
+
+    /// <summary>
     /// Reads the raw bytes of a length-prefixed string without decoding. Use this when a value
     /// must round-trip byte-for-byte regardless of codepage.
     /// </summary>
     public byte[] ReadStringBytes()
     {
-        uint length = ReadStringLength();
+        uint length = CheckedStringLength();
         byte[] bytes = new byte[length];
         if (length > 0)
         {
