@@ -331,11 +331,6 @@ public class RoundTripTests(ITestOutputHelper output)
 
             if (DesignFiles.CodecFor(path, globalVersion) is not { } codec)
             {
-                if (DesignFiles.UnsupportedReason(path) is { } why)
-                {
-                    report.AppendLine($"  {name,-24} NO CODEC   {why}");
-                }
-
                 continue;
             }
 

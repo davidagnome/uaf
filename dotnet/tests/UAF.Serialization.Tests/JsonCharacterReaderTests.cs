@@ -180,6 +180,46 @@ public class JsonCharacterReaderTests
         Assert.Equal(2, who.Icon.NumFrames);
     }
 
+    /// <summary>
+    /// The file is written back byte for byte.
+    /// </summary>
+    /// <remarks>
+    /// <b>The only format in this port where that is possible.</b> Every binary format restamps
+    /// its version on save, so no shipped file comes back unchanged (docs/PORTING-PLAN.md §12);
+    /// JSON carries its version as an ordinary field, so there is nothing to restamp and the
+    /// strongest claim is available here.
+    /// </remarks>
+    [Fact]
+    public void The_file_is_written_back_byte_for_byte()
+    {
+        if (UrilKabo() is not { } path)
+        {
+            return;
+        }
+
+        string original = File.ReadAllText(path);
+        var who = Read()!;
+
+        Assert.Equal(original, JsonCharacterWriter.Write(who));
+    }
+
+    /// <summary>And a second write is a fixpoint.</summary>
+    [Fact]
+    public void Writing_twice_produces_the_same_text()
+    {
+        if (Read() is not { } who)
+        {
+            return;
+        }
+
+        string once = JsonCharacterWriter.Write(who);
+
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(once));
+        string twice = JsonCharacterWriter.Write(JsonCharacterReader.Read(stream));
+
+        Assert.Equal(once, twice);
+    }
+
     /// <summary>Something that is not JSON at all is refused with a reason.</summary>
     [Fact]
     public void Not_json_is_refused()

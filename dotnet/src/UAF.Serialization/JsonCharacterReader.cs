@@ -32,42 +32,16 @@ namespace UAF.Serialization;
 /// </remarks>
 public static class JsonCharacterReader
 {
-    /// <summary><c>genderText</c> (<c>Globtext.cpp:630</c>).</summary>
-    private static readonly string[] Genders = ["Male", "Female", "Bishop"];
+    /// <summary>The name tables, shared with the writer so the two cannot drift apart.</summary>
+    private static string[] Genders => JsonCharacterNames.Genders;
 
-    /// <summary><c>alignmentText</c> (<c>Globtext.cpp:602</c>).</summary>
-    private static readonly string[] Alignments =
-    [
-        "Lawful Good", "Neutral Good", "Chaotic Good",
-        "Lawful Neutral", "True Neutral", "Chaotic Neutral",
-        "Lawful Evil", "Neutral Evil", "Chaotic Evil",
-    ];
+    private static string[] Alignments => JsonCharacterNames.Alignments;
 
-    /// <summary><c>CharStatusTypeText</c> (<c>Globtext.cpp:615</c>).</summary>
-    private static readonly string[] Statuses =
-    [
-        "OKAY", "UNCONSCIOUS", "DEAD", "FLED", "PETRIFIED",
-        "GONE", "ANIMATED", "TEMP GONE", "RUNNING", "DYING",
-    ];
+    private static string[] Statuses => JsonCharacterNames.Statuses;
 
-    /// <summary>
-    /// <c>CreatureSizeText</c> (<c>Globtext.cpp:112</c>).
-    /// </summary>
-    /// <remarks>
-    /// <b>Three entries, and the enum starts at zero</b>, so "Small" is 0 — there is no "Tiny".
-    /// </remarks>
-    private static readonly string[] Sizes = ["Small", "Medium", "Large"];
+    private static string[] Sizes => JsonCharacterNames.Sizes;
 
-    /// <summary><c>SurfaceType</c> (<c>SurfaceMgr.h:25</c>) — a flag set, written as a list.</summary>
-    private static readonly (string Name, int Value)[] SurfaceTypes =
-    [
-        ("BogusDib", 0), ("CommonDib", 1), ("CombatDib", 2), ("WallDib", 4), ("DoorDib", 8),
-        ("BackGndDib", 16), ("OverlayDib", 32), ("IconDib", 64), ("OutdoorCombatDib", 128),
-        ("BigPicDib", 256), ("MapDib", 512), ("SmallPicDib", 1024), ("SpriteDib", 2048),
-        ("TitleDib", 4096), ("BufferDib", 8192), ("FontDib", 16384), ("MouseDib", 32768),
-        ("TransBufferDib", 65536), ("SpecialGraphicsOpaqueDib", 0x20000),
-        ("SpecialGraphicsTransparentDib", 0x40000),
-    ];
+    private static (string Name, int Value)[] SurfaceTypes => JsonCharacterNames.SurfaceTypes;
 
     /// <summary>Whether a file is this format rather than the binary one.</summary>
     /// <remarks>
@@ -223,8 +197,10 @@ public static class JsonCharacterReader
     {
         var book = Child(c, "spellbook");
 
+        // Written as a boolean word, not a number: "useLimits":"true". Int() would parse that as
+        // zero, which is the opposite of what it says.
         return new SpellBook(
-            Int(book, "useLimits"),
+            Bool(book, "useLimits") ? 1 : Int(book, "useLimits"),
             [.. Each(book, "spellList").Select(s => new CharacterSpell(
                 Str(s, "name"), Int(s, "memorized"), Int(s, "level"), Int(s, "selected")))]);
     }

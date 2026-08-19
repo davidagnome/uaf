@@ -167,51 +167,13 @@ public static class DesignFiles
 
         if (IsCharacterFile(name))
         {
-            return UnsupportedReason(path) is null
-                ? new DesignFileCodec(name, ReadCharacter, WriteCharacter)
-                : null;
-        }
+            // Two unrelated formats behind the same extensions, told apart by the first byte
+            // rather than the name -- see JsonCharacterReader.
+            using var sniff = File.OpenRead(path);
 
-        return null;
-    }
-
-    /// <summary>
-    /// Why a file the corpus turned up has no codec, or null when it has one.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>There are two character formats and the port only has one of them.</b>
-    /// <c>SomethingWild</c> ships <c>Data/Uril Kabo.CHAR</c>, which opens
-    /// <c>{"charVersion":"-2147483647"</c> — it is <i>JSON</i>, written by
-    /// <c>CHARACTER::Export(JWriter&amp;)</c> (<c>Shared/Char.cpp:3128</c>) and read by
-    /// <c>CHARACTER::Import(JReader&amp;)</c> (<c>:3303</c>). The port has neither.
-    /// </para>
-    /// <para>
-    /// This is reported rather than skipped because the two failure modes look identical from
-    /// outside and are not the same thing. <see cref="CharacterFileReader"/> rejects the file with
-    /// "declares version 0.563, below the 0.93 floor" — the branch its own remarks call reachable
-    /// only for a file no build can load — which reads like a broken file. It is not broken: it is
-    /// a format the reference reads happily and the port cannot see. A design containing one
-    /// cannot be saved without losing it.
-    /// </para>
-    /// </remarks>
-    public static string? UnsupportedReason(string path)
-    {
-        ArgumentNullException.ThrowIfNull(path);
-
-        if (!IsCharacterFile(Path.GetFileName(path)))
-        {
-            return null;
-        }
-
-        using var stream = File.OpenRead(path);
-        Span<byte> prologue = stackalloc byte[8];
-        if (stream.ReadAtLeast(prologue, 8, throwOnEndOfStream: false) < 8
-            || BinaryPrimitives.ReadUInt64LittleEndian(prologue) != CharacterFileReader.Magic)
-        {
-            return "a JSON character file (CHARACTER::Export, Shared/Char.cpp:3128), not the " +
-                   "binary format. JsonCharacterReader reads it; there is no writer, so it " +
-                   "cannot round-trip";
+            return JsonCharacterReader.IsJson(sniff)
+                ? new DesignFileCodec(name, ReadJsonCharacter, WriteJsonCharacter)
+                : new DesignFileCodec(name, ReadCharacter, WriteCharacter);
         }
 
         return null;
@@ -395,6 +357,20 @@ public static class DesignFiles
     }
 
     // -- characters --------------------------------------------------------------------------
+
+    private static object ReadJsonCharacter(Stream source) =>
+        JsonCharacterReader.Read(source);
+
+    /// <summary>
+    /// The one file kind that really does come back byte-identical.
+    /// </summary>
+    /// <remarks>
+    /// Every binary format restamps its version on save, so none of them can; JSON carries its
+    /// version as an ordinary field and has nothing to restamp.
+    /// </remarks>
+    private static byte[] WriteJsonCharacter(object model) =>
+        System.Text.Encoding.UTF8.GetBytes(
+            JsonCharacterWriter.Write((CharacterRecord)model));
 
     private static object ReadCharacter(Stream source) =>
         CharacterFileReader.Read(source, ArchiveRole.Editor);

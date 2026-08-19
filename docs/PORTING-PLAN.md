@@ -10304,9 +10304,16 @@ Over `SomethingWild` (18 writable files) and `Case` (14):
    > and tries to allocate it. `DesignFileCodec.ReadWritten` is that asymmetry made explicit.
    > `specialAbilities.dat` has it too, for the same reason: no stamp of its own.
 
-2. ~~**`SomethingWild` ships a JSON character file the port cannot see.**~~ — **reading closed
-   (2026-08-18);** `JsonCharacterReader` reads it into an ordinary `CharacterRecord`. There is no
-   writer, so it still cannot round-trip, and the sweep says so rather than calling it corrupt.
+2. ~~**`SomethingWild` ships a JSON character file the port cannot see.**~~ — **closed
+   (2026-08-19).** `JsonCharacterReader` and `JsonCharacterWriter` read and write it, and the
+   round trip covers it.
+
+   > **It is the one file in the corpus that comes back byte-identical**, which makes it the
+   > exception to this section's headline. Every binary format restamps its version on save; JSON
+   > carries its version as an ordinary field and has nothing to restamp, so the strongest claim is
+   > available here and is asserted. Matching the bytes means matching `JWriter`'s layout exactly:
+   > three spaces a level, no space after a colon, and **two array styles** — `spellList` writes an
+   > entry to a line where `baseclassStats` and `possessions` write a member to a line.
 
    > **Both formats use the same extensions, and the binary reader does not reject JSON cleanly.**
    > The first eight bytes of `{"charVersion"` decode as a plausible `double`, which is why the
