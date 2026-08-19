@@ -53,9 +53,77 @@ public sealed class LoadedDesign : IDisposable
     /// A design without a <c>specialAbilities.txt</c> is ordinary: it overrides no hook and every
     /// one falls back on the built-in defaults. See <see cref="SpecialAbilitiesFile"/>.
     /// </remarks>
-    public IReadOnlyList<SpecialAbility> SpecialAbilities =>
-        specialAbilities ??= SpecialAbilitiesFile.Load(
-            Path.Combine(Root, "Data", "specialAbilities.txt"));
+    public IReadOnlyList<SpecialAbility> SpecialAbilities
+    {
+        get
+        {
+            if (specialAbilities is not null)
+            {
+                return specialAbilities;
+            }
+
+            // The three databases first, and not for tidiness: converting a pre-0.921 record
+            // INVENTS abilities (Specab.cpp:1250), and a design read in the other order would
+            // answer this without them -- so every converted item would name an ability that,
+            // as far as anything asking could tell, did not exist.
+            _ = Items;
+            _ = Monsters;
+            _ = Spells;
+
+            var loaded = SpecialAbilitiesFile.Load(
+                Path.Combine(Root, "Data", "specialAbilities.txt"));
+
+            loaded.AddRange(invented);
+            return specialAbilities = loaded;
+        }
+    }
+
+    /// <summary>Abilities the pre-0.921 conversion invented while reading the databases.</summary>
+    private readonly List<SpecialAbility> invented = [];
+
+    /// <summary>Converts one record's block, keeping whatever abilities it invents.</summary>
+    private TRecord UpgradeSpecab<TRecord>(
+        TRecord record, Func<TRecord, SpecabBlock> read, string ownerType,
+        Func<TRecord, string> name, Func<TRecord, SpecabBlock, TRecord> replace)
+    {
+        var block = read(record);
+        if (!SpecabUpgrade.NeedsUpgrade(block))
+        {
+            return record;
+        }
+
+        var done = SpecabUpgrade.Convert(block, ownerType, name(record));
+
+        foreach (var definition in done.Added)
+        {
+            invented.Add(new SpecialAbility(
+                definition.Name,
+                [.. definition.Entries.Select(e => new SpecialAbilityEntry(
+                    e.Name, e.Value,
+                    e.IsScript ? SpecialAbilityEntryKind.Script
+                               : SpecialAbilityEntryKind.Constant))]));
+        }
+
+        return replace(record, done.Block);
+    }
+
+    private List<TRecord>? UpgradeList<TRecord>(
+        List<TRecord>? records, Func<TRecord, SpecabBlock> read, string ownerType,
+        Func<TRecord, string> name, Func<TRecord, SpecabBlock, TRecord> replace) =>
+        records is null
+            ? null
+            : [.. records.Select(r => UpgradeSpecab(r, read, ownerType, name, replace))];
+
+    private ItemDatabase? UpgradeSpecabs<TRecord>(
+        ItemDatabase? database, Func<TRecord, SpecabBlock> read, string ownerType,
+        Func<TRecord, string> name, Func<TRecord, SpecabBlock, TRecord> replace,
+        Func<ItemDatabase, IReadOnlyList<TRecord>> items,
+        Func<ItemDatabase, IReadOnlyList<TRecord>, ItemDatabase> replaceAll) =>
+        database is null
+            ? null
+            : replaceAll(database,
+                         [.. items(database).Select(r => UpgradeSpecab(r, read, ownerType, name,
+                                                                       replace))]);
 
     private ForthAiScript? aiScript;
 
@@ -273,6 +341,11 @@ public sealed class LoadedDesign : IDisposable
                     read, [.. Classes?.Values ?? []]);
             }
 
+            items = UpgradeSpecabs(items, i => i.Tail.SpecialAbilities, "item",
+                                   i => i.Names.IdName,
+                                   (i, b) => i with { Tail = i.Tail with { SpecialAbilities = b } },
+                                   d => d.Items, (d, list) => d with { Items = list });
+
             return items;
         }
     }
@@ -333,7 +406,8 @@ public sealed class LoadedDesign : IDisposable
             }
 
             monstersLoaded = true;
-            monsters = LoadMonsters();
+            monsters = UpgradeList(LoadMonsters(), m => m.SpecialAbilities, "monster",
+                                   m => m.Name, (m, b) => m with { SpecialAbilities = b });
             return monsters;
         }
     }
@@ -372,7 +446,8 @@ public sealed class LoadedDesign : IDisposable
             }
 
             spellsLoaded = true;
-            spells = LoadSpells();
+            spells = UpgradeList(LoadSpells(), s => s.SpecialAbilities, "spell",
+                                 s => s.Name, (s, b) => s with { SpecialAbilities = b });
             return spells;
         }
     }

@@ -83,23 +83,15 @@ public class LegacyItemUpgradeTests
     }
 
     /// <summary>
-    /// One legacy shape still stops this database being written, and it is the special abilities.
+    /// The whole database now writes, which it could not before.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <b>Asserted rather than described, so it cannot rot.</b> Converting the usability mask was
-    /// one of the two things <c>ItemRecordWriter</c> refuses; the other is a special-ability block
-    /// still in the pre-0.921 shape, which is a bare array of ability <i>ordinals</i>. Turning
-    /// those into the modern named pairs needs the ability-name table, which is a second
-    /// conversion of its own size — see <c>SpecabWriter</c>.
-    /// </para>
-    /// <para>
-    /// <b>When that lands this test fails</b>, and the person who wrote it should replace it with
-    /// one asserting the database writes.
-    /// </para>
+    /// <b>This replaces a test that asserted the opposite.</b> Two legacy shapes stood in the way
+    /// — the usability bitmask and a pre-0.921 special-ability block — and its remarks said that
+    /// when the second landed, whoever did it should come back and assert the database writes.
     /// </remarks>
     [Fact]
-    public void The_remaining_refusal_is_the_special_abilities()
+    public void The_database_writes()
     {
         if (TemplateDesign() is not { } root)
         {
@@ -107,18 +99,60 @@ public class LegacyItemUpgradeTests
         }
 
         using var design = LoadedDesign.Open(root, role: ArchiveRole.Editor);
+        var items = design.Items!;
 
-        var reasons = design.Items!.Items
-            .Where(i => !ItemRecordWriter.CanWrite(i, out _))
-            .Select(i =>
-            {
-                ItemRecordWriter.CanWrite(i, out string reason);
-                return reason;
-            })
-            .ToList();
+        Assert.All(items.Items,
+                   i => Assert.True(ItemRecordWriter.CanWrite(i, out string why), why));
 
-        Assert.NotEmpty(reasons);
-        Assert.All(reasons, r => Assert.Contains("pre-0.921", r, StringComparison.Ordinal));
+        byte[] written = DesignFileWriter.ToBytes(
+            ItemRecordWriter.WrittenVersion,
+            ar => ItemRecordWriter.WriteDatabase(ar, items.Items, items.AmmoTypes));
+
+        // And it reads back, with the same records in it.
+        using var stream = new MemoryStream(written, writable: false);
+        var header = DesignFileHeader.Read(stream, DesignFileKind.Database);
+        stream.Seek(16, SeekOrigin.Begin);
+
+        var back = ItemRecordReader.ReadDatabase(
+            CarArchiveReader.Open(stream), header.Version, ArchiveRole.Editor);
+
+        Assert.Equal(items.Items.Count, back.Items.Count);
+        Assert.Equal(items.Items[0].Names.IdName, back.Items[0].Names.IdName);
+        Assert.Equal(items.Items[0].Tail.UsableByBaseclass, back.Items[0].Tail.UsableByBaseclass);
+    }
+
+    /// <summary>
+    /// The template's items carry legacy ability slots, and every one of them is empty.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Measured, because it is why this design writes at all.</b> Its 285 items carry 9,120
+    /// legacy slots between them — thirty-two each — and not one passes the reference's
+    /// <c>empty != 0</c> test, so the conversion correctly drops all of them and the records come
+    /// out with no abilities rather than with invented ones.
+    /// </para>
+    /// <para>
+    /// <b>So no corpus design exercises the invention path</b>: this one has nothing to invent
+    /// from, and the other two are above 0.921 and never had legacy slots. That path is covered by
+    /// <c>SpecabUpgradeTests</c> instead, which is the honest place for it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_templates_legacy_slots_are_all_empty()
+    {
+        if (TemplateDesign() is not { } root)
+        {
+            return;
+        }
+
+        using var design = LoadedDesign.Open(root, role: ArchiveRole.Editor);
+        var items = design.Items!.Items;
+
+        // Converted, so nothing legacy survives on the records themselves.
+        Assert.All(items, i => Assert.False(SpecabUpgrade.NeedsUpgrade(i.Tail.SpecialAbilities)));
+
+        // And nothing was invented, because there was nothing in them.
+        Assert.All(items, i => Assert.Empty(i.Tail.SpecialAbilities.Pairs));
     }
 
     /// <summary>

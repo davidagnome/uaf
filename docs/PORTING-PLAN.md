@@ -10368,8 +10368,25 @@ their masks on load.
 > items to an unrelated class; the port falls back on the built-in name for the class actually
 > asked about.
 
-**The second is not done and is asserted rather than described:** a special-ability block still in
-the pre-0.921 shape, which is a bare array of ability *ordinals*. Turning those into modern named
-pairs needs the ability-name table — a conversion of its own size.
-`LegacyItemUpgradeTests.The_remaining_refusal_is_the_special_abilities` fails when it lands, which
-is where the next person should start.
+**The second is now done too** (`SpecabUpgrade`, 2026-08-18), and with it `DefaultDesign`'s
+`items.dat` writes.
+
+> **This conversion has two outputs, which is what makes it more than a reshuffle.** Below 0.921 an
+> object carries its abilities inline — an activation script, a deactivation script and up to
+> twelve messages per slot. Above it, an object carries only *names* and the scripts live in the
+> design's shared ability database. So converting a record also **invents** entries for
+> `specialAbilities.txt` (`Specab.cpp:1250`); dropping them would leave every converted item naming
+> an ability that does not exist. `LoadedDesign.SpecialAbilities` therefore forces the three
+> database loads before answering, or a design read in the wrong order would report the file's
+> abilities without the invented ones.
+
+> **The slot index is the ability's identity.** Slot *i* is `spellAbilitiesText[i]`, and the name
+> is `type_name_slot` — so an item called Sword with something in slot 22 becomes
+> `item_Sword_Vorpal Attack`. The compiled bytecode beside each script is dropped and only the
+> source travels, as the reference does: carrying it would pin a design to one compiler build.
+
+> **No corpus design exercises the invention path, and that is worth knowing rather than
+> assuming.** The template is below 0.921 but every one of its **9,120** legacy slots — 285 items
+> × 32 — is empty by the reference's own `empty != 0` test, so it converts to nothing; the other
+> two designs are above 0.921 and never had slots. The path is covered by unit tests instead, and
+> `LegacyItemUpgradeTests` asserts the emptiness rather than leaving it to look like coverage.
