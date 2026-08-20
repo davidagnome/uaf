@@ -208,7 +208,12 @@ public static class MonsterLeafReaders
         {
             if (role == ArchiveRole.Editor && version < DesignVersion.SpellNames)
             {
-                legacySpellId = ar.ReadInt32();
+                // -1 is the reference's "no spell" sentinel (Monster.h:146), and 0 is what the
+                // modern shape leaves the field at when an attack has none. Normalising the two
+                // means "no spell" has one representation: the modern format has no such field at
+                // all, so a round trip through it would otherwise turn every -1 into a 0 and look
+                // like 58 lost values.
+                legacySpellId = Math.Max(ar.ReadInt32(), 0);
             }
             else
             {

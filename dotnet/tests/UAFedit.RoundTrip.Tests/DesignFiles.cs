@@ -123,7 +123,9 @@ public static class DesignFiles
         {
             return new DesignFileCodec(
                 name,
-                s => ReadDatabase(s, globalVersion, MonsterRecordReader.ReadDatabase),
+                s => Upgraded((List<MonsterRecord>)ReadDatabase(
+                                  s, globalVersion, MonsterRecordReader.ReadDatabase),
+                              path, globalVersion),
                 m => WholeFile(MonsterRecordWriter.WrittenVersion,
                                ar => MonsterRecordWriter.WriteDatabase(ar, (List<MonsterRecord>)m)));
         }
@@ -296,6 +298,54 @@ public static class DesignFiles
                 },
             })],
         };
+    }
+
+    /// <summary>
+    /// A monster's pre-0.921 abilities, and its numeric spell and item keys.
+    /// </summary>
+    /// <remarks>
+    /// The keys resolve against the other two databases, so this reads them from beside the file
+    /// — the same thing <c>LoadedDesign</c> does with the databases it already has.
+    /// </remarks>
+    private static List<MonsterRecord> Upgraded(List<MonsterRecord> monsters, string path,
+                                                DesignVersion globalVersion)
+    {
+        var converted = monsters
+            .Select(m => m with
+            {
+                SpecialAbilities = SpecabUpgrade.Convert(m.SpecialAbilities, "monster", m.Name)
+                                                .Block,
+            })
+            .ToList();
+
+        return [.. LegacyIdUpgrade.Upgrade(converted,
+                                           Sibling(path, "spells.dat", globalVersion,
+                                                   SpellRecordReader.ReadDatabase) ?? [],
+                                           Sibling(path, "items.dat", globalVersion,
+                                                   ItemRecordReader.ReadDatabase)?.Items ?? [])];
+    }
+
+    /// <summary>Another database from the same folder, or null when it cannot be read.</summary>
+    private static T? Sibling<T>(string path, string name, DesignVersion globalVersion,
+                                 Func<IArchiveCursor, DesignVersion, ArchiveRole, T> read)
+        where T : class
+    {
+        string beside = Path.Combine(Path.GetDirectoryName(path) ?? ".", name);
+        if (!File.Exists(beside))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(beside);
+            return (T)ReadDatabase(stream, globalVersion, read);
+        }
+        catch (Exception e) when (e is InvalidDataException or EndOfStreamException
+                                    or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private static List<SpellRecord> Upgraded(List<SpellRecord> spells) =>

@@ -408,6 +408,15 @@ public sealed class LoadedDesign : IDisposable
             monstersLoaded = true;
             monsters = UpgradeList(LoadMonsters(), m => m.SpecialAbilities, "monster",
                                    m => m.Name, (m, b) => m with { SpecialAbilities = b });
+
+            // A pre-0.998101 monster names its attack's spell and its held items by numeric key,
+            // so resolving them needs the other two databases -- another pass after loading, and
+            // assigned first for the same re-entrancy reason as the item upgrade above.
+            if (monsters is { } read && read.Any(LegacyIdUpgrade.NeedsUpgrade))
+            {
+                monsters = [.. LegacyIdUpgrade.Upgrade(read, Spells ?? [], Items?.Items ?? [])];
+            }
+
             return monsters;
         }
     }

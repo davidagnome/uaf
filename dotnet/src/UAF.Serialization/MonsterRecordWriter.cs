@@ -91,19 +91,23 @@ public static class MonsterRecordWriter
             return false;
         }
 
-        if (monster.Attacks.Any(a => a.LegacySpellId != 0))
+        // Greater than zero, not merely non-zero: the reference initialises
+        // preVersionSpellNames_gsID to -1 (Monster.h:146) and that is what an attack with NO
+        // spell carries. Testing != 0 refused every legacy monster in DefaultDesign -- all 58 of
+        // its attacks are -1 -- for a reference none of them was making.
+        if (monster.Attacks.Any(a => a.LegacySpellId > 0))
         {
             reason = $"Monster '{monster.Name}' has an attack carrying the pre-0.998101 numeric " +
-                     "spell id, which resolves against the spell database. The modern field is a " +
-                     "SPELL_ID name; writing an empty one would drop the attack's spell.";
+                     "spell id, which resolves against the spell database. Run LegacyIdUpgrade " +
+                     "over the database first; writing an empty SPELL_ID would drop the spell.";
             return false;
         }
 
-        if (monster.Items is not null && monster.Items.Items.Any(i => i.LegacyItemId != 0))
+        if (monster.Items is not null && monster.Items.Items.Any(i => i.LegacyItemId > 0))
         {
             reason = $"Monster '{monster.Name}' carries an item held by the pre-0.998101 numeric " +
-                     "id, which resolves against the item database. Writing an empty ITEM_ID " +
-                     "would leave the monster holding nothing.";
+                     "id, which resolves against the item database. Run LegacyIdUpgrade over the " +
+                     "database first; writing an empty ITEM_ID would leave it holding nothing.";
             return false;
         }
 

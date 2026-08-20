@@ -10388,11 +10388,30 @@ designs at or above that version.
 
 ### Upgrading a legacy design, one shape at a time
 
-**Where `DefaultDesign` stands after both conversions** (2026-08-19): `game.dat`, `items.dat`,
-`spells.dat` and `ability.dat` all write. Four things still refuse, each naming a conversion nobody
-has ported: `monsters.dat` (an attack's pre-0.998101 **numeric spell id**, which resolves against
-the spell database — the obvious next one), `baseclass.dat`, `classes.dat` and `races.dat` (legacy
-container shapes), and `Level000.lvl` (8 step-event slots where 5.24 writes 255).
+**Where `DefaultDesign` stands** (2026-08-19): `game.dat`, `items.dat`, `spells.dat`,
+`monsters.dat` and `ability.dat` all write. What still refuses is only container-level:
+`baseclass.dat` (`Bcd1`), `classes.dat` (`CL1`) and `races.dat` (`RaceV1`) are legacy shapes nobody
+ported, and `Level000.lvl` has 8 step-event slots where 5.24 writes 255.
+
+> **The monster refusal was mostly a bug in the test, not a missing conversion.** A monster's
+> attack carries its spell as a numeric key below 0.998101, and the writer refused any key that was
+> `!= 0`. But the reference initialises that field to **-1** (`Monster.h:146`), and -1 is what an
+> attack with *no spell* carries — all 58 of `DefaultDesign`'s are -1. So the writer was refusing
+> 44 monsters over a lookup none of them was asking for. Only a key **greater than zero** is a
+> reference. The reader now normalises -1 to 0 as well, so "no spell" has one representation and a
+> round trip does not read as 58 lost values.
+
+> **The keys that are real are the held items, and the reference does resolve those.**
+> `LegacyIdUpgrade` looks a key up in the database it points at, the same linear search over
+> `preSpellNameKey` the reference uses.
+
+> **A deliberate divergence on the attack's spell.** `FindPreVersionSpellNamesSpellID`
+> (`Spell.cpp:10483`) exists and is called from `PicSlot.cpp` and three places in `GameEvent.cpp`,
+> but `preVersionSpellNames_gsID` on `ATTACK_DATA` is read at `Monster.cpp:130` and **never read
+> again anywhere in the tree** — so the reference silently drops a monster attack's spell when
+> upgrading. The port resolves it. No shipped design exercises this (every key in the corpus is the
+> sentinel), so it is covered by the resolution being shared with the item path rather than by a
+> corpus test.
 
 **The refusals are not permanent — each names a conversion the reference does and the port had
 not.** `ItemRecordWriter` cited two. **One is now done:** an item's `Usable_by_Class` bitmask
