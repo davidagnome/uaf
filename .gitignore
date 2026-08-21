@@ -375,3 +375,4 @@ dotnet/spike/**/obj/
 # uaf-fileprobe scratch output
 probe.json
 /.claude
+.wine-check/

@@ -8536,6 +8536,68 @@ not there, and which shipped files nothing names.
 **Exit:** open a design, make an edit, save; the resulting files load correctly in *both* UAFcore
 and the original C++ `UAFWinEd.exe`.
 
+> **The reference editor opens a design this port created and saved** (2026-08-21). Its title bar
+> reads `Dungeon Craft Design Editor - ver 5.2600000: …\PortSaved4.dsn`, the map draws, and the
+> menus work. **That is Phase 5's exit criterion for the design-data path**, demonstrated rather
+> than assumed. Two defects had to be fixed to get there, and both were found by reading the
+> reference's own `UafErr_Edit.txt` rather than by reasoning:
+>
+> 1. **A save must write `specialAbilities.dat`.** The port wrote only the `.txt`; at 5.26 the
+>    editor wants the binary database and aborts the whole load without it — "Unable to open
+>    special abilities db file … error 2", then "Failed to load design data file", right after
+>    `globalData`. `SpecialAbilityDatabaseWriter` existed; `DesignSaver` simply never called it.
+> 2. **Moving the version stamp drags every database with it.** A half-saved design logged
+>    `Loading monster DB version: 0.9150250` under a 5.26 `game.dat`, and "Unable to load race data
+>    file" on a `races.dat` the same editor had read happily at the old version. **The stamp is not
+>    independent of the databases**: writing `game.dat` now also writes every database the port can
+>    write, after the panes so a pane's edits are not overwritten. The log now reads 5.24 for items,
+>    monsters and spells alike.
+>
+> **What is left is exactly one warning**, and it is the container-shape gap already listed above:
+> "This module contains an old 'baseclass.dat' file." `baseclass.dat`, `classes.dat` and
+> `races.dat` stay at `Bcd1`/`CL1`/`RaceV1` because no writer takes those shapes. The reference
+> works around it by duplicating baseclasses under lower-case names — which is independent
+> confirmation of the built-in names `ItemUsabilityUpgrade` falls back on.
+>
+> **A caveat this rig cannot remove:** Wine is a variable. The GPDL compile errors in the log
+> (`SlowPoison`, `MeteorSwarm`) come from the template's own scripts and appear on the reference's
+> unmodified `DefaultDesign` too, so they are not the port's doing.
+
+> **How to reproduce it.** `"-config <design.dsn>" "-dumpjson <out.json>"` as two single quoted
+> arguments, under CrossOver with `CX_BOTTLE_PATH` pointing at the bottle directory and the path
+> given through the `Z:` mapping. The editor needs `EditorResources` and a `TemplateDesign.dsn`
+> beside the exe, and that template needs a `Resources` folder — `DefaultDesign` ships none, so one
+> has to be borrowed. `UafErr_Edit.txt` in the design folder is the machine-readable result and is
+> what any automated oracle should assert on.
+
+> **The reference editor has now loaded a port-saved design** (2026-08-19), run under CrossOver
+> headlessly with `"-config <design.dsn>" "-dumpjson <out.json>"`. Its own log says
+> `Design PortSaved loaded, version 5.2600000` and `Finished loading design data` — so `game.dat`
+> and every database the port wrote were read by the reference. **The exit criterion is not met
+> yet**, and two concrete reasons came out of that log rather than out of reasoning:
+>
+> 1. **A save must write `specialAbilities.dat`.** The port writes `specialAbilities.txt` and the
+>    editor at 5.26 wants the binary database; without it the load aborts right after
+>    `globalData` with "Failed to load design data file". Dropping one in made the load succeed.
+>    `SpecialAbilityDatabaseWriter` exists — `DesignSaver` simply does not call it.
+> 2. **A partial save produces an incoherent design.** `game.dat` goes out stamped 5.26 while the
+>    databases the writers refuse — `races.dat`, `ability.dat`, `baseclass.dat` — stay at their
+>    legacy shape, and the editor then cannot read them *because* of the new stamp: it logged
+>    "Unable to load race data file" on the very file it had read happily at 0.915. **Saving the
+>    version stamp is not independent of saving the databases**, and a save that upgrades one
+>    without the others is worse than no save.
+>
+> **The remaining failure is the start level**, which is a property of the template rather than of
+> the port: `DefaultDesign` ships `Level000.lvl`, and the editor looks for `LEVEL001.LVL` because a
+> level's file number is its index plus one. The template's only level is unreachable by the
+> reference's own naming rule.
+>
+> **A caveat this rig cannot remove:** Wine is a variable, and the reference's *view*
+> initialisation fails under it regardless of the design ("Failed to initialize CUAFWinEdView").
+> The data-load path is what these logs demonstrate; anything visual needs a real Windows session.
+> The control run — the reference's own unmodified `DefaultDesign` — fails too, which is what makes
+> the port-saved result meaningful rather than alarming.
+
 ### Phase 6 — FRUA importer (1–1.5 months; independent after Phase 1)
 
 `UAImport.cpp` (7,036 lines) reads original DOS FRUA data: `GAME001.DAT`, `GEOnnn.DAT`,

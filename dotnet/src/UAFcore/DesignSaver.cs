@@ -95,6 +95,51 @@ public static class DesignSaver
     }
 
     /// <summary>
+    /// Writes <c>specialAbilities.dat</c> — the binary database beside the text file.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A design saved at 5.26 that has no <c>specialAbilities.dat</c> will not load.</b> This
+    /// was found by running the real <c>UAFWinEd.exe</c> over a design the port had saved: its log
+    /// says "Unable to open special abilities db file … error 2" and then aborts the whole load
+    /// with "Failed to load design data file", right after <c>globalData</c>. Dropping a
+    /// <c>.dat</c> in made the same design load. The template ships only the <c>.txt</c>, so
+    /// nothing in the port had ever produced one.
+    /// </para>
+    /// <para>
+    /// <b>The two files carry the same abilities in different shapes</b> — the <c>.txt</c> is the
+    /// line-oriented object file the scripts live in, the <c>.dat</c> an ASL database — so both are
+    /// written from the same list rather than one being derived on load.
+    /// </para>
+    /// </remarks>
+    public static void SaveSpecialAbilityDatabase(string root,
+                                                  IReadOnlyList<SpecialAbility> abilities)
+    {
+        ArgumentNullException.ThrowIfNull(abilities);
+
+        WriteAtomically(
+            Path.Combine(DataDirectory(root), "specialAbilities.dat"),
+            stream => SpecialAbilityDatabaseWriter.WriteFile(
+                stream, [.. abilities.Select(AsDefinition)]));
+    }
+
+    /// <summary>One ability in the binary database's shape.</summary>
+    /// <remarks>
+    /// The entry kinds are ASL flag values: <c>SPECAB_SCRIPT</c> is 1 and <c>SPECAB_CONSTANT</c> 2
+    /// (<c>Specab.h:286</c>). A variable or an integer table is neither — both are stored as
+    /// constants, which is what the text file's own reader treats them as once the brackets have
+    /// been stripped.
+    /// </remarks>
+    private static SpecialAbilityDefinition AsDefinition(SpecialAbility ability) =>
+        new(ability.Name,
+            [.. ability.Entries.Select(e => new AslEntry(
+                e.Name,
+                e.Kind == SpecialAbilityEntryKind.Script
+                    ? SpecialAbilityDatabaseReader.ScriptFlag
+                    : SpecialAbilityDatabaseReader.ConstantFlag,
+                e.Value))]);
+
+    /// <summary>
     /// Writes <c>specialAbilities.txt</c> — the design's GPDL scripts.
     /// </summary>
     /// <remarks>

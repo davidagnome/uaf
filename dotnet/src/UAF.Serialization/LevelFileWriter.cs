@@ -49,12 +49,10 @@ public static class LevelFileWriter
             return false;
         }
 
-        if (level.StepEvents.Count != LevelStructureReaders.MaxStepEvents)
+        if (level.StepEvents.Count > LevelStructureReaders.MaxStepEvents)
         {
             reason = $"a level writes exactly {LevelStructureReaders.MaxStepEvents} step-event " +
-                     $"slots at {WrittenVersion.Value}, not {level.StepEvents.Count}. A design " +
-                     "below 1.0210 has 8, and the missing ones have no default the reference " +
-                     "would recognise -- its own table is a fixed array of the full size.";
+                     $"slots at {WrittenVersion.Value}, and this one has {level.StepEvents.Count}.";
             return false;
         }
 
@@ -92,6 +90,47 @@ public static class LevelFileWriter
     /// is always the modern shape, so a header claiming otherwise is the one combination nothing
     /// can read. <see cref="CharacterFileWriter"/> makes the same choice for the same reason.
     /// </remarks>
+    /// <summary>
+    /// The step-event table padded to the modern size, which is what a writer emits.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A design below 1.0210 stores eight slots and 5.24 stores 255</b>
+    /// (<c>Level.cpp:1277</c>), and the missing ones are not a problem: the reference's table is a
+    /// member array of the full size whose entries are <c>Clear()</c>ed at construction, and its
+    /// own JSON importer calls <c>Clear()</c> explicitly for any slot the file does not carry
+    /// (<c>Level.cpp:1617</c>). <c>Clear()</c> is <c>stepEvent=0; stepCount=0; zoneMask=0;
+    /// name.Empty()</c> — so an empty slot is exactly that, and this writer used to refuse a
+    /// legacy level for want of a default it turns out to have.
+    /// </para>
+    /// <para>
+    /// Padded here rather than converted on read: how many slots there are is a property of the
+    /// version being written, so it belongs with the writer.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<StepEvent> PaddedStepEvents(IReadOnlyList<StepEvent> slots)
+    {
+        ArgumentNullException.ThrowIfNull(slots);
+
+        if (slots.Count >= LevelStructureReaders.MaxStepEvents)
+        {
+            return slots;
+        }
+
+        var padded = new List<StepEvent>(LevelStructureReaders.MaxStepEvents);
+        padded.AddRange(slots);
+
+        while (padded.Count < LevelStructureReaders.MaxStepEvents)
+        {
+            padded.Add(EmptyStepEvent);
+        }
+
+        return padded;
+    }
+
+    /// <summary><c>STEP_EVENT_DATA::Clear</c> (<c>GameEvent.h:757</c>).</summary>
+    public static StepEvent EmptyStepEvent { get; } = new(0, 0, 0, string.Empty, []);
+
     public static void WriteFile(Stream stream, LevelFile level)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -152,7 +191,8 @@ public static class LevelFileWriter
         WriteZoneData(ar, level.Zones);
         AslWriter.Write(ar, WrittenVersion, AslMaps.Level, level.Attributes);
 
-        foreach (var step in level.StepEvents)
+        // Padded, not written as read: 5.24 writes all 255 slots whatever the file came in with.
+        foreach (var step in PaddedStepEvents(level.StepEvents))
         {
             WriteStepEvent(ar, step);
         }

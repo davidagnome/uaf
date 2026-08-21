@@ -378,6 +378,8 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         var written = new List<string>();
+        var refused = new List<string>();
+        bool versionMoved = false;
 
         try
         {
@@ -387,6 +389,43 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
                 // only thing holding those events.
                 settings.Save();
                 written.Add("game.dat");
+
+                // And the binary ability database beside it, because writing game.dat is what
+                // creates the requirement: the reference editor refuses a design at 5.26 with no
+                // specialAbilities.dat ("Unable to open special abilities db file ... error 2",
+                // then "Failed to load design data file"). The template ships only the .txt, so a
+                // design saved without this loads in the port and not in the reference.
+                if (Try(() => DesignSaver.SaveSpecialAbilityDatabase(
+                                  open.Root, open.SpecialAbilities)))
+                {
+                    written.Add("specialAbilities.dat");
+                }
+                else
+                {
+                    // Best-effort, and the failure is worth naming rather than throwing. The .txt
+                    // is where the scripts authoritatively live; the .dat is the binary form the
+                    // reference wants beside it. A design whose text file has a key the binary ASL
+                    // cannot round-trip -- SomethingWild has exactly one, class_Druid, whose script
+                    // declaration carries no '=' on its first line so the parser splits on a later
+                    // one and the key ends up with a CRLF in it -- cannot have a faithful .dat, and
+                    // losing the whole save over it would be much worse.
+                    refused.Add("specialAbilities.dat");
+                }
+
+                // And every other database, edited or not. Writing game.dat moves the design's
+                // version stamp, and a database left at its old shape underneath a new stamp is
+                // not merely stale -- the reference reads the stamp first and then cannot read
+                // the file at all. Its log on a half-saved design says "Loading monster DB
+                // version: 0.9150250" under a 5.26 game.dat, and "Unable to load race data file"
+                // on a races.dat it had read happily moments before at the old version.
+                //
+                // The ones the writers still refuse (races, baseclass, classes at their legacy
+                // container shapes) cannot be brought along, and that is exactly what is left of
+                // the warnings the reference shows on such a design.
+                //
+                // Done at the END of the save, after the panes: a pane holds edits the design does
+                // not, so writing from the design first would only be overwritten a moment later.
+                versionMoved = true;
             }
 
             if (ItemsPane is { IsDirty: true } items)
@@ -413,8 +452,20 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
             if (AbilitiesPane is { IsDirty: true } abilities)
             {
                 DesignSaver.SaveSpecialAbilities(open.Root, abilities.EditedAbilities);
-                abilities.AcceptChanges();
                 written.Add("specialAbilities.txt");
+
+                // Both shapes, from the same list -- see DesignSaver.SaveSpecialAbilityDatabase.
+                if (Try(() => DesignSaver.SaveSpecialAbilityDatabase(
+                                  open.Root, abilities.EditedAbilities)))
+                {
+                    written.Add("specialAbilities.dat");
+                }
+                else
+                {
+                    refused.Add("specialAbilities.dat");
+                }
+
+                abilities.AcceptChanges();
             }
 
             if (EventsPane is { HasUnsavedLevels: true } events)
@@ -437,6 +488,11 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
 
                 events.AcceptChanges();
             }
+
+            if (versionMoved)
+            {
+                written.AddRange(Coherent(open, written));
+            }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException
                                     or NotSupportedException or InvalidDataException
@@ -450,9 +506,66 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
 
         OnPropertyChanged(nameof(IsDirty));
 
+        string note = refused.Count == 0
+            ? string.Empty
+            : $" Could not write {string.Join(", ", refused)} — see the log.";
+
         return written.Count == 0
-            ? "Nothing has changed."
-            : $"Saved {string.Join(", ", written)}.";
+            ? (refused.Count == 0 ? "Nothing has changed." : $"Nothing was written.{note}")
+            : $"Saved {string.Join(", ", written)}.{note}";
+    }
+
+    /// <summary>
+    /// Writes the databases a version change drags along, skipping any a pane already wrote.
+    /// </summary>
+    /// <remarks>
+    /// A refusal here is reported rather than thrown: one database the writers cannot take should
+    /// not undo the ones they can, and the design is already more coherent for each that lands.
+    /// </remarks>
+    private IEnumerable<string> Coherent(LoadedDesign open, List<string> already)
+    {
+        var done = new List<string>();
+
+        if (!already.Contains("items.dat") && open.Items is { } items)
+        {
+            if (Try(() => DesignSaver.SaveItems(open.Root, items)))
+            {
+                done.Add("items.dat");
+            }
+        }
+
+        if (!already.Contains("monsters.dat") && open.Monsters is { } monsters)
+        {
+            if (Try(() => DesignSaver.SaveMonsters(open.Root, monsters)))
+            {
+                done.Add("monsters.dat");
+            }
+        }
+
+        if (!already.Contains("spells.dat") && open.Spells is { } spells)
+        {
+            if (Try(() => DesignSaver.SaveSpells(open.Root, spells)))
+            {
+                done.Add("spells.dat");
+            }
+        }
+
+        return done;
+    }
+
+    /// <summary>Runs a write, answering whether it went rather than letting a refusal escape.</summary>
+    private static bool Try(Action write)
+    {
+        try
+        {
+            write();
+            return true;
+        }
+        catch (Exception e) when (e is NotSupportedException or InvalidDataException
+                                    or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     [RelayCommand]
