@@ -8563,6 +8563,32 @@ and the original C++ `UAFWinEd.exe`.
 > (`SlowPoison`, `MeteorSwarm`) come from the template's own scripts and appear on the reference's
 > unmodified `DefaultDesign` too, so they are not the port's doing.
 
+> **It is automated now** (2026-08-21). `dotnet/tests/UAFedit.Oracle.Tests` creates a design
+> through File > New, edits it, saves it, loads it with the reference editor and asserts on what
+> the editor produced — four tests, twelve seconds, no window and nobody at the keyboard.
+>
+> **The thing that made this hard is worth writing down: the `UAFWinEd.exe` committed here was
+> stale and had none of the oracle flags in it.**
+> `strings UAFWinEd.exe | grep -c '^dumpjson$'` was **0**, against 1 for the older `config`. So
+> `-dumpjson` was parsed as an unknown flag and dropped, headless mode never engaged, and every
+> run opened a GUI and sat waiting for somebody to dismiss its dialogs. Nothing about that was
+> visible from outside: the design still loaded, the log still looked healthy, and the only clue
+> was **the JSON that never appeared**. Hours went into re-quoting arguments against a binary that
+> could not have honoured them.
+>
+> Three things follow, and all three are now in the test:
+> * **Probe the binary, do not assume it.** `ReferenceEditor.HasOracleFlags` looks for the flag
+>   string and reports a binary without it as unusable, naming the fix.
+> * **Assert the artefact, not the log.** `-dumpjson` bypasses `OpenDesign` — that path needs a
+>   window and a DirectX device — so the log lines a GUI run ends with never appear. The JSON on
+>   disk is the only thing a stale binary cannot fake.
+> * **Refresh a cached copy.** `Assemble()` keeps the editor in the test's output folder, and its
+>   first version copied only when the file was missing — so it went on using the old binary long
+>   after the repository had a good one.
+>
+> The working binary comes from the Oracle workflow's `uafwined-editor` artifact
+> (`gh run download -n uafwined-editor`), and the copy in `UAFWinEd/` has been replaced with it.
+
 > **How to reproduce it.** `"-config <design.dsn>" "-dumpjson <out.json>"` as two single quoted
 > arguments, under CrossOver with `CX_BOTTLE_PATH` pointing at the bottle directory and the path
 > given through the `Z:` mapping. The editor needs `EditorResources` and a `TemplateDesign.dsn`
@@ -10527,3 +10553,57 @@ their masks on load.
 > × 32 — is empty by the reference's own `empty != 0` test, so it converts to nothing; the other
 > two designs are above 0.921 and never had slots. The path is covered by unit tests instead, and
 > `LegacyItemUpgradeTests` asserts the emptiness rather than leaving it to look like coverage.
+
+**The third is now done** (`EventIdUpgrade`, 2026-08-23), and it is the one that made a design
+created by File > New coherent: the template's `Level001.lvl` is written at 0.9150250, so every
+event in it names its item, race, class and memorised spell by **number**, and `GameEventWriter`
+refused the lot. A new design therefore kept its level at 0.915 under a 5.26 `game.dat`, and the
+reference editor offered to convert the level file every time it opened one — the same incoherence
+already fixed for the databases, in the one file kind that had been missed.
+
+> **Five fields that look identical and no two share a rule.** The first attempt here wrote one
+> helper over all of them and was wrong four times out of five. From `GameEvent.cpp`:
+>
+> | field | read as | the guard |
+> |---|---|---|
+> | `itemID` | `int` | `id >= 0` — **zero is a real key** (`:1403`) |
+> | `raceID` | `DWORD` | **none at all**; every value is looked up (`:1430`) |
+> | `classID` | `int` | `temp > 0` (`:1444`) |
+> | `characterID` | `int` | `npc > 0` (`:1466`) |
+> | `memorizedSpellID` | `DWORD` | the event's **trigger** is `SpellMemorized` — not the key (`:1507`) |
+>
+> Note the item in particular: it admits zero, where the monster attack's spell treats -1 as the
+> sentinel and the port tests `> 0`. Carrying the monster's rule across would silently drop every
+> reference to item zero.
+
+> **The class is the only one with a fallback.** When no class carries the key, the reference
+> indexes the classic name table with it (`ClassText`, `Globtext.cpp:466`, via `class.cpp:7187`),
+> so an event gating on the fighter still says so in a design whose class database was rewritten.
+> It does that unguarded and would run off the end of a 19-entry array; the port bounds-checks.
+
+> **`characterID` is the one this port cannot finish, and it says so rather than pretending.** The
+> reference resolves it through `globalData.charData`, the design's NPC roster, which
+> `LoadedDesign` reads *past* rather than into — so there is nothing to look a key up in. A
+> positive character key therefore keeps its digits and leaves `LegacyIds` set, which keeps
+> `GameEventWriter` refusing that event. Blanking it would let the level save as though nothing
+> were missing. Every other key resolves regardless, so the digits that remain are exactly the
+> unported part and nothing else.
+
+> **An unresolved key empties the field; an unported conversion does not.** These are different
+> answers and collapsing them was the second bug the tests caught. A key naming a record the design
+> does not have is a broken reference in the *design* — the reference pops a message box and
+> carries on with an empty ID, and refusing to write the level over one would strand it in a format
+> nothing can open. A field that does not parse as a number at all was never a key (the version
+> gate is per design, not per field) and is left exactly as it stands.
+
+> **Sixty-eight event bodies, one rebuild.** Every event is a positional record whose first
+> parameter is its `GameEventBase`, but `IGameEvent` exposes that as a getter and `with` needs the
+> concrete type. `EventIdUpgrade` rebuilds through the record's constructor reflectively rather
+> than adding a `WithBase` to the interface and writing the same line out sixty-eight times — one
+> more thing for a new event type to forget. A body whose shape does not match is returned
+> untouched, still carrying its marker, so it stays unwritable rather than half-converted.
+
+> **A level is as much a versioned file as a database.** `MainWindowViewModel.Coherent` brought
+> `items.dat`, `monsters.dat` and `spells.dat` along when the version stamp moved and left the
+> levels behind; it now rewrites those too. That is what the reference's conversion prompt was
+> reporting, and `NewDesignTests.A_version_move_rewrites_the_levels` is the guard.

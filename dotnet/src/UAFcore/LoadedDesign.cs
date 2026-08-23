@@ -928,6 +928,20 @@ public sealed class LoadedDesign : IDisposable
             : null;
     }
 
+    /// <summary>
+    /// The four databases an event's pre-0.998101 numeric keys point at.
+    /// </summary>
+    /// <remarks>
+    /// Built per read rather than cached: each of these is itself lazy and cached behind its own
+    /// property, so this is four dictionary lookups, and a level read after the item database has
+    /// been edited should see the edit.
+    /// </remarks>
+    private EventIdTables EventTables() =>
+        new([.. Items?.Items ?? []],
+            [.. Races?.Values ?? []],
+            [.. Classes?.Values ?? []],
+            Spells ?? []);
+
     /// <summary>The whole level with this index, or null. See <see cref="LevelFileFor"/>.</summary>
     public LevelFile? LevelNumbered(int levelIndex) =>
         LevelFileFor(levelIndex) is { } path ? ReadLevel(path) : null;
@@ -948,13 +962,23 @@ public sealed class LoadedDesign : IDisposable
     }
 
     /// <summary>Reads one <c>.lvl</c> whole, or null when it will not decode.</summary>
-    private static LevelFile? ReadLevel(string path)
+    /// <remarks>
+    /// <b>The legacy key conversion happens here, after the read rather than inside it.</b> An
+    /// event below 0.998101 names its item, race, class and spell by number, and resolving one
+    /// means looking it up in a database the level reader has no access to — the same reason the
+    /// reference does its own conversion from <c>Serialize</c>, where the global databases are in
+    /// scope. Without it every event in the level keeps its digits and
+    /// <see cref="GameEventWriter.CanWrite"/> refuses the whole file.
+    /// </remarks>
+    private LevelFile? ReadLevel(string path)
     {
         try
         {
             using var stream = File.OpenRead(path);
-            return LevelFileReader.Read(stream, ArchiveRole.Editor,
+            var level = LevelFileReader.Read(stream, ArchiveRole.Editor,
                 (ar, type, version) => EventBodyReader.TryRead(ar, type, version, ArchiveRole.Editor));
+
+            return level is null ? null : EventIdUpgrade.Upgrade(level, EventTables());
         }
         catch (Exception e) when (e is InvalidDataException or NotSupportedException
                                     or EndOfStreamException)

@@ -54,6 +54,30 @@ public static class DesignTemplate
         return null;
     }
 
+    /// <summary>
+    /// The name a copied file takes, which is its own except for the template's one level.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The template ships <c>Level000.lvl</c>, and no design can reach it.</b> A level file is
+    /// named for its index <b>plus one</b> (<c>Shared/Level.cpp:3643</c>), so <c>Level000</c> would
+    /// be index -1 — a level that cannot exist. The template's <c>startLevel</c> is 0, so both the
+    /// reference and this port look for <c>Level001.lvl</c>, find nothing, and give up: the
+    /// reference says "Cannot open file … Level001.lvl" and then "Failed to load start level for
+    /// design", and opens an empty editor.
+    /// </para>
+    /// <para>
+    /// <b>So the copy renames it.</b> A new design's one level becomes index 0, which is what its
+    /// own <c>startLevel</c> points at. Renaming rather than rewriting <c>startLevel</c> because
+    /// the level is the thing that is misnamed — every other design in the corpus starts at
+    /// <c>Level001.lvl</c>.
+    /// </para>
+    /// </remarks>
+    private static string LevelName(string name) =>
+        name.Equals("Level000.lvl", StringComparison.OrdinalIgnoreCase)
+            ? "Level001.lvl"
+            : name;
+
     /// <summary>Whether a folder holds a design.</summary>
     public static bool IsDesign(string root) =>
         !string.IsNullOrWhiteSpace(root)
@@ -98,7 +122,7 @@ public static class DesignTemplate
 
             foreach (string file in Directory.EnumerateFiles(from))
             {
-                File.Copy(file, Path.Combine(to, Path.GetFileName(file)));
+                File.Copy(file, Path.Combine(to, LevelName(Path.GetFileName(file))));
             }
         }
 

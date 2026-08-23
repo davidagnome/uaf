@@ -1,3 +1,5 @@
+using UAF.Common;
+using UAF.Serialization;
 using UAFcore;
 using UAFedit.ViewModels;
 
@@ -99,6 +101,52 @@ public sealed class NewDesignTests : IDisposable
         reopened.SelectedPane = EditorPane.Items;
         Assert.Contains(reopened.ItemsPane!.All,
                         i => i.IdName.EndsWith("(edited)", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Moving the version stamp brings the level files with it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A level is as much a versioned file as a database, and it was the one kind left behind.</b>
+    /// The template's <c>Level001.lvl</c> is written at 0.915; saving the settings stamps
+    /// <c>game.dat</c> at 5.26, and a level left underneath at its old shape is what makes the
+    /// reference editor ask whether to convert the design's level files every time it opens one.
+    /// </para>
+    /// <para>
+    /// <b>It cannot be written until its events are converted.</b> Below 0.998101 an event names
+    /// its item, race, class and spell by number, and <c>GameEventWriter</c> refuses to emit those
+    /// digits into a modern file — so this passing means <c>EventIdUpgrade</c> ran and resolved
+    /// them. Before it existed the save simply skipped the level.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void A_version_move_rewrites_the_levels()
+    {
+        string root = Fresh("Stamped.dsn");
+
+        using var model = new MainWindowViewModel();
+        Assert.Contains("New design created", model.New(root), StringComparison.Ordinal);
+
+        // The premise, without which the assertion below proves nothing: the template's level
+        // really is old enough to carry numeric keys. It is 0.9150250 rather than a round 0.915.
+        string level = Path.Combine(root, "Data", "Level001.lvl");
+        Assert.True(StampOf(level) < DesignVersion.SpellNames);
+
+        model.SelectedPane = EditorPane.Settings;
+        model.SettingsPane!.DesignName = "Stamped";
+
+        string saved = model.Save();
+
+        Assert.Contains("Level001.lvl", saved, StringComparison.Ordinal);
+        Assert.Equal(LevelFileWriter.WrittenVersion, StampOf(level));
+    }
+
+    /// <summary>The version a level file declares in its own header.</summary>
+    private static DesignVersion StampOf(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return LevelFileReader.ReadAreaMapOnly(stream).Version;
     }
 
     /// <summary>A folder that already holds something is refused.</summary>

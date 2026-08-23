@@ -550,7 +550,49 @@ public sealed partial class MainWindowViewModel : ObservableObject, IDisposable
             }
         }
 
+        done.AddRange(CoherentLevels(open, already));
+
         return done;
+    }
+
+    /// <summary>
+    /// Rewrites every level the version change left behind.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A level is as much a versioned file as a database, and leaving one stale is what the
+    /// reference offers to fix on load.</b> A design created from the template carries its
+    /// <c>Level001.lvl</c> at 0.915; the first save moves the stamp to 5.26 and, without this, the
+    /// editor then opens it and asks whether to convert the level file to the latest format — the
+    /// same incoherence already fixed for items, monsters and spells, in the one file kind that was
+    /// missed.
+    /// </para>
+    /// <para>
+    /// <b>Every refusal is silent by design.</b> A level below 0.998101 whose events still carry
+    /// unresolvable numeric keys cannot be written at all
+    /// (<see cref="UAF.Serialization.GameEventWriter.CanWrite"/>), and the right answer there is to
+    /// leave the file exactly as it was rather than half-write it. The level stays readable in its
+    /// old form, which is what the reference's own conversion prompt exists to handle.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<string> CoherentLevels(LoadedDesign open, List<string> already)
+    {
+        var files = open.LevelFiles;
+
+        for (int index = 0; index < files.Count; index++)
+        {
+            string name = Path.GetFileName(files[index]);
+
+            if (already.Contains(name) || open.Level(index) is not { } level)
+            {
+                continue;
+            }
+
+            if (Try(() => DesignSaver.SaveLevel(open.Root, name, level)))
+            {
+                yield return name;
+            }
+        }
     }
 
     /// <summary>Runs a write, answering whether it went rather than letting a refusal escape.</summary>
