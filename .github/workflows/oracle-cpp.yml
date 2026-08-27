@@ -177,6 +177,7 @@ jobs:
           name: uafwined-editor
           path: |
             src/UAFWinEd/Release/UAFWinEd.exe
+            src/UAFWinEd/Release/UAFWinEd.map
             src/UAFWinEd/Release/EditorResources/**
             src/UAFWinEd/Release/TemplateDesign.dsn/**
           if-no-files-found: warn
