@@ -2436,37 +2436,51 @@ void addCombatEvent(GameEvent *event, BYTE *pData)
 
 }
 
-void addTreasureEvent(GameEvent *event, BYTE *pData)
+// Fills the treasure members shared by COMBAT_TREASURE and GIVE_TREASURE_DATA. The two event
+// types carry the same FRUA payload (platinum, gems, jewelry, eight item slots) but are distinct
+// classes whose layouts differ, so the per-type wrappers below each cast to their own type rather
+// than sharing a GIVE_TREASURE_DATA* cast that would misalign the members.
+static void addTreasureContents(ITEM_LIST &items, MONEY_SACK &money, BYTE *pData)
 {
-   GIVE_TREASURE_DATA *data = (GIVE_TREASURE_DATA*)(event);
-   
    int platinum = GetWord(5, pData);
    int gems = GetWord(9, pData);
    int jewelry = GetWord(11, pData);
 
-   data->money.Add(PlatinumType, platinum);
-   for (int g=0;g<gems;g++) data->money.AddGem();
-   for (int j=0;j<jewelry;j++) data->money.AddJewelry();
+   money.Add(PlatinumType, platinum);
+   for (int g=0;g<gems;g++) money.AddGem();
+   for (int j=0;j<jewelry;j++) money.AddJewelry();
 
    BOOL id = HasMask(EventByte(8, pData), 128);
 
    ITEM idata;
    if (AssignItem(EventByte(13, pData), idata, id))
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(14, pData), idata, id))   
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(15, pData), idata, id))   
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(16, pData), idata, id))   
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(17, pData), idata, id))
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(18, pData), idata, id))   
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(19, pData), idata, id))   
-      data->items.AddItem(idata);
+      items.AddItem(idata);
    if (AssignItem(EventByte(20, pData), idata, id))   
-      data->items.AddItem(idata);
+      items.AddItem(idata);
+}
+
+void addTreasureEvent(GameEvent *event, BYTE *pData)
+{
+   GIVE_TREASURE_DATA *data = (GIVE_TREASURE_DATA*)(event);
+   addTreasureContents(data->items, data->money, pData);
+}
+
+void addCombatTreasureEvent(GameEvent *event, BYTE *pData)
+{
+   COMBAT_TREASURE *data = (COMBAT_TREASURE*)(event);
+   addTreasureContents(data->items, data->money, pData);
 }
 
 void addGiveDamageEvent(GameEvent *event, BYTE *pData)
@@ -4005,7 +4019,7 @@ GameEvent *UAImportEvent::AddEvent(BYTE index)
     }
     break;
   case CombatTreasure:
-    addTreasureEvent(pEvent, EventData);
+    addCombatTreasureEvent(pEvent, EventData);
     break;    
   case Damage:
     addGiveDamageEvent(pEvent, EventData);
