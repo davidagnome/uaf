@@ -60,6 +60,8 @@ public static class FruaLevelConverter
             }
         }
 
+        ApplyOverlandBackground(level, cells);
+
         var events = Events(level, design);
 
         return new LevelFile(
@@ -266,10 +268,12 @@ public static class FruaLevelConverter
     /// <summary>Converts one square.</summary>
     /// <remarks>
     /// <para>
-    /// <b>An overland level's terrain becomes blockage, not walls.</b> FRUA draws wilderness with
-    /// no wall slots at all and stops movement with nibbles 14 and 15; a UAF cell expresses that
-    /// as a blockage with no wall, which is what <see cref="FruaMapCell.IsOverlandBlocked"/> is
-    /// for.
+    /// <b>An overland level's terrain becomes the <c>bkgrnd</c> flag, not walls or blockage.</b>
+    /// FRUA draws wilderness with no wall slots at all and stops movement with nibbles 14 and 15;
+    /// the reference expresses that by leaving <c>wall[]</c> and <c>blockage[]</c> at zero and
+    /// setting the <c>bkgrnd</c> flag on the cell an edge points into — which
+    /// <see cref="ApplyOverlandBackground"/> does. Writing a blockage here would diverge from the
+    /// reference, as the oracle's all-zero blockage on level 1 made clear.
     /// </para>
     /// <para>
     /// <b>The backdrop becomes the cell's single background.</b> FRUA names one of the level's four
@@ -289,9 +293,7 @@ public static class FruaLevelConverter
             if (level.IsOverland)
             {
                 walls[slot] = 0;
-                blockage[slot] = cell.IsOverlandBlocked(facing)
-                    ? (byte)FruaBlockage.Blocked
-                    : (byte)FruaBlockage.Open;
+                blockage[slot] = (byte)FruaBlockage.Open;
             }
             else
             {
@@ -303,7 +305,7 @@ public static class FruaLevelConverter
         byte background = (byte)cell.BackdropIndex;
 
         return new AreaMapCell(
-            Background: background,
+            Background: 0,
             ShowDistantBackground: false,
             DistantBackgroundInBands: false,
             NorthBg: background,
@@ -314,5 +316,47 @@ public static class FruaLevelConverter
             EventExists: cell.EventIndex != 0,
             Walls: walls,
             Blockage: blockage);
+    }
+
+    /// <summary>
+    /// Marks a cell's <c>bkgrnd</c> flag where an overland edge blocks entry into it
+    /// (<c>UAImport.cpp</c>'s overland branch).
+    /// </summary>
+    /// <remarks>
+    /// <b>The source walk excludes the outer ring.</b> The reference only checks the edges of
+    /// interior cells (<c>x &gt; 0</c>, <c>y &gt; 0</c>, and not the last column/row), so a border
+    /// square never propagates but still receives from its interior neighbours. FRUA overland
+    /// blockage is only nibbles 14 and 15, which is what
+    /// <see cref="FruaMapCell.IsOverlandBlocked"/> tests.
+    /// </remarks>
+    private static void ApplyOverlandBackground(FruaLevel level, AreaMapCell[] cells)
+    {
+        if (!level.IsOverland)
+        {
+            return;
+        }
+
+        var blocked = new bool[level.Width * level.Height];
+
+        for (int y = 1; y < level.Height - 1; y++)
+        {
+            for (int x = 1; x < level.Width - 1; x++)
+            {
+                var cell = level.Cell(x, y);
+
+                if (cell.IsOverlandBlocked(FruaFacing.North)) blocked[((y - 1) * level.Width) + x] = true;
+                if (cell.IsOverlandBlocked(FruaFacing.South)) blocked[((y + 1) * level.Width) + x] = true;
+                if (cell.IsOverlandBlocked(FruaFacing.West)) blocked[(y * level.Width) + (x - 1)] = true;
+                if (cell.IsOverlandBlocked(FruaFacing.East)) blocked[(y * level.Width) + (x + 1)] = true;
+            }
+        }
+
+        for (int i = 0; i < cells.Length; i++)
+        {
+            if (blocked[i])
+            {
+                cells[i] = cells[i] with { Background = 1 };
+            }
+        }
     }
 }

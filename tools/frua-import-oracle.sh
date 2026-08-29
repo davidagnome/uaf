@@ -52,14 +52,41 @@ CXBIN=/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin
 RUN=""
 RUN_ARGS=()
 
-# DO NOT look for the bottle on disk. Two earlier versions of this script did and both were
-# wrong: bottles can sit under the configured BottleDir (`defaults read
-# com.codeweavers.CrossOver BottleDir`, often moved off the boot volume) OR under the default
-# ~/Library/Application Support/CrossOver/Bottles -- and a machine can have some in each. Ask
-# cxbottle, which is the only thing that knows.
+# Finding the bottle: ask cxbottle FIRST, then look on disk -- and the second half is not
+# redundant.
+#
+# An earlier version of this asked cxbottle alone, on the grounds that it "is the only thing that
+# knows". It is not: cxbottle searches only the two DEFAULT directories and ignores the configured
+# BottleDir entirely. On a machine whose bottles live off the boot volume -- `defaults read
+# com.codeweavers.CrossOver BottleDir` -> /Volumes/.../Bottles -- it reports every one of them as
+# missing while `wine --bottle <name>` runs them perfectly well. So a cxbottle miss is not
+# evidence of absence, and treating it as such refused a bottle that worked.
+#
+# CX_BOTTLE_PATH is what tells wine where to look, and it must be exported for a bottle outside
+# the defaults. dotnet/tests/UAFedit.Oracle.Tests/ReferenceEditor.cs does the same three steps.
+BOTTLE_DIR=""
+find_bottle_dir() {
+    "$CXBIN/cxbottle" --bottle "$BOTTLE" --status >/dev/null 2>&1 && return 0
+
+    local configured
+    configured=$(defaults read com.codeweavers.CrossOver BottleDir 2>/dev/null || true)
+
+    local d
+    for d in "$configured" \
+             "$HOME/Library/Application Support/CrossOver/Bottles" \
+             "/Library/Application Support/CrossOver/Bottles"; do
+        if [ -n "$d" ] && [ -d "$d/$BOTTLE" ]; then
+            BOTTLE_DIR=$d
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 if [ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ]; then
     if [ -x "$CXBIN/wine" ]; then
-        if ! "$CXBIN/cxbottle" --bottle "$BOTTLE" --status >/dev/null 2>&1; then
+        if ! find_bottle_dir; then
             cat >&2 <<EOF
 CrossOver has no '$BOTTLE' bottle. Create a dedicated one -- don't reuse a game bottle, since
 the import writes into its drive_c:
@@ -72,7 +99,8 @@ EOF
             exit 2
         fi
         RUN=$CXBIN/wine
-        RUN_ARGS=(--bottle "$BOTTLE")
+        RUN_ARGS=(--bottle "$BOTTLE" --cx-app)
+        [ -n "$BOTTLE_DIR" ] && export CX_BOTTLE_PATH=$BOTTLE_DIR
     elif command -v wine >/dev/null 2>&1; then
         RUN=wine
     else
@@ -80,7 +108,7 @@ EOF
         exit 2
     fi
 fi
-echo "runner: ${RUN:-native} ${RUN_ARGS[*]:-}"
+echo "runner: ${RUN:-native} ${RUN_ARGS[*]:-}${CX_BOTTLE_PATH:+  (CX_BOTTLE_PATH=$CX_BOTTLE_PATH)}"
 
 # The import needs a real design to import INTO, not an empty directory: config.txt supplies the
 # screen and tile geometry, and without it those stay zero and the editor divides by one of them
@@ -114,8 +142,27 @@ BEFORE=$(md5 -q "$OUT/Data/game.dat" 2>/dev/null || md5sum "$OUT/Data/game.dat" 
 # from value with strchr(param, ' ') INSIDE one token, so each flag and its value must be passed
 # as a SINGLE argument -- "-config X", not -config X. Passing them apart leaves the value empty
 # and the app exits having done nothing.
-ARGS=("-config $OUT" "-importfrua $DESIGN")
-[ -n "$UAPATH" ] && ARGS+=("-uapath $UAPATH")
+#
+# THE PATHS MUST BE WINDOWS PATHS when a runner is in play. The exe resolves them through Win32,
+# and a Unix path reaches it as a relative name it cannot open -- the import then does nothing and
+# the only symptom is an unchanged game.dat. CrossOver maps Z: to the filesystem root, so an
+# absolute macOS path needs no copying into the bottle: it becomes Z:\Volumes\...  Running
+# natively on Windows, they are already Windows paths and are passed through.
+winpath() {
+    if [ -z "$RUN" ]; then
+        printf '%s' "$1"
+        return
+    fi
+
+    local abs
+    abs=$(cd "$(dirname "$1")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$1")") \
+        || abs=$1
+    printf 'Z:%s' "${abs//\//\\}"
+}
+
+ARGS=("-config $(winpath "$OUT")" "-importfrua $(winpath "$DESIGN")")
+[ -n "$UAPATH" ] && ARGS+=("-uapath $(winpath "$UAPATH")")
+printf 'args:'; printf ' [%s]' "${ARGS[@]}"; echo
 
 # The editor writes its trace to rte.LogDir() + "UafErr_Edit.txt" -- NOT "UAFErrors*.txt", which
 # is what an earlier version of this script looked for and never found. LOG_ERRORS is 1 in
@@ -131,7 +178,7 @@ logs() {
 
 set +e
 if [ -n "$RUN" ]; then
-    "$RUN" "${RUN_ARGS[@]}" "$EXE" "${ARGS[@]}"
+    "$RUN" "${RUN_ARGS[@]}" "$(winpath "$EXE")" "${ARGS[@]}"
 else
     "$EXE" "${ARGS[@]}"
 fi

@@ -101,11 +101,17 @@ public static class FruaEventConverter
             FruaEventType.ChainEvent => Chain(source, id, design),
             FruaEventType.Camp => Camp(source, id, design),
 
-            // One FRUA payload, three engine ordinals -- the reference's own comment says
-            // "Stairs=Teleporter=TransferModule".
-            FruaEventType.Stairs => Transfer(source, id, EventType.Stairs, strings, design),
-            FruaEventType.Teleporter => Transfer(source, id, EventType.Teleporter, strings, design),
-            FruaEventType.TransferModule =>
+            // One FRUA payload, and the import collapses all three ordinals into TransferModule
+            // -- "all three merged into one for DC" (UAImport.cpp:4113). The override is
+            // unconditional and happens after the payload is built, so the distinction survives
+            // only as far as the switch.
+            //
+            // This line used to keep the ordinal it came in on, on the reasoning that the payload
+            // is shared but the ordinals are not. The FRUA oracle disproved it: importing
+            // TUTORIAL.DSN, the reference writes one TransferModule on level 40 where this port
+            // wrote a Teleporter, and that was the first divergence the harness ever found. The
+            // reference's comment had been transcribed here and then not acted on.
+            FruaEventType.Stairs or FruaEventType.Teleporter or FruaEventType.TransferModule =>
                 Transfer(source, id, EventType.TransferModule, strings, design),
 
             FruaEventType.AddNpc => AddNpc(source, id, strings, design),
@@ -114,11 +120,13 @@ public static class FruaEventConverter
             FruaEventType.SpecialItem => SpecialItem(source, id, strings, design),
             FruaEventType.Utilities => Utilities(source, id, design),
 
-            // PickOneCombat is an obsoleted type the engine folds into Combat; both read the same
-            // payload, and the reference keeps the ordinals apart only so a design round-trips.
+            // PickOneCombat is an obsoleted type the importer folds into Combat. UAImport.cpp sets
+            // pEvent->event = Combat before addCombatEvent and then randomMonster = TRUE, so a
+            // PickOneCombat never survives the import as its own ordinal -- the oracle showed the
+            // reference's levels carrying plain Combat events where this port had kept the ordinal.
             FruaEventType.Combat => Combat(source, id, EventType.Combat, strings, design),
             FruaEventType.PickOneCombat =>
-                Combat(source, id, EventType.PickOneCombat, strings, design),
+                Combat(source, id, EventType.Combat, strings, design),
 
             FruaEventType.GuidedTour => Tour(source, id, design),
             FruaEventType.QuestionButton =>
@@ -519,7 +527,7 @@ public static class FruaEventConverter
             NoMagic: payload.NoMagic ? 1 : 0,
             MonsterMorale: payload.MonsterMorale,
             TurningMod: 0,
-            RandomMonster: 0,
+            RandomMonster: source.Type == FruaEventType.PickOneCombat ? 1 : 0,
             PartyNoExperience: 0,
             BackgroundSounds: new BackgroundSoundData([], [], 0, 0, 0),
             Monsters: Monsters(payload, design));

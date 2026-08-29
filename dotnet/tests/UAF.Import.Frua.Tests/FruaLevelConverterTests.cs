@@ -105,7 +105,10 @@ public class FruaLevelConverterTests
                 var target = converted.Cells[(y * level.Width) + x];
 
                 Assert.Equal(source.Zone, target.Zone);
-                Assert.Equal(source.BackdropIndex, target.Background);
+                Assert.Equal(source.BackdropIndex, target.NorthBg);
+                Assert.Equal(source.BackdropIndex, target.EastBg);
+                Assert.Equal(source.BackdropIndex, target.SouthBg);
+                Assert.Equal(source.BackdropIndex, target.WestBg);
                 Assert.Equal(source.EventIndex != 0, target.EventExists);
 
                 if (target.EventExists)
@@ -118,9 +121,9 @@ public class FruaLevelConverterTests
         Assert.True(withEvents > 0, "no converted cell carries an event marker");
     }
 
-    /// <summary>An overland level's terrain becomes blockage rather than walls.</summary>
+    /// <summary>An overland level's terrain becomes the <c>bkgrnd</c> flag, not walls or blockage.</summary>
     [Fact]
-    public void An_overland_levels_terrain_becomes_blockage()
+    public void An_overland_levels_terrain_becomes_the_bkgrnd_flag()
     {
         if (Heirs() is not { } design || FruaLevel.ReadFile(design, 1) is not { } level)
         {
@@ -138,14 +141,15 @@ public class FruaLevelConverterTests
             {
                 var target = converted.Cells[(y * level.Width) + x];
 
-                // No walls anywhere outdoors.
+                // No walls or blockage anywhere outdoors — the reference never writes either.
                 Assert.All(target.Walls, w => Assert.Equal(0, w));
+                Assert.All(target.Blockage, b => Assert.Equal(0, b));
 
-                blocked += target.Blockage.Count(b => b == (byte)FruaBlockage.Blocked);
+                blocked += target.Background == 1 ? 1 : 0;
             }
         }
 
-        Assert.True(blocked > 100, $"only {blocked} blocked faces on the overland map");
+        Assert.True(blocked > 0, "no background cells on the overland map");
     }
 
     /// <summary>The zone names and rest events come across.</summary>

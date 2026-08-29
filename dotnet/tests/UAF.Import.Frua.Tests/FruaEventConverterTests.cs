@@ -191,8 +191,12 @@ public class FruaEventConverterTests
     [InlineData(FruaEventType.PassTime, EventType.PassTime)]
     [InlineData(FruaEventType.ChainEvent, EventType.ChainEventType)]
     [InlineData(FruaEventType.Camp, EventType.Camp)]
-    [InlineData(FruaEventType.Stairs, EventType.Stairs)]
-    [InlineData(FruaEventType.Teleporter, EventType.Teleporter)]
+    // All three collapse: "all three merged into one for DC" (UAImport.cpp:4113), an
+    // unconditional override after the payload is built. These three lines asserted the ordinal
+    // was carried through until the FRUA oracle showed otherwise on TUTORIAL.DSN — the reference
+    // wrote a TransferModule on level 40 where this port wrote a Teleporter.
+    [InlineData(FruaEventType.Stairs, EventType.TransferModule)]
+    [InlineData(FruaEventType.Teleporter, EventType.TransferModule)]
     [InlineData(FruaEventType.TransferModule, EventType.TransferModule)]
     [InlineData(FruaEventType.AddNpc, EventType.AddNpc)]
     [InlineData(FruaEventType.RemoveNpc, EventType.RemoveNPCEvent)]
@@ -200,7 +204,8 @@ public class FruaEventConverterTests
     [InlineData(FruaEventType.SpecialItem, EventType.SpecialItem)]
     [InlineData(FruaEventType.Utilities, EventType.Utilities)]
     [InlineData(FruaEventType.Combat, EventType.Combat)]
-    [InlineData(FruaEventType.PickOneCombat, EventType.PickOneCombat)]
+    // Folded into Combat, as the importer does: pEvent->event = Combat (UAImport.cpp:4001).
+    [InlineData(FruaEventType.PickOneCombat, EventType.Combat)]
     [InlineData(FruaEventType.GuidedTour, EventType.GuidedTour)]
     [InlineData(FruaEventType.QuestionButton, EventType.QuestionButton)]
     [InlineData(FruaEventType.QuestionList, EventType.QuestionList)]
