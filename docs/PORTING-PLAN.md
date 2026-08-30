@@ -45,14 +45,16 @@ directory — `Level###.lvl`, `monsters.dat`, `items.dat` and `game.dat` — whi
 readers read back. An imported `HEIRS.DSN` comes out as *Heirs to skull crag* with its own starting
 experience and money, on a template's money and difficulty tables.
 
-**The exit criterion is one manual step from being testable.** It is no longer byte-identity (see
+**The exit criterion is now demonstrated, on the canonical design.** It is not byte-identity (see
 §the FRUA importer for why that criterion was wrong): it is that the design loads, with every
 difference from the C++ importer a listed improvement. `FruaImportOracleDiffTests` performs that
-comparison and has been **verified against a synthetic oracle** — pointed at the port's own output,
-four of its five checks compare correctly through the real file readers and the fifth fires as
-designed. What is missing is a run of `tools/frua-import-oracle.sh`, which needs the
-`uafwined-editor` artifact and a Wine or CrossOver bottle. Phases 5 and 7 have not started.
-**5,051 tests, green on macOS; both CI workflows green.**
+comparison, and `tools/frua-import-oracle.sh` now runs end to end — its first real run found a
+crash in the reference importer itself (a Combat Treasure event cast to the wrong class, misaligning
+the treasure sack; fixed in the C++ tree), then two port divergences: overland levels wrote
+`blockage` where the reference sets `bkgrnd` on the neighbour, and `PickOneCombat` was kept as its
+own ordinal instead of folded into `Combat`. All five checks now pass on both `HEIRS.DSN` and
+`TUTORIAL.DSN`. Phases 5 and 7 have not started.
+**5,618 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -9012,10 +9014,10 @@ reference produced is missing.
 > monsters. If a real oracle run ever names one, the reference was rebuilt with that code restored
 > and the divergence list needs revisiting — which is why it checks rather than assumes.
 
-**The harness is the remaining gate.** `-importfrua` and `tools/frua-import-oracle.sh` exist and
-the C++ compiles green in CI, but **no run has yet demonstrably produced an imported design**, so
-nothing has been diffed — and with the criterion now being "loads correctly, with every difference
-explained", that diff is how the unexplained ones get found.
+**The harness has run and the diff is green.** `-importfrua` and `tools/frua-import-oracle.sh` now
+produce an imported design end to end, and `FruaImportOracleDiffTests` passes all five checks on
+`HEIRS.DSN` and `TUTORIAL.DSN`. The first real run found the three divergences §11 records — one
+reference crash (the Combat Treasure cast) and two port gaps (overland blockage, `PickOneCombat`).
 
 ### Phase 7 — Packaging and polish (1–2 months)
 
@@ -9101,32 +9103,32 @@ Everything that once stood here is done: the `vcxproj` retarget, the dumper, `Pr
 solution scaffold, the tagged database record bodies, the forms layer and the levelling rules. What
 follows is current as of the status block at the top.
 
-### The next piece of work: run the FRUA import harness
+### The FRUA import harness has been run — the exit criterion is demonstrated
 
 > **This heading has been stale twice.** It named "the event layer's engine half" until
 > 2026-08-09, then "the FRUA importer's level bodies" until 2026-08-13; both items are long
-> closed. Phase 6's conversion and writing layers are now complete and the oracle comparison is
-> written and self-verified, so **the one thing left on the live front is a manual run** — it
-> needs a Windows binary and a bottle, neither of which a build script should arrange on
-> somebody's behalf. The numbered list below remains the priority order for Phase 4's leftovers,
-> and is what to pick up if the harness run is not available.
+> closed. The manual run it pointed at has now happened (2026-08-29): `tools/frua-import-oracle.sh`
+> drove the `uafwined-editor` artifact over `HEIRS.DSN` and `TUTORIAL.DSN` under CrossOver, and
+> `FruaImportOracleDiffTests` passes all five checks on both. Getting there cost three fixes — one
+> in the reference, two in this port:
 >
-> **To run it:** push so `oracle-cpp.yml` publishes the `uafwined-editor` artifact, unzip it
-> keeping `EditorResources` and `TemplateDesign.dsn` beside the exe, then
+> - **The reference importer crashed on `HEIRS.DSN`.** A Combat Treasure event is a
+>   `COMBAT_TREASURE`, but `addTreasureEvent` cast it to `GIVE_TREASURE_DATA`, whose layout differs
+>   (a `SilentGiveToActiveChar` before the treasure members), so `money.AddGem()` walked an
+>   uninitialised `CMap` position index — `HashKey % m_nHashTableSize` with the size 0, a
+>   divide-by-zero at `004240C2`. Fixed by giving each treasure type its own cast
+>   (`UAImport.cpp`); the `.map` file that found it now ships with the artifact.
+> - **Overland blockage.** The reference leaves `wall[]`/`blockage[]` at zero and marks terrain by
+>   setting `bkgrnd` on the cell an edge points into; this port wrote `Blocked(2)` into `blockage[]`
+>   and the backdrop index into `bkgrnd`. `FruaLevelConverter` now writes empty walls/blockage and
+>   sets `bkgrnd` on the reference's neighbour cells.
+> - **`PickOneCombat`.** The reference folds it into `Combat` (`pEvent->event = Combat`,
+>   `randomMonster = TRUE`); this port kept a distinct ordinal, so every combat-heavy level looked
+>   under-imported. It now folds.
 >
-> ```
-> UAF_TEMPLATE_DESIGN=reference/Case.dsn \
->   tools/frua-import-oracle.sh <unzipped>/UAFWinEd.exe \
->   "reference/Unlimited Adventures -ENG/DESIGNS/UA/HEIRS.DSN" /tmp/frua-oracle
->
-> UAF_FRUA_ORACLE_DIR=/tmp/frua-oracle \
-> UAF_FRUA_ORACLE_DESIGN="reference/Unlimited Adventures -ENG/DESIGNS/UA/HEIRS.DSN" \
->   dotnet test
-> ```
->
-> The template override matters: `DefaultDesign`'s own `game.dat` is short (§standing gaps), and
-> seeding from it gives an output whose header this port cannot fully read — a diff you cannot
-> interpret.
+> The invocation is recorded above the test class (`FruaImportOracleDiffTests`) and in the harness
+> script. The template override matters: `DefaultDesign`'s own `game.dat` is short (§standing gaps),
+> and seeding from it gives an output whose header this port cannot fully read.
 
 **Combat is wired end to end and playable.** Walking onto a combat event starts a fight: the
 level's `CombatEvent` builds the encounter (`EncounterBuilder`), `CombatSetup` places both sides on
@@ -9406,15 +9408,14 @@ What is left, in order:
      > Measure the converter against the enum rather than trusting a note — the one-liner is in the
      > sub-opcode item's style and takes a second.
 
-     > **The exit criterion is the piece most at risk of being assumed done.** `-importfrua` is
-     > committed and compiles — the Oracle build is green with it — and
-     > `tools/frua-import-oracle.sh` drives it under CrossOver or Wine. But **no run has yet
-     > demonstrably produced an imported design**: the first working invocation only proved the
-     > binary starts, because the harness seeded a scratch design from `DefaultDesign.dsn` and then
-     > checked for a `game.dat` the seed already had. The check now fingerprints the seed and fails
-     > on a byte-identical result. An unexplained division by zero at `004240C2` was seen when
-     > `-config` was pointed at a `config.txt` path rather than a design directory; it may or may
-     > not recur now that is fixed.
+     > **The exit criterion has now been exercised, not merely asserted.** `-importfrua` is
+     > committed and the Oracle build green, and `tools/frua-import-oracle.sh` has driven it over
+     > `HEIRS.DSN` and `TUTORIAL.DSN`. The first working invocation only proved the binary starts,
+     > because the harness seeded a scratch design from `DefaultDesign.dsn` and then checked for a
+     > `game.dat` the seed already had; the check now fingerprints the seed and fails on a
+     > byte-identical result. The division by zero at `004240C2` first attributed to a bad
+     > `-config` path turned out to be the Combat Treasure cast bug above, recurs on the real
+     > design, and is fixed in the reference tree.
 
      ~~Still open elsewhere: 134 callable GPDL sub-opcodes…~~ **The GPDL sub-opcodes are done**
      (item 3 below) — two callable ones remain and both are blocked. `$GET_CHAR_EFFAC` is ported
