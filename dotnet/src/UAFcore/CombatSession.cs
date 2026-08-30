@@ -214,7 +214,9 @@ public sealed class CombatSession
                                       IReadOnlyDictionary<string, (Surface Sheet,
                                                                    CombatantIcon Icon)>? partyIcons
                                           = null,
-                                      Func<string, SpellRecord?>? spellInfo = null)
+                                      Func<string, SpellRecord?>? spellInfo = null,
+                                      WallOverrides? overrides = null,
+                                      bool useWallIndex = false)
     {
         ArgumentNullException.ThrowIfNull(combat);
         ArgumentNullException.ThrowIfNull(dice);
@@ -250,7 +252,9 @@ public sealed class CombatSession
         var setup = CombatSetup.Begin(level, wallSets, levelX, levelY, facing, all,
                                       (EncounterDirection)combat.Direction,
                                       (EncounterDistance)combat.Distance,
-                                      outdoor: combat.Outdoors != 0);
+                                      outdoor: combat.Outdoors != 0,
+                                      overrides: overrides,
+                                      useWallIndex: useWallIndex);
 
         var session = new CombatSession(all, setup, dice, (UAF.Rules.Surprise)combat.Surprise)
         {

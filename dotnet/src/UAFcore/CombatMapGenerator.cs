@@ -57,11 +57,16 @@ public sealed class CombatMapGenerator
 
     private readonly Map map;
     private readonly IReadOnlyList<WallSetSlot> wallSets;
+    private readonly WallOverrides? overrides;
+    private readonly bool useWallIndex;
 
-    public CombatMapGenerator(Map map, IReadOnlyList<WallSetSlot> wallSets)
+    public CombatMapGenerator(Map map, IReadOnlyList<WallSetSlot> wallSets,
+                              WallOverrides? overrides = null, bool useWallIndex = false)
     {
         this.map = map ?? throw new ArgumentNullException(nameof(map));
         this.wallSets = wallSets ?? throw new ArgumentNullException(nameof(wallSets));
+        this.overrides = overrides;
+        this.useWallIndex = useWallIndex;
     }
 
     /// <summary>
@@ -349,23 +354,56 @@ public sealed class CombatMapGenerator
     /// and <see cref="DoorAt"/> is what turns it into one. So the test is "has art AND is not
     /// open", not "has art".
     /// </para>
-    /// <para>
-    /// The per-cell 5.x override tables (<c>WALL_OVERRIDE_INDEX</c>, <c>BLOCKAGE_OVERRIDE</c>) are
-    /// consulted here in the original and win over the cell's own values. They are not threaded
-    /// through yet — the same gap <see cref="WallResolver.IndexAt"/> documents, and every shipped
-    /// design's tables are empty.
-    /// </para>
     /// </remarks>
     private bool IsWall(int x, int y, int direction)
     {
+        var (wallSlot, blockage) = Resolve(x, y, direction);
+        return wallSlot > 0 && blockage != (byte)BlockageType.Open;
+    }
+
+    /// <summary>
+    /// A cell face's wall slot and blockage, with the 5.x per-cell overrides applied
+    /// (<c>IsWallAt</c>'s <c>GetMapOverride</c> calls, <c>Drawtile.cpp:1825</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The wall override is shifted and then added back one.</b> <c>GetMapOverride</c> returns the
+    /// zero-based index — the stored value minus one unless <c>UseWallIndex</c> is set — and
+    /// <c>IsWallAt</c>/<c>GetDoorAt</c> then add one back so the <c>&gt; 0</c> wall test reads it as a
+    /// real wall. The viewport's own getters do <b>not</b> add that one back, so the two draw a
+    /// different wall set for the same override; that is the original's behaviour, kept.
+    /// </para>
+    /// <para>
+    /// <b>The blockage override has no <c>_INDEX</c> twin</b>, so it is taken at face value with no
+    /// shift (<c>BLOCKAGE_OVERRIDE</c>, <c>GlobalData.cpp:2375</c>).
+    /// </para>
+    /// </remarks>
+    private (int WallSlot, byte Blockage) Resolve(int x, int y, int direction)
+    {
         var cell = map.At(x, y);
-        if (cell is null)
+        int wallSlot = cell?.WallAt(direction) ?? 0;
+        byte blockage = cell?.BlockageAt(direction) ?? (byte)BlockageType.Open;
+
+        if (overrides is null)
         {
-            return false;
+            return (wallSlot, blockage);
         }
 
-        return cell.WallAt(direction) > 0
-               && cell.BlockageAt(direction) != (byte)BlockageType.Open;
+        if (overrides.At(0, x, y, direction) is byte storedWall)
+        {
+            int index = storedWall - (useWallIndex ? 0 : 1);
+            if (index >= 0)
+            {
+                wallSlot = index + 1;
+            }
+        }
+
+        if (overrides.At(4, x, y, direction) is byte storedBlockage)
+        {
+            blockage = storedBlockage;
+        }
+
+        return (wallSlot, blockage);
     }
 
     /// <summary>
@@ -390,24 +428,19 @@ public sealed class CombatMapGenerator
     /// </remarks>
     private WallType DoorAt(int x, int y, int direction)
     {
-        var cell = map.At(x, y);
-        if (cell is null)
+        var (wallSlot, blockage) = Resolve(x, y, direction);
+
+        if (wallSlot <= 0 || wallSlot >= MaxWallSets || wallSlot >= wallSets.Count)
         {
             return WallType.None;
         }
 
-        int slot = cell.WallAt(direction);
-        if (slot <= 0 || slot >= MaxWallSets || slot >= wallSets.Count)
+        if (string.IsNullOrEmpty(wallSets[wallSlot].DoorFile))
         {
             return WallType.None;
         }
 
-        if (string.IsNullOrEmpty(wallSets[slot].DoorFile))
-        {
-            return WallType.None;
-        }
-
-        return cell.BlockageAt(direction) == (byte)BlockageType.Open
+        return blockage == (byte)BlockageType.Open
             ? WallType.OpenDoor
             : WallType.ClosedDoor;
     }

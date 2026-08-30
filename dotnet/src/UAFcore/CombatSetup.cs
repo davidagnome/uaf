@@ -53,7 +53,9 @@ public static class CombatSetup
                                           bool outdoor = false,
                                           string? program = null,
                                           CombatPlacementScript? placement = null,
-                                          PartyArrangementScript? formation = null)
+                                          PartyArrangementScript? formation = null,
+                                          WallOverrides? overrides = null,
+                                          bool useWallIndex = false)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(combatants);
@@ -64,14 +66,16 @@ public static class CombatSetup
         // somewhere the party cannot reach, and the reference would rather fight up close than
         // present an encounter with nobody in it.
         var result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
-                             distance, outdoor, program, placement, formation);
+                             distance, outdoor, program, placement, formation, overrides,
+                             useWallIndex);
 
         if (wantsMonsters && program is null && !AnyMonsterPlaced(result, combatants))
         {
             foreach (var closer in Closer(distance))
             {
                 result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
-                                 closer, outdoor, program, placement, formation);
+                                 closer, outdoor, program, placement, formation, overrides,
+                                 useWallIndex);
                 if (AnyMonsterPlaced(result, combatants))
                 {
                     break;
@@ -110,9 +114,11 @@ public static class CombatSetup
                                              EncounterDistance distance, bool outdoor,
                                              string? program,
                                              CombatPlacementScript? placement,
-                                             PartyArrangementScript? formation)
+                                             PartyArrangementScript? formation,
+                                             WallOverrides? overrides,
+                                             bool useWallIndex)
     {
-        var generator = new CombatMapGenerator(level, wallSets);
+        var generator = new CombatMapGenerator(level, wallSets, overrides, useWallIndex);
         var (map, partyX, partyY) = generator.Generate(levelX, levelY);
 
         // A design's PartyOrigin<direction> hook moves the formation's origin off the party's own

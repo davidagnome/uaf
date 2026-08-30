@@ -238,4 +238,57 @@ public class CombatMapGeneratorTests
         string design = Path.Combine(dir.FullName, "reference", "SomethingWild.dsn");
         return Directory.Exists(design) ? design : null;
     }
+
+    // ---- per-cell overrides ---------------------------------------------------------------------
+
+    private static CellOverride BlankOverride()
+    {
+        var values = new byte[CellOverride.Size];
+        Array.Fill(values, (byte)255);
+        return new CellOverride(values);
+    }
+
+    private static WallOverrides OverridesAt(int x, int y, CellOverride cell) =>
+        new([new WallOverrideEntry(y,
+            new RowOverrides(x + 1,
+                Enumerable.Range(0, x + 1)
+                    .Select(i => i == x ? cell : BlankOverride()).ToList()))]);
+
+    [Fact]
+    public void A_wall_and_blockage_override_stamp_a_wall_on_an_open_face()
+    {
+        // IsWallAt consults WALL_OVERRIDE_INDEX and BLOCKAGE_OVERRIDE before the cell's own values.
+        // An empty level plus an override for one cell's north face must therefore stamp a wall.
+        var map = EmptyLevel();
+
+        var values = new byte[CellOverride.Size];
+        Array.Fill(values, (byte)255);
+        values[0] = 3;                              // kind 0 (wall), facing 0 (north)
+        values[(4 * CellOverride.Facings)] = (byte)BlockageType.Blocked;  // kind 4 (blockage), facing 0
+
+        var overrides = OverridesAt(5, 5, new CellOverride(values));
+
+        var (combat, _, _) = new CombatMapGenerator(map, WallSets(), overrides).Generate(5, 5);
+
+        // Without the override an empty level generates no walls at all (see the test above).
+        Assert.True(ImpassableCount(combat) > 0, "the override did not stamp a wall");
+    }
+
+    [Fact]
+    public void A_blockage_override_alone_makes_no_wall_without_wall_art()
+    {
+        // IsWallAt is (slot > 0) && (blockage != Open): a blockage override without a wall override
+        // leaves the slot at zero, so nothing is stamped.
+        var map = EmptyLevel();
+
+        var values = new byte[CellOverride.Size];
+        Array.Fill(values, (byte)255);
+        values[(4 * CellOverride.Facings)] = (byte)BlockageType.Blocked;
+
+        var overrides = OverridesAt(5, 5, new CellOverride(values));
+
+        var (combat, _, _) = new CombatMapGenerator(map, WallSets(), overrides).Generate(5, 5);
+
+        Assert.Equal(0, ImpassableCount(combat));
+    }
 }

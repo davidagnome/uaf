@@ -2022,7 +2022,9 @@ public sealed class Game
         Combat = CombatSession.Begin(combat, Map, wallSets, X, Y, Facing, party,
                                      id => design.Monster(id), Dice,
                                      name => design.Art(name, SurfaceKind.Icon), partyIcons,
-                                     id => design.Spell(id));
+                                     id => design.Spell(id),
+                                     LevelOverrides(LevelIndex),
+                                     GlobalAslHas("UseWallIndex"));
         Combat.ItemInfo = id => design.Item(id);
         Combat.MonsterInfo = id => design.Monster(id);
         Combat.AiScript = design.AiScript;
