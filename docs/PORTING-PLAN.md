@@ -45,16 +45,18 @@ directory — `Level###.lvl`, `monsters.dat`, `items.dat` and `game.dat` — whi
 readers read back. An imported `HEIRS.DSN` comes out as *Heirs to skull crag* with its own starting
 experience and money, on a template's money and difficulty tables.
 
-**The exit criterion is now demonstrated, on the canonical design.** It is not byte-identity (see
-§the FRUA importer for why that criterion was wrong): it is that the design loads, with every
-difference from the C++ importer a listed improvement. `FruaImportOracleDiffTests` performs that
-comparison, and `tools/frua-import-oracle.sh` now runs end to end — its first real run found a
-crash in the reference importer itself (a Combat Treasure event cast to the wrong class, misaligning
-the treasure sack; fixed in the C++ tree), then two port divergences: overland levels wrote
-`blockage` where the reference sets `bkgrnd` on the neighbour, and `PickOneCombat` was kept as its
-own ordinal instead of folded into `Combat`. All five checks now pass on both `HEIRS.DSN` and
-`TUTORIAL.DSN`. Phases 5 and 7 have not started.
-**5,618 tests, green on macOS; both CI workflows green.**
+**The exit criterion is now demonstrated, end to end.** It is not byte-identity (see §the FRUA
+importer for why that criterion was wrong): it is that the design loads, with every difference from
+the C++ importer a listed improvement. `FruaImportOracleDiffTests` performs that comparison, and
+`tools/frua-import-oracle.sh` now runs under CrossOver — its first real run found a crash in the
+reference importer itself (a Combat Treasure event cast to the wrong class, misaligning the
+treasure sack; fixed in the C++ tree), then two port divergences: overland levels wrote `blockage`
+where the reference sets `bkgrnd` on the neighbour, and `PickOneCombat` was kept as its own ordinal
+instead of folded into `Combat`. All five checks pass on `HEIRS.DSN` and `TUTORIAL.DSN`, and
+`FruaImportLoadsTests` closes the criterion's other half: both `HEIRS.DSN` and the exit criterion's
+second design, `SL4-FATH.DSN`, convert, write, **open in UAFcore, walk and render a frame**.
+Phases 5 and 7 have not started.
+**5,626 tests, green on macOS; both CI workflows green.**
 
 ### Where to pick up
 
@@ -10277,7 +10279,8 @@ the round both call and neither has.
 | ~~**GPDL reference bytecode**~~ | **Done — `gpdlc` is byte-identical to `GPDLcomp.exe`.** Five of the six corpus scripts have reference goldens and the port reproduces every one exactly, bytecode *and* assembly listing; `GpdlOracleDiffTests` no longer returns early, so **Phase 2's exit criterion is demonstrated rather than asserted**. The sixth, `prototypes.txt`, can never have a golden: a forward declaration walks the reference compiler into a use-after-free and it loops inside `WriteDictionary` (§the GPDL goldens). The port compiles it correctly, so it stays in the corpus, named in `ReferenceCannotCompile` | — |
 | **3 event types are read but not executed** | **39 of 44 execute** and two more have no readable body at all (see §11 priority 1). What is left is `EncounterEvent` (the monsters-approaching loop), `TavernTales` and `PlayMovieEvent` (the FFmpeg adapter) — **and no shipped design uses any of the three**, which `EventTypeCoverageTests` asserts by sweeping the whole corpus. The town services' inner screens — save, load, magic, rest, alter, journal, items, buy, appraise, heal, donate, cast, fix — **all run**; camp is at eleven of twelve entries and the party menu at twelve of twelve | Small |
 | **`DefaultDesign`'s `game.dat` is short; this port throws where the reference tolerates it** | `ReadThroughCharacters` cannot read `src/UAFWinEd/DefaultDesign.dsn/Data/game.dat` (4,343 bytes, v0.915025 — **in the C++ source tree, not under `reference/`**, which is why a corpus scan misses it). **Now conclusive, and it is not a version gate.** Reading the same bytes at fifteen versions from 0.906 to 5.24 fails *identically*: the record is consumed to exactly EOF and then four more bytes are wanted, at the same offset every time. Only 0.900 differs, failing earlier with an `OverflowException` — a genuinely wrong gate, and below any version this file claims. So no gate in that whole range changes the outcome, and the reader is not misreading: **the file ends after `questData`, with no character list following**. The reference reads that count unconditionally in all three `GLOBAL_STATS::Serialize` overloads (`GlobalData.cpp:4122`, `:4529`, `:5179`), so it reads a short `CAR` and gets zero rather than throwing — MFC's archive does not fault past EOF the way this port's cursor does. **Every `game.dat` under `reference/` reads cleanly**, so this is one file, not a class of them. **The fix is a decision, not a bisect:** either tolerate a short read at the character list — matching the reference's effective behaviour, at the cost of letting real truncation pass silently through a reader every design goes through — or keep refusing and give `frua-import-oracle.sh` a different template. Recommend the latter: `Case.dsn` already serves as the importer tests' template and reads in full | Small |
-| **`spellgroups.dat`, `traits.dat`** | The last unread databases. Framing reads; record bodies do not. Nothing currently needs them. **`ability.dat` reads** — this row named it until 2026-08-06 and was stale | Small |
+| ~~**`spellgroups.dat`, `traits.dat`**~~ | **Done.** `SpellGroupRecordReader` and `TraitRecordReader` read the record bodies whole against `DefaultDesign` — 15 spellgroups, 43 traits — the only design that ships either. The trailing special-abilities block uses `SPECIAL_ABILITIES`'s name/type overload, which no reader models and no fixture exercises, so it is refused rather than guessed at, the same rule that governs `Bcd1`/`CL1`/`RaceV1` | Small |
+| **`baseclass.dat`/`classes.dat`/`races.dat` legacy shapes** | `DefaultDesign`'s three databases carry `Bcd1`/`CL1`/`RaceV1` records, and the readers accept only `Bcd5`/`CL5`/`RaceV3`. This is **not a gap to close by reading the old shapes**: the reference itself refuses `Bcd1` outright (`class.cpp:5731` — `intVer < 2` signals shutdown and returns an error, editor and engine alike), and `CL1`/`RaceV1` take editor-only branches whose fields are *derived from the name* (`class.cpp:3100` — a Human can change class, an Elf finds secret doors), which no engine fixture can validate. The one remaining warning when the reference opens a port-saved design is the reference's own warning, shown on its own unmodified `DefaultDesign` too | Small / deferred |
 | **148 GPDL sub-opcodes** | **239 of 387 are implemented**, the aura family and its geometry among them. Of the rest, 134 are callable and **none of them forms a group** — they are scattered singles, so there is no shaped gap left in the opcode set. Each unimplemented one throws `NotSupportedException` naming its source line. **The Forth VM is no longer part of this row: it runs whole** — kernel, the 21 combat-summary words, `RunTHINK` and the six filters, checked against the transcription on the real shipped script | Medium |
 | **Global script hooks** | **The harness is done** — `SpecabScripts` runs a record's own abilities with the reference's callbacks, and `CanCastSpells` and `FIX_CHARACTER` go through it. `CombatPlacement` is done. `PartyArrangement` and `PartyOrigin<direction>` remain: both have faithful built-in defaults and are call-site changes | Small |
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
