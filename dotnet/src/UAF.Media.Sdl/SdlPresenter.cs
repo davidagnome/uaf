@@ -42,7 +42,13 @@ public sealed unsafe class SdlPresenter : IPresenter
         Width = width;
         Height = height;
 
-        var flags = fullscreen ? SDL_WindowFlags.SDL_WINDOW_FULLSCREEN : 0;
+        // Resizable so the player can scale the window; the logical presentation below letterboxes
+        // the 4:3 framebuffer into whatever the window is, so the pixel art is never stretched.
+        var flags = SDL_WindowFlags.SDL_WINDOW_RESIZABLE;
+        if (fullscreen)
+        {
+            flags |= SDL_WindowFlags.SDL_WINDOW_FULLSCREEN;
+        }
 
         SDL_Window* createdWindow;
         SDL_Renderer* createdRenderer;
@@ -56,6 +62,19 @@ public sealed unsafe class SdlPresenter : IPresenter
 
         window = createdWindow;
         renderer = createdRenderer;
+
+        // Letterbox the fixed framebuffer into the resizable window. SDL scales the logical
+        // 640x480 up or down and centres it, which is what makes an arbitrary window size draw the
+        // game at its own aspect ratio rather than stretching it.
+        if (!SDL_SetRenderLogicalPresentation(
+                renderer, width, height,
+                SDL_RendererLogicalPresentation.SDL_LOGICAL_PRESENTATION_LETTERBOX))
+        {
+            SDL_DestroyRenderer(renderer);
+            SDL_DestroyWindow(window);
+            throw new InvalidOperationException(
+                $"SDL_SetRenderLogicalPresentation failed: {SdlPlatform.LastError()}");
+        }
 
         texture = SDL_CreateTexture(renderer, SDL_PixelFormat.SDL_PIXELFORMAT_ARGB8888,
                                     SDL_TextureAccess.SDL_TEXTUREACCESS_STREAMING, width, height);
