@@ -13,7 +13,18 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            // The first non-flag argument is a design to open on launch, mirroring the player.
+            string? startup = null;
+            foreach (string arg in desktop.Args ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(arg) && !arg.StartsWith('-'))
+                {
+                    startup = arg;
+                    break;
+                }
+            }
+
+            desktop.MainWindow = new MainWindow(startup);
         }
 
         base.OnFrameworkInitializationCompleted();

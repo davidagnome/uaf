@@ -17,13 +17,25 @@ public partial class MainWindow : Window
 {
     private readonly MainWindowViewModel model = new();
 
-    public MainWindow()
+    public MainWindow() : this(null)
+    {
+    }
+
+    public MainWindow(string? startupPath)
     {
         AvaloniaXamlLoader.Load(this);
 
         model.ChooseFolder = ChooseFolderAsync;
         model.RequestExit = Close;
         DataContext = model;
+
+        // UAFedit <design>.dsn opens that design right away; launched bare, it waits for
+        // File > Open Design. A path that is not a design is reported as a status line, as any
+        // manual open would be.
+        if (!string.IsNullOrWhiteSpace(startupPath) && Directory.Exists(startupPath))
+        {
+            model.Open(startupPath);
+        }
     }
 
     /// <remarks>
