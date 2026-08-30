@@ -52,7 +52,8 @@ public static class CombatSetup
                                           EncounterDistance distance = EncounterDistance.FarAway,
                                           bool outdoor = false,
                                           string? program = null,
-                                          CombatPlacementScript? placement = null)
+                                          CombatPlacementScript? placement = null,
+                                          PartyArrangementScript? formation = null)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(combatants);
@@ -63,14 +64,14 @@ public static class CombatSetup
         // somewhere the party cannot reach, and the reference would rather fight up close than
         // present an encounter with nobody in it.
         var result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
-                             distance, outdoor, program, placement);
+                             distance, outdoor, program, placement, formation);
 
         if (wantsMonsters && program is null && !AnyMonsterPlaced(result, combatants))
         {
             foreach (var closer in Closer(distance))
             {
                 result = Attempt(level, wallSets, levelX, levelY, facing, combatants, direction,
-                                 closer, outdoor, program, placement);
+                                 closer, outdoor, program, placement, formation);
                 if (AnyMonsterPlaced(result, combatants))
                 {
                     break;
@@ -108,10 +109,24 @@ public static class CombatSetup
                                              EncounterDirection direction,
                                              EncounterDistance distance, bool outdoor,
                                              string? program,
-                                             CombatPlacementScript? placement)
+                                             CombatPlacementScript? placement,
+                                             PartyArrangementScript? formation)
     {
         var generator = new CombatMapGenerator(level, wallSets);
         var (map, partyX, partyY) = generator.Generate(levelX, levelY);
+
+        // A design's PartyOrigin<direction> hook moves the formation's origin off the party's own
+        // square, and its PartyArrangement hook may replace the whole formation table. Both run
+        // before anybody is placed, exactly as determineInitCombatPos does.
+        if (formation is not null)
+        {
+            var (dx, dy) = formation.Origin(facing);
+            partyX += dx;
+            partyY += dy;
+        }
+
+        string table = formation?.Arrangement(outdoor, facing)
+            ?? (outdoor ? PartyArrangements.Outdoor : PartyArrangements.Indoor);
 
         var icons = combatants.Select(c => c.Icon).ToList();
         map.CombatantCount = combatants.Count;
@@ -134,7 +149,7 @@ public static class CombatSetup
             var placedParty = CombatPlacement.PlaceParty(
                 map, partyX, partyY, facing,
                 [.. partyIndices.Select(i => icons[i])], outdoor,
-                firstCombatantIndex: partyIndices[0]);
+                firstCombatantIndex: partyIndices[0], table: table);
 
             for (int p = 0; p < partyIndices.Count; p++)
             {

@@ -73,7 +73,8 @@ public static class CombatPlacement
                                                      Facing facing,
                                                      IReadOnlyList<CombatantIcon> icons,
                                                      bool outdoor = false,
-                                                     int firstCombatantIndex = 0)
+                                                     int firstCombatantIndex = 0,
+                                                     string? table = null)
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(icons);
@@ -86,7 +87,10 @@ public static class CombatPlacement
         ArgumentOutOfRangeException.ThrowIfGreaterThan(icons.Count,
                                                       PartyArrangements.MaxPartyMembers);
 
-        string table = outdoor ? PartyArrangements.Outdoor : PartyArrangements.Indoor;
+        // A design's own PartyArrangement hook may supply the whole table; the built-in for the
+        // terrain is the default. The hook's own length check already happened upstream, so a table
+        // that reaches this far is the right size.
+        table ??= outdoor ? PartyArrangements.Outdoor : PartyArrangements.Indoor;
         map.CombatantCount = Math.Max(map.CombatantCount, firstCombatantIndex + icons.Count);
 
         var placed = new PlacedAt[icons.Count];
