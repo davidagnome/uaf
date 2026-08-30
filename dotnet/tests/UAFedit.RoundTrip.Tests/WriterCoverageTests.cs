@@ -69,6 +69,15 @@ public class WriterCoverageTests(ITestOutputHelper output)
     [Fact]
     public void The_late_databases_are_in_the_designs()
     {
+        // specialAbilities.dat is carried only by the gitignored reference designs — the one
+        // committed design ships specialAbilities.txt alone — so this claim needs the corpus and
+        // must return early without it, the same rule every other corpus test follows. A bare CI
+        // checkout would otherwise fail on a design file nothing present carries.
+        if (!DesignCorpus.Present().Any(d => !d.IsTracked))
+        {
+            return;
+        }
+
         foreach (var design in DesignCorpus.Present())
         {
             var missing = DesignCorpus.LateDatabases
