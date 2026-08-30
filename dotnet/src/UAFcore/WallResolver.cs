@@ -32,7 +32,10 @@ public enum WallLayer
 /// the wild evidently trip it often enough to warrant the engine's own de-duplicated warning.
 /// </para>
 /// </remarks>
-public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
+public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets,
+                                 WallOverrides? overrides = null,
+                                 bool useWallIndex = false,
+                                 bool useDoorAndOverlayIndex = false)
 {
     /// <summary><c>MAX_WALLSETS</c> (<c>Externs.h:863</c>).</summary>
     public const int MaxWallSets = 192;
@@ -45,6 +48,12 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
     private readonly IReadOnlyList<WallSetSlot> wallSets =
         wallSets ?? throw new ArgumentNullException(nameof(wallSets));
 
+    private readonly WallOverrides? overrides = overrides;
+
+    private readonly bool useWallIndex = useWallIndex;
+
+    private readonly bool useDoorAndOverlayIndex = useDoorAndOverlayIndex;
+
     /// <summary>Indices that were out of range, for diagnostics rather than control flow.</summary>
     public List<string> Warnings { get; } = [];
 
@@ -56,7 +65,7 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
     /// slots 13 and 14, which <see cref="ViewMap"/> leaves unwrapped precisely so this question
     /// has an answer — the occlusion tests depend on it.
     /// </remarks>
-    public int IndexAt(ViewMap view, int slot, Facing facing)
+    public int IndexAt(ViewMap view, int slot, Facing facing, WallLayer layer = WallLayer.Wall)
     {
         ArgumentNullException.ThrowIfNull(view);
 
@@ -72,16 +81,20 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
             return NoWall;
         }
 
+        // The 5.x per-cell override tables win over the cell's own index
+        // (WALL_OVERRIDE_INDEX / DOOR_OVERRIDE_INDEX / OVERLAY_OVERRIDE_INDEX,
+        // GlobalData.h:479). The stored value is shifted by one unless the design sets the
+        // UseWallIndex / UseDoorAndOverlayIndex flags, and 255 means "no override" — GetMapOverride
+        // returns -1 for it, which this mirrors by only accepting a non-negative result.
+        if (overrides is not null && OverrideAt(x, y, facing, layer) is int overrideIndex
+            && overrideIndex >= 0)
+        {
+            return overrideIndex;
+        }
+
         // Not cell.Walls[(int)facing]: the array is stored north, south, east, west, so it has to
         // be permuted. See AreaMapCell.WallAt.
         int index = cell.WallAt((int)facing);
-
-        // The 5.x per-cell override tables (WALL_OVERRIDE_INDEX 6, DOOR_OVERRIDE_INDEX 7 --
-        // GlobalData.h:479) are consulted here in the original and *win* over the cell's own
-        // index. They are now read -- see CellContentsReaders -- but not yet threaded through to
-        // this resolver, which needs the level's LEVEL_STATS rather than just its grid. Every
-        // shipped design's tables are empty, so nothing is currently lost; a design that authored
-        // overrides would draw its unoverridden walls.
 
         if (index >= MaxWallSets)
         {
@@ -90,6 +103,37 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
         }
 
         return index;
+    }
+
+    /// <summary>
+    /// The override a layer consults, if the square has one, with the flag-dependent one-shift
+    /// already applied (<c>GetMapOverride</c>, <c>GlobalData.cpp:2368</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>The kind is the layer's, and so is the shift.</b> The wall override shifts by one unless
+    /// <c>UseWallIndex</c> is set; the door and overlay overrides shift unless
+    /// <c>UseDoorAndOverlayIndex</c> is. <see cref="WallOverrides.At"/> has already turned the 255
+    /// sentinel and an absent row or column into null, so a non-null value here is real.
+    /// </remarks>
+    private int? OverrideAt(int x, int y, Facing facing, WallLayer layer)
+    {
+        int kind = layer switch
+        {
+            WallLayer.Door => 1,     // DOOR_OVERRIDE_USER
+            WallLayer.Overlay => 3,  // OVERLAY_OVERRIDE_USER
+            _ => 0,                  // WALL_OVERRIDE_USER
+        };
+
+        if (overrides!.At(kind, x, y, (int)facing) is not byte stored)
+        {
+            return null;
+        }
+
+        int shift = layer == WallLayer.Wall
+            ? (useWallIndex ? 0 : 1)
+            : (useDoorAndOverlayIndex ? 0 : 1);
+
+        return stored - shift;
     }
 
     /// <summary>
@@ -112,7 +156,7 @@ public sealed class WallResolver(Map map, IReadOnlyList<WallSetSlot> wallSets)
     /// </remarks>
     public string? ArtFor(ViewMap view, int slot, Facing facing, WallLayer layer)
     {
-        int index = IndexAt(view, slot, facing);
+        int index = IndexAt(view, slot, facing, layer);
         if (index == NoWall)
         {
             return null;

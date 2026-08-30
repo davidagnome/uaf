@@ -689,7 +689,11 @@ public sealed class Game
         if (level is not null)
         {
             events = new EventLookup(level.Events);
-            resolver = new WallResolver(map, level.WallSets);
+            resolver = new WallResolver(
+                map, level.WallSets,
+                overrides: LevelOverrides(levelIndex),
+                useWallIndex: GlobalAslHas("UseWallIndex"),
+                useDoorAndOverlayIndex: GlobalAslHas("UseDoorAndOverlayIndex"));
             wallFormats = WallFormatReader.ReadAll(design.Config);
             wallSets = level.WallSets;
         }
@@ -706,8 +710,7 @@ public sealed class Game
         return true;
     }
 
-    private EventLookup? events;
-    private WallResolver? resolver;
+    private EventLookup? events;    private WallResolver? resolver;
     private IReadOnlyList<WallFormat> wallFormats = [];
 
     /// <summary>The current level's grid, or null when it could not be read.</summary>
@@ -2768,6 +2771,19 @@ public sealed class Game
 
         return index >= 0 && index < stats!.EntryPoints.Count ? stats.EntryPoints[index] : null;
     }
+
+    /// <summary>The current level's per-cell overrides, or null when the design ships none.</summary>
+    private WallOverrides? LevelOverrides(int levelIndex) =>
+        design.Globals.Levels?.Levels.TryGetValue((uint)levelIndex, out var stats) == true
+            ? stats.Overrides
+            : null;
+
+    /// <summary>
+    /// Whether the design's global attributes carry <paramref name="key"/> — the test that sets
+    /// <c>useWallIndex</c> and <c>useDoorAndOverlayIndex</c> (<c>Level.cpp:3098</c>).
+    /// </summary>
+    private bool GlobalAslHas(string key) =>
+        design.Globals.Attributes.Any(a => string.Equals(a.Key, key, StringComparison.Ordinal));
 
     private ZoneData? zones;
 

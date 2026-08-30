@@ -448,4 +448,76 @@ public class WallResolverTests
 
         Assert.NotEqual(renderer.SlotWidth(DrawSlot.P), renderer.SlotWidth(DrawSlot.J));
     }
+
+    // ---- per-cell overrides ---------------------------------------------------------------------
+
+    /// <summary>An override cell with the wall (kind 0) and overlay (kind 3) north faces set.</summary>
+    private static CellOverride OverrideCell(byte wall = 255, byte overlay = 255)
+    {
+        var values = new byte[CellOverride.Size];
+        Array.Fill(values, (byte)255);
+        values[0] = wall;              // kind 0 (wall), facing 0 (north)
+        values[(3 * CellOverride.Facings) + 0] = overlay;  // kind 3 (overlay), facing 0
+        return new CellOverride(values);
+    }
+
+    private static WallOverrides OverridesAt(int row, int x, CellOverride cell) =>
+        new([new WallOverrideEntry(row,
+            new RowOverrides(x + 1, Enumerable.Range(0, x + 1)
+                .Select(i => i == x ? cell : OverrideCell()).ToList()))]);
+
+    [Fact]
+    public void A_per_cell_override_wins_over_the_cells_own_wall()
+    {
+        var map = BuildMap();
+        var overrides = OverridesAt(1, 1, OverrideCell(wall: 7));
+        var resolver = new WallResolver(map, [Set("unused"), Set("first")], overrides);
+
+        var view = ViewMap.For(1, 2, Facing.North, 4, 4);
+
+        // Stored 7, no UseWallIndex, so GetMapOverride returns 7 - 1 = 6.
+        Assert.Equal(6, resolver.IndexAt(view, 9, Facing.North));
+    }
+
+    [Fact]
+    public void The_use_wall_index_flag_removes_the_shift()
+    {
+        var map = BuildMap();
+        var overrides = OverridesAt(1, 1, OverrideCell(wall: 7));
+        var resolver = new WallResolver(map, [Set("unused"), Set("first")], overrides,
+                                        useWallIndex: true);
+
+        var view = ViewMap.For(1, 2, Facing.North, 4, 4);
+
+        Assert.Equal(7, resolver.IndexAt(view, 9, Facing.North));
+    }
+
+    [Fact]
+    public void A_sentinel_override_is_not_an_override()
+    {
+        var map = BuildMap();
+        var overrides = OverridesAt(1, 1, OverrideCell(wall: 255));
+        var resolver = new WallResolver(map, [Set("unused"), Set("first")], overrides);
+
+        var view = ViewMap.For(1, 2, Facing.North, 4, 4);
+
+        // The cell's own north wall (1) survives when the override slot is the 255 sentinel.
+        Assert.Equal(1, resolver.IndexAt(view, 9, Facing.North));
+    }
+
+    [Fact]
+    public void The_overlay_override_is_read_from_its_own_layer()
+    {
+        var map = BuildMap();
+        var overrides = OverridesAt(1, 1, OverrideCell(overlay: 9));
+        var resolver = new WallResolver(map, [Set("unused"), Set("first")], overrides,
+                                        useDoorAndOverlayIndex: true);
+
+        var view = ViewMap.For(1, 2, Facing.North, 4, 4);
+
+        // Overlay is consulted only for the overlay layer, and with no shift when the flag is set.
+        Assert.Equal(9, resolver.IndexAt(view, 9, Facing.North, WallLayer.Overlay));
+        // The wall layer still resolves the cell's own wall.
+        Assert.Equal(1, resolver.IndexAt(view, 9, Facing.North, WallLayer.Wall));
+    }
 }
