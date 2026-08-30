@@ -9039,7 +9039,9 @@ reference crash (the Combat Treasure cast) and two port gaps (overland blockage,
 What remains:
 
 - macOS `.app` bundle + notarization; Linux AppImage or Flatpak; Windows zip/MSIX.
-- High-DPI, window scaling, gamepad/touch input if desired.
+- ~~High-DPI, window scaling, gamepad/touch input~~ — window scaling is done: the presenter opens
+  resizable and letterboxes the 4:3 framebuffer into the window. High-DPI (retina) and gamepad/touch
+  input still want a real display and hardware to verify.
 - ~~Migration documentation~~ — done: `docs/MIGRATION.md` tells a design author how to open an
   existing `.dsn` with the port, what the format-compatibility and case-sensitivity rules are, and
   what is not supported yet.
