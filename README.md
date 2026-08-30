@@ -12,8 +12,9 @@ Previously known as Unlimited Adventures Forever / UAForever (UAF).
 * UAFWinEd - Latest compiled dungeon editor binary for Windows
 * WebGLBuild - WebGL and the Unity game engine
 * UAFcore - C# Multiplatform Port of the game, using SDL3
-* UAFedit - C# Multiplatform Port of the editor, using SDL3
+* UAFedit - C# Multiplatform Port of the editor, using Avalonia
 * src - Source code
+* docs - `PORTING-PLAN.md`, `SERIALIZATION.md`, and `MIGRATION.md` (for design authors)
 
 ## Links
 

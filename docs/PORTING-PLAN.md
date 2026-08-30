@@ -9040,7 +9040,9 @@ What remains:
 
 - macOS `.app` bundle + notarization; Linux AppImage or Flatpak; Windows zip/MSIX.
 - High-DPI, window scaling, gamepad/touch input if desired.
-- Migration documentation for existing design authors.
+- ~~Migration documentation~~ — done: `docs/MIGRATION.md` tells a design author how to open an
+  existing `.dsn` with the port, what the format-compatibility and case-sensitivity rules are, and
+  what is not supported yet.
 
 ---
 
