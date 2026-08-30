@@ -9023,9 +9023,17 @@ reference crash (the Combat Treasure cast) and two port gaps (overland blockage,
 
 ### Phase 7 — Packaging and polish (1–2 months)
 
+**Phase 7 has begun (2026-08-29).** The case-insensitive asset-resolution shim is done:
+`CaseInsensitiveFiles` indexes a directory once and resolves names case-insensitively, and
+`LoadedDesign` now routes `game.dat`, `config.txt`, the seven databases, `specialAbilities.txt`,
+the Forth AI script and every art lookup through it — so a design that names a file by a different
+case than it was stored with still loads on Linux and case-sensitive APFS. `FruaFiles` delegates to
+the same class. Ambiguity resolves ordinal-first, matching the FRUA importer's long-standing rule.
+
+What remains:
+
 - Self-contained `dotnet publish` per RID; macOS `.app` bundle + notarization; Linux AppImage or
   Flatpak; Windows zip/MSIX.
-- Case-insensitive asset resolution shim (designs assume Windows path semantics throughout).
 - High-DPI, window scaling, gamepad/touch input if desired.
 - Migration documentation for existing design authors.
 
