@@ -49,6 +49,9 @@ public class FruaDesignConverterTests : IDisposable
     /// <summary>Runelord is the only fixture with an item database of its own.</summary>
     private static string? Runelord() => Design("RUNELORD.DSN");
 
+    /// <summary>The exit criterion's second design, beside HEIRS.DSN.</summary>
+    private static string? Sl4Fath() => Design("example_dsn", "SL4-FATH.DSN");
+
     [Fact]
     public void A_whole_design_converts()
     {
@@ -68,6 +71,25 @@ public class FruaDesignConverterTests : IDisposable
 
         // And no item database, so nothing to convert from it.
         Assert.Empty(converted.Items);
+    }
+
+    /// <summary>The exit criterion names SL4-FATH.DSN beside HEIRS.DSN; both must convert.</summary>
+    [Fact]
+    public void Sl4_fath_converts()
+    {
+        if (Sl4Fath() is not { } path)
+        {
+            return;
+        }
+
+        var converted = FruaDesignConverter.Convert(FruaDesign.Open(path));
+
+        Assert.NotEmpty(converted.Levels);
+        Assert.All(converted.Levels.Values, level => Assert.True(level.Width > 0));
+
+        // No item database, so no items and no ammunition kinds.
+        Assert.Empty(converted.Items);
+        Assert.Empty(converted.AmmoTypes);
     }
 
     /// <summary>A design with items converts them, and names its ammunition kinds.</summary>

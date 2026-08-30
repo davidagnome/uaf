@@ -28,6 +28,8 @@
     <!-- Explicit since the UAFcore.App split: the tests load real designs through the SDL
          image decoder and font rasteriser, and used to reach them transitively through UAFcore. -->
     <ProjectReference Include="..\..\src\UAF.Media.Sdl\UAF.Media.Sdl.csproj" />
+    <!-- The FRUA import "loads in UAFcore" check imports a DOS design and opens the result. -->
+    <ProjectReference Include="..\..\src\UAF.Import.Frua\UAF.Import.Frua.csproj" />
   </ItemGroup>
 
 </Project>
