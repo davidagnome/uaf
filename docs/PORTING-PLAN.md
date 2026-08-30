@@ -70,7 +70,7 @@ defects this codebase has shipped were invisible to a green suite and obvious in
 item list drawn over a corridor wall, a character sheet on top of the party roster, a treasure
 message showing through `ARMOR CLASS`, `ARMOR CLASS7` with no gap, a crossbow collecting a
 strength bonus it should never get, and **an endless corridor east that should have been a wall
-two squares ahead**. `UAFcore.App --dump <design> <out>` writes one frame and exits.
+two squares ahead**. `UAFcoreApp --dump <design> <out>` writes one frame and exits.
 
 The habit's corollary, learned the expensive way on that last one: **a synthetic fixture can only
 pin a convention, never discover it.** Three tests asserted the wall order was right, against a
@@ -9023,17 +9023,22 @@ reference crash (the Combat Treasure cast) and two port gaps (overland blockage,
 
 ### Phase 7 — Packaging and polish (1–2 months)
 
-**Phase 7 has begun (2026-08-29).** The case-insensitive asset-resolution shim is done:
-`CaseInsensitiveFiles` indexes a directory once and resolves names case-insensitively, and
-`LoadedDesign` now routes `game.dat`, `config.txt`, the seven databases, `specialAbilities.txt`,
-the Forth AI script and every art lookup through it — so a design that names a file by a different
-case than it was stored with still loads on Linux and case-sensitive APFS. `FruaFiles` delegates to
-the same class. Ambiguity resolves ordinal-first, matching the FRUA importer's long-standing rule.
+**Phase 7 has begun (2026-08-29).** Two of its items are done:
+
+- **Case-insensitive asset resolution.** `CaseInsensitiveFiles` indexes a directory once and
+  resolves names case-insensitively, and `LoadedDesign` routes `game.dat`, `config.txt`, the seven
+  databases, `specialAbilities.txt`, the Forth AI script and every art lookup through it — so a
+  design that names a file by a different case than it was stored with still loads on Linux and
+  case-sensitive APFS. `FruaFiles` delegates to the same class. Ambiguity resolves ordinal-first.
+- **Self-contained publish.** `tools/publish.sh` publishes `UAFcoreApp` (and, with `--editor`,
+  `UAFedit`) self-contained for any RID, bundling the SDL3 natives and the .NET runtime. This found
+  and fixed a real defect: a published apphost named `UAFcore.App` is killed outright by macOS,
+  which takes a `.App` suffix for an application-bundle directory — so the assembly is now
+  `UAFcoreApp`, with the dot dropped.
 
 What remains:
 
-- Self-contained `dotnet publish` per RID; macOS `.app` bundle + notarization; Linux AppImage or
-  Flatpak; Windows zip/MSIX.
+- macOS `.app` bundle + notarization; Linux AppImage or Flatpak; Windows zip/MSIX.
 - High-DPI, window scaling, gamepad/touch input if desired.
 - Migration documentation for existing design authors.
 
@@ -10294,7 +10299,7 @@ the round both call and neither has.
 | **`GenerateOutdoorCombatMap`** | Outdoor encounters have no map. Same three-pass shape, but randomised from `WildernessTileDensity`; the wilderness expansion cases are already transcribed | Medium |
 | ~~**Per-cell wall/blockage overrides**~~ | **Done.** `WallResolver` consults the 5.x `WALL_OVERRIDE_INDEX` / `DOOR_OVERRIDE_INDEX` / `OVERLAY_OVERRIDE_INDEX` tables before the cell's own index, with the `UseWallIndex` / `UseDoorAndOverlayIndex` flag-dependent one-shift (`GetMapOverride`, `GlobalData.cpp:2368`), and `CombatMapGenerator` consults `WALL_OVERRIDE_INDEX` and `BLOCKAGE_OVERRIDE` the same way (`IsWallAt` / `GetDoorAt`, `Drawtile.cpp:1825`) — including the original's own viewport-vs-combat-map off-by-one on the wall override, kept. Both read the level's overrides and the design's flags | — |
 | **FFmpeg adapter, `UAF.Media.Avalonia`** | Video degrades to a skipped cutscene, which is the intended contract. Avalonia is Phase 5's concern | Small / deferred |
-| ~~**`UAFcore.App` split**~~ | **Done.** `UAFcore` is a library and `UAFcore.App` is the SDL host. It cost one file move: `Program.cs` was the only thing in the engine referencing `UAF.Media.Sdl`, exactly as the project was written to allow. Two consequences: the binary is now **`UAFcore.App`**, since both projects cannot claim the same `AssemblyName`, and `UAFcore.Tests` needed an explicit `UAF.Media.Sdl` reference it had been getting transitively. Phase 4b is unblocked | — |
+| ~~**`UAFcore.App` split**~~ | **Done.** `UAFcore` is a library and `UAFcore.App` is the SDL host. It cost one file move: `Program.cs` was the only thing in the engine referencing `UAF.Media.Sdl`, exactly as the project was written to allow. Two consequences: the binary is now **`UAFcoreApp`** — the assembly drops the dot because macOS kills an executable whose name ends in `.App` — since both projects cannot claim the same `AssemblyName`, and `UAFcore.Tests` needed an explicit `UAF.Media.Sdl` reference it had been getting transitively. Phase 4b is unblocked | — |
 
 ### Rules that have earned their place
 
