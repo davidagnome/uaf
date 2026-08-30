@@ -9038,7 +9038,10 @@ reference crash (the Combat Treasure cast) and two port gaps (overland blockage,
 
 What remains:
 
-- macOS `.app` bundle + notarization; Linux AppImage or Flatpak; Windows zip/MSIX.
+- ~~macOS `.app` bundle + notarization; Linux AppImage or Flatpak; Windows zip/MSIX~~ — mostly
+  done: `tools/release.sh` builds every RID and packages a Windows zip, a macOS `.app` bundle per
+  architecture, and a Linux tarball, with an AppImage when `appimagetool` is present. Notarization
+  and MSIX signing remain stubs that need Apple and Microsoft credentials; Flatpak is not produced.
 - ~~High-DPI, window scaling, gamepad/touch input~~ — window scaling is done: the presenter opens
   resizable and letterboxes the 4:3 framebuffer into the window. High-DPI (retina) and gamepad/touch
   input still want a real display and hardware to verify.
