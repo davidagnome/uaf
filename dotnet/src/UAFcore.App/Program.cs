@@ -24,8 +24,12 @@ if (dumpAt >= 0 && dumpAt + 1 < args.Length)
     dumpPath = args[dumpAt + 1];
 }
 
-string root = args[0];
-if (!Directory.Exists(root))
+// The design directory is the one argument that is not a flag. When it is missing — a double-click
+// on the .app, or `UAFcoreApp` with no arguments — ask for it with the native folder picker, which
+// is what the original engine's DESIGN_SELECT_MENU_DATA did (XBrowseForFolder).
+string root = args.Length > 0 && args[0] != "--dump" ? args[0] : PickDesign();
+
+if (root.Length == 0 || !Directory.Exists(root))
 {
     Console.Error.WriteLine($"no such directory: {root}");
     return 2;
@@ -108,3 +112,27 @@ while (game.Running)
 
 Console.WriteLine($"{game.Steps} steps, ended at ({game.X}, {game.Y}) facing {game.Facing}");
 return 0;
+
+/// <summary>
+/// Asks for a design folder with the native picker, retrying while the chosen folder is not a
+/// design. Returns empty when the user cancels.
+/// </summary>
+static string PickDesign()
+{
+    while (true)
+    {
+        string? picked = SdlFolderPicker.PickFolder();
+        if (picked is null)
+        {
+            return string.Empty;
+        }
+
+        if (Directory.Exists(Path.Combine(picked, "Data", "game.dat")))
+        {
+            return picked;
+        }
+
+        // A folder without Data/game.dat is not a design; keep asking rather than failing below.
+        Console.Error.WriteLine($"'{picked}' is not a design (no Data/game.dat)");
+    }
+}
