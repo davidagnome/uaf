@@ -1,3 +1,4 @@
+using UAF.Common;
 using UAF.Data;
 using UAF.Media;
 using UAF.Rules;
@@ -44,6 +45,19 @@ public sealed class LoadedDesign : IDisposable
 
     public string Root { get; }
 
+    /// <summary>
+    /// The full path to <paramref name="fileName"/> within <c>Root/&lt;subdirectory&gt;</c>,
+    /// resolving the name case-insensitively, or null when the directory or file is absent.
+    /// </summary>
+    /// <remarks>
+    /// Designs assume Windows path semantics, so a record may name <c>WYA_UD_Medieval.png</c> while
+    /// the file is <c>wya_ud_medieval.png</c>. On a case-sensitive filesystem that fails every open;
+    /// <see cref="CaseInsensitiveFiles"/> resolves it. The fallback is the constructed path, so a
+    /// missing file degrades to "not found" rather than throwing.
+    /// </remarks>
+    private string? ResolveFile(string subdirectory, string fileName) =>
+        CaseInsensitiveFiles.Resolve(Path.Combine(Root, subdirectory), fileName);
+
     private List<SpecialAbility>? specialAbilities;
 
     /// <summary>
@@ -71,7 +85,8 @@ public sealed class LoadedDesign : IDisposable
             _ = Spells;
 
             var loaded = SpecialAbilitiesFile.Load(
-                Path.Combine(Root, "Data", "specialAbilities.txt"));
+                ResolveFile("Data", "specialAbilities.txt")
+                    ?? Path.Combine(Root, "Data", "specialAbilities.txt"));
 
             loaded.AddRange(invented);
             return specialAbilities = loaded;
@@ -195,7 +210,8 @@ public sealed class LoadedDesign : IDisposable
             throw new DirectoryNotFoundException($"no Data/ directory under '{root}'");
         }
 
-        using var stream = File.OpenRead(Path.Combine(data, "game.dat"));
+        using var stream = File.OpenRead(
+            CaseInsensitiveFiles.Resolve(data, "game.dat") ?? Path.Combine(data, "game.dat"));
         var cursor = GameDataReader.Open(stream);
         // Past the character list, not stopping at it. ReadThroughCharacters leaves LEVEL_INFO
         // unread, which makes Globals.Levels null -- and a null level table silently disables
@@ -217,11 +233,11 @@ public sealed class LoadedDesign : IDisposable
         // resolution the design was last authored at rather than the one it was saved with -- and
         // for SomethingWild the two disagree on DEFAULT_MENU_TEXTBOX (20,328 against 200,328),
         // which put every question list's options 180px right of where they belong.
-        string config = Path.Combine(data, "config.txt");
+        string? config = CaseInsensitiveFiles.Resolve(data, "config.txt");
 
         return new LoadedDesign(root, globals,
-                                File.Exists(config) ? DesignConfig.Load(config)
-                                                    : DesignConfig.Parse([]),
+                                config is not null ? DesignConfig.Load(config)
+                                                   : DesignConfig.Parse([]),
                                 new ImageLoader(extraDecoder), rasterizer, role);
     }
 
@@ -247,7 +263,7 @@ public sealed class LoadedDesign : IDisposable
         }
 
         Surface? surface = null;
-        string path = Path.Combine(Root, "Resources", fileName);
+        string path = ResolveFile("Resources", fileName) ?? Path.Combine(Root, "Resources", fileName);
         if (File.Exists(path))
         {
             try
@@ -352,8 +368,8 @@ public sealed class LoadedDesign : IDisposable
 
     private ItemDatabase? LoadItems()
     {
-        string path = Path.Combine(Root, "Data", "items.dat");
-        if (!File.Exists(path))
+        string? path = ResolveFile("Data", "items.dat");
+        if (path is null)
         {
             return null;
         }
@@ -470,8 +486,8 @@ public sealed class LoadedDesign : IDisposable
 
     private List<SpellRecord>? LoadSpells()
     {
-        string path = Path.Combine(Root, "Data", "spells.dat");
-        if (!File.Exists(path))
+        string? path = ResolveFile("Data", "spells.dat");
+        if (path is null)
         {
             return null;
         }
@@ -502,8 +518,8 @@ public sealed class LoadedDesign : IDisposable
 
     private List<MonsterRecord>? LoadMonsters()
     {
-        string path = Path.Combine(Root, "Data", "monsters.dat");
-        if (!File.Exists(path))
+        string? path = ResolveFile("Data", "monsters.dat");
+        if (path is null)
         {
             return null;
         }
@@ -564,9 +580,9 @@ public sealed class LoadedDesign : IDisposable
 
     private Dictionary<string, BaseclassRecord>? LoadBaseclasses()
     {
-        string path = Path.Combine(Root, "Data",
+        string? path = ResolveFile("Data",
                                    TaggedDatabaseReader.FileName(TaggedDatabase.Baseclass));
-        if (!File.Exists(path))
+        if (path is null)
         {
             return null;
         }
@@ -621,9 +637,9 @@ public sealed class LoadedDesign : IDisposable
 
     private Dictionary<string, RaceRecord>? LoadRaces()
     {
-        string path = Path.Combine(Root, "Data",
+        string? path = ResolveFile("Data",
                                    TaggedDatabaseReader.FileName(TaggedDatabase.Race));
-        if (!File.Exists(path))
+        if (path is null)
         {
             return null;
         }
@@ -675,9 +691,9 @@ public sealed class LoadedDesign : IDisposable
 
     private Dictionary<string, AbilityRecord>? LoadAbilities()
     {
-        string path = Path.Combine(Root, "Data",
+        string? path = ResolveFile("Data",
                                    TaggedDatabaseReader.FileName(TaggedDatabase.Ability));
-        if (!File.Exists(path))
+        if (path is null)
         {
             return null;
         }
@@ -730,9 +746,9 @@ public sealed class LoadedDesign : IDisposable
 
     private Dictionary<string, ClassRecord>? LoadClasses()
     {
-        string path = Path.Combine(Root, "Data",
+        string? path = ResolveFile("Data",
                                    TaggedDatabaseReader.FileName(TaggedDatabase.Class));
-        if (!File.Exists(path))
+        if (path is null)
         {
             return null;
         }

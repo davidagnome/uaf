@@ -72,6 +72,23 @@ public class GameTests
     }
 
     [Fact]
+    public void Art_resolves_a_filename_that_differs_only_in_case()
+    {
+        // A design authored on Windows may name art by a different case than the file was stored
+        // in; on a case-sensitive filesystem that fails without the case-insensitive shim.
+        string? root = DesignRoot();
+        if (root is null)
+        {
+            return;
+        }
+
+        using var design = Open(root);
+
+        // SomethingWild ships AreaViewArt.png; asking in lower case must still find it.
+        Assert.NotNull(design.Art("areaviewart.png"));
+    }
+
+    [Fact]
     public void The_party_starts_where_the_design_says()
     {
         string? root = DesignRoot();

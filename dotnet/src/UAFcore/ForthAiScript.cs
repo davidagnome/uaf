@@ -1,3 +1,4 @@
+using UAF.Common;
 using UAF.Scripting;
 
 namespace UAFcore;
@@ -40,7 +41,8 @@ public sealed class ForthAiScript
     {
         ArgumentNullException.ThrowIfNull(dataDirectory);
 
-        string path = Path.Combine(dataDirectory, "AI_Script.BLK");
+        string path = CaseInsensitiveFiles.Resolve(dataDirectory, "AI_Script.BLK")
+                      ?? Path.Combine(dataDirectory, "AI_Script.BLK");
         return File.Exists(path) ? FromSource(File.ReadAllText(path)) : null;
     }
 
